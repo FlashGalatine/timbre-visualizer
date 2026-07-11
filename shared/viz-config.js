@@ -17,7 +17,7 @@
     'comet', 'orbit', 'spectrogram', 'dna', 'fireflies', 'pulse-rings', 'matrix',
     'sine-bars', 'mountains-2d', 'mountains-3d', 'vaporwave', 'peaks-mirror', 'sunburst-3d',
     'galaxy-ripple', 'tunnel', 'metaball', 'glass-prism', 'chladni', 'phosphor', 'ink',
-    'shards', 'jelly', 'boids', 'sword', 'save-the-queen', 'rose', 'rose-japandi',
+    'shards', 'jelly', 'boids', 'rose', 'rose-japandi',
     'spring-blossoms', 'summer-tide', 'autumn-leaves', 'winter-aurora',
     'halloween-jack', 'christmas-tree', 'new-year-fireworks', 'valentines-hearts',
     'easter-eggs', 'st-patricks-shamrocks', 'july-fourth-stripes', 'thanksgiving-harvest',
@@ -28,7 +28,7 @@
   // Which visualizers render on the WebGL canvas (all depend on the THREE global).
   const VIZ_USES_3D = [
     'mountains-3d', 'sunburst-3d', 'metaball', 'glass-prism', 'chladni',
-    'phosphor', 'ink', 'shards', 'jelly', 'boids', 'sword', 'save-the-queen',
+    'phosphor', 'ink', 'shards', 'jelly', 'boids',
     'rose', 'rose-japandi', 'winter-aurora',
   ];
 
@@ -67,8 +67,6 @@
     'shards':        { density: 50 },
     'jelly':         { stiffness: 50 },
     'boids':         { cohesion: 50 },
-    'sword':         {},
-    'save-the-queen': {},
     'rose':          {},
     'rose-japandi':  {},
     'spring-blossoms': { petalDensity: 50, windStrength: 50 },

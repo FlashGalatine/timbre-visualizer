@@ -142,7 +142,7 @@ async function main() {
 
     const ctlPage = await ctxt.newPage();
     await ctlPage.goto(controlUrl, { waitUntil: 'load' });
-    await ctlPage.waitForFunction(() => document.querySelectorAll('#activeViz option').length > 50, { timeout: 5000 });
+    await ctlPage.waitForFunction(() => document.querySelectorAll('#activeViz option').length >= 50, { timeout: 5000 });
     // sync-on-connect should have populated the picker with the pushed state
     check('control panel syncs current activeViz on connect', await ctlPage.waitForFunction(
       () => document.getElementById('activeViz').value === 'visualizer', { timeout: 5000 }).then(() => true).catch(() => false));
