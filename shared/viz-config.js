@@ -17,7 +17,7 @@
     'comet', 'orbit', 'spectrogram', 'dna', 'fireflies', 'pulse-rings', 'matrix',
     'sine-bars', 'mountains-2d', 'mountains-3d', 'vaporwave', 'peaks-mirror', 'sunburst-3d',
     'galaxy-ripple', 'tunnel', 'metaball', 'glass-prism', 'chladni', 'phosphor', 'ink',
-    'shards', 'jelly', 'boids', 'rose', 'rose-japandi',
+    'shards', 'jelly', 'boids', 'rose',
     'spring-blossoms', 'summer-tide', 'autumn-leaves', 'winter-aurora',
     'halloween-jack', 'christmas-tree', 'new-year-fireworks', 'valentines-hearts',
     'easter-eggs', 'st-patricks-shamrocks', 'july-fourth-stripes', 'thanksgiving-harvest',
@@ -29,7 +29,7 @@
   const VIZ_USES_3D = [
     'mountains-3d', 'sunburst-3d', 'metaball', 'glass-prism', 'chladni',
     'phosphor', 'ink', 'shards', 'jelly', 'boids',
-    'rose', 'rose-japandi', 'winter-aurora',
+    'rose', 'winter-aurora',
   ];
 
   // Per-viz knobs are 0-100 sliders by default; each visualizer normalizes to
@@ -68,7 +68,6 @@
     'jelly':         { stiffness: 50 },
     'boids':         { cohesion: 50 },
     'rose':          {},
-    'rose-japandi':  {},
     'spring-blossoms': { petalDensity: 50, windStrength: 50 },
     'summer-tide':     { waveAmplitude: 50, sunSize: 50, sparkleRate: 50 },
     'autumn-leaves':   { leafDensity: 50, vortexStrength: 30 },

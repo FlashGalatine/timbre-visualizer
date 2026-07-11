@@ -191,7 +191,7 @@
   vizSel.addEventListener('change', () => { cfg.activeViz = vizSel.value; renderVizKnobs(); push(); });
 
   // ── Per-viz knobs (rebuilt when the active viz changes) ────────────────
-  const STL_VIZ = new Set(T.VIZ_USES_3D.filter((n) => ['rose', 'rose-japandi'].includes(n)));
+  const STL_VIZ = new Set(T.VIZ_USES_3D.filter((n) => ['rose'].includes(n)));
   function renderVizKnobs() {
     const holder = $('perVizKnobs');
     holder.innerHTML = '';
