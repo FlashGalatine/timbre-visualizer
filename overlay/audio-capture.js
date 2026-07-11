@@ -1,0 +1,127 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   Timbre audio capture — the overlay captures its own microphone.
+
+   The legacy toolkit streamed 30fps FFT frames from a ControlPanel browser
+   tab over a WebSocket relay. Here each overlay page runs its own
+   getUserMedia + AnalyserNode, so no audio data crosses any wire — only
+   config does (via Streamer.bot). Loaded as a plain <script> AFTER core.js;
+   it assigns the same script-scope `frequencies` / `waveform` / `micActive`
+   bindings the 52 factories already read, so the factories are untouched.
+
+   Emits `timbre:mic` CustomEvents ({ state: 'listening'|'denied'|'acquiring' })
+   that core.js turns into the status label. Exposes window.timbreCapture:
+     setDevice(deviceId, label)  — switch mic (from config.mic pushes)
+     start() / stop()
+   ───────────────────────────────────────────────────────────────────────── */
+
+(function () {
+  'use strict';
+
+  const FFT_SIZE = 64;            // 32 frequency bins — what every factory expects
+  const SMOOTHING = 0.7;
+  const SAMPLE_MS = 33;           // ~30fps, same cadence as the legacy sender
+  const RETRY_MS = 10000;         // re-attempt after denial / missing device
+
+  let audioCtx = null;
+  let analyser = null;
+  let stream = null;
+  let sampleTimer = null;
+  let retryTimer = null;
+  let wantDeviceId = '';
+  let wantLabel = '';
+  let running = false;
+
+  const freqBuf = new Uint8Array(FFT_SIZE / 2);
+  const waveBuf = new Uint8Array(FFT_SIZE);
+
+  function emit(state) {
+    window.dispatchEvent(new CustomEvent('timbre:mic', { detail: { state } }));
+  }
+
+  function teardownStream() {
+    if (sampleTimer) { clearInterval(sampleTimer); sampleTimer = null; }
+    if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+    if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
+    analyser = null;
+    micActive = false;
+    frequencies = null;
+    waveform = null;
+  }
+
+  // Build getUserMedia constraints for the configured device. `ideal` (not
+  // `exact`) so a stale/foreign deviceId still falls back to the default mic
+  // instead of throwing OverconstrainedError.
+  async function buildConstraints() {
+    if (!wantDeviceId && !wantLabel) return { audio: true };
+    let deviceId = wantDeviceId;
+    // deviceIds are origin/profile-scoped and churn; if we also know the
+    // human label, re-match it against the current device list.
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices.filter((d) => d.kind === 'audioinput');
+      const byId = inputs.find((d) => d.deviceId === wantDeviceId);
+      if (!byId && wantLabel) {
+        const byLabel = inputs.find((d) => d.label && d.label === wantLabel);
+        if (byLabel) deviceId = byLabel.deviceId;
+      }
+    } catch { /* enumerateDevices unavailable — just try what we have */ }
+    return deviceId ? { audio: { deviceId: { ideal: deviceId } } } : { audio: true };
+  }
+
+  async function acquire() {
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+    if (!running) return;
+    teardownStream();
+    emit('acquiring');
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(await buildConstraints());
+      audioCtx = new AudioContext();
+      // Autoplay policy can start the context 'suspended' when there was no user
+      // gesture (OBS Browser Sources never have one). Resume explicitly, and keep
+      // nudging from the sample loop until it sticks.
+      if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+      const source = audioCtx.createMediaStreamSource(stream);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = FFT_SIZE;
+      analyser.smoothingTimeConstant = SMOOTHING;
+      source.connect(analyser);
+
+      // If the device disappears mid-stream (unplugged USB mic), re-acquire.
+      stream.getTracks().forEach((t) => { t.onended = () => { if (running) acquire(); }; });
+
+      sampleTimer = setInterval(() => {
+        if (!analyser) return;
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+        analyser.getByteFrequencyData(freqBuf);
+        analyser.getByteTimeDomainData(waveBuf);
+        frequencies = freqBuf;
+        waveform = waveBuf;
+        micActive = true;
+      }, SAMPLE_MS);
+      emit('listening');
+    } catch (err) {
+      teardownStream();
+      emit('denied');
+      console.warn('[timbre-capture] getUserMedia failed:', err && err.name, err && err.message);
+      retryTimer = setTimeout(acquire, RETRY_MS);
+    }
+  }
+
+  window.timbreCapture = {
+    setDevice(deviceId, label) {
+      const id = typeof deviceId === 'string' ? deviceId : '';
+      const lb = typeof label === 'string' ? label : '';
+      if (id === wantDeviceId && lb === wantLabel) return;
+      wantDeviceId = id;
+      wantLabel = lb;
+      if (running) acquire();
+    },
+    start() { if (!running) { running = true; acquire(); } },
+    stop() {
+      running = false;
+      if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+      teardownStream();
+      emit('denied');
+    },
+  };
+})();

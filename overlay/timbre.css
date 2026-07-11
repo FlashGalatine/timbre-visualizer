@@ -1,0 +1,61 @@
+/* Timbre — shared overlay base styles (reset, tokens, fonts, chevron marquee).
+   Per-size rules live in each overlay HTML's local <style>. */
+
+/* ── Font (vendored — no CDN, works offline in OBS CEF) ── */
+@font-face {
+  font-family: 'Audiowide';
+  font-style: normal;
+  font-weight: 400;
+  src: url('fonts/audiowide.woff2') format('woff2');
+}
+
+/* ── Reset ── */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* ── Design tokens ── */
+:root {
+  --cyan: #00FFFF;
+  --magenta: #FF00FF;
+  --hot-pink: #FF1493;
+  --neon-green: #39FF14;
+  --white: #FFFFFF;
+  --dark-base: rgba(10, 10, 26, 0.88);
+}
+
+body {
+  overflow: hidden;
+  background: transparent;
+  font-family: 'Audiowide', system-ui, sans-serif;
+}
+
+/* ── Chevron marquee decoration ── */
+.chevron-track {
+  position: absolute;
+  left: 20px; right: 20px;
+  height: 6px;
+  overflow: hidden;
+}
+.chevron-track.top { top: 16px; }
+.chevron-track.bottom { bottom: 12px; }
+
+.chevron-strip {
+  display: flex;
+  gap: 6px;
+  position: absolute;
+  top: 0;
+}
+.chevron-strip.left  { animation: scroll-left 8s linear infinite; }
+.chevron-strip.right { animation: scroll-right 8s linear infinite; }
+
+@keyframes scroll-left {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+@keyframes scroll-right {
+  0%   { transform: translateX(-50%); }
+  100% { transform: translateX(0); }
+}
+
+.chevron-tick { flex-shrink: 0; }
+.chevron-tick.large  { width: 6px; height: 4px; background: var(--magenta); opacity: 0.6; }
+.chevron-tick.small  { width: 3px; height: 2px; background: var(--cyan); opacity: 0.25; margin-top: 1px; }

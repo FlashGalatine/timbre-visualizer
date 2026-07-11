@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Timbre — CEF mic spike</title>
+<style>
+  body { background: #0a0a1a; color: #e6e6e6; font: 14px/1.5 monospace; padding: 16px; }
+  #rms { height: 24px; width: 100%; background: #222; margin: 8px 0; }
+  #rmsFill { height: 100%; width: 0; background: #0ff; transition: width 60ms linear; }
+  .ok { color: #39ff14; } .bad { color: #ff1493; }
+  pre { white-space: pre-wrap; color: #9ad; }
+</style>
+</head>
+<body>
+<h2>Timbre CEF mic spike</h2>
+<div>getUserMedia: <span id="gum">…</span></div>
+<div>WebGL renderer: <span id="gl">…</span></div>
+<div id="rms"><div id="rmsFill"></div></div>
+<div>Peak RMS so far: <span id="peak">0</span> — <b>speak into the mic; the bar should move.</b></div>
+<h3>audioinput devices (enumerateDevices)</h3>
+<pre id="devices">…</pre>
+<script>
+(async () => {
+  const $ = (id) => document.getElementById(id);
+
+  // WebGL sanity (the 15 three.js visualizers need this too).
+  try {
+    const gl = document.createElement('canvas').getContext('webgl');
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    $('gl').textContent = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'available (renderer masked)';
+    $('gl').className = 'ok';
+  } catch (e) { $('gl').textContent = 'FAILED: ' + e; $('gl').className = 'bad'; }
+
+  async function listDevices(tag) {
+    try {
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const ins = devs.filter(d => d.kind === 'audioinput');
+      $('devices').textContent += `[${tag}]\n` + ins.map(d =>
+        `  id=${(d.deviceId || '(empty)').slice(0, 16)}…  label=${d.label || '(blank — no grant yet)'}`).join('\n') + '\n';
+    } catch (e) { $('devices').textContent += `[${tag}] enumerateDevices FAILED: ${e.name}\n`; }
+  }
+
+  $('devices').textContent = '';
+  await listDevices('before getUserMedia');
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    $('gum').textContent = 'GRANTED — track: ' + (stream.getAudioTracks()[0]?.label || '(unnamed)');
+    $('gum').className = 'ok';
+    await listDevices('after grant (labels should be filled)');
+
+    const ctx = new AudioContext();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 64;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    const buf = new Uint8Array(analyser.frequencyBinCount);
+    let peak = 0;
+    setInterval(() => {
+      analyser.getByteFrequencyData(buf);
+      const rms = Math.sqrt(buf.reduce((s, v) => s + v * v, 0) / buf.length) / 255;
+      peak = Math.max(peak, rms);
+      $('rmsFill').style.width = (rms * 100).toFixed(1) + '%';
+      $('peak').textContent = peak.toFixed(3);
+    }, 33);
+  } catch (e) {
+    $('gum').textContent = 'DENIED — ' + e.name + ': ' + e.message;
+    $('gum').className = 'bad';
+  }
+})();
+</script>
+</body>
+</html>
