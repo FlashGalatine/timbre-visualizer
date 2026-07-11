@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timbre Control</title>
+<script src="/timbre-shared/viz-config.js"></script>
+<style>
+  :root { --cyan: #00e5e5; --magenta: #ff2fd0; --bg: #12121f; --panel: #1a1a2c; --line: #2c2c44; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: #dfe3ee; font: 13px/1.5 'Segoe UI', system-ui, sans-serif; padding: 12px; }
+  h1 { font-size: 15px; letter-spacing: 3px; color: var(--cyan); margin-bottom: 2px; }
+  h2 { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: #8890b0; margin: 14px 0 6px; }
+  .status { font-size: 11px; color: #8890b0; margin-bottom: 8px; }
+  .status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #d33; margin-right: 4px; }
+  .status.on .dot { background: #2d5; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
+  .row label { flex: 0 0 110px; color: #aab; font-size: 12px; }
+  .row input[type=range] { flex: 1; accent-color: var(--cyan); }
+  .row .val { flex: 0 0 52px; text-align: right; font-variant-numeric: tabular-nums; color: var(--cyan); }
+  select, textarea, button {
+    background: #22223a; color: #dfe3ee; border: 1px solid var(--line); border-radius: 4px;
+    padding: 4px 8px; font: inherit;
+  }
+  select:focus, textarea:focus { outline: 1px solid var(--cyan); }
+  button { cursor: pointer; } button:hover { border-color: var(--cyan); }
+  .toggles { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .toggles label { display: flex; align-items: center; gap: 5px; color: #aab; font-size: 12px; cursor: pointer; }
+  .toggles input { accent-color: var(--cyan); }
+  textarea { width: 100%; min-height: 56px; margin-top: 4px; }
+  details summary { cursor: pointer; color: #8890b0; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
+  iframe { border: 1px solid var(--line); border-radius: 6px; margin-top: 8px; background: #000; }
+  .hint { font-size: 11px; color: #667; }
+</style>
+</head>
+<body>
+  <h1>TIMBRE</h1>
+  <div class="status" id="sbStatus"><span class="dot"></span><span id="sbStatusText">connecting to Streamer.bot…</span></div>
+
+  <section>
+    <h2 style="margin-top:0">Visualizer</h2>
+    <div class="row">
+      <label for="activeViz">Active effect</label>
+      <select id="activeViz" style="flex:1"></select>
+    </div>
+    <div id="perVizKnobs"></div>
+    <div id="matrixExtras" hidden>
+      <div class="row">
+        <label for="matrixMode">Matrix source</label>
+        <select id="matrixMode" style="flex:1">
+          <option value="pool">Character pool</option>
+          <option value="messages">Messages (one per line)</option>
+        </select>
+      </div>
+      <textarea id="matrixText" spellcheck="false"></textarea>
+      <div class="row"><button id="btnMatrixApply">Apply text</button></div>
+    </div>
+    <div id="stlKnobs" hidden><h2>3D model</h2><div id="stlKnobRows"></div></div>
+  </section>
+
+  <section>
+    <h2 style="margin-top:0">Global</h2>
+    <div id="globalKnobs"></div>
+    <div class="toggles" id="globalToggles"></div>
+  </section>
+
+  <section>
+    <h2 style="margin-top:0">Microphone (overlay capture)</h2>
+    <div class="row">
+      <label for="micSelect">Device</label>
+      <select id="micSelect" style="flex:1"><option value="">System default</option></select>
+      <button id="btnMicRefresh" title="Requests a one-shot mic grant so device labels appear">Refresh</button>
+    </div>
+    <p class="hint">The overlay captures its own mic; this just tells it which device to use.</p>
+  </section>
+
+  <details>
+    <summary>Preview (300×220 — captures this machine's mic too)</summary>
+    <iframe id="previewFrame" width="300" height="220" data-src="/timbre-overlay/mic-visualizers-300x220.html" allow="microphone"></iframe>
+  </details>
+
+<script>
+(() => {
+  'use strict';
+  const T = globalThis.TIMBRE;
+  const $ = (id) => document.getElementById(id);
+
+  // Human labels + display formatting for the global sliders.
+  const GLOBAL_LABELS = {
+    bars: 'Bars', bounce: 'Bounce', gain: 'Gain %', colorSpeed: 'Color speed %',
+    colorHue: 'Color hue', bgOpacity: 'Box opacity %', effectBgOpacity: 'Trail veil %',
+  };
+  const TOGGLE_LABELS = {
+    idleAnim: 'Idle animation', showLabels: 'Labels', showChevrons: 'Chevrons',
+    showDecorations: 'Decorations', showBorder: 'Border + glow',
+  };
+  const STL_FORMAT = {
+    rotX: (v) => v + '°', rotY: (v) => v + '°', rotZ: (v) => v + '°',
+    posX: (v) => Number(v).toFixed(2), posY: (v) => Number(v).toFixed(2), posZ: (v) => Number(v).toFixed(2),
+    spacing: (v) => Number(v).toFixed(2),
+    sensitivity: (v) => v + '%', jitter: (v) => v + '%', smoothing: (v) => v + '%',
+    arrangement: (v) => (v < 25 ? 'Rows' : v < 50 ? 'Columns' : v < 75 ? 'Grid' : 'Scattered'),
+    spinAxis: (v) => (v < 33 ? 'X' : v < 67 ? 'Y' : 'Z'),
+  };
+  const nice = (k) => k.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
+
+  // ── State ──────────────────────────────────────────────────────────────
+  let cfg = T.defaultConfig();
+  let pushTimer = null;
+  const interacting = new Set(); // input ids the user is actively dragging/focused
+
+  function push() {
+    // Debounced full-config push: sanitize (clamps everything) then DoAction.
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(() => {
+      cfg = T.sanitizeConfig(cfg);
+      if (!window.sbDoAction || !window.sbDoAction('Timbre Push', { config: JSON.stringify(cfg) })) {
+        setStatus(false, 'Streamer.bot offline — change not sent');
+      }
+    }, 120);
+  }
+
+  function setStatus(connected, text) {
+    $('sbStatus').classList.toggle('on', connected);
+    $('sbStatusText').textContent = text;
+  }
+
+  function track(input) {
+    input.addEventListener('pointerdown', () => interacting.add(input.id));
+    input.addEventListener('pointerup', () => interacting.delete(input.id));
+    input.addEventListener('focus', () => interacting.add(input.id));
+    input.addEventListener('blur', () => interacting.delete(input.id));
+  }
+
+  // ── Row builders ───────────────────────────────────────────────────────
+  function sliderRow(id, label, range, getVal, setVal, fmt) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `<label for="${id}">${label}</label>
+      <input type="range" id="${id}" min="${range.min}" max="${range.max}" step="${range.step || 1}">
+      <span class="val"></span>`;
+    const input = row.querySelector('input');
+    const val = row.querySelector('.val');
+    const f = fmt || String;
+    input.value = getVal();
+    val.textContent = f(getVal());
+    input.addEventListener('input', () => {
+      const v = parseFloat(input.value);
+      setVal(v);
+      val.textContent = f(v);
+      push();
+    });
+    track(input);
+    row.refresh = () => {
+      if (interacting.has(id)) return;
+      input.value = getVal();
+      val.textContent = f(getVal());
+    };
+    return row;
+  }
+
+  const refreshers = [];
+
+  // ── Global sliders + toggles ───────────────────────────────────────────
+  for (const [k, r] of Object.entries(T.TOP_RANGES)) {
+    const row = sliderRow('g-' + k, GLOBAL_LABELS[k] || nice(k), r, () => cfg[k], (v) => { cfg[k] = v; });
+    $('globalKnobs').appendChild(row);
+    refreshers.push(row.refresh);
+  }
+  for (const k of Object.keys(T.TOP_BOOLS)) {
+    const label = document.createElement('label');
+    label.innerHTML = `<input type="checkbox" id="t-${k}"> ${TOGGLE_LABELS[k] || nice(k)}`;
+    const input = label.querySelector('input');
+    input.checked = cfg[k];
+    input.addEventListener('change', () => { cfg[k] = input.checked; push(); });
+    $('globalToggles').appendChild(label);
+    refreshers.push(() => { input.checked = cfg[k]; });
+  }
+
+  // ── Active viz picker ──────────────────────────────────────────────────
+  const vizSel = $('activeViz');
+  for (const name of T.ACTIVE_VIZ_NAMES) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = nice(name.replace(/-/g, ' '));
+    vizSel.appendChild(opt);
+  }
+  vizSel.value = cfg.activeViz;
+  track(vizSel);
+  vizSel.addEventListener('change', () => { cfg.activeViz = vizSel.value; renderVizKnobs(); push(); });
+
+  // ── Per-viz knobs (rebuilt when the active viz changes) ────────────────
+  const STL_VIZ = new Set(T.VIZ_USES_3D.filter((n) => ['sword', 'save-the-queen', 'rose', 'rose-japandi'].includes(n)));
+  function renderVizKnobs() {
+    const holder = $('perVizKnobs');
+    holder.innerHTML = '';
+    const knobs = cfg.perViz[cfg.activeViz] || {};
+    for (const [k, v] of Object.entries(knobs)) {
+      if (typeof v !== 'number') continue; // matrix strings have their own editor
+      const max = (T.PER_VIZ_MAX[cfg.activeViz] && T.PER_VIZ_MAX[cfg.activeViz][k]) || 100;
+      const row = sliderRow(`pv-${cfg.activeViz}-${k}`, nice(k), { min: 0, max, step: 1 },
+        () => cfg.perViz[cfg.activeViz][k],
+        (nv) => { cfg.perViz[cfg.activeViz][k] = Math.round(nv); });
+      holder.appendChild(row);
+    }
+    $('matrixExtras').hidden = cfg.activeViz !== 'matrix';
+    if (cfg.activeViz === 'matrix') refreshMatrixUI();
+    $('stlKnobs').hidden = !STL_VIZ.has(cfg.activeViz);
+  }
+
+  // ── Shared STL knob group (built once; shown for STL vizes) ────────────
+  for (const [k, r] of Object.entries(T.STL_OBJECT_RANGES)) {
+    const row = sliderRow('stl-' + k, nice(k), r,
+      () => cfg.stlObject[k], (v) => { cfg.stlObject[k] = v; }, STL_FORMAT[k]);
+    $('stlKnobRows').appendChild(row);
+    refreshers.push(row.refresh);
+  }
+
+  // ── Matrix text editor ─────────────────────────────────────────────────
+  function refreshMatrixUI() {
+    const m = cfg.perViz.matrix;
+    if ($('matrixMode').value !== m.mode) $('matrixMode').value = m.mode;
+    if (document.activeElement !== $('matrixText')) {
+      $('matrixText').value = $('matrixMode').value === 'messages' ? m.messages : m.pool;
+    }
+  }
+  $('matrixMode').addEventListener('change', () => {
+    const m = cfg.perViz.matrix;
+    $('matrixText').value = $('matrixMode').value === 'messages' ? m.messages : m.pool;
+  });
+  $('btnMatrixApply').addEventListener('click', () => {
+    const mode = $('matrixMode').value === 'messages' ? 'messages' : 'pool';
+    cfg.perViz.matrix.mode = mode;
+    cfg.perViz.matrix[mode] = $('matrixText').value;
+    push();
+  });
+
+  // ── Mic device picker ──────────────────────────────────────────────────
+  const micSel = $('micSelect');
+  track(micSel);
+  async function listMics(requestGrant) {
+    try {
+      if (requestGrant) {
+        // One-shot grant so enumerateDevices returns labels; released immediately.
+        const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+        s.getTracks().forEach((t) => t.stop());
+      }
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices.filter((d) => d.kind === 'audioinput');
+      micSel.innerHTML = '<option value="">System default</option>';
+      for (const d of inputs) {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || `Mic ${d.deviceId.slice(0, 8)}…`;
+        micSel.appendChild(opt);
+      }
+      micSel.value = cfg.mic.deviceId;
+      if (micSel.value !== cfg.mic.deviceId) micSel.value = ''; // configured device not present here
+    } catch (e) {
+      console.warn('mic enumeration failed:', e);
+    }
+  }
+  micSel.addEventListener('change', () => {
+    cfg.mic.deviceId = micSel.value;
+    cfg.mic.label = micSel.value ? micSel.options[micSel.selectedIndex].textContent : '';
+    push();
+  });
+  $('btnMicRefresh').addEventListener('click', () => listMics(true));
+  listMics(false);
+
+  // ── Inbound: config broadcasts (incl. our own echo + sync-on-connect) ──
+  window.addEventListener('svc:message', (evt) => {
+    const msg = evt.detail;
+    if (!msg || msg.type !== 'timbre:config' || !msg.config) return;
+    cfg = T.sanitizeConfig(msg.config);
+    for (const r of refreshers) r();
+    if (!interacting.has('activeViz') && vizSel.value !== cfg.activeViz) {
+      vizSel.value = cfg.activeViz;
+      renderVizKnobs();
+    } else {
+      // refresh in place (values may have changed under the same viz)
+      for (const row of $('perVizKnobs').querySelectorAll('.row')) if (row.refresh) row.refresh();
+      if (cfg.activeViz === 'matrix') refreshMatrixUI();
+    }
+    if (!interacting.has('micSelect')) micSel.value = cfg.mic.deviceId;
+  });
+
+  window.addEventListener('sb:connection', (evt) => {
+    const ok = evt.detail && evt.detail.connected;
+    setStatus(ok, ok ? 'Streamer.bot connected' : 'Streamer.bot offline — retrying…');
+  });
+
+  // Lazy-load the preview iframe only when opened (it grabs the mic).
+  document.querySelector('details').addEventListener('toggle', function () {
+    const f = $('previewFrame');
+    if (this.open && !f.src) f.src = f.dataset.src + (location.search || '');
+  });
+
+  renderVizKnobs();
+})();
+</script>
+<script src="/timbre-shared/panel-client-sb.js"></script>
+</body>
+</html>

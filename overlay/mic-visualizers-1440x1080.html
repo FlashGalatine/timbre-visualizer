@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1440, height=1080">
+<title>Timbre — 1440×1080 (4:3)</title>
+<link rel="stylesheet" href="timbre.css">
+<script src="/timbre-shared/viz-config.js"></script>
+<script src="vendor/three.min.js"></script>
+<style>
+  /* 4.8× scale of mic-visualizers-300x220.html (300×220 → 1440×1080, 4:3). */
+  :root { --dark-base: rgba(10, 10, 26, 0.88); }
+  body { width: 1440px; height: 1080px; }
+
+  .visualizer-box {
+    width: 1440px;
+    height: 1080px;
+    font-family: 'Audiowide', cursive;
+    background: var(--dark-base);
+    border: 10px solid var(--cyan);
+    border-radius: 29px;
+    overflow: hidden;
+    box-shadow:
+      0 0 96px 19px rgba(0, 255, 255, 0.5),
+      0 0 240px 48px rgba(0, 255, 255, 0.2);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding-top: 115px;
+    gap: 19px;
+    position: relative;
+  }
+
+  .visualizer-box.no-border {
+    border: 0;
+    box-shadow: none;
+    padding-top: 0;
+    gap: 0;
+  }
+  .visualizer-box.no-border .canvas-stack {
+    width: 100%;
+    height: 100%;
+  }
+  .visualizer-box.no-border .viz-label,
+  .visualizer-box.no-border .viz-status,
+  .visualizer-box.no-border .viz-ticks,
+  .visualizer-box.no-border .chevron-track {
+    display: none;
+  }
+
+  .viz-label {
+    font-size: 67px;
+    font-weight: 700;
+    letter-spacing: 29px;
+    color: var(--cyan);
+    opacity: 0.9;
+    z-index: 1;
+  }
+
+  .viz-status {
+    font-size: 48px;
+    font-weight: 400;
+    letter-spacing: 10px;
+    color: rgba(255, 255, 255, 0.5);
+    z-index: 1;
+    height: 67px;
+  }
+
+  .canvas-stack {
+    position: relative;
+    width: 1248px;
+    height: 624px;
+    z-index: 1;
+  }
+  .canvas-stack canvas {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+  }
+
+  .viz-ticks {
+    display: flex;
+    gap: 14px;
+    z-index: 1;
+    margin-top: 10px;
+  }
+  .viz-ticks .tick {
+    width: 14px;
+    height: 10px;
+    opacity: 0.2;
+    background: var(--cyan);
+  }
+  .viz-ticks .tick:nth-child(5n) {
+    background: var(--magenta);
+    opacity: 0.35;
+  }
+
+  /* Chevron decoration — scaled 4.8× from timbre.css defaults. */
+  .chevron-track { left: 96px; right: 96px; height: 29px; }
+  .chevron-track.top { top: 77px; }
+  .chevron-track.bottom { bottom: 58px; }
+  .chevron-strip { gap: 29px; }
+  .chevron-tick.large { width: 29px; height: 19px; }
+  .chevron-tick.small { width: 14px; height: 10px; margin-top: 5px; }
+</style>
+</head>
+<body>
+
+  <div class="visualizer-box">
+    <div class="chevron-track top"><div class="chevron-strip left" id="chevronTop"></div></div>
+
+    <span class="viz-label">AUDIO</span>
+    <span class="viz-status" id="vizStatus">WAITING</span>
+    <div class="canvas-stack" id="canvasStack">
+      <canvas id="vizCanvas2D" width="1248" height="624"></canvas>
+      <canvas id="vizCanvas3D" width="1248" height="624" style="display:none"></canvas>
+    </div>
+    <div class="viz-ticks" id="vizTicks"></div>
+
+    <div class="chevron-track bottom"><div class="chevron-strip right" id="chevronBottom"></div></div>
+  </div>
+
+<!-- Shared infrastructure: palette, canvas refs, config apply, anim loop, viz registry. -->
+<script src="core.js"></script>
+
+<!-- 2D visualizer factories (canvas2d). Each registers itself in VIZ_FACTORIES. -->
+<script src="factories/visualizer.js"></script>
+<script src="factories/waveform.js"></script>
+<script src="factories/blob.js"></script>
+<script src="factories/owl.js"></script>
+<script src="factories/peak-hold.js"></script>
+<script src="factories/ring-bars.js"></script>
+<script src="factories/ring-waveform.js"></script>
+<script src="factories/comet.js"></script>
+<script src="factories/orbit.js"></script>
+<script src="factories/spectrogram.js"></script>
+<script src="factories/dna.js"></script>
+<script src="factories/fireflies.js"></script>
+<script src="factories/pulse-rings.js"></script>
+<script src="factories/matrix.js"></script>
+<script src="factories/sine-bars.js"></script>
+<script src="factories/mountains-2d.js"></script>
+<script src="factories/vaporwave.js"></script>
+<script src="factories/peaks-mirror.js"></script>
+<script src="factories/galaxy-ripple.js"></script>
+<script src="factories/tunnel.js"></script>
+<script src="factories/spring-blossoms.js"></script>
+<script src="factories/summer-tide.js"></script>
+<script src="factories/autumn-leaves.js"></script>
+<script src="factories/halloween-jack.js"></script>
+<script src="factories/christmas-tree.js"></script>
+<script src="factories/new-year-fireworks.js"></script>
+<script src="factories/valentines-hearts.js"></script>
+<script src="factories/easter-eggs.js"></script>
+<script src="factories/st-patricks-shamrocks.js"></script>
+<script src="factories/july-fourth-stripes.js"></script>
+<script src="factories/thanksgiving-harvest.js"></script>
+<script src="factories/lunar-new-year-lanterns.js"></script>
+<script src="factories/pride-ribbon.js"></script>
+<script src="factories/bi-pride-ribbon.js"></script>
+<script src="factories/ace-pride-ribbon.js"></script>
+<script src="factories/trans-pride-ribbon.js"></script>
+<script src="factories/dia-de-muertos-calavera.js"></script>
+
+<!-- 3D / WebGL factories (canvas3d). All depend on the THREE global loaded above. -->
+<script src="factories/mountains-3d.js"></script>
+<script src="factories/sunburst-3d.js"></script>
+<script src="factories/metaball.js"></script>
+<script src="factories/glass-prism.js"></script>
+<script src="factories/chladni.js"></script>
+<script src="factories/phosphor.js"></script>
+<script src="factories/ink.js"></script>
+<script src="factories/shards.js"></script>
+<script src="factories/jelly.js"></script>
+<script src="factories/boids.js"></script>
+<script src="factories/sword.js"></script>
+<script src="factories/save-the-queen.js"></script>
+<script src="factories/rose.js"></script>
+<script src="factories/rose-japandi.js"></script>
+<script src="factories/winter-aurora.js"></script>
+
+<!-- Local mic capture (fills frequencies/waveform/micActive — no audio on the wire). -->
+<script src="audio-capture.js"></script>
+
+<script>
+  /* Override setCanvasHeight to scale core.js's hardcoded heights (130/170/180)
+     by 4.8× so decoration toggles resize the canvas to match this layout. */
+  (function () {
+    const SCALE = 4.8;
+    const _origSet = window.setCanvasHeight;
+    window.setCanvasHeight = function (h) { _origSet(Math.round(h * SCALE)); };
+  })();
+
+  /* Bootstrap — runs after every factory has registered itself. */
+  setActiveViz('visualizer');
+  timbreCapture.start();
+  requestAnimationFrame(frame);
+</script>
+
+<!-- Streamer.bot transport — connects, subscribes, DoActions "Timbre Push" for sync. -->
+<script src="/timbre-shared/panel-client-sb.js"></script>
+
+</body>
+</html>
