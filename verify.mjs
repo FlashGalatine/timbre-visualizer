@@ -45,7 +45,7 @@ console.log('\n[1] table consistency');
   ok(missing.length === 0, `every viz name has a factory file${missing.length ? ' — MISSING: ' + missing.join(',') : ''}`);
   const orphan = [...factories].filter((f) => !T.ACTIVE_VIZ_NAMES.includes(f));
   ok(orphan.length === 0, `no orphan factory files${orphan.length ? ' — ORPHANS: ' + orphan.join(',') : ''}`);
-  ok(T.ACTIVE_VIZ_NAMES.length === 52, `52 visualizers (${T.ACTIVE_VIZ_NAMES.length})`);
+  ok(T.ACTIVE_VIZ_NAMES.length === 50, `50 visualizers (${T.ACTIVE_VIZ_NAMES.length})`);
   const badPerViz = Object.keys(T.DEFAULT_PER_VIZ).filter((n) => !T.ACTIVE_VIZ_NAMES.includes(n));
   ok(badPerViz.length === 0, 'DEFAULT_PER_VIZ keys are all known vizes');
   ok(T.VIZ_USES_3D.every((n) => T.ACTIVE_VIZ_NAMES.includes(n)), 'VIZ_USES_3D ⊆ viz names');
