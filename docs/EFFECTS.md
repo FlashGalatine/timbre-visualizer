@@ -60,7 +60,7 @@ Multiply pixel-tuned constants by `SCALE` so both the 300×220 and 1440×1080 la
 
 ## 3D STL effects
 
-The STL effects (`rose`, `rose-japandi`) share the
+The STL effect (`rose`) shares the
 `stlObject` knob group and a hand-rolled **binary STL** parser (see
 `overlay/factories/rose.js`). ASCII STL files are not supported — export binary. To swap
 in your own model, replace the file in `overlay/assets/` and update the `*_STL_URL`

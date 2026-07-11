@@ -1,7 +1,7 @@
 {
   "name": "timbre-visualizer",
   "version": "0.1.0",
-  "description": "A Streamer.bot-native microphone audio visualizer for OBS — 50 canvas/WebGL effects, self-capturing overlay (no audio server), driven from a browser control dock. No dedicated server.",
+  "description": "A Streamer.bot-native microphone audio visualizer for OBS — 49 canvas/WebGL effects, self-capturing overlay (no audio server), driven from a browser control dock. No dedicated server.",
   "type": "module",
   "license": "MIT",
   "author": "Ashe \"Flash\" Galatine",
