@@ -67,7 +67,17 @@ npm run verify:render    # 14 real-pixel tests in system Edge/Chrome (fake mic d
 
 `verify:render` needs `npm install --no-save playwright-core`.
 
+## Author & support
+
+Built by **Ashe "Flash" Galatine**.
+
+- Email — [AsheJunius@gmail.com](mailto:AsheJunius@gmail.com)
+- X — [@AsheJunius](https://x.com/AsheJunius) · BlueSky — [@projectgalatine.com](https://bsky.app/profile/projectgalatine.com)
+- Twitch — [FlashGalatine](https://www.twitch.tv/FlashGalatine) · Discord — [Newbie Fight Club](https://discord.gg/NewbieFightClub)
+- Support — Patreon [ProjectGalatine](https://www.patreon.com/ProjectGalatine) · CashApp [$ProjectGalatine](https://cash.app/$ProjectGalatine)
+
 ## License
 
-MIT — see [LICENSE](LICENSE). Third-party: three.js (MIT), Audiowide font (SIL OFL 1.1) —
-see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+MIT — see [LICENSE](LICENSE). Third-party: three.js (MIT), Audiowide font
+(SIL OFL 1.1), and the bundled rose STL model (CC-BY-4.0, same author, generated
+with Meshy.ai) — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
