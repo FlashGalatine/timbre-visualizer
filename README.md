@@ -29,6 +29,9 @@ control.html ── DoAction "Timbre Push" {config} ──► Streamer.bot (C# c
 
 ## Quick start (no Streamer.bot needed)
 
+First, get the code — either `git clone https://github.com/FlashGalatine/timbre-visualizer.git`
+or click **<> Code → Download ZIP** on the repo page and extract it. Then, inside the folder:
+
 ```
 npm install
 npm start          # mock Streamer.bot on :7474 (HTTP) + :8080 (WS)
