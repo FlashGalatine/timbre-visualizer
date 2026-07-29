@@ -1,14 +1,14 @@
 # Changelog
 
 All notable changes to **Timbre** are recorded here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project aims to
-follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the patch number
+tracks the repository's commit count at release time.
 
-Nothing has been tagged since the initial release, so every change that landed
-afterwards sits under **Unreleased**. Commit hashes and landing dates are noted
-for traceability.
+Nothing was tagged between the initial release and 1.0.9, so that release
+collects every change in between. Commit hashes and landing dates are noted for
+traceability.
 
-## [Unreleased]
+## [1.0.9] — 2026-07-29
 
 ### Changed
 
@@ -59,4 +59,4 @@ StreamService / ControlPanel toolkit. (`6cfff29`)
 
 Verified offline: `verify` 28/28, `verify:render` 14/14.
 
-[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/6cfff29...main
+[1.0.9]: https://github.com/FlashGalatine/timbre-visualizer/compare/6cfff29...main
