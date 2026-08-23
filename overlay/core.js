@@ -143,9 +143,11 @@ function applyShowBorder(show) {
     // Border off: .no-border CSS hides decorations and stretches canvas-stack to
     // 100%/100% of the box. Match the drawing buffer height to the new rendered
     // size so we render at native resolution. Width stays unchanged — CSS scales
-    // it (the gap is small: 1248→1440 / 260→300 = 1.154x).
+    // it (the gap is small: 1248→1440 / 260→300 = 1.154x). offsetHeight (layout
+    // height) rather than getBoundingClientRect: the 16:9 page CSS-transforms the
+    // whole box to fit the source, and the buffer must follow layout, not screen px.
     canvasStack.style.height = '';
-    const newH = Math.max(1, Math.round(canvasStack.getBoundingClientRect().height));
+    const newH = Math.max(1, canvasStack.offsetHeight);
     H = newH;
     canvas2d.height = newH;
     canvas3d.height = newH;

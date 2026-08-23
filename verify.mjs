@@ -74,6 +74,9 @@ console.log('\n[1] table consistency');
   // The 16:9 page is the 4:3 page widened — same vertical metrics, SCALE pinned to the 4:3 page's value.
   ok(/^\s*SCALE = 4\.8;$/m.test(pages['mic-visualizers-1920x1080.html']) && /1728" height="624"/.test(pages['mic-visualizers-1920x1080.html']),
     '1920×1080 page: 1728×624 canvas with SCALE pinned to 4.8 (matches the 1440×1080 page)');
+  const wide = pages['mic-visualizers-1920x1080.html'];
+  ok(/transform-origin: 0 0;/.test(wide) && /Math\.min\(vw \/ 1920, vh \/ 1080\)/.test(wide) && /html, body \{ width: 100%; height: 100%; \}/.test(wide),
+    '1920×1080 page fits itself to the viewport (uniform transform, 100% body)');
 }
 
 // ── 2. sanitizeConfig ────────────────────────────────────────────────────────

@@ -62,8 +62,10 @@ sender-page + relay sidecar variant is the designed fallback.
 - **Overlay** (Browser Source):
   `http://127.0.0.1:7474/timbre-overlay/mic-visualizers-300x220.html` (300×220),
   `http://127.0.0.1:7474/timbre-overlay/mic-visualizers-1440x1080.html` (1440×1080, 4:3) or
-  `http://127.0.0.1:7474/timbre-overlay/mic-visualizers-1920x1080.html` (1920×1080, 16:9 —
-  same element sizes as the 4:3 page, wider canvas).
+  `http://127.0.0.1:7474/timbre-overlay/mic-visualizers-1920x1080.html` (16:9 — same
+  element sizes as the 4:3 page, wider canvas; **fits any source size**: set the Browser
+  Source to 1920×1080, 1280×720, 960×540, 640×360 … and the page scales to it uniformly,
+  letterboxing if the source isn't 16:9).
   Must be the `http://` URL — a local `file://` source could neither load the shared
   scripts nor take `?sbport=` overrides.
 - **Control panel** (Docks → Custom Browser Docks):

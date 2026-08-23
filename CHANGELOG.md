@@ -19,11 +19,20 @@ traceability.
   radii/amplitudes sized off `SCALE` don't outgrow the canvas height — bar, column
   and scrolling effects simply get the extra width. Serve it at
   `http://127.0.0.1:7474/timbre-overlay/mic-visualizers-1920x1080.html`.
+- **The 16:9 page fits any source size.** It lays out at 1920×1080 and CSS-scales
+  itself (uniformly, centred/letterboxed if not 16:9) to the Browser Source's
+  width × height — one page serves 1280×720, 960×540, 640×360 … The canvas still
+  renders at 1728×624 and is filtered on the downscale, so small sources stay
+  sharp and effect geometry is identical at every size. `core.js` now sizes the
+  no-border canvas buffer from layout (`offsetHeight`) instead of screen rects so
+  it stays correct under the transform. Render suite covers 1280×720 / 640×360 /
+  4:3 letterbox / no-border-while-scaled → 32/32.
 - `window.__timbre` now exposes `SCALE`, `W` and `H` for the render suite.
 - `verify` gains overlay-page parity checks (every page loads every factory; canvas
   buffers match their CSS box; the 16:9 page's pin) → 35/35. `verify:render` adds a
   1920×1080 pass (buffer/`SCALE` geometry, ring-bars stays inside the canvas,
-  decoration + no-border toggles rescale) → 23/23; writes `test-render-1920.png`.
+  decoration + no-border toggles rescale); writes `test-render-1920.png` /
+  `test-render-640.png`.
 
 ## [1.0.9] — 2026-07-29
 
