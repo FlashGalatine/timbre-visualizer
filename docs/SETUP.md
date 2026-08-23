@@ -47,7 +47,7 @@ http://127.0.0.1:7474/timbre-spike/mic-test.html
 WebGL renderer string. Also worth checking while you're here:
 
 - Add the spike **twice** — both sources should capture the same mic concurrently
-  (the 300×220 and 1440×1080 overlays may run together).
+  (the 300×220 and 1440×1080 / 1920×1080 overlays may run together).
 - Toggle "Control audio via OBS" — the visualizer emits no audio, but confirm no
   monitoring weirdness on your build.
 
@@ -60,8 +60,10 @@ sender-page + relay sidecar variant is the designed fallback.
 ## 4. Add the OBS sources
 
 - **Overlay** (Browser Source):
-  `http://127.0.0.1:7474/timbre-overlay/mic-visualizers-300x220.html` (300×220) or
-  `http://127.0.0.1:7474/timbre-overlay/mic-visualizers-1440x1080.html` (1440×1080).
+  `http://127.0.0.1:7474/timbre-overlay/mic-visualizers-300x220.html` (300×220),
+  `http://127.0.0.1:7474/timbre-overlay/mic-visualizers-1440x1080.html` (1440×1080, 4:3) or
+  `http://127.0.0.1:7474/timbre-overlay/mic-visualizers-1920x1080.html` (1920×1080, 16:9 —
+  same element sizes as the 4:3 page, wider canvas).
   Must be the `http://` URL — a local `file://` source could neither load the shared
   scripts nor take `?sbport=` overrides.
 - **Control panel** (Docks → Custom Browser Docks):

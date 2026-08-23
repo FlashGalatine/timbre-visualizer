@@ -13,7 +13,9 @@
 // Covered:  fake-mic LISTENING path • 2D factory (visualizer) draws pixels •
 //           config push flips viz (matrix), gain + label toggles apply •
 //           3D STL factory (rose) initializes WebGL • mic-denied idle path •
-//           control.html emits a Timbre Push whose config round-trips.
+//           control.html emits a Timbre Push whose config round-trips •
+//           1920×1080 page: 1728×624 buffer, SCALE pinned 4.8, ring effect stays
+//           inside the canvas, decoration toggles rescale, no-border fills the box.
 
 import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -28,6 +30,7 @@ const HTTP_PORT = Number(process.env.SB_HTTP_PORT) || 7476;
 const WS_PORT = Number(process.env.SB_WS_PORT) || 8090;
 const BASE = `http://127.0.0.1:${HTTP_PORT}`;
 const overlayUrl = `${BASE}/timbre-overlay/mic-visualizers-300x220.html?sbport=${WS_PORT}`;
+const overlayWideUrl = `${BASE}/timbre-overlay/mic-visualizers-1920x1080.html?sbport=${WS_PORT}`;
 const controlUrl = `${BASE}/timbre-control/control.html?sbport=${WS_PORT}`;
 
 let passed = 0, failed = 0;
@@ -133,6 +136,65 @@ async function main() {
     await pushConfig((c) => { c.activeViz = 'visualizer'; });
     await page.waitForTimeout(400);
     await page.screenshot({ path: resolve(__dirname, 'test-render.png') });
+
+    // ── 1920×1080 (16:9) page: same vertical scale as 4:3, wider canvas ────
+    const wide = await ctxt.newPage();
+    const wideErrors = [];
+    wide.on('pageerror', (e) => wideErrors.push(String(e)));
+    await wide.setViewportSize({ width: 1920, height: 1080 });
+    await wide.goto(overlayWideUrl, { waitUntil: 'load' });
+    const wideListening = await wide.waitForFunction(
+      () => window.__timbre.micActive === true && document.getElementById('vizStatus').textContent === 'LISTENING',
+      { timeout: 8000 }).then(() => true).catch(() => false);
+    check('1920×1080 page captures the mic → LISTENING', wideListening);
+    const geo = await wide.evaluate(() => {
+      const box = document.querySelector('.visualizer-box').getBoundingClientRect();
+      const stack = document.getElementById('canvasStack').getBoundingClientRect();
+      const c = document.getElementById('vizCanvas2D');
+      return { box: [box.width, box.height], stack: [stack.width, stack.height], buf: [c.width, c.height],
+               W: window.__timbre.W, H: window.__timbre.H, SCALE: window.__timbre.SCALE };
+    });
+    check('1920×1080 box fills the viewport', geo.box[0] === 1920 && geo.box[1] === 1080, JSON.stringify(geo.box));
+    check('1728×624 drawing buffer matches the rendered canvas-stack',
+      geo.buf[0] === 1728 && geo.buf[1] === 624 && geo.stack[0] === 1728 && geo.stack[1] === 624, JSON.stringify(geo));
+    check('SCALE pinned to 4.8 (not W/260 = 6.65) with W=1728', geo.SCALE === 4.8 && geo.W === 1728, JSON.stringify(geo));
+    await wide.waitForTimeout(400);
+    check('1920×1080 default visualizer draws pixels', await wide.evaluate(canvas2dHasPixels));
+
+    // A radial effect sized off SCALE must stay inside the 624px-tall canvas: at default
+    // gain ring-bars reaches (14+42)*SCALE = 269px < 312px half-height with SCALE=4.8;
+    // at W/260 (6.65) it would reach 372px and clip. (Gain >1 is deliberately not used —
+    // ring-bars scales spoke length by cfgGain unclamped, so gain 2 overflows on every page.)
+    await pushConfig((c) => { c.activeViz = 'ring-bars'; });
+    await wide.waitForFunction(() => window.__timbre.currentVizName === 'ring-bars', { timeout: 5000 }).catch(() => {});
+    await wide.waitForTimeout(600);
+    const ring = await wide.evaluate(() => {
+      const c = document.getElementById('vizCanvas2D');
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      let minY = Infinity, maxY = -1;
+      for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
+        if (d[(y * c.width + x) * 4 + 3] > 0) { if (y < minY) minY = y; if (y > maxY) maxY = y; }
+      }
+      return { viz: window.__timbre.currentVizName, minY, maxY, H: c.height };
+    });
+    check('ring-bars stays inside the 624px canvas (radii track SCALE, not width)',
+      ring.viz === 'ring-bars' && ring.maxY >= 0 && ring.minY >= 3 && ring.maxY <= ring.H - 4, JSON.stringify(ring));
+    await wide.screenshot({ path: resolve(__dirname, 'test-render-1920.png') });
+
+    // Decoration toggles re-derive the canvas height through the 4.8× override.
+    await pushConfig((c) => { c.activeViz = 'visualizer'; c.showLabels = false; });
+    const h170 = await wide.waitForFunction(() => window.__timbre.H === Math.round(170 * 4.8), { timeout: 5000 })
+      .then(() => true).catch(() => false);
+    check('showLabels=false → canvas height 816 (170×4.8)', h170, String(await wide.evaluate(() => window.__timbre.H)));
+    await pushConfig((c) => { c.showBorder = false; });
+    const noBorder = await wide.waitForFunction(
+      () => document.querySelector('.visualizer-box').classList.contains('no-border') && window.__timbre.H === 1080,
+      { timeout: 5000 }).then(() => true).catch(() => false);
+    check('showBorder=false → canvas-stack fills the 1920×1080 box (H=1080)', noBorder,
+      String(await wide.evaluate(() => window.__timbre.H)));
+    check('no page errors on the 1920×1080 page', wideErrors.length === 0, wideErrors.join(' | '));
+    await pushConfig((c) => { c.activeViz = 'visualizer'; });
+    await wide.close();
 
     // ── Control panel: UI change → Timbre Push → broadcast round-trip ─────
     const observed = [];

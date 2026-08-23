@@ -8,6 +8,23 @@ Nothing was tagged between the initial release and 1.0.9, so that release
 collects every change in between. Commit hashes and landing dates are noted for
 traceability.
 
+## [Unreleased]
+
+### Added
+
+- **`overlay/mic-visualizers-1920x1080.html`** — a 16:9 overlay page alongside the
+  300×220 and 1440×1080 (4:3) ones. It is the 4:3 page widened by 480px: identical
+  border, type, chevrons and 624px-tall canvas, with a 1728×624 drawing buffer.
+  `SCALE` is pinned to the 4:3 page's 4.8 (rather than `W/260` = 6.65) so
+  radii/amplitudes sized off `SCALE` don't outgrow the canvas height — bar, column
+  and scrolling effects simply get the extra width. Serve it at
+  `http://127.0.0.1:7474/timbre-overlay/mic-visualizers-1920x1080.html`.
+- `window.__timbre` now exposes `SCALE`, `W` and `H` for the render suite.
+- `verify` gains overlay-page parity checks (every page loads every factory; canvas
+  buffers match their CSS box; the 16:9 page's pin) → 35/35. `verify:render` adds a
+  1920×1080 pass (buffer/`SCALE` geometry, ring-bars stays inside the canvas,
+  decoration + no-border toggles rescale) → 23/23; writes `test-render-1920.png`.
+
 ## [1.0.9] — 2026-07-29
 
 ### Changed
