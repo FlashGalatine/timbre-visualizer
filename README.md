@@ -46,8 +46,9 @@ See **[docs/SETUP.md](docs/SETUP.md)**. Summary: map four HTTP-server folders
 (`timbre-overlay`, `timbre-shared`, `timbre-control`, `timbre-spike`), create one action
 named exactly **`Timbre Push`** with the C# in [actions/timbre-push.cs](actions/timbre-push.cs),
 then add `http://127.0.0.1:7474/timbre-overlay/mic-visualizers-300x220.html` (or the
-1440×1080 4:3 page, or the 16:9 `mic-visualizers-1920x1080.html` page, which scales to
-whatever size you give the Browser Source — 1280×720, 960×540 …) as an OBS Browser Source and
+4:3 `mic-visualizers-1440x1080.html` / 16:9 `mic-visualizers-1920x1080.html` pages, which
+scale to whatever size you give the Browser Source — 720×540, 1280×720, 960×540 …) as an
+OBS Browser Source and
 `.../timbre-control/control.html` as a Custom Browser Dock.
 
 > **First: run the mic spike.** OBS's embedded browser has no permission prompt; add

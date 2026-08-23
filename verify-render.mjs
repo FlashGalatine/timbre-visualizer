@@ -16,7 +16,8 @@
 //           control.html emits a Timbre Push whose config round-trips •
 //           1920×1080 page: 1728×624 buffer, SCALE pinned 4.8, ring effect stays
 //           inside the canvas, decoration toggles rescale, no-border fills the box •
-//           same page fits 1280×720 / 640×360 sources uniformly, letterboxes 4:3.
+//           same page fits 1280×720 / 640×360 sources uniformly, letterboxes 4:3 •
+//           1440×1080 page: native geometry, fits 720×540, letterboxes 16:9.
 
 import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -32,6 +33,7 @@ const WS_PORT = Number(process.env.SB_WS_PORT) || 8090;
 const BASE = `http://127.0.0.1:${HTTP_PORT}`;
 const overlayUrl = `${BASE}/timbre-overlay/mic-visualizers-300x220.html?sbport=${WS_PORT}`;
 const overlayWideUrl = `${BASE}/timbre-overlay/mic-visualizers-1920x1080.html?sbport=${WS_PORT}`;
+const overlay43Url = `${BASE}/timbre-overlay/mic-visualizers-1440x1080.html?sbport=${WS_PORT}`;
 const controlUrl = `${BASE}/timbre-control/control.html?sbport=${WS_PORT}`;
 
 let passed = 0, failed = 0;
@@ -231,6 +233,49 @@ async function main() {
     check('no page errors while resizing the 16:9 page', wideErrors.length === 0, wideErrors.join(' | '));
     await pushConfig((c) => { c.activeViz = 'visualizer'; });
     await wide.close();
+
+    // ── 1440×1080 (4:3) page: same fit-to-source trick, 1248×624 buffer ───────
+    const p43 = await ctxt.newPage();
+    const p43Errors = [];
+    p43.on('pageerror', (e) => p43Errors.push(String(e)));
+    await p43.setViewportSize({ width: 1440, height: 1080 });
+    await p43.goto(overlay43Url, { waitUntil: 'load' });
+    const l43 = await p43.waitForFunction(
+      () => window.__timbre.micActive === true && document.getElementById('vizStatus').textContent === 'LISTENING',
+      { timeout: 8000 }).then(() => true).catch(() => false);
+    check('1440×1080 page captures the mic → LISTENING', l43);
+    const g43 = await p43.evaluate(() => {
+      const r = document.querySelector('.visualizer-box').getBoundingClientRect();
+      const c = document.getElementById('vizCanvas2D');
+      return { fit: window.__timbreFit, box: [r.width, r.height], buf: [c.width, c.height], SCALE: window.__timbre.SCALE };
+    });
+    check('1440×1080 at native size: unscaled, 1248×624 buffer, SCALE 4.8',
+      g43.fit === 1 && g43.box[0] === 1440 && g43.box[1] === 1080 && g43.buf[0] === 1248 && g43.buf[1] === 624 && g43.SCALE === 4.8, JSON.stringify(g43));
+    await p43.waitForTimeout(400);
+    check('1440×1080 default visualizer draws pixels', await p43.evaluate(canvas2dHasPixels));
+    await p43.setViewportSize({ width: 720, height: 540 });
+    await p43.waitForTimeout(250);
+    const s43 = await p43.evaluate(() => {
+      const r = document.querySelector('.visualizer-box').getBoundingClientRect();
+      const c = document.getElementById('vizCanvas2D');
+      return { fit: window.__timbreFit, box: [Math.round(r.width), Math.round(r.height), Math.round(r.left), Math.round(r.top)],
+               buf: [c.width, c.height], scaled: document.querySelector('.visualizer-box').classList.contains('scaled') };
+    });
+    check('720×540 source: 4:3 page scales to fit, buffer unchanged',
+      s43.fit === 0.5 && s43.box.join() === '720,540,0,0' && s43.buf.join() === '1248,624' && s43.scaled, JSON.stringify(s43));
+    await p43.screenshot({ path: resolve(__dirname, 'test-render-720.png') });
+    await p43.setViewportSize({ width: 1280, height: 720 });
+    await p43.waitForTimeout(250);
+    const lb43 = await p43.evaluate(() => { const r = document.querySelector('.visualizer-box').getBoundingClientRect();
+      return [Math.round(r.width), Math.round(r.height), Math.round(r.left), Math.round(r.top)]; });
+    check('1280×720 (16:9) source letterboxes the 4:3 box centred (960×720 at x=160)',
+      lb43.join() === '960,720,160,0', JSON.stringify(lb43));
+    await pushConfig((c) => { c.showBorder = false; });
+    const nb43 = await p43.waitForFunction(() => window.__timbre.H === 1080, { timeout: 5000 }).then(() => true).catch(() => false);
+    check('4:3 no-border while scaled → buffer height follows layout (1080)', nb43, String(await p43.evaluate(() => window.__timbre.H)));
+    check('no page errors on the 1440×1080 page', p43Errors.length === 0, p43Errors.join(' | '));
+    await pushConfig((c) => { c.activeViz = 'visualizer'; });
+    await p43.close();
 
     // ── Control panel: UI change → Timbre Push → broadcast round-trip ─────
     const observed = [];

@@ -26,7 +26,11 @@ traceability.
   sharp and effect geometry is identical at every size. `core.js` now sizes the
   no-border canvas buffer from layout (`offsetHeight`) instead of screen rects so
   it stays correct under the transform. Render suite covers 1280×720 / 640×360 /
-  4:3 letterbox / no-border-while-scaled → 32/32.
+  4:3 letterbox / no-border-while-scaled.
+- **The 1440×1080 (4:3) page fits any source size too** — same mechanism, 1440×1080
+  reference, 1248×624 buffer untouched: 960×720, 720×540, 480×360 … from one page.
+  `verify` 37/37, `verify:render` 39/39 (adds 720×540 fit, 16:9 letterbox, no-border
+  while scaled; writes `test-render-720.png`).
 - `window.__timbre` now exposes `SCALE`, `W` and `H` for the render suite.
 - `verify` gains overlay-page parity checks (every page loads every factory; canvas
   buffers match their CSS box; the 16:9 page's pin) → 35/35. `verify:render` adds a
