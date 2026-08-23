@@ -45,7 +45,10 @@ Script-scope globals available to factories (from core.js):
 | `getColor(t)` | palette lookup → `[r,g,b]` |
 | `THREE` | three.js r160 (vendored) |
 
-Multiply pixel-tuned constants by `SCALE` so both the 300×220 and 1440×1080 layouts look right.
+Multiply pixel-tuned constants by `SCALE` so the 300×220, 1440×1080 and 1920×1080 layouts all
+look right. `SCALE` is 1.0 / 4.8 / 4.8 on those pages — the 16:9 page pins it to the 4:3 value
+(its canvas is the same 624px tall, only wider), so size things off `SCALE`, not off `W`, and
+let horizontal layouts (bars, columns, scrolling scenes) fill `W` naturally.
 
 ## Registration (3 edits)
 

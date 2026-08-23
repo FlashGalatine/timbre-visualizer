@@ -57,10 +57,13 @@ const ctx = canvas2d.getContext('2d');
 const canvas3d = document.getElementById('vizCanvas3D');
 let W = canvas2d.width;
 let H = canvas2d.height;
-/* Width-based scale factor (1.0 at the baseline 260px-wide layout, ~4.8 at 1080p).
-   Factories multiply their pixel-tuned constants (chunk sizes, character pixels,
-   projection FOCAL, particle radii) by SCALE so both layouts look right. W is
-   stable across decoration toggles; only H changes, so this is safe to compute once. */
+/* Width-based scale factor (1.0 at the baseline 260px-wide layout, 4.8 on the
+   1440×1080 page). Factories multiply their pixel-tuned constants (chunk sizes,
+   character pixels, projection FOCAL, particle radii) by SCALE so every layout looks
+   right. W is stable across decoration toggles; only H changes, so this is safe to
+   compute once. A page whose canvas is wider than it is tall-for-its-scale (the
+   16:9 1920×1080 page) reassigns SCALE right after this script so radii track the
+   canvas height rather than the extra width. */
 let SCALE = W / 260;
 
 /* ── Shared audio + status state (filled by audio-capture.js) ── */
@@ -240,6 +243,9 @@ window.__timbre = {
   get currentVizName() { return currentVizName; },
   get cfgGain() { return cfgGain; },
   get config() { return timbreConfig; },
+  get SCALE() { return SCALE; },
+  get W() { return W; },
+  get H() { return H; },
 };
 
 window.addEventListener('timbre:mic', (evt) => {
