@@ -15,7 +15,8 @@
 //           3D STL factory (rose) initializes WebGL • mic-denied idle path •
 //           control.html emits a Timbre Push whose config round-trips •
 //           1920×1080 page: 1728×624 buffer, SCALE pinned 4.8, ring effect stays
-//           inside the canvas, decoration toggles rescale, no-border fills the box.
+//           inside the canvas, decoration toggles rescale, no-border fills the box •
+//           same page fits 1280×720 / 640×360 sources uniformly, letterboxes 4:3.
 
 import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -193,6 +194,41 @@ async function main() {
     check('showBorder=false → canvas-stack fills the 1920×1080 box (H=1080)', noBorder,
       String(await wide.evaluate(() => window.__timbre.H)));
     check('no page errors on the 1920×1080 page', wideErrors.length === 0, wideErrors.join(' | '));
+
+    // ── Same page at smaller 16:9 sizes: uniform CSS fit, geometry untouched ──
+    await pushConfig((c) => { c.activeViz = 'visualizer'; });
+    await wide.waitForFunction(() => window.__timbre.H === Math.round(130 * 4.8), { timeout: 5000 }).catch(() => {});
+    for (const [vw, vh] of [[1280, 720], [640, 360]]) {
+      await wide.setViewportSize({ width: vw, height: vh });
+      await wide.waitForTimeout(250);
+      const g = await wide.evaluate(() => {
+        const r = document.querySelector('.visualizer-box').getBoundingClientRect();
+        const c = document.getElementById('vizCanvas2D');
+        return { fit: window.__timbreFit, box: [Math.round(r.width), Math.round(r.height), Math.round(r.left), Math.round(r.top)],
+                 buf: [c.width, c.height], SCALE: window.__timbre.SCALE, H: window.__timbre.H,
+                 scaled: document.querySelector('.visualizer-box').classList.contains('scaled') };
+      });
+      check(`${vw}×${vh} source: box scales to fit (uniform, top-left)`,
+        Math.abs(g.fit - vw / 1920) < 1e-6 && g.box[0] === vw && g.box[1] === vh && g.box[2] === 0 && g.box[3] === 0 && g.scaled, JSON.stringify(g));
+      check(`${vw}×${vh} source: 1728×624 buffer / SCALE 4.8 / H 624 unchanged`,
+        g.buf[0] === 1728 && g.buf[1] === 624 && g.SCALE === 4.8 && g.H === 624, JSON.stringify(g));
+      await wide.waitForTimeout(300);
+      check(`${vw}×${vh} source: still draws`, await wide.evaluate(canvas2dHasPixels));
+    }
+    await wide.screenshot({ path: resolve(__dirname, 'test-render-640.png') });
+    // Non-16:9 source letterboxes (centres) instead of stretching.
+    await wide.setViewportSize({ width: 800, height: 600 });
+    await wide.waitForTimeout(250);
+    const lb = await wide.evaluate(() => { const r = document.querySelector('.visualizer-box').getBoundingClientRect();
+      return [Math.round(r.width), Math.round(r.height), Math.round(r.left), Math.round(r.top)]; });
+    check('800×600 (4:3) source letterboxes the 16:9 box centred (800×450 at y=75)',
+      lb[0] === 800 && lb[1] === 450 && lb[2] === 0 && lb[3] === 75, JSON.stringify(lb));
+    // no-border while scaled must size the buffer from layout (1080), not screen px (600).
+    await pushConfig((c) => { c.showBorder = false; });
+    const nbScaled = await wide.waitForFunction(() => window.__timbre.H === 1080, { timeout: 5000 }).then(() => true).catch(() => false);
+    check('no-border while scaled → buffer height follows layout (1080), not screen px', nbScaled,
+      String(await wide.evaluate(() => window.__timbre.H)));
+    check('no page errors while resizing the 16:9 page', wideErrors.length === 0, wideErrors.join(' | '));
     await pushConfig((c) => { c.activeViz = 'visualizer'; });
     await wide.close();
 

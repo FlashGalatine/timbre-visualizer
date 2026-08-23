@@ -96,7 +96,7 @@ own microphone; drive its settings from the control panel. Config cached:
   <li><a href="/timbre-control/control.html?sbport=${WS_PORT}" target="_blank">Control panel</a></li>
   <li><a href="/timbre-overlay/mic-visualizers-300x220.html?sbport=${WS_PORT}" target="_blank">Overlay 300&times;220</a></li>
   <li><a href="/timbre-overlay/mic-visualizers-1440x1080.html?sbport=${WS_PORT}" target="_blank">Overlay 1440&times;1080</a></li>
-  <li><a href="/timbre-overlay/mic-visualizers-1920x1080.html?sbport=${WS_PORT}" target="_blank">Overlay 1920&times;1080</a></li>
+  <li><a href="/timbre-overlay/mic-visualizers-1920x1080.html?sbport=${WS_PORT}" target="_blank">Overlay 1920&times;1080 (16:9, fits any window size)</a></li>
   <li><a href="/timbre-spike/mic-test.html" target="_blank">CEF mic spike</a></li>
 </ul>`;
 }

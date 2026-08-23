@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=1920, height=1080">
-<title>Timbre — 1920×1080 (16:9)</title>
+<title>Timbre — 16:9 (1920×1080, fits any size)</title>
 <link rel="stylesheet" href="timbre.css">
 <script src="/timbre-shared/viz-config.js"></script>
 <script src="vendor/three.min.js"></script>
@@ -11,13 +11,20 @@
   /* 16:9 sibling of mic-visualizers-1440x1080.html: the same 4.8× vertical scale
      of the 300×220 baseline (border, type, chevrons, 624px-tall canvas are identical),
      widened by 480px so the box fills a 1920×1080 canvas. Only widths differ:
-     box 1440→1920, canvas 1248→1728 (96px side margins kept). */
+     box 1440→1920, canvas 1248→1728 (96px side margins kept).
+
+     FITS ANY SIZE: the box is laid out at 1920×1080 and then CSS-scaled (see the
+     fit script at the bottom) to the viewport — i.e. to whatever width/height the OBS
+     Browser Source is set to. 1280×720, 960×540, 640×360 … all use this one page;
+     a non-16:9 source letterboxes it centred. The canvas keeps rendering at 1728×624
+     and is downscaled, so small sources stay sharp and effect geometry never changes. */
   :root { --dark-base: rgba(10, 10, 26, 0.88); }
-  body { width: 1920px; height: 1080px; }
+  html, body { width: 100%; height: 100%; }
 
   .visualizer-box {
     width: 1920px;
     height: 1080px;
+    transform-origin: 0 0;
     font-family: 'Audiowide', cursive;
     background: var(--dark-base);
     border: 10px solid var(--cyan);
@@ -85,6 +92,9 @@
     image-rendering: pixelated;
     image-rendering: crisp-edges;
   }
+  /* When the page is scaled below 1:1, nearest-neighbour downsampling would drop
+     thin rows/columns and shimmer on motion — let the GPU filter the downscale. */
+  .visualizer-box.scaled .canvas-stack canvas { image-rendering: auto; }
 
   .viz-ticks {
     display: flex;
@@ -203,6 +213,26 @@
     const SCALE = 4.8;
     const _origSet = window.setCanvasHeight;
     window.setCanvasHeight = function (h) { _origSet(Math.round(h * SCALE)); };
+  })();
+
+  /* Fit-to-viewport: scale the fixed 1920×1080 layout to the Browser Source size,
+     centred (letterboxed) if the source isn't 16:9. Uniform scale only — the
+     layout, canvas buffers and SCALE are untouched, so every effect looks identical
+     at every size. core.js measures layout (offsetHeight), not screen rects, so the
+     no-border branch still sees the untransformed 1080px. */
+  (function () {
+    const box = document.querySelector('.visualizer-box');
+    function fit() {
+      const vw = window.innerWidth, vh = window.innerHeight;
+      let s = Math.min(vw / 1920, vh / 1080);
+      if (!(s > 0)) s = 1; // headless/zero-size viewports: leave unscaled
+      const ox = Math.floor((vw - 1920 * s) / 2), oy = Math.floor((vh - 1080 * s) / 2);
+      box.style.transform = `translate(${ox}px, ${oy}px) scale(${s})`;
+      box.classList.toggle('scaled', s < 0.999);
+      window.__timbreFit = s;
+    }
+    window.addEventListener('resize', fit);
+    fit();
   })();
 
   /* Bootstrap — runs after every factory has registered itself. */
