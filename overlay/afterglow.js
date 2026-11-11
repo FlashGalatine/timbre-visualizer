@@ -161,5 +161,26 @@
     if (n > 1) ctx.lineTo(xs[n - 1], ys[n - 1]);
   }
 
-  globalThis.TimbreGlow = { BAR, BAR_TIP, ECHO, ECHO_FILL, MAX_ECHOES, fade, createBarGhosts, createEchoes, trace };
+  // The live wave line, shared by waveform and ring-waveform: a glowing stroke,
+  // then a thin white core on the same path. addPath adds the path to ctx (it
+  // must not begin or stroke it). Leaves shadowBlur at 0; never touches globalAlpha.
+  function glowLine(ctx, addPath, { width, stroke, glowColor, blur }) {
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    addPath();
+    ctx.lineWidth = width;
+    ctx.strokeStyle = stroke;
+    ctx.shadowBlur = blur;
+    ctx.shadowColor = glowColor;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.beginPath();
+    addPath();
+    ctx.lineWidth = 0.35 * width;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.stroke();
+  }
+
+  globalThis.TimbreGlow = { BAR, BAR_TIP, ECHO, ECHO_FILL, MAX_ECHOES, fade, createBarGhosts, createEchoes, trace, glowLine };
 })();
