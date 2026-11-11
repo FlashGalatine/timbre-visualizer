@@ -122,7 +122,9 @@
             if (follower > peak) peak = follower;
             if (l > loudest) { loudest = l; candidate = snapshot(); hasCandidate = true; }
             if (peak > MIN_PEAK && follower < PASSED * peak) {
-              if (hasCandidate && (nowMs - lastMadeMs) / 1000 >= T / 6) {
+              // The T / 6 spacing keeps at most six alive while T is steady; the
+              // length check covers T being raised while older echoes still live.
+              if (hasCandidate && echoes.length < MAX_ECHOES && (nowMs - lastMadeMs) / 1000 >= T / 6) {
                 echoes.push({ shape: candidate, born: nowMs });
                 lastMadeMs = nowMs;
               }

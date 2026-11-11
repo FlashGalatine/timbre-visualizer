@@ -244,6 +244,11 @@ await import('./overlay/afterglow.js');
   ok([30, 60, 165].every((f) => runEchoes(ramp, f, 10).count === 10), 'echoes: one per ramped burst at 30/60/165 fps');
   ok(runEchoes((t) => sudden(t) * 2.5, 60, 10).count === 10, 'echoes: gain at 200% changes nothing');
   ok(runEchoes(fast, 60, 20, 4).most <= G.MAX_ECHOES && runEchoes(fast, 165, 20, 1.6).most <= G.MAX_ECHOES, 'echoes: never more than six alive');
+  { const r = G.createEchoes(); let most = 0;
+    for (let i = 1; i <= 60 * 16; i++) { const t = i / 60; const T = t <= 8 ? 1.1 : 4;
+      const a = (Math.floor(t / 0.033) * 0.033) % 0.25 < 0.12 ? 0.8 : 0.05;
+      most = Math.max(most, r.step(a, t * 1000, 1 / 60, T, true, () => a).length); }
+    ok(most <= G.MAX_ECHOES, 'echoes: still at most six after the slider is raised'); }
   ok(runEchoes(sudden, 60, 10, 1.6, false).count === 0, 'echoes: none while the mic is off');
   ok(runEchoes(sudden, 60, 10, 0).count === 0, 'echoes: afterglow 0 makes none');
   const shaped = runEchoes(ramp, 60, 0.7);
