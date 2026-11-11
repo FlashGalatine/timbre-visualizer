@@ -105,10 +105,11 @@ VIZ_FACTORIES['my-scene'] = function () {
 };
 ```
 
-`TimbreScene.create(def)` returns `null` when three.js or WebGL is missing; the wrapper
-above then simply draws nothing. `dispose()` frees everything the scene made and puts the
-WebGL context back to its defaults, so the next effect (including the older WebGL ones)
-starts clean.
+`TimbreScene.create(def)` returns `null` when three.js or WebGL is missing, or when
+`build()` throws (the error goes to the console and whatever `build` had made is freed);
+the wrapper above then simply draws nothing. `dispose()` frees everything the scene made
+and puts the WebGL context back to its defaults, so the next effect (including the older
+WebGL ones) starts clean.
 
 ### The `k` context (passed to `build` and `update`)
 
@@ -120,7 +121,7 @@ starts clean.
 | `k.orbit` | radians; set it in `update` to swing the camera around the frame centre |
 | `k.keep(obj)` | register a geometry, material or texture for disposal; returns `obj` |
 | `k.practical(light)` | mark a light as a *practical* (see below); returns the light |
-| `k.addLight(material)` | make a material add light without adding alpha; returns it |
+| `k.addLight(material)` | make a material add light without adding alpha; also sets `transparent = true` and `depthWrite = false`; returns the same material |
 | `k.glowTexture(r, g, b)` | a soft round glow texture (0-255 channels), already kept |
 
 `audio` in `update` is already smoothed, and every field but `beat` is 0 to 1:
@@ -170,12 +171,13 @@ schema) and apply live through the camera, without rebuilding the scene.
 
 ### Registering a scene
 
-The same three edits as any effect (above), plus the id in two lists in
+The same three edits as any effect (above), plus the id in two more lists in
 `shared/viz-config.js`:
 
-1. Add the id to `VIZ_SCENES` (this shows the Scene placement group for it) and to
-   `VIZ_USES_3D` (this shows the WebGL canvas). `ACTIVE_VIZ_NAMES` and `DEFAULT_PER_VIZ`
-   work as usual.
+1. Add the id to `VIZ_SCENES`, the list of kit scenes that came with the scene kit (it
+   shows the Scene placement group for the effect), and to `VIZ_USES_3D`, the existing
+   list of every WebGL effect (it shows the WebGL canvas). `ACTIVE_VIZ_NAMES` and
+   `DEFAULT_PER_VIZ` work as usual.
 2. Add the scene's `<script>` tag to all three overlay pages, after `scene-kit.js` and
    `scene-parts.js`, which the pages already load before the factories.
 

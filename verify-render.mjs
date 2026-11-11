@@ -20,8 +20,10 @@
 //           1440×1080 page: native geometry, fits 720×540, letterboxes 16:9 •
 //           scene kit (Thanksgiving): internal scale, placement, resize without
 //           rebuilds, afterglow time, output modes, fps independence, no GPU
-//           growth on re-select, clean GL hand-off, no-THREE fallback; the full
-//           cornucopia: falling-leaf count at 30/60 fps, Leaf density and Candle
+//           growth on re-select (every kit scene), clean GL hand-off, no-THREE
+//           fallback, no light at the canvas edge, no tinted rectangle, exception-safe
+//           create/dispose, a transparent first frame after a context restore; the
+//           full cornucopia: falling leaves at 30/60 fps, Leaf density and Candle
 //           glow knobs, canvas coverage, embers with no mic and no idle animation,
 //           and the cost of one draw() (averaged over 120 frames, under 4 ms).
 
@@ -246,17 +248,25 @@ async function main() {
     // ── Scene kit + Thanksgiving (1920×1080 page) ─────────────────────────────
     const sceneState = () => wide.evaluate(() => window.__timbre.scene);
     // Draw one frame by hand and read the canvas in the same task (the buffer is cleared after compositing).
+    // edgeLight: light pixels in the outermost 4 px on every side (solid objects may cross the edge;
+    // light may not). empty: the share of pixels with no alpha and no colour.
     const probe = () => wide.evaluate(() => {
       currentViz.draw(performance.now(), 1 / 60);
       const c = document.getElementById('vizCanvas3D'), gl = c.getContext('webgl2');
       const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
       gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
-      let solid = 0, light = 0, sx = 0;
+      const RING = 4;
+      let solid = 0, light = 0, sx = 0, empty = 0, edgeLight = 0;
       for (let i = 0; i < px.length; i += 4) {
-        if (px[i + 3] > 250) { solid++; sx += (i / 4) % w; }
-        else if (px[i + 3] < 5 && px[i] + px[i + 1] + px[i + 2] > 12) light++;
+        const x = (i / 4) % w, y = Math.floor(i / 4 / w), rgb = px[i] + px[i + 1] + px[i + 2];
+        if (px[i + 3] > 250) { solid++; sx += x; }
+        else if (px[i + 3] < 5 && rgb > 12) {
+          light++;
+          if (x < RING || y < RING || x >= w - RING || y >= h - RING) edgeLight++;
+        }
+        if (px[i + 3] === 0 && rgb === 0) empty++;
       }
-      return { w, h, solid, light, cornerAlpha: px[3], centroidX: solid ? sx / solid : 0 };
+      return { w, h, solid, light, empty: empty / (w * h), edgeLight, cornerAlpha: px[3], centroidX: solid ? sx / solid : 0 };
     });
     const activate = async (name) => { await pushConfig((c) => { c.activeViz = name; }); await wide.waitForFunction((n) => window.__timbre.currentVizName === n, name, { timeout: 5000 }); await wide.waitForTimeout(500); };
 
@@ -266,6 +276,8 @@ async function main() {
     check('targets are canvas-sized at scale 1', s0.renderScale === 1 && s0.targetSize[0] === 1728 && s0.targetSize[1] === 624, JSON.stringify(s0.targetSize));
     const p0 = await probe();
     check('scene has solid pixels, added light and a transparent corner', p0.solid > 3000 && p0.light > 20000 && p0.cornerAlpha === 0, JSON.stringify(p0));
+    check('no hard line: no light in the outer 4 px of the canvas', p0.edgeLight === 0, JSON.stringify(p0));
+    check('no tinted rectangle: over a quarter of the canvas stays fully empty', p0.empty > 0.25, p0.empty.toFixed(3));
 
     await pushConfig((c) => { c.activeViz = 'thanksgiving-harvest'; c.placement.x = 30; });   // 30% of half of 1728 px is 259
     await wide.waitForTimeout(400);
@@ -296,14 +308,24 @@ async function main() {
     await wide.evaluate(() => { TimbreScene.outputMode = 'added'; });
     check('premultiplied mode gives light an alpha', pm.light < plain.light / 10, `${plain.light} → ${pm.light}`);
 
-    // Frame-rate independence: stop the page's own loop, drive a fixed level by hand.
+    // Frame-rate independence: stop the page's own loop, drive a fixed level by hand. Each run
+    // swaps Math.random for the same seeded generator (from before the scene is built until it
+    // returns) and starts the clock at the same instant, half a 60 Hz flicker slot past a slot
+    // boundary, so every run of the suite draws the same numbers.
     const stepped = (fps) => wide.evaluate(async (fps) => {
       window.frame = function () {};
-      TimbreScene.testLevel = 0;
-      setActiveViz('visualizer'); setActiveViz('thanksgiving-harvest');
-      let now = performance.now();
-      for (let i = 0; i < Math.round(1.5 * fps); i++) { TimbreScene.testLevel = i < fps ? 0.8 : 0; now += 1000 / fps; currentViz.draw(now, 1 / fps); }
-      return window.__timbre.scene.state;
+      const random = Math.random;
+      let seed = 20261111;
+      Math.random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+      try {
+        TimbreScene.testLevel = 0;
+        setActiveViz('visualizer'); setActiveViz('thanksgiving-harvest');
+        let now = 100000 + 1000 / 120;
+        for (let i = 0; i < Math.round(1.5 * fps); i++) { TimbreScene.testLevel = i < fps ? 0.8 : 0; now += 1000 / fps; currentViz.draw(now, 1 / fps); }
+        return window.__timbre.scene.state;
+      } finally {
+        Math.random = random;
+      }
     }, fps);
     await pushConfig((c) => { c.activeViz = 'thanksgiving-harvest'; });
     await wide.waitForTimeout(300);
@@ -311,7 +333,10 @@ async function main() {
     const want = [2.2, 3.4, 4.6].map((r) => 0.8 * Math.exp(-r * 0.5));
     check('candles fall at their own rates, the same at 30 and 60 fps',
       want.every((w, i) => Math.abs(f30.follow[i] - w) < 0.02 && Math.abs(f60.follow[i] - w) < 0.02), JSON.stringify({ want, f30: f30.follow, f60: f60.follow }));
-    check('falling-leaf count is the same at 30 and 60 fps', Math.abs(f30.leafTarget - f60.leafTarget) <= 1, `${f30.leafTarget} vs ${f60.leafTarget}`);
+    // The leaf simulation itself, not just its target: how many are in the air and how far they have come down.
+    check('falling leaves fall the same at 30 and 60 fps (count and mean height)',
+      f30.falling > 0 && Math.abs(f30.falling - f60.falling) <= 1 && Math.abs(f30.fallingHeight - f60.fallingHeight) < 0.15,
+      JSON.stringify({ f30: [f30.falling, f30.fallingHeight], f60: [f60.falling, f60.fallingHeight] }));
     const knobs = await wide.evaluate(() => {
       window.frame = function () {};
       const run = (leafDensity, candleGlow) => {
@@ -331,9 +356,48 @@ async function main() {
     const cost = await wide.evaluate(() => { let now = performance.now(), acc = 0; for (let i = 0; i < 120; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); acc += performance.now() - t; } return acc / 120; });
     check(`draw() averages under 4 ms (${cost.toFixed(2)} ms)`, cost < 4);
 
-    const leakBefore = await wide.evaluate(() => { currentViz.draw(performance.now(), 1 / 60); const s = window.__timbre.scene; return [s.memory.geometries, s.memory.textures, s.programs]; });
-    const leakAfter = await wide.evaluate(() => { setActiveViz('visualizer'); setActiveViz('thanksgiving-harvest'); currentViz.draw(performance.now(), 1 / 60); const s = window.__timbre.scene; return [s.memory.geometries, s.memory.textures, s.programs]; });
-    check('re-selecting the scene does not grow GPU resources', JSON.stringify(leakBefore) === JSON.stringify(leakAfter), `${leakBefore} → ${leakAfter}`);
+    // Every kit scene, so the next one is covered without a new check.
+    const gpuAfterSelect = (name) => wide.evaluate((n) => { setActiveViz('visualizer'); setActiveViz(n); currentViz.draw(performance.now(), 1 / 60); const s = window.__timbre.scene; return [s.memory.geometries, s.memory.textures, s.programs]; }, name);
+    for (const name of T.VIZ_SCENES) {
+      const leakBefore = await gpuAfterSelect(name), leakAfter = await gpuAfterSelect(name);
+      check(`re-selecting ${name} does not grow GPU resources`, JSON.stringify(leakBefore) === JSON.stringify(leakAfter), `${leakBefore} → ${leakAfter}`);
+    }
+
+    // dispose() and create() are exception-safe: a kept object with no dispose() (a Group) is
+    // skipped, and a build() that throws makes create() return null after freeing what it made.
+    const keptGroup = await wide.evaluate(() => {
+      setActiveViz('visualizer');
+      const s = TimbreScene.create({
+        frame: { width: 2, height: 2, center: [0, 0.5, 0] }, fov: 30, pitch: 14, update() {},
+        build(k) { k.scene.add(k.keep(new k.THREE.Group())); },
+      });
+      if (!s) return { created: false };
+      let threw = null;
+      try { s.dispose(); } catch (e) { threw = String(e); }
+      return { created: true, threw, released: TimbreScene.debug() === null };
+    });
+    check('dispose() skips a kept object that has no dispose() and hands the context back', keptGroup.created && keptGroup.threw === null && keptGroup.released, JSON.stringify(keptGroup));
+    const badBuild = await wide.evaluate(() => {
+      setActiveViz('visualizer');
+      const error = console.error;
+      let freed = false, logged = 0, result, threw = null;
+      console.error = () => { logged++; };
+      try {
+        result = TimbreScene.create({
+          frame: { width: 2, height: 2, center: [0, 0.5, 0] }, fov: 30, pitch: 14, update() {},
+          build(k) {
+            k.keep(new k.THREE.BoxGeometry(1, 1, 1)).addEventListener('dispose', () => { freed = true; });
+            throw new Error('test: build() fails');
+          },
+        });
+      } catch (e) { threw = String(e); } finally { console.error = error; }
+      setActiveViz('thanksgiving-harvest');
+      currentViz.draw(performance.now(), 1 / 60);
+      const s = window.__timbre.scene;
+      return { returnedNull: result === null, threw, logged, freed, next: !!s && s.active === true && s.targetSize[0] > 0 && Array.isArray(s.state.candles) };
+    });
+    check('a build() that throws: create() logs it, frees what it made, returns null; the next scene starts',
+      badBuild.returnedNull && badBuild.threw === null && badBuild.logged === 1 && badBuild.freed && badBuild.next, JSON.stringify(badBuild));
 
     const roseOk = await wide.evaluate(async () => { setActiveViz('rose'); await new Promise((r) => setTimeout(r, 1200)); currentViz.draw(performance.now()); const gl = document.getElementById('vizCanvas3D').getContext('webgl2'); return gl.getError() === 0 && !gl.isContextLost(); });
     check('an existing WebGL effect runs cleanly after a scene', roseOk);
@@ -341,6 +405,33 @@ async function main() {
     const noThree = await wide.evaluate(() => { const T3 = window.THREE; window.THREE = undefined; let threw = false; try { setActiveViz('visualizer'); setActiveViz('thanksgiving-harvest'); currentViz.draw(performance.now(), 1 / 60); } catch { threw = true; } window.THREE = T3; setActiveViz('visualizer'); return threw; });
     check('no THREE, no throw', noThree === false);
     await wide.evaluate(() => { TimbreScene.testLevel = null; });
+
+    // OBS browser sources lose and restore their WebGL context: the first frame after a restore
+    // must be as transparent as any other. Last in the section: disposing objects made before the
+    // loss has three delete dead GL objects, which leaves a GL error flag for a later getError().
+    const restored = await wide.evaluate(async () => {
+      setActiveViz('thanksgiving-harvest');
+      currentViz.draw(performance.now(), 1 / 60);
+      const c = document.getElementById('vizCanvas3D'), gl = c.getContext('webgl2');
+      const lose = gl.getExtension('WEBGL_lose_context');   // before the loss: a lost context returns null
+      if (!lose) return { error: 'no WEBGL_lose_context' };
+      const after = (type, act) => Promise.race([
+        new Promise((res) => { c.addEventListener(type, () => res(true), { once: true }); act(); }),
+        new Promise((res) => setTimeout(() => res(false), 3000)),
+      ]);
+      if (!(await after('webglcontextlost', () => lose.loseContext()))) return { error: 'no webglcontextlost' };
+      await new Promise((res) => setTimeout(res, 0));   // one task, or the browser refuses the restore
+      if (!(await after('webglcontextrestored', () => lose.restoreContext()))) return { error: 'no webglcontextrestored' };
+      currentViz.draw(performance.now(), 1 / 60);       // the first frame since the restore, read in the same task
+      const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      let solid = 0;
+      for (let i = 3; i < px.length; i += 4) if (px[i] > 250) solid++;
+      setActiveViz('visualizer');
+      return { w, h, solid, cornerAlpha: px[3] };
+    });
+    check('the first frame after a WebGL context restore is not opaque',
+      !restored.error && restored.cornerAlpha === 0 && restored.solid < restored.w * restored.h / 2, JSON.stringify(restored));
     check('no page errors from the scene checks', wideErrors.length === 0, wideErrors.join(' | '));
     // The mock replays its last config to each page that connects: leave it on visualizer.
     await pushConfig((c) => { c.activeViz = 'visualizer'; });
