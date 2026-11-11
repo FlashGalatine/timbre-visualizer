@@ -36,13 +36,18 @@ VIZ_FACTORIES['ring-waveform'] = function () {
         ys[i] = CY + Math.sin(angle) * r;
       }
 
-      // Nine-stop gradient running around the ring from the top.
-      const grad = ctx.createConicGradient(-Math.PI / 2, CX, CY);
-      for (let k = 0; k <= 8; k++) {
-        const c = getColor(colorT + (k / 8) * 1.5);
-        grad.addColorStop(k / 8, `rgb(${c[0]}, ${c[1]}, ${c[2]})`);
-      }
+      // Nine-stop gradient running around the ring from the top. Chromium before
+      // 99 (older OBS builds) has no conic gradient: the mid colour stands in.
       const mid = getColor(colorT + 0.75);
+      const midRgb = `rgb(${mid[0]}, ${mid[1]}, ${mid[2]})`;
+      let grad = midRgb;
+      if (typeof ctx.createConicGradient === 'function') {
+        grad = ctx.createConicGradient(-Math.PI / 2, CX, CY);
+        for (let k = 0; k <= 8; k++) {
+          const c = getColor(colorT + (k / 8) * 1.5);
+          grad.addColorStop(k / 8, `rgb(${c[0]}, ${c[1]}, ${c[2]})`);
+        }
+      }
 
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';
@@ -55,7 +60,7 @@ VIZ_FACTORIES['ring-waveform'] = function () {
       ctx.stroke();
 
       // Afterglow: echoes of recent loud moments, oldest first, behind the live ring.
-      echoes.sync(N + ':' + W + ':' + H + ':' + amplitude);
+      echoes.sync(N + ':' + W + ':' + H);
       const list = echoes.step(loudness, now, dt, cfgAfterglow, live, () => ({ xs: Float32Array.from(xs), ys: Float32Array.from(ys) }));
       for (const e of list) {
         ctx.strokeStyle = grad;
@@ -75,7 +80,7 @@ VIZ_FACTORIES['ring-waveform'] = function () {
       ctx.fill();
       ctx.globalAlpha = 1;
       TimbreGlow.glowLine(ctx, addRing, {
-        width: LW, stroke: grad, glowColor: `rgb(${mid[0]}, ${mid[1]}, ${mid[2]})`, blur: 8 * SCALE,
+        width: LW, stroke: grad, glowColor: midRgb, blur: 8 * SCALE,
       });
 
       const centerRgb = getColor(colorT + 0.5);

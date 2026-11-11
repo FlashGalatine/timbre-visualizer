@@ -73,7 +73,7 @@ traceability.
   **Leaf density** and **Camera drift**; **Pumpkin pulse** and **Wheat sway** are gone
   (saved values for them are dropped on load). The effect id and count are unchanged.
 - **Waveform and Ring Waveform are now smooth lines.** The stepped look is gone: the
-  line is a smooth curve through the samples, with a glow and a thin white core.
+  line is a smooth curve that follows the samples, with a glow and a thin white core.
 - **Peak Hold's marker is timed in seconds and scaled to the page**, so it looks the same
   at any frame rate. It falls faster than before on the two large pages (1440×1080 and
   1920×1080).

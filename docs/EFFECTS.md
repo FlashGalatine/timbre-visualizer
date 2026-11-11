@@ -189,9 +189,10 @@ For tests, `TimbreScene.testLevel = 0.8` replaces the mic level (`null` restores
 
 Six 2D effects (`visualizer`, `peak-hold`, `ring-bars`, `sine-bars`, `waveform`,
 `ring-waveform`) leave a fading trace of what they just drew. The length is the
-**Afterglow** setting, `cfgAfterglow` in seconds (0 to 4, default 1.6; 0 is off). The
-arithmetic is in `overlay/afterglow.js`, which sets one global, `TimbreGlow`. It does no
-drawing: the effect draws, `TimbreGlow` says what and how strongly.
+**Afterglow** setting, `cfgAfterglow` in seconds (0 to 4, default 1.6; 0 is off).
+`overlay/afterglow.js` sets one global, `TimbreGlow`. It holds the arithmetic plus two
+small canvas helpers (`trace`, `glowLine`) that draw only on the context they are handed:
+the effect decides what to draw, `TimbreGlow` says what to remember and how strongly.
 
 ### What `TimbreGlow` offers
 
@@ -216,9 +217,11 @@ drawing: the effect draws, `TimbreGlow` says what and how strongly.
   (for example `` `${bars}:${W}:${H}` ``). A key that changes clears the ghosts; the same
   key keeps them, so a config push does not wipe them.
 - **Never reset in `onResize`.** A resize that leaves the key unchanged keeps the ghosts.
-- **No new ghosts while the mic is off.** Pass `record = micActive`; ghosts already alive
-  keep fading.
-- **The live drawing is unchanged.** Afterglow 0 must look like the effect did before.
+- **No new ghosts while the mic is off.** Pass `record` as true only while there is live
+  audio (the factories use `micActive` plus a check that the audio array exists); ghosts
+  already alive keep fading.
+- **The live drawing is unchanged.** Afterglow 0 must look exactly like the effect without
+  any ghosts.
 
 ### Adding an effect
 
@@ -227,7 +230,8 @@ the control panel for the effect. Load `afterglow.js` before the factories (all 
 overlay pages already do). Then read `cfgAfterglow` in `draw`, keep one `createBarGhosts()`
 or `createEchoes()` per activation, and follow the rules above. `npm run verify:render` has
 a set of checks every afterglow effect should pass, and a speed check (under 0.5 ms a
-draw); add the new id to the loops there.
+draw); add the new id to the `glowChecks` calls there. The speed check picks it up from
+`VIZ_AFTERGLOW`.
 
 ## Wire format (for driving Timbre from elsewhere)
 
