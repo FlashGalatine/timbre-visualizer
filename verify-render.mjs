@@ -17,7 +17,10 @@
 //           1920×1080 page: 1728×624 buffer, SCALE pinned 4.8, ring effect stays
 //           inside the canvas, decoration toggles rescale, no-border fills the box •
 //           same page fits 1280×720 / 640×360 sources uniformly, letterboxes 4:3 •
-//           1440×1080 page: native geometry, fits 720×540, letterboxes 16:9.
+//           1440×1080 page: native geometry, fits 720×540, letterboxes 16:9 •
+//           scene kit (Thanksgiving): internal scale, placement, resize without
+//           rebuilds, afterglow time, output modes, fps independence, no GPU
+//           growth on re-select, clean GL hand-off, no-THREE fallback.
 
 import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -134,6 +137,11 @@ async function main() {
       { timeout: 5000 }).then(() => true).catch(() => false);
     check('3D STL factory (rose) activates the WebGL canvas', rose);
     await page.waitForTimeout(1200); // STL fetch + first frames
+
+    await pushConfig((c) => { c.activeViz = 'thanksgiving-harvest'; });
+    await page.waitForFunction(() => window.__timbre.scene && window.__timbre.scene.active, { timeout: 5000 }).catch(() => {});
+    const small = await page.evaluate(() => window.__timbre.scene);
+    check('small page renders the scene at 4× internally', !!small && small.renderScale === 4 && small.targetSize[0] === 1040 && small.targetSize[1] === 520, JSON.stringify(small && small.targetSize));
     check('no page errors across all factories exercised', pageErrors.length === 0, pageErrors.join(' | '));
 
     await pushConfig((c) => { c.activeViz = 'visualizer'; });
@@ -231,6 +239,88 @@ async function main() {
     check('no-border while scaled → buffer height follows layout (1080), not screen px', nbScaled,
       String(await wide.evaluate(() => window.__timbre.H)));
     check('no page errors while resizing the 16:9 page', wideErrors.length === 0, wideErrors.join(' | '));
+
+    // ── Scene kit + Thanksgiving (1920×1080 page) ─────────────────────────────
+    const sceneState = () => wide.evaluate(() => window.__timbre.scene);
+    // Draw one frame by hand and read the canvas in the same task (the buffer is cleared after compositing).
+    const probe = () => wide.evaluate(() => {
+      currentViz.draw(performance.now(), 1 / 60);
+      const c = document.getElementById('vizCanvas3D'), gl = c.getContext('webgl2');
+      const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      let solid = 0, light = 0, sx = 0;
+      for (let i = 0; i < px.length; i += 4) {
+        if (px[i + 3] > 250) { solid++; sx += (i / 4) % w; }
+        else if (px[i + 3] < 5 && px[i] + px[i + 1] + px[i + 2] > 12) light++;
+      }
+      return { w, h, solid, light, cornerAlpha: px[3], centroidX: solid ? sx / solid : 0 };
+    });
+    const activate = async (name) => { await pushConfig((c) => { c.activeViz = name; }); await wide.waitForFunction((n) => window.__timbre.currentVizName === n, name, { timeout: 5000 }); await wide.waitForTimeout(500); };
+
+    await activate('thanksgiving-harvest');
+    const s0 = await sceneState();
+    check('scene activates on the WebGL canvas', !!s0 && s0.active === true && await wide.evaluate(() => document.getElementById('vizCanvas3D').style.display !== 'none'));
+    check('targets are canvas-sized at scale 1', s0.renderScale === 1 && s0.targetSize[0] === 1728 && s0.targetSize[1] === 624, JSON.stringify(s0.targetSize));
+    const p0 = await probe();
+    check('scene has solid pixels, added light and a transparent corner', p0.solid > 3000 && p0.light > 20000 && p0.cornerAlpha === 0, JSON.stringify(p0));
+
+    await pushConfig((c) => { c.activeViz = 'thanksgiving-harvest'; c.placement.x = 30; });   // 30% of half of 1728 px is 259
+    await wide.waitForTimeout(400);
+    const p1 = await probe();
+    check('placement.x slides the scene right', p1.centroidX - p0.centroidX > 150, `${p0.centroidX.toFixed(0)} → ${p1.centroidX.toFixed(0)}`);
+    check('config push does not rebuild targets', (await sceneState()).targetGeneration === s0.targetGeneration);
+
+    await pushConfig((c) => { c.activeViz = 'thanksgiving-harvest'; c.placement.x = -100; c.placement.y = 100; c.placement.size = 200; });
+    await wide.waitForTimeout(300); await probe();
+    await pushConfig((c) => { c.activeViz = 'thanksgiving-harvest'; c.showLabels = false; });
+    await wide.waitForTimeout(400);
+    check('a canvas height change resizes the targets', (await sceneState()).targetSize[1] === 816, JSON.stringify((await sceneState()).targetSize));
+    await pushConfig((c) => { c.activeViz = 'thanksgiving-harvest'; c.showBorder = false; });
+    await wide.waitForTimeout(400);
+    const sb = await sceneState(); await probe();
+    check('border off refits', sb.targetSize[0] === 1920 && sb.targetSize[1] === 1080, JSON.stringify(sb.targetSize));
+    await pushConfig((c) => { c.activeViz = 'thanksgiving-harvest'; c.showBorder = false; c.gain = 110; });
+    await wide.waitForTimeout(300); await probe();
+    check('nor with the border off', (await sceneState()).targetGeneration === sb.targetGeneration);
+    await pushConfig((c) => { c.activeViz = 'thanksgiving-harvest'; c.effectBgOpacity = 0; });
+    await wide.waitForTimeout(300); await probe();
+    check('Trail veil 0 gives a 1.5 s afterglow', (await sceneState()).afterglowT === 1.5);
+    await pushConfig((c) => { c.activeViz = 'thanksgiving-harvest'; });
+    await wide.waitForTimeout(300);
+    const plain = await probe();
+    await wide.evaluate(() => { TimbreScene.outputMode = 'premultiplied'; });
+    const pm = await probe();
+    await wide.evaluate(() => { TimbreScene.outputMode = 'added'; });
+    check('premultiplied mode gives light an alpha', pm.light < plain.light / 10, `${plain.light} → ${pm.light}`);
+
+    // Frame-rate independence: stop the page's own loop, drive a fixed level by hand.
+    const stepped = (fps) => wide.evaluate(async (fps) => {
+      window.frame = function () {};
+      TimbreScene.testLevel = 0;
+      setActiveViz('visualizer'); setActiveViz('thanksgiving-harvest');
+      let now = performance.now();
+      for (let i = 0; i < Math.round(1.5 * fps); i++) { TimbreScene.testLevel = i < fps ? 0.8 : 0; now += 1000 / fps; currentViz.draw(now, 1 / fps); }
+      return window.__timbre.scene.state;
+    }, fps);
+    await pushConfig((c) => { c.activeViz = 'thanksgiving-harvest'; });
+    await wide.waitForTimeout(300);
+    const f30 = await stepped(30), f60 = await stepped(60);
+    const want = [2.2, 3.4, 4.6].map((r) => 0.8 * Math.exp(-r * 0.5));
+    check('candles fall at their own rates, the same at 30 and 60 fps',
+      want.every((w, i) => Math.abs(f30.follow[i] - w) < 0.02 && Math.abs(f60.follow[i] - w) < 0.02), JSON.stringify({ want, f30: f30.follow, f60: f60.follow }));
+
+    const leakBefore = await wide.evaluate(() => { currentViz.draw(performance.now(), 1 / 60); const s = window.__timbre.scene; return [s.memory.geometries, s.memory.textures, s.programs]; });
+    const leakAfter = await wide.evaluate(() => { setActiveViz('visualizer'); setActiveViz('thanksgiving-harvest'); currentViz.draw(performance.now(), 1 / 60); const s = window.__timbre.scene; return [s.memory.geometries, s.memory.textures, s.programs]; });
+    check('re-selecting the scene does not grow GPU resources', JSON.stringify(leakBefore) === JSON.stringify(leakAfter), `${leakBefore} → ${leakAfter}`);
+
+    const roseOk = await wide.evaluate(async () => { setActiveViz('rose'); await new Promise((r) => setTimeout(r, 1200)); currentViz.draw(performance.now()); const gl = document.getElementById('vizCanvas3D').getContext('webgl2'); return gl.getError() === 0 && !gl.isContextLost(); });
+    check('an existing WebGL effect runs cleanly after a scene', roseOk);
+
+    const noThree = await wide.evaluate(() => { const T3 = window.THREE; window.THREE = undefined; let threw = false; try { setActiveViz('visualizer'); setActiveViz('thanksgiving-harvest'); currentViz.draw(performance.now(), 1 / 60); } catch { threw = true; } window.THREE = T3; setActiveViz('visualizer'); return threw; });
+    check('no THREE, no throw', noThree === false);
+    await wide.evaluate(() => { TimbreScene.testLevel = null; });
+    check('no page errors from the scene checks', wideErrors.length === 0, wideErrors.join(' | '));
+    // The mock replays its last config to each page that connects: leave it on visualizer.
     await pushConfig((c) => { c.activeViz = 'visualizer'; });
     await wide.close();
 

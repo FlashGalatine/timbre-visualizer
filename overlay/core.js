@@ -248,6 +248,7 @@ window.__timbre = {
   get SCALE() { return SCALE; },
   get W() { return W; },
   get H() { return H; },
+  get scene() { return (typeof TimbreScene !== 'undefined' && TimbreScene.debug) ? TimbreScene.debug() : null; },
 };
 
 window.addEventListener('timbre:mic', (evt) => {
