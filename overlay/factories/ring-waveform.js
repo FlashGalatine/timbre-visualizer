@@ -1,8 +1,8 @@
-/* ── ring-waveform (waveform displaced around a circle) ── */
+/* ── ring-waveform (waveform displaced around a circle, smooth ring with echoes) ── */
 VIZ_FACTORIES['ring-waveform'] = function () {
   const BASE_R = 32 * SCALE;
-  const GRID = Math.max(2, Math.round(4 * SCALE));
-  function snap(v) { return Math.round(v / GRID) * GRID; }
+  const LW = Math.max(1.5, 2.2 * SCALE);
+  const echoes = TimbreGlow.createEchoes();
   function getSampleAt(i, n) {
     if (micActive && waveform) {
       const idx = i % waveform.length;
@@ -13,62 +13,71 @@ VIZ_FACTORIES['ring-waveform'] = function () {
     const t = Date.now() / 600;
     return 0.18 * Math.sin(angle * 3 + t) + 0.08 * Math.sin(angle * 7 - t * 1.3);
   }
-  function drawSteppedLine(x0, y0, x1, y1, rgb) {
-    const dx = Math.abs(x1 - x0);
-    const dy = Math.abs(y1 - y0);
-    const steps = Math.max(dx, dy) / GRID;
-    if (steps < 1) {
-      ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
-      ctx.fillRect(x0 - 1, y0 - 1, GRID - 1, GRID - 1);
-      return;
-    }
-    ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
-    for (let s = 0; s <= steps; s++) {
-      const t = s / steps;
-      const x = snap(x0 + (x1 - x0) * t);
-      const y = snap(y0 + (y1 - y0) * t);
-      ctx.fillRect(x - 1, y - 1, GRID - 1, GRID - 1);
-    }
-  }
   return {
-    draw() {
+    draw(now, dt) {
       ctx.clearRect(0, 0, W, H);
       const CX = W / 2, CY = H / 2;
-      const now = Date.now();
-      const colorT = ((now * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
-      const N = micActive && waveform ? waveform.length : 64;
-      const AMPLITUDE = (4 + (perViz['ring-waveform'].amplitude / 100) * 28) * SCALE;
+      const colorT = ((Date.now() * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
+      const live = micActive && !!waveform;
+      const N = live ? waveform.length : 64;
+      const amplitude = perViz['ring-waveform'].amplitude;
+      const AMPLITUDE = (4 + (amplitude / 100) * 28) * SCALE;
+
+      const xs = new Float32Array(N);
+      const ys = new Float32Array(N);
+      let loudness = 0;
+      for (let i = 0; i < N; i++) {
+        const angle = (i / N) * Math.PI * 2 - Math.PI / 2;
+        const sample = getSampleAt(i, N);
+        const a = Math.abs(sample);
+        if (a > loudness) loudness = a;
+        const r = BASE_R + sample * AMPLITUDE;
+        xs[i] = CX + Math.cos(angle) * r;
+        ys[i] = CY + Math.sin(angle) * r;
+      }
+
+      // Nine-stop gradient running around the ring from the top.
+      const grad = ctx.createConicGradient(-Math.PI / 2, CX, CY);
+      for (let k = 0; k <= 8; k++) {
+        const c = getColor(colorT + (k / 8) * 1.5);
+        grad.addColorStop(k / 8, `rgb(${c[0]}, ${c[1]}, ${c[2]})`);
+      }
+      const mid = getColor(colorT + 0.75);
+
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 1;
       ctx.strokeStyle = 'rgba(0, 255, 255, 0.10)';
       ctx.lineWidth = Math.max(1, SCALE);
       ctx.beginPath();
       ctx.arc(CX, CY, BASE_R, 0, Math.PI * 2);
       ctx.stroke();
-      const verts = [];
-      for (let i = 0; i < N; i++) {
-        const angle = (i / N) * Math.PI * 2 - Math.PI / 2;
-        const sample = getSampleAt(i, N);
-        const r = BASE_R + sample * AMPLITUDE;
-        verts.push({
-          x: snap(CX + Math.cos(angle) * r),
-          y: snap(CY + Math.sin(angle) * r),
-        });
+
+      // Afterglow: echoes of recent loud moments, oldest first, behind the live ring.
+      echoes.sync(N + ':' + W + ':' + H + ':' + amplitude);
+      const list = echoes.step(loudness, now, dt, cfgAfterglow, live, () => ({ xs: Float32Array.from(xs), ys: Float32Array.from(ys) }));
+      for (const e of list) {
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 0.8 * LW;
+        ctx.globalAlpha = TimbreGlow.ECHO * e.strength;
+        ctx.beginPath();
+        TimbreGlow.trace(ctx, e.shape.xs, e.shape.ys, true);
+        ctx.stroke();
       }
-      const glowRgb = getColor(colorT);
+
+      // The live ring.
+      const addRing = () => TimbreGlow.trace(ctx, xs, ys, true);
+      ctx.globalAlpha = 0.10;
+      ctx.fillStyle = grad;
       ctx.beginPath();
-      for (let i = 0; i < verts.length; i++) {
-        const v = verts[i];
-        if (i === 0) ctx.moveTo(v.x, v.y);
-        else ctx.lineTo(v.x, v.y);
-      }
-      ctx.closePath();
-      ctx.fillStyle = `rgba(${glowRgb[0]}, ${glowRgb[1]}, ${glowRgb[2]}, 0.10)`;
+      addRing();
       ctx.fill();
-      for (let i = 0; i < verts.length; i++) {
-        const a = verts[i];
-        const b = verts[(i + 1) % verts.length];
-        const rgb = getColor(colorT + (i / verts.length) * 1.5);
-        drawSteppedLine(a.x, a.y, b.x, b.y, rgb);
-      }
+      ctx.globalAlpha = 1;
+      TimbreGlow.glowLine(ctx, addRing, {
+        width: LW, stroke: grad, glowColor: `rgb(${mid[0]}, ${mid[1]}, ${mid[2]})`, blur: 8 * SCALE,
+      });
+
       const centerRgb = getColor(colorT + 0.5);
       const coreSize = Math.max(2, Math.round(4 * SCALE));
       const coreHi = Math.max(1, Math.round(2 * SCALE));
@@ -76,6 +85,8 @@ VIZ_FACTORIES['ring-waveform'] = function () {
       ctx.fillRect(CX - coreSize / 2, CY - coreSize / 2, coreSize, coreSize);
       ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
       ctx.fillRect(CX - coreHi / 2, CY - coreHi / 2, coreHi, coreHi);
+      ctx.globalAlpha = 1;
+      ctx.shadowBlur = 0;
     },
   };
 };
