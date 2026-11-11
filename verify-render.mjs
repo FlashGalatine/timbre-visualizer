@@ -25,7 +25,11 @@
 //           create/dispose, a transparent first frame after a context restore; the
 //           full cornucopia: falling leaves at 30/60 fps, Leaf density and Candle
 //           glow knobs, canvas coverage, embers with no mic and no idle animation,
-//           and the cost of one draw() (averaged over 120 frames, under 4 ms).
+//           and the cost of one draw() (averaged over 120 frames, under 4 ms) •
+//           afterglow (bars and waves): ghosts appear and are gone after the afterglow
+//           time, afterglow 0 leaves none, config pushes keep ghosts, a Bars change
+//           starts again, Peak Hold falls at the same speed at 30/60 fps, the control
+//           panel's Afterglow slider, and the six effects drawing in under 0.5 ms.
 
 import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -318,6 +322,20 @@ async function main() {
     check('peak-hold: the marker falls at the same speed at 30 and 60 fps', Math.abs(pk60.top - l60.top - 142.6) <= 16 && Math.abs(pk30.top - pk60.top) <= 16, `60 fps ${pk60.top - l60.top} px, 30 fps ${pk30.top - l60.top} px`);
     await glowChecks(wide, 'waveform', { maxGhostAlpha: 165 });
     await glowChecks(wide, 'ring-waveform', { maxGhostAlpha: 165 });
+    await pushConfig((c) => { c.activeViz = 'visualizer'; c.afterglow = 1.6; c.idleAnim = false; });
+    await wide.waitForFunction(() => cfgAfterglow === 1.6);
+    const costs = await wide.evaluate((names) => names.map((name) => {
+      currentViz = VIZ_FACTORIES[name](); if (currentViz.start) currentViz.start();
+      const f = new Uint8Array(32), w = new Uint8Array(64); frequencies = f; waveform = w; micActive = true;
+      let now = performance.now(); const t0 = performance.now();
+      for (let k = 0; k < 300; k++) {
+        const level = k % 30 < 15 ? 0.8 : 0;                       // loud and quiet, a quarter second each
+        f.fill(level * 255); for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * level * 127);
+        now += 1000 / 60; currentViz.draw(now, 1 / 60);
+      }
+      return [name, (performance.now() - t0) / 300];
+    }), T.VIZ_AFTERGLOW);
+    check('afterglow effects draw in under 0.5 ms', costs.every(([, ms]) => ms < 0.5), costs.map(([n, ms]) => `${n} ${ms.toFixed(3)}`).join(', '));
 
     // ── Scene kit + Thanksgiving (1920×1080 page) ─────────────────────────────
     const sceneState = () => wide.evaluate(() => window.__timbre.scene);

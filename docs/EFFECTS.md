@@ -13,7 +13,7 @@ VIZ_FACTORIES['my-effect'] = () => {
   return {
     start() {},                 // optional — after activation
     stop() {},                  // optional — before switching away (free GL resources!)
-    draw(now, dt) {             // required — called every animation frame
+    draw(now, dt) {             // required — every animation frame; now in ms, dt in seconds
       ctx.clearRect(0, 0, W, H);
       if (!micActive || !frequencies) { /* draw an idle state if cfgIdleAnim */ return; }
       for (let i = 0; i < cfgBars; i++) {
@@ -185,6 +185,50 @@ For tests, `TimbreScene.testLevel = 0.8` replaces the mic level (`null` restores
 `TimbreScene.debug()` returns the live scene's render scale, GPU resource counts and its own
 `debug()` state.
 
+## Afterglow (bar and wave effects)
+
+Six 2D effects (`visualizer`, `peak-hold`, `ring-bars`, `sine-bars`, `waveform`,
+`ring-waveform`) leave a fading trace of what they just drew. The length is the
+**Afterglow** setting, `cfgAfterglow` in seconds (0 to 4, default 1.6; 0 is off). The
+arithmetic is in `overlay/afterglow.js`, which sets one global, `TimbreGlow`. It does no
+drawing: the effect draws, `TimbreGlow` says what and how strongly.
+
+### What `TimbreGlow` offers
+
+| Name | Meaning |
+|---|---|
+| `fade(ageSec, T)` | a ghost's strength, 0 to 1: full for the first 15% of `T`, then eased down to 0 at `T` |
+| `createBarGhosts()` | per-bar memory of recent peaks. `sync(key)`, then `step(i, height, now, T, record)` returns the strips (`{ lo, hi, strength }`, nearest the live bar first) to draw above bar `i` |
+| `createEchoes()` | frozen copies of a wave's loudest moments. `sync(key)`, then `step(loudness, now, dt, T, record, snapshot)` returns `{ shape, strength, born }` for each live echo; `snapshot()` is called to capture the wave. Never more than `MAX_ECHOES` (6) are alive, even if `T` is raised |
+| `trace(ctx, xs, ys, closed)` | adds a smooth curve through the points to the current path (it does not begin or stroke it) |
+| `glowLine(ctx, addPath, { width, stroke, glowColor, blur })` | the live wave line: a glowing stroke with a thin white core, drawn from the path `addPath` adds |
+| `BAR`, `BAR_TIP`, `ECHO`, `ECHO_FILL` | alpha ceilings (0.42, 0.63, 0.6, 0.07); multiply each by the ghost's `strength` |
+
+### The rules
+
+- **Ghosts go behind.** Draw them before the live shape, so the live shape looks the same
+  with the afterglow on or off.
+- **Redraw, don't fade.** Ghosts are redrawn every frame from remembered values. Never
+  fade the previous frame's pixels.
+- **Time comes from `now` and `dt`.** Never count frames, so the effect looks the same at
+  30 and 60 fps.
+- **Call `sync` at draw time.** Pass a key made of whatever should start the memory afresh
+  (for example `` `${bars}:${W}:${H}` ``). A key that changes clears the ghosts; the same
+  key keeps them, so a config push does not wipe them.
+- **Never reset in `onResize`.** A resize that leaves the key unchanged keeps the ghosts.
+- **No new ghosts while the mic is off.** Pass `record = micActive`; ghosts already alive
+  keep fading.
+- **The live drawing is unchanged.** Afterglow 0 must look like the effect did before.
+
+### Adding an effect
+
+Add its id to `VIZ_AFTERGLOW` in `shared/viz-config.js`: that shows the Afterglow slider in
+the control panel for the effect. Load `afterglow.js` before the factories (all three
+overlay pages already do). Then read `cfgAfterglow` in `draw`, keep one `createBarGhosts()`
+or `createEchoes()` per activation, and follow the rules above. `npm run verify:render` has
+a set of checks every afterglow effect should pass, and a speed check (under 0.5 ms a
+draw); add the new id to the loops there.
+
 ## Wire format (for driving Timbre from elsewhere)
 
 Anything that can call a Streamer.bot action can drive Timbre:
@@ -197,4 +241,5 @@ DoAction "Timbre Push"  args: { reason: "…" }                      — re-broa
 The broadcast every page receives is
 `{ "type": "timbre:config", "config": { …full config… } }` inside SB's `General.Custom`
 envelope. The full config shape is exactly `TIMBRE.defaultConfig()` in
-`shared/viz-config.js` — that file is the schema.
+`shared/viz-config.js` — that file is the schema. `afterglow` (seconds, 0 to 4, default
+1.6) is the top-level key for the bar and wave effects' afterglow.
