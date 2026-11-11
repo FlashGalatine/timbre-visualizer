@@ -1,7 +1,8 @@
 // Timbre — afterglow arithmetic, shared by the four bar effects and the two
-// wave effects. Only pure bookkeeping lives here: the fade rule, the bar ghosts
-// (what a bar's recent peaks were), the echoes (frozen copies of a wave's
-// loudest moments) and a smooth curve tracer. Drawing stays in the effects.
+// wave effects. It holds the bookkeeping (the fade rule, the bar ghosts: what a
+// bar's recent peaks were, and the echoes: frozen copies of a wave's loudest
+// moments) plus two small canvas helpers, trace() and glowLine(), that draw
+// only on the context they are handed. The effects decide what to draw.
 //
 // Ghosts are redrawn every frame from remembered values; nothing here fades
 // the previous frame's pixels. All timing comes from the caller's draw(now, dt)
@@ -10,7 +11,7 @@
 // Valid as BOTH a classic <script> and an ES module (it only assigns
 // `globalThis.TimbreGlow`), like scene-kit.js, so verify.mjs can import it under
 // Node. Nothing here may touch document, window, ctx or core.js globals at load
-// time; trace() only uses the context it is handed.
+// time; trace() and glowLine() only use the context they are handed.
 
 (function () {
   'use strict';
@@ -21,6 +22,9 @@
   const ECHO = 0.6;       // an echo's stroke
   const ECHO_FILL = 0.07; // an echo's fill (waveform only)
   const MAX_ECHOES = 6;
+  // A step this long after the one before means the page stopped drawing (the
+  // source was hidden); what was seen before the gap must not make a new ghost.
+  const GAP_MS = 250;
 
   // Strength of a ghost aged ageSec out of a lifetime of T seconds: full for the
   // first 15%, then an ease-out square down to 0 at T.
@@ -39,7 +43,8 @@
   // bar count or canvas size starts afresh.
   function createBarGhosts() {
     let key = null;
-    let prev = [];   // last live height per bar
+    let prev = [];   // last recorded height per bar, while recording runs unbroken
+    let seen = [];   // when each bar was last stepped, ms
     let ghosts = []; // per bar: [{ height, born }], lowest height first
 
     return {
@@ -47,13 +52,19 @@
         if (next === key) return;
         key = next;
         prev = [];
+        seen = [];
         ghosts = [];
       },
 
       // Bookkeeping for bar i, then its strips, nearest the live bar first.
+      // A height drawn while not recording (mic off, idle animation) or seen
+      // before a gap is forgotten, so it never makes a ghost; the ghosts
+      // already made keep fading by their own timestamps.
       step(i, height, nowMs, T, record) {
-        const last = prev[i];
-        prev[i] = height;
+        const gap = seen[i] !== undefined && nowMs - seen[i] > GAP_MS;
+        seen[i] = nowMs;
+        const last = gap ? undefined : prev[i];
+        prev[i] = record ? height : undefined;
         if (!(T > 0)) { ghosts[i] = []; return []; }
         let list = ghosts[i] || (ghosts[i] = []);
 
@@ -87,6 +98,7 @@
     let key = null;
     let echoes = [];     // [{ shape, born }], oldest first
     let lastMadeMs = -Infinity;
+    let lastStepMs;      // when step last ran, ms
     let follower, armed, peak, loudest, candidate, hasCandidate, low;
 
     function resetTracker() {
@@ -105,8 +117,13 @@
       },
 
       step(loudness, nowMs, dt, T, record, snapshot) {
+        // After a gap, a burst seen before it must not be frozen as a new echo.
+        // The echoes already made keep fading by their own timestamps.
+        const gap = lastStepMs !== undefined && nowMs - lastStepMs > GAP_MS;
+        lastStepMs = nowMs;
         if (!(T > 0)) { echoes = []; lastMadeMs = -Infinity; resetTracker(); return []; }
         echoes = echoes.filter((e) => (nowMs - e.born) / 1000 < T);
+        if (gap) resetTracker();
 
         if (!record) {
           resetTracker();

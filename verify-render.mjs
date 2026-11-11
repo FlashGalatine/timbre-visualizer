@@ -26,8 +26,8 @@
 //           full cornucopia: falling leaves at 30/60 fps, Leaf density and Candle
 //           glow knobs, canvas coverage, embers with no mic and no idle animation,
 //           and the cost of one draw() (averaged over 120 frames, under 4 ms) •
-//           afterglow (bars and waves): ghosts appear and are gone after the afterglow
-//           time, afterglow 0 leaves none, config pushes keep ghosts, a Bars change
+//           afterglow (bars and waves): ghosts appear, fade on the way out and are gone
+//           after the afterglow time, afterglow 0 leaves none, config pushes keep ghosts, a Bars change
 //           starts again, Peak Hold falls at the same speed at 30/60 fps, the control
 //           panel's Afterglow slider, and the six effects drawing in under 0.5 ms.
 
@@ -96,6 +96,7 @@ const canvas2dHasPixels = () => {
 // Drive one effect with a scripted sound, stepping draw() by hand inside ONE evaluate so the
 // 33 ms capture timer cannot overwrite the arrays in between. One reading per step. The page's
 // own frequencies / waveform / micActive are restored before returning.
+// The first step must be a quiet baseline: every later risePx / rise is measured against it.
 const glowRun = (pg, name, steps, fps = 60) => pg.evaluate(({ name, steps, fps }) => {
   const saved = { frequencies, waveform, micActive };
   try {
@@ -122,7 +123,7 @@ const glowRun = (pg, name, steps, fps = 60) => pg.evaluate(({ name, steps, fps }
   }
 }, { name, steps, fps });
 
-// The four checks every afterglow effect must pass. slack: live pixels that legitimately
+// The five checks every afterglow effect must pass. slack: live pixels that legitimately
 // differ from the quiet baseline (Peak Hold's marker). tweak: extra config for this effect.
 async function glowChecks(pg, name, { maxGhostAlpha, slack = 0, tweak } = {}) {
   const T = 1;
@@ -132,9 +133,10 @@ async function glowChecks(pg, name, { maxGhostAlpha, slack = 0, tweak } = {}) {
   };
   const loudThenQuiet = [{ secs: 0.5, level: 0 }, { secs: 0.3, level: 0.8 }, { secs: 0.15, level: 0 }];
   await set(T);
-  const [q, , d, a, , m] = await glowRun(pg, name, [...loudThenQuiet, { secs: T + 0.2, level: 0 }, { secs: 0.3, level: 0.8 }, { secs: 0.15, level: 0, mic: false }]);
+  const [q, , d, h, a, , m] = await glowRun(pg, name, [...loudThenQuiet, { secs: 0.35, level: 0 }, { secs: T + 0.2 - 0.35, level: 0 }, { secs: 0.3, level: 0.8 }, { secs: 0.15, level: 0, mic: false }]);
   const ghostPx = d.risePx;
   check(`${name}: a drop leaves a dimmer ghost`, ghostPx > 1000 && d.rise / ghostPx < maxGhostAlpha, `${ghostPx} px, mean rise ${(d.rise / ghostPx).toFixed(0)}`);
+  check(`${name}: the ghost fades on the way out`, h.rise > d.rise * 0.15 && h.rise < d.rise * 0.6, `${(h.rise / d.rise).toFixed(2)} of the at-drop rise`);
   check(`${name}: the ghost is gone after the afterglow time`, Math.abs(a.ink - q.ink) <= slack, `${q.ink} → ${a.ink}`);
   check(`${name}: no ghost while the mic is off`, Math.abs(m.ink - q.ink) <= slack, `${q.ink} → ${m.ink}`);
   await set(0);
@@ -299,12 +301,14 @@ async function main() {
     check('no page errors while resizing the 16:9 page', wideErrors.length === 0, wideErrors.join(' | '));
 
     // ── Afterglow (bar and wave effects), on the 16:9 page ──
-    for (const name of ['visualizer', 'sine-bars', 'ring-bars']) await glowChecks(wide, name, { maxGhostAlpha: 135 });
+    await glowChecks(wide, 'visualizer', { maxGhostAlpha: 135 });
+    await glowChecks(wide, 'sine-bars', { maxGhostAlpha: 85 });
+    await glowChecks(wide, 'ring-bars', { maxGhostAlpha: 135 });
     await pushConfig((c) => { c.activeViz = 'visualizer'; c.afterglow = 2; c.idleAnim = false; });
     await wide.waitForFunction(() => window.__timbre.currentVizName === 'visualizer' && cfgAfterglow === 2);
     const [gq, , gd, gp, gb1, gb2] = await glowRun(wide, 'visualizer', [
       { secs: 0.5, level: 0 }, { secs: 0.3, level: 0.8 }, { secs: 0.15, level: 0 },
-      { secs: 0.1, level: 0, config: { gain: 100 } },
+      { secs: 0.1, level: 0, config: { afterglow: 2.5 } },
       { secs: 0.1, level: 0, config: { bars: 8 } }, { secs: 2.2, level: 0 },
     ]);
     check('a config push does not wipe ghosts', gp.ink - gq.ink > (gd.ink - gq.ink) * 0.8, `${gd.ink - gq.ink} → ${gp.ink - gq.ink} ghost px`);
@@ -320,7 +324,7 @@ async function main() {
     check('peak-hold: the marker holds for 0.3 s', h60.top === l60.top, `${l60.top} → ${h60.top}`);
     // 0.75 s after the drop: 0.45 s of falling at (12 + 1.08 × 50) × 4.8 = 316.8 px/s = 142.6 px.
     check('peak-hold: the marker falls at the same speed at 30 and 60 fps', Math.abs(pk60.top - l60.top - 142.6) <= 16 && Math.abs(pk30.top - pk60.top) <= 16, `60 fps ${pk60.top - l60.top} px, 30 fps ${pk30.top - l60.top} px`);
-    await glowChecks(wide, 'waveform', { maxGhostAlpha: 165 });
+    await glowChecks(wide, 'waveform', { maxGhostAlpha: 50 });
     await glowChecks(wide, 'ring-waveform', { maxGhostAlpha: 165 });
     await pushConfig((c) => { c.activeViz = 'visualizer'; c.afterglow = 1.6; c.idleAnim = false; });
     await wide.waitForFunction(() => cfgAfterglow === 1.6);
