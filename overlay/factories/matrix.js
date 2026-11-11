@@ -39,6 +39,8 @@ VIZ_FACTORIES['matrix'] = function () {
     }
     col.lastStepAt = performance.now();
     col.lastChar = pickChar(col.message, col.msgIdx);
+    col.prevChar = null;
+    col._lastRowInt = -1;
   }
   function recomputeGrid() {
     COLS = Math.floor(W / CELL_W);
@@ -95,6 +97,7 @@ VIZ_FACTORIES['matrix'] = function () {
         const rowInt = Math.floor(col.headRow);
         if (rowInt !== col._lastRowInt) {
           col._lastRowInt = rowInt;
+          col.prevChar = col.lastChar; // the glyph the head leaves behind
           if (perViz['matrix'].mode === 'messages' && col.message) col.msgIdx++;
           col.lastChar = pickChar(col.message, col.msgIdx);
         }
@@ -104,7 +107,8 @@ VIZ_FACTORIES['matrix'] = function () {
         const rgb = getColor(colorT + (c / COLS) * 0.6);
         if (rowInt - 1 >= 0) {
           ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.85)`;
-          ctx.fillText(col.lastChar, x, (rowInt - 1) * CELL_H);
+          // Recolour the cell the head just left with ITS glyph, not the new head's.
+          ctx.fillText(col.prevChar || col.lastChar, x, (rowInt - 1) * CELL_H);
         }
         const tint = col.bright ? 1 : 0.4;
         const hr = Math.round(255 * (1 - tint) + rgb[0] * tint);

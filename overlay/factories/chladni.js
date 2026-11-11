@@ -100,7 +100,11 @@ VIZ_FACTORIES['chladni'] = function () {
   }
   function stepParticles(count, agitation, dt) {
     const eps = 0.005;
-    const stepBase = 0.012 + agitation * 0.06;
+    /* Per-frame constants were tuned at 60 fps; scale by dt so 30 fps OBS sources
+       and high-refresh browsers settle at the same speed. */
+    const k = dt * 60;
+    const stepBase = (0.012 + agitation * 0.06) * k;
+    const noise = agitation * 0.02 * k;
     for (let i = 0; i < count; i++) {
       const idx = i * 3;
       const x = positions[idx + 0];
@@ -111,10 +115,11 @@ VIZ_FACTORIES['chladni'] = function () {
       const gx = (vx - v) / eps;
       const gy = (vy - v) / eps;
       const len = Math.hypot(gx, gy) + 1e-6;
-      const sign = v > 0 ? -1 : 1;
-      const step = stepBase * Math.sign(v || 1) * sign;
-      positions[idx + 0] = Math.max(-1, Math.min(1, x + (gx / len) * step + (Math.random() - 0.5) * agitation * 0.02));
-      positions[idx + 1] = Math.max(-1, Math.min(1, y + (gy / len) * step + (Math.random() - 0.5) * agitation * 0.02));
+      /* Walk toward the nodal line (v = 0): down the gradient where v > 0, up it
+         where v < 0. */
+      const step = -stepBase * Math.sign(v);
+      positions[idx + 0] = Math.max(-1, Math.min(1, x + (gx / len) * step + (Math.random() - 0.5) * noise));
+      positions[idx + 1] = Math.max(-1, Math.min(1, y + (gy / len) * step + (Math.random() - 0.5) * noise));
     }
     geometry.attributes.position.needsUpdate = true;
   }
@@ -153,6 +158,8 @@ VIZ_FACTORIES['chladni'] = function () {
       /* Map spectral centroid to (n, m) target modes in [2..7]. Smooth toward target. */
       nTarget = 2 + Math.floor(centroid * 5);
       mTarget = 2 + Math.floor((1 - centroid * 0.6) * 5);
+      /* n == m makes the plate function identically zero (no pattern at all). */
+      if (mTarget === nTarget) mTarget += (mTarget < 7) ? 1 : -1;
       nMode += (nTarget - nMode) * Math.min(1, dt * 1.2);
       mMode += (mTarget - mMode) * Math.min(1, dt * 1.2);
       /* Beat → reseed (throttled). */
