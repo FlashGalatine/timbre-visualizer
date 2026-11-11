@@ -22,7 +22,8 @@
 //           rebuilds, afterglow time, output modes, fps independence, no GPU
 //           growth on re-select, clean GL hand-off, no-THREE fallback; the full
 //           cornucopia: falling-leaf count at 30/60 fps, Leaf density and Candle
-//           glow knobs, canvas coverage, embers with no mic and no idle animation.
+//           glow knobs, canvas coverage, embers with no mic and no idle animation,
+//           and the cost of one draw() (averaged over 120 frames, under 4 ms).
 
 import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -327,6 +328,8 @@ async function main() {
     check('Candle glow 0 holds the candles at ember level', knobs.steady.every((b) => b > 0.15 && b < 0.3), JSON.stringify(knobs.steady));
     const full = await probe();
     check('the full scene covers far more of the canvas than three candles', full.solid > 60000, String(full.solid));
+    const cost = await wide.evaluate(() => { let now = performance.now(), acc = 0; for (let i = 0; i < 120; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); acc += performance.now() - t; } return acc / 120; });
+    check(`draw() averages under 4 ms (${cost.toFixed(2)} ms)`, cost < 4);
 
     const leakBefore = await wide.evaluate(() => { currentViz.draw(performance.now(), 1 / 60); const s = window.__timbre.scene; return [s.memory.geometries, s.memory.textures, s.programs]; });
     const leakAfter = await wide.evaluate(() => { setActiveViz('visualizer'); setActiveViz('thanksgiving-harvest'); currentViz.draw(performance.now(), 1 / 60); const s = window.__timbre.scene; return [s.memory.geometries, s.memory.textures, s.programs]; });

@@ -8,6 +8,12 @@
 //   2. sanitizeConfig — clamping, allowlisting, string caps, unknown-key drops.
 //   3. C# embed simulation — the exact string concatenation timbre-push.cs does,
 //      fed a config with kana + newlines + quotes, must round-trip.
+//   5. Scene kit arithmetic — the pure helpers behind the 3D scenes (sound
+//      envelope and beat detector, camera fit, afterglow decay, internal render
+//      scale, placement to lens shift) imported under Node, plus the placement
+//      config (defaults, clamping, merging) and that all three overlay pages
+//      load scene-kit.js then scene-parts.js between core.js and the factories.
+//      (Numbered 5 because it was added last; it runs before section 4.)
 //   4. Live transport seam — spawns mock-sb-server.mjs on side ports, loads the
 //      REAL shared/panel-client-sb.js under a browser shim, and asserts:
 //      Subscribe (lowercase), sync-on-connect DoAction, control push →
