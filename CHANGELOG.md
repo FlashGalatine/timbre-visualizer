@@ -20,6 +20,15 @@ traceability.
   Light is written with alpha 0 so it adds to the picture behind it and only solid
   objects darken it. Loaded by all three overlay pages; the kit also loads under Node
   for `verify`. Documented in `docs/EFFECTS.md` ("Kit scenes (floating 3D)").
+- **Afterglow for the bar and wave effects** — Bars, Peak Hold, Ring Bars, Sine Bars,
+  Waveform and Ring Waveform leave a fading trace of what they just drew: bars keep ghosts
+  of their recent peaks, and the two wave effects keep fading echoes of their loudest
+  moments. New **Afterglow** setting (`afterglow`, 0 to 4 seconds, default 1.6, 0 is off),
+  shown in the control panel for those six effects. The arithmetic is in
+  `overlay/afterglow.js` (`TimbreGlow`), loaded by all three overlay pages and by `verify`
+  under Node. Live bars draw exactly as before. Documented in `docs/EFFECTS.md`
+  ("Afterglow (bar and wave effects)"). `verify:render` checks the ghosts, the setting and
+  the cost (the six effects draw in under 0.5 ms; about 0.1 ms or less measured).
 - **Scene placement settings** — a "Scene placement" group in the control panel,
   shown for kit scenes: Left-right, Up-down and Size % (new `placement` in the
   config, clamped by `PLACEMENT_RANGES`). They move and scale the scene through the
@@ -63,6 +72,11 @@ traceability.
   leaves that fall more with volume and beats. Its knobs are now **Candle glow**,
   **Leaf density** and **Camera drift**; **Pumpkin pulse** and **Wheat sway** are gone
   (saved values for them are dropped on load). The effect id and count are unchanged.
+- **Waveform and Ring Waveform are now smooth lines.** The stepped look is gone: the
+  line is a smooth curve through the samples, with a glow and a thin white core.
+- **Peak Hold's marker is timed in seconds and scaled to the page**, so it looks the same
+  at any frame rate. It falls faster than before on the two large pages (1440×1080 and
+  1920×1080).
 
 ## [1.0.9] — 2026-07-29
 
