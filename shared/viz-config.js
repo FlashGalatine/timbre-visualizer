@@ -29,8 +29,19 @@
   const VIZ_USES_3D = [
     'mountains-3d', 'sunburst-3d', 'metaball', 'glass-prism', 'chladni',
     'phosphor', 'ink', 'shards', 'jelly', 'boids',
-    'rose', 'winter-aurora',
+    'rose', 'winter-aurora', 'thanksgiving-harvest',
   ];
+
+  // Effects built on the scene kit (overlay/scene-kit.js); all of them are 3D.
+  const VIZ_SCENES = ['thanksgiving-harvest'];
+
+  // Where a scene sits in the frame: offset from centre (percent of the half
+  // frame) and size (percent of its natural size).
+  const PLACEMENT_RANGES = {
+    x:    { min: -100, max: 100, step: 1, default: 0 },
+    y:    { min: -100, max: 100, step: 1, default: 0 },
+    size: { min: 40,   max: 200, step: 1, default: 100 },
+  };
 
   // Per-viz knobs are 0-100 sliders by default; each visualizer normalizes to
   // its own range. String-typed defaults (see 'matrix') pass through verbatim
@@ -79,7 +90,7 @@
     'easter-eggs':              { eggCount: 50, patternStyle: 75, bunnyChance: 50 },
     'st-patricks-shamrocks':    { shamrockDensity: 50, rainbowSaturation: 60, goldRate: 50 },
     'july-fourth-stripes':      { stripeAmplitude: 50, starTwinkle: 50, burstChance: 50 },
-    'thanksgiving-harvest':     { pumpkinPulse: 50, leafDensity: 50, wheatSway: 50 },
+    'thanksgiving-harvest':     { candleGlow: 50, leafDensity: 50, cameraDrift: 50 },
     'lunar-new-year-lanterns':  { lanternCount: 60, dragonOpacity: 60, fireworkRate: 50 },
     'pride-ribbon':             { ribbonAmplitude: 50, heartRate: 50, stripeStyle: 0 },
     'bi-pride-ribbon':          { ribbonAmplitude: 50, heartRate: 50 },
@@ -168,6 +179,8 @@
     for (const [k, r] of Object.entries(TOP_RANGES)) cfg[k] = r.default;
     for (const [k, v] of Object.entries(TOP_BOOLS)) cfg[k] = v;
     cfg.stlObject = clone(STL_OBJECT_DEFAULTS);
+    cfg.placement = {};
+    for (const [k, r] of Object.entries(PLACEMENT_RANGES)) cfg.placement[k] = r.default;
     cfg.perViz = clone(DEFAULT_PER_VIZ);
     return cfg;
   }
@@ -199,6 +212,12 @@
         if (r && typeof v === 'number') cfg.stlObject[k] = clamp(v, r.min, r.max);
       }
     }
+    if (partial.placement && typeof partial.placement === 'object') {
+      for (const [k, v] of Object.entries(partial.placement)) {
+        const r = PLACEMENT_RANGES[k];
+        if (r && typeof v === 'number') cfg.placement[k] = clamp(v, r.min, r.max);
+      }
+    }
     if (partial.perViz && typeof partial.perViz === 'object') {
       for (const [name, knobs] of Object.entries(partial.perViz)) {
         const target = cfg.perViz[name];
@@ -219,6 +238,8 @@
   globalThis.TIMBRE = {
     ACTIVE_VIZ_NAMES,
     VIZ_USES_3D,
+    VIZ_SCENES,
+    PLACEMENT_RANGES,
     DEFAULT_PER_VIZ,
     PER_VIZ_MAX,
     STL_OBJECT_DEFAULTS,
