@@ -410,6 +410,28 @@ async function main() {
     const overlayFollowed = await page.waitForFunction(() => window.__timbre.currentVizName === 'waveform', { timeout: 5000 })
       .then(() => true).catch(() => false);
     check('overlay follows the control panel live', overlayFollowed);
+    check('placement group is hidden for a non-scene effect', await ctlPage.evaluate(() => document.getElementById('scenePlacement').hidden === true));
+    await ctlPage.selectOption('#activeViz', 'thanksgiving-harvest');
+    check('placement group shows for a scene', await ctlPage.evaluate(() => document.getElementById('scenePlacement').hidden === false));
+    await ctlPage.evaluate(() => { const e = document.getElementById('place-x'); e.value = '40'; e.dispatchEvent(new Event('input', { bubbles: true })); });
+    const placed = await new Promise((res) => {
+      const t0 = Date.now();
+      const iv = setInterval(() => {
+        const hit = observed.find((m) => m.type === 'timbre:config' && m.config && m.config.placement && m.config.placement.x === 40);
+        if (hit || Date.now() - t0 > 5000) { clearInterval(iv); res(!!hit); }
+      }, 100);
+    });
+    check('moving Left-right pushes placement.x', placed);
+    // Put the shared mock state back so the later mic-denied page starts on a 2D effect again.
+    const mark = observed.length;
+    await ctlPage.selectOption('#activeViz', 'waveform');
+    await new Promise((res) => {
+      const t0 = Date.now();
+      const iv = setInterval(() => {
+        const hit = observed.slice(mark).find((m) => m.type === 'timbre:config' && m.config && m.config.activeViz === 'waveform');
+        if (hit || Date.now() - t0 > 5000) { clearInterval(iv); res(); }
+      }, 100);
+    });
     await ctlPage.screenshot({ path: resolve(__dirname, 'control-render.png'), fullPage: true });
     obs.close();
 
