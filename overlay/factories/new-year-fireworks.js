@@ -5,7 +5,9 @@
    one burst every ~3s. Colors come from PALETTE so global hue/speed apply. */
 VIZ_FACTORIES['new-year-fireworks'] = function () {
   const MAX_PARTICLES = 800;
-  const ROCKET_SPEED = 380 * SCALE;          // px/sec upward at launch
+  const ROCKET_APEX_MIN = 0.45;              // burst height as a fraction of H above the bottom edge…
+  const ROCKET_APEX_MAX = 0.80;              // …so every burst is centred inside the canvas
+  const ROCKET_GRAVITY = 0.22;               // rockets feel a fraction of spark gravity
   const ROCKET_LIFE_MIN = 0.55;
   const ROCKET_LIFE_MAX = 0.85;
   const MIN_BEAT_GAP = 220;
@@ -33,11 +35,18 @@ VIZ_FACTORIES['new-year-fireworks'] = function () {
     }
     return Math.sqrt(sum / waveform.length) * cfgGain;
   }
+  function sparkGravity() {
+    return (60 + (perViz['new-year-fireworks'].gravity / 100) * 220) * SCALE;
+  }
   function spawnRocket(now, intensity) {
     const x = W * (0.15 + Math.random() * 0.7);
     const drift = (Math.random() - 0.5) * 60 * SCALE;
-    const vy = -ROCKET_SPEED * (0.85 + Math.random() * 0.35);
     const life = ROCKET_LIFE_MIN + Math.random() * (ROCKET_LIFE_MAX - ROCKET_LIFE_MIN);
+    /* Launch speed is solved from the canvas height so the rocket reaches its
+       apex fraction exactly when its life ends (rise = -vy*t - g*t²/2). A fixed
+       px/sec speed overshot every layout: the canvas is only 130-180 units tall. */
+    const rise = H * (ROCKET_APEX_MIN + Math.random() * (ROCKET_APEX_MAX - ROCKET_APEX_MIN)) + 4 * SCALE;
+    const vy = -(rise / life + 0.5 * sparkGravity() * ROCKET_GRAVITY * life);
     const colorT = ((now * cfgColorSpeed) / 3000 + cfgColorHue + Math.random() * PALETTE.length) % PALETTE.length;
     particles.push({
       kind: 'rocket',
@@ -119,17 +128,18 @@ VIZ_FACTORIES['new-year-fireworks'] = function () {
         lastIdle = now;
       }
       // Update + draw
-      const gravity = (60 + (perViz['new-year-fireworks'].gravity / 100) * 220) * SCALE;
+      const gravity = sparkGravity();
       const stillAlive = [];
       for (const p of particles) {
         p.age += dt;
-        if (p.age >= p.life) continue;
         if (p.kind === 'rocket') {
-          p.vy += gravity * 0.22 * dt;  // light gravity on rocket
+          p.vy += gravity * ROCKET_GRAVITY * dt;  // light gravity on rocket
           p.x += p.vx * dt;
           p.y += p.vy * dt;
-          // If rocket has slowed past peak or reached its life, explode
-          if (p.vy > -ROCKET_SPEED * 0.18 || p.age >= p.life - 0.02) {
+          // A rocket ALWAYS ends in a burst: at the end of its life, or if it has
+          // started to fall. (Dropping expired rockets before this test lost
+          // ~40% of them at 30 fps, where a frame can step over the last 20 ms.)
+          if (p.age >= p.life || p.vy >= 0) {
             explode(p);
             continue;
           }
@@ -152,6 +162,7 @@ VIZ_FACTORIES['new-year-fireworks'] = function () {
           ctx.fillRect(Math.round(p.x - ts / 2), Math.round(p.y - ts / 2), ts, ts);
           stillAlive.push(p);
         } else { // 'spark'
+          if (p.age >= p.life) continue;
           p.vy += gravity * dt;
           p.x += p.vx * dt;
           p.y += p.vy * dt;

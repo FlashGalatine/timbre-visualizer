@@ -11,7 +11,8 @@ VIZ_FACTORIES['ring-bars'] = function () {
     if (micActive && frequencies && frequencies.length > 0) {
       const half = NUM_SPOKES / 2;
       const offset = i < half ? i : NUM_SPOKES - i;
-      const bin = Math.floor((offset / half) * frequencies.length);
+      // offset === half (the bottom spoke) would index one past the last bin.
+      const bin = Math.min(frequencies.length - 1, Math.floor((offset / half) * frequencies.length));
       return (frequencies[bin] || 0) * cfgGain;
     }
     if (!cfgIdleAnim) return 0;

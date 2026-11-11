@@ -61,7 +61,9 @@ VIZ_FACTORIES['easter-eggs'] = function () {
       sparkle: 0,
     };
   }
+  let builtKind = null; // pattern kind the current egg row was built for
   function rebuildEggs(count, knobKind) {
+    builtKind = patternKindFromKnob(knobKind);
     eggs = [];
     for (let i = 0; i < count; i++) eggs.push(makeEgg(i, count, knobKind));
   }
@@ -210,7 +212,7 @@ VIZ_FACTORIES['easter-eggs'] = function () {
       const patternKnob = perViz['easter-eggs'].patternStyle;
       const targetCount = Math.max(3, Math.min(MAX_EGGS, Math.round(4 + (countKnob / 100) * 10)));
       const currentKind = patternKindFromKnob(patternKnob);
-      if (eggs.length !== targetCount || (eggs[0] && eggs[0].pattern !== currentKind && currentKind !== 'mixed')) {
+      if (eggs.length !== targetCount || builtKind !== currentKind) {
         rebuildEggs(targetCount, patternKnob);
       }
       const groundY = H * 0.84;

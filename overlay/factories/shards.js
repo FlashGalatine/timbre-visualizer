@@ -13,6 +13,10 @@ VIZ_FACTORIES['shards'] = function () {
   const directions = new Array(SHARD_MAX);
   const spinAxes = new Array(SHARD_MAX);
   const spinPhases = new Array(SHARD_MAX);
+  /* Integrated per-shard spin angle. The rate varies with the audio, so the
+     angle must accumulate rate * dt — multiplying elapsed time by the live rate
+     makes every small level change jump the angle by (uptime * change). */
+  const spinAngles = new Float64Array(SHARD_MAX);
   const goldenAngle = Math.PI * (3 - Math.sqrt(5));
   for (let i = 0; i < SHARD_MAX; i++) {
     const y = 1 - (i + 0.5) * 2 / SHARD_MAX;
@@ -25,6 +29,7 @@ VIZ_FACTORIES['shards'] = function () {
     const am = Math.hypot(ax, ay, az);
     spinAxes[i] = { x: ax / am, y: ay / am, z: az / am };
     spinPhases[i] = (i * 0.137) % (Math.PI * 2);
+    spinAngles[i] = spinPhases[i];
   }
   let renderer = null, scene = null, camera = null, mesh = null, dirLight = null;
   const tmpObject = (typeof THREE !== 'undefined') ? new THREE.Object3D() : null;
@@ -122,8 +127,8 @@ VIZ_FACTORIES['shards'] = function () {
         tmpObject.scale.set(scale, scale, scale);
         /* Self-spin: the spin axis is fixed per shard, but rotation rate scales with amp+beat. */
         const spinRate = 0.6 + amp * 1.5 + burstAmount * 4;
-        const spinAng = spinPhases[i] + now * 0.001 * spinRate;
-        tmpObject.quaternion.setFromAxisAngle(spinAxes[i], spinAng);
+        spinAngles[i] = (spinAngles[i] + spinRate * dt) % (Math.PI * 2);
+        tmpObject.quaternion.setFromAxisAngle(spinAxes[i], spinAngles[i]);
         tmpObject.updateMatrix();
         mesh.setMatrixAt(i, tmpObject.matrix);
         const rgb = getColor(colorT + (binIdx / numBins) * 1.4);

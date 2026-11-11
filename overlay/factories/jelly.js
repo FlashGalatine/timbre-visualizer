@@ -60,7 +60,13 @@ VIZ_FACTORIES['jelly'] = function () {
       }
     }
     springs = list;
-    springPositions = new Float32Array(springs.length * 2 * 3);
+    /* Reuse the buffer: the line geometry's attribute wraps this exact array, so
+       replacing it on a rebuild (start() runs after initThree()) would leave the
+       GPU drawing the old, all-zero one. */
+    const springFloats = springs.length * 2 * 3;
+    if (!springPositions || springPositions.length !== springFloats) {
+      springPositions = new Float32Array(springFloats);
+    }
   }
   function resizeRenderer() {
     if (!renderer) return;
