@@ -3,10 +3,12 @@ VIZ_FACTORIES['visualizer'] = function () {
   const BAR_GAP = Math.max(1, Math.round(1 * SCALE));
   const STEP = Math.max(2, Math.round(6 * SCALE));
   const TIP_BAND = Math.max(1, Math.round(2 * SCALE));
+  const ghosts = TimbreGlow.createBarGhosts();
   return {
-    draw() {
+    draw(now) {
       ctx.clearRect(0, 0, W, H);
       const numBars = cfgBars;
+      ghosts.sync(numBars + ':' + W + ':' + H);
       const barW = Math.floor((W - (numBars - 1) * BAR_GAP) / numBars);
       const colorT = ((Date.now() * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
       for (let i = 0; i < numBars; i++) {
@@ -23,9 +25,23 @@ VIZ_FACTORIES['visualizer'] = function () {
         const x = i * (barW + BAR_GAP);
         const y = H - barH;
         const rgb = getColor(colorT + (i / numBars) * 1.2);
+        const tipRgb = [Math.min(255, rgb[0] + 60), Math.min(255, rgb[1] + 60), Math.min(255, rgb[2] + 60)];
+        // Afterglow: ghosts of recent peaks, drawn behind the live bar.
+        const strips = ghosts.step(i, barH, now, cfgAfterglow, micActive && !!frequencies);
+        for (let s = 0; s < strips.length; s++) {
+          const g = strips[s];
+          ctx.globalAlpha = TimbreGlow.BAR * g.strength;
+          ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+          ctx.fillRect(x, H - g.hi, barW, g.hi - g.lo);
+          if (s === strips.length - 1) {
+            ctx.globalAlpha = TimbreGlow.BAR_TIP * g.strength;
+            ctx.fillStyle = `rgb(${tipRgb[0]}, ${tipRgb[1]}, ${tipRgb[2]})`;
+            ctx.fillRect(x, H - g.hi, barW, STEP);
+          }
+        }
+        ctx.globalAlpha = 1;
         ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
         ctx.fillRect(x, y, barW, barH);
-        const tipRgb = [Math.min(255, rgb[0] + 60), Math.min(255, rgb[1] + 60), Math.min(255, rgb[2] + 60)];
         ctx.fillStyle = `rgb(${tipRgb[0]}, ${tipRgb[1]}, ${tipRgb[2]})`;
         ctx.fillRect(x, y, barW, STEP);
         ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.3)`;

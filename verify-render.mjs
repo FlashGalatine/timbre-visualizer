@@ -89,6 +89,51 @@ const canvas2dHasPixels = () => {
   return false;
 };
 
+// Drive one effect with a scripted sound, stepping draw() by hand inside ONE evaluate so the
+// 33 ms capture timer cannot overwrite the arrays in between. One reading per step. The page's
+// own frequencies / waveform / micActive are restored before returning.
+const glowRun = (pg, name, steps, fps = 60) => pg.evaluate(({ name, steps, fps }) => {
+  const saved = { frequencies, waveform, micActive };
+  try {
+    currentViz = VIZ_FACTORIES[name](); if (currentViz.start) currentViz.start();
+    const f = new Uint8Array(32), w = new Uint8Array(64), out = [];
+    let now = performance.now();
+    for (const s of steps) {
+      if (s.config) applyConfig(s.config);
+      f.fill(Math.round(s.level * 255));
+      for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * s.level * 127);
+      frequencies = f; waveform = w; micActive = s.mic !== false;
+      for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) { now += 1000 / fps; currentViz.draw(now, 1 / fps); }
+      const d = ctx.getImageData(0, 0, W, H).data; let ink = 0, alpha = 0, top = -1;
+      for (let i = 3; i < d.length; i += 4) if (d[i] > 0) { ink++; alpha += d[i]; if (top < 0) top = Math.floor(i / 4 / W); }
+      out.push({ ink, alpha, top });
+    }
+    return out;
+  } finally {
+    frequencies = saved.frequencies; waveform = saved.waveform; micActive = saved.micActive;
+  }
+}, { name, steps, fps });
+
+// The four checks every afterglow effect must pass. slack: live pixels that legitimately
+// differ from the quiet baseline (Peak Hold's marker). tweak: extra config for this effect.
+async function glowChecks(pg, name, { maxGhostAlpha, slack = 0, tweak } = {}) {
+  const T = 1;
+  const set = async (seconds) => {
+    await pushConfig((c) => { c.activeViz = name; c.afterglow = seconds; c.idleAnim = false; if (tweak) tweak(c); });
+    await pg.waitForFunction(({ n, s }) => window.__timbre.currentVizName === n && cfgAfterglow === s, { n: name, s: seconds });
+  };
+  const loudThenQuiet = [{ secs: 0.5, level: 0 }, { secs: 0.3, level: 0.8 }, { secs: 0.15, level: 0 }];
+  await set(T);
+  const [q, , d, a, , m] = await glowRun(pg, name, [...loudThenQuiet, { secs: T + 0.2, level: 0 }, { secs: 0.3, level: 0.8 }, { secs: 0.15, level: 0, mic: false }]);
+  const ghostPx = d.ink - q.ink;
+  check(`${name}: a drop leaves a dimmer ghost`, ghostPx > 1000 && (d.alpha - q.alpha) / ghostPx < maxGhostAlpha, `${ghostPx} px, mean alpha ${((d.alpha - q.alpha) / ghostPx).toFixed(0)}`);
+  check(`${name}: the ghost is gone after the afterglow time`, Math.abs(a.ink - q.ink) <= slack, `${q.ink} → ${a.ink}`);
+  check(`${name}: no ghost while the mic is off`, Math.abs(m.ink - q.ink) <= slack, `${q.ink} → ${m.ink}`);
+  await set(0);
+  const [q0, , d0] = await glowRun(pg, name, loudThenQuiet);
+  check(`${name}: afterglow 0 leaves no ghost`, Math.abs(d0.ink - q0.ink) <= slack, `${q0.ink} → ${d0.ink}`);
+}
+
 async function main() {
   console.log('Timbre — real-pixel render verification\n');
   let mock, browser, deniedBrowser;
@@ -244,6 +289,18 @@ async function main() {
     check('no-border while scaled → buffer height follows layout (1080), not screen px', nbScaled,
       String(await wide.evaluate(() => window.__timbre.H)));
     check('no page errors while resizing the 16:9 page', wideErrors.length === 0, wideErrors.join(' | '));
+
+    // ── Afterglow (bar and wave effects), on the 16:9 page ──
+    for (const name of ['visualizer', 'sine-bars', 'ring-bars']) await glowChecks(wide, name, { maxGhostAlpha: 135 });
+    await pushConfig((c) => { c.activeViz = 'visualizer'; c.afterglow = 2; c.idleAnim = false; });
+    await wide.waitForFunction(() => window.__timbre.currentVizName === 'visualizer' && cfgAfterglow === 2);
+    const [gq, , gd, gp, gb1, gb2] = await glowRun(wide, 'visualizer', [
+      { secs: 0.5, level: 0 }, { secs: 0.3, level: 0.8 }, { secs: 0.15, level: 0 },
+      { secs: 0.1, level: 0, config: { gain: 100 } },
+      { secs: 0.1, level: 0, config: { bars: 8 } }, { secs: 2.2, level: 0 },
+    ]);
+    check('a config push does not wipe ghosts', gp.ink - gq.ink > (gd.ink - gq.ink) * 0.8, `${gd.ink - gq.ink} → ${gp.ink - gq.ink} ghost px`);
+    check('changing the Bars count starts again', gb1.ink === gb2.ink, `${gb1.ink} vs ${gb2.ink}`);
 
     // ── Scene kit + Thanksgiving (1920×1080 page) ─────────────────────────────
     const sceneState = () => wide.evaluate(() => window.__timbre.scene);

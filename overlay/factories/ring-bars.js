@@ -18,12 +18,14 @@ VIZ_FACTORIES['ring-bars'] = function () {
     if (!cfgIdleAnim) return 0;
     return 60 + 30 * Math.sin(Date.now() / 700 + i * 0.5);
   }
+  const ghosts = TimbreGlow.createBarGhosts();
   return {
-    draw() {
+    draw(now) {
       ctx.clearRect(0, 0, W, H);
       const CX = W / 2, CY = H / 2;
       const colorT = ((Date.now() * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
       const NUM_SPOKES = Math.max(8, Math.round(12 + (perViz['ring-bars'].spokes / 100) * 36));
+      ghosts.sync(NUM_SPOKES + ':' + W + ':' + H);
       ctx.strokeStyle = 'rgba(0, 255, 255, 0.18)';
       ctx.lineWidth = Math.max(1, SCALE);
       ctx.beginPath();
@@ -36,6 +38,27 @@ VIZ_FACTORIES['ring-bars'] = function () {
         const angle = -Math.PI / 2 + (i / NUM_SPOKES) * Math.PI * 2;
         const cos = Math.cos(angle), sin = Math.sin(angle);
         const rgb = getColor(colorT + (i / NUM_SPOKES) * 1.2);
+        const tipRgb = [Math.min(255, rgb[0] + 80), Math.min(255, rgb[1] + 80), Math.min(255, rgb[2] + 80)];
+        // Afterglow: ghosts of recent peaks, drawn behind the live spoke.
+        const strips = ghosts.step(i, len, now, cfgAfterglow, micActive && !!frequencies);
+        for (let s = 0; s < strips.length; s++) {
+          const g = strips[s];
+          ctx.globalAlpha = TimbreGlow.BAR * g.strength;
+          ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+          for (let r = INNER_R + g.lo; r < INNER_R + g.hi; r += STEP) {
+            const px = Math.round(CX + cos * r);
+            const py = Math.round(CY + sin * r);
+            ctx.fillRect(px - SPOKE_W / 2, py - SPOKE_W / 2, SPOKE_W, SPOKE_W);
+          }
+          if (s === strips.length - 1) {
+            ctx.globalAlpha = TimbreGlow.BAR_TIP * g.strength;
+            ctx.fillStyle = `rgb(${tipRgb[0]}, ${tipRgb[1]}, ${tipRgb[2]})`;
+            const gx = Math.round(CX + cos * (INNER_R + g.hi));
+            const gy = Math.round(CY + sin * (INNER_R + g.hi));
+            ctx.fillRect(gx - TIP_SZ / 2, gy - TIP_SZ / 2, TIP_SZ, TIP_SZ);
+          }
+        }
+        ctx.globalAlpha = 1;
         ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
         for (let r = INNER_R; r < INNER_R + len; r += STEP) {
           const px = Math.round(CX + cos * r);
@@ -43,7 +66,6 @@ VIZ_FACTORIES['ring-bars'] = function () {
           ctx.fillRect(px - SPOKE_W / 2, py - SPOKE_W / 2, SPOKE_W, SPOKE_W);
         }
         const tipR = INNER_R + len;
-        const tipRgb = [Math.min(255, rgb[0] + 80), Math.min(255, rgb[1] + 80), Math.min(255, rgb[2] + 80)];
         const tx = Math.round(CX + cos * tipR);
         const ty = Math.round(CY + sin * tipR);
         ctx.fillStyle = `rgb(${tipRgb[0]}, ${tipRgb[1]}, ${tipRgb[2]})`;
