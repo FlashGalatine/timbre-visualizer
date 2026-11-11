@@ -129,7 +129,7 @@ The effect follows the loudness with a **follower** that rises at once and falls
 What this must deliver, whatever numbers the builder ends up with:
 
 - **One echo per burst** of sound (a syllable, a beat), and the **same echoes at 30, 60 and 165 frames per second**. A scripted burst must make exactly one echo at every frame rate.
-- **Never more than six echoes alive**, and no echo ever removed before it has faded. The `T / 6` spacing guarantees both, so there is no "oldest is pushed out" case.
+- **Never more than six echoes alive**, and no echo ever removed before it has faded. The `T / 6` spacing guarantees both while `T` is steady, so there is no "oldest is pushed out" case. (Added during the build: a new echo is also refused outright while six are alive, so the limit holds while the slider is being raised.)
 - An echo is drawn behind the live line, as the same smooth curve in the current colours, at 0.8 × the stroke width and **0.6 × its strength**, with no glow and no core. On `waveform` it also gets its fill to the centre at 0.07 × its strength.
 - Echoes are forgotten at `age ≥ T`, and all at once if the number of samples changes.
 
@@ -153,6 +153,7 @@ Behaviour at the edges:
 - **0**: no ghosts are kept or drawn. The six effects look as they would without this feature (with the smooth line, and Peak Hold's marker still working).
 - **Lowered while ghosts are showing**: ghosts older than the new time disappear at once. That is acceptable; it only happens while the owner is moving the slider.
 - **Mic off or idle animation**: no new ghosts are made. Ghosts already showing finish fading.
+- **Mic comes on, or the source is shown again after a pause** (added during the build): the first frame makes no ghost. The drop from the idle animation to the live sound is not a loud moment, and neither is a shape from before a pause of more than a quarter of a second. Ghosts that were already fading are kept and finish fading.
 - **Effect switched, or the canvas size or the Bars count actually changed**: ghosts start again from nothing. Detect a size change by comparing sizes at draw time. Do not reset in `onResize`: `core.js` calls it on every config push, including a move of this very slider, even when the size is unchanged.
 
 ## Shared code
