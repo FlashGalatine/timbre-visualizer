@@ -97,6 +97,7 @@ const glowRun = (pg, name, steps, fps = 60) => pg.evaluate(({ name, steps, fps }
   try {
     currentViz = VIZ_FACTORIES[name](); if (currentViz.start) currentViz.start();
     const f = new Uint8Array(32), w = new Uint8Array(64), out = [];
+    let first = null;
     let now = performance.now();
     for (const s of steps) {
       if (s.config) applyConfig(s.config);
@@ -106,7 +107,10 @@ const glowRun = (pg, name, steps, fps = 60) => pg.evaluate(({ name, steps, fps }
       for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) { now += 1000 / fps; currentViz.draw(now, 1 / fps); }
       const d = ctx.getImageData(0, 0, W, H).data; let ink = 0, alpha = 0, top = -1;
       for (let i = 3; i < d.length; i += 4) if (d[i] > 0) { ink++; alpha += d[i]; if (top < 0) top = Math.floor(i / 4 / W); }
-      out.push({ ink, alpha, top });
+      let risePx = 0, rise = 0;
+      if (first) { for (let i = 0; i < first.length; i++) { const up = d[i * 4 + 3] - first[i]; if (up > 0) { risePx++; rise += up; } } }
+      else { first = new Uint8Array(d.length / 4); for (let i = 0; i < first.length; i++) first[i] = d[i * 4 + 3]; }
+      out.push({ ink, alpha, top, risePx, rise });
     }
     return out;
   } finally {
@@ -125,8 +129,8 @@ async function glowChecks(pg, name, { maxGhostAlpha, slack = 0, tweak } = {}) {
   const loudThenQuiet = [{ secs: 0.5, level: 0 }, { secs: 0.3, level: 0.8 }, { secs: 0.15, level: 0 }];
   await set(T);
   const [q, , d, a, , m] = await glowRun(pg, name, [...loudThenQuiet, { secs: T + 0.2, level: 0 }, { secs: 0.3, level: 0.8 }, { secs: 0.15, level: 0, mic: false }]);
-  const ghostPx = d.ink - q.ink;
-  check(`${name}: a drop leaves a dimmer ghost`, ghostPx > 1000 && (d.alpha - q.alpha) / ghostPx < maxGhostAlpha, `${ghostPx} px, mean alpha ${((d.alpha - q.alpha) / ghostPx).toFixed(0)}`);
+  const ghostPx = d.risePx;
+  check(`${name}: a drop leaves a dimmer ghost`, ghostPx > 1000 && d.rise / ghostPx < maxGhostAlpha, `${ghostPx} px, mean rise ${(d.rise / ghostPx).toFixed(0)}`);
   check(`${name}: the ghost is gone after the afterglow time`, Math.abs(a.ink - q.ink) <= slack, `${q.ink} → ${a.ink}`);
   check(`${name}: no ghost while the mic is off`, Math.abs(m.ink - q.ink) <= slack, `${q.ink} → ${m.ink}`);
   await set(0);
@@ -313,6 +317,7 @@ async function main() {
     // 0.75 s after the drop: 0.45 s of falling at (12 + 1.08 × 50) × 4.8 = 316.8 px/s = 142.6 px.
     check('peak-hold: the marker falls at the same speed at 30 and 60 fps', Math.abs(pk60.top - l60.top - 142.6) <= 16 && Math.abs(pk30.top - pk60.top) <= 16, `60 fps ${pk60.top - l60.top} px, 30 fps ${pk30.top - l60.top} px`);
     await glowChecks(wide, 'waveform', { maxGhostAlpha: 165 });
+    await glowChecks(wide, 'ring-waveform', { maxGhostAlpha: 165 });
 
     // ── Scene kit + Thanksgiving (1920×1080 page) ─────────────────────────────
     const sceneState = () => wide.evaluate(() => window.__timbre.scene);
