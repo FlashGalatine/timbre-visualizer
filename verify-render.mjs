@@ -20,7 +20,9 @@
 //           1440×1080 page: native geometry, fits 720×540, letterboxes 16:9 •
 //           scene kit (Thanksgiving): internal scale, placement, resize without
 //           rebuilds, afterglow time, output modes, fps independence, no GPU
-//           growth on re-select, clean GL hand-off, no-THREE fallback.
+//           growth on re-select, clean GL hand-off, no-THREE fallback; the full
+//           cornucopia: falling-leaf count at 30/60 fps, Leaf density and Candle
+//           glow knobs, canvas coverage, embers with no mic and no idle animation.
 
 import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -308,6 +310,23 @@ async function main() {
     const want = [2.2, 3.4, 4.6].map((r) => 0.8 * Math.exp(-r * 0.5));
     check('candles fall at their own rates, the same at 30 and 60 fps',
       want.every((w, i) => Math.abs(f30.follow[i] - w) < 0.02 && Math.abs(f60.follow[i] - w) < 0.02), JSON.stringify({ want, f30: f30.follow, f60: f60.follow }));
+    check('falling-leaf count is the same at 30 and 60 fps', Math.abs(f30.leafTarget - f60.leafTarget) <= 1, `${f30.leafTarget} vs ${f60.leafTarget}`);
+    const knobs = await wide.evaluate(() => {
+      window.frame = function () {};
+      const run = (leafDensity, candleGlow) => {
+        perViz['thanksgiving-harvest'].leafDensity = leafDensity; perViz['thanksgiving-harvest'].candleGlow = candleGlow;
+        TimbreScene.testLevel = 0.8; setActiveViz('visualizer'); setActiveViz('thanksgiving-harvest');
+        let now = performance.now(); for (let i = 0; i < 60; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+        return window.__timbre.scene.state;
+      };
+      const none = run(0, 50), full = run(100, 50), steady = run(50, 0);
+      perViz['thanksgiving-harvest'].leafDensity = 50; perViz['thanksgiving-harvest'].candleGlow = 50; TimbreScene.testLevel = null;
+      return { none: none.leafTarget, full: full.leafTarget, steady: steady.candles };
+    });
+    check('Leaf density 0 stops the fall; 100 doubles it', knobs.none === 0 && knobs.full >= 30, JSON.stringify(knobs));
+    check('Candle glow 0 holds the candles at ember level', knobs.steady.every((b) => b > 0.15 && b < 0.3), JSON.stringify(knobs.steady));
+    const full = await probe();
+    check('the full scene covers far more of the canvas than three candles', full.solid > 60000, String(full.solid));
 
     const leakBefore = await wide.evaluate(() => { currentViz.draw(performance.now(), 1 / 60); const s = window.__timbre.scene; return [s.memory.geometries, s.memory.textures, s.programs]; });
     const leakAfter = await wide.evaluate(() => { setActiveViz('visualizer'); setActiveViz('thanksgiving-harvest'); currentViz.draw(performance.now(), 1 / 60); const s = window.__timbre.scene; return [s.memory.geometries, s.memory.textures, s.programs]; });
@@ -406,6 +425,10 @@ async function main() {
       await dpage.evaluate(() => document.getElementById('vizStatus').textContent));
     await dpage.waitForTimeout(600);
     check('idle animation still draws with no mic', await dpage.evaluate(canvas2dHasPixels));
+    await dpage.evaluate(() => { cfgIdleAnim = false; setActiveViz('thanksgiving-harvest'); });
+    await dpage.waitForTimeout(1500);
+    const silent = await dpage.evaluate(() => window.__timbre.scene && window.__timbre.scene.state);
+    check('silent scene keeps its embers', !!silent && silent.candles.every((b) => b > 0.15 && b < 0.3) && silent.leafTarget === 4, JSON.stringify(silent));
   } finally {
     try { if (browser) await browser.close(); } catch {}
     try { if (deniedBrowser) await deniedBrowser.close(); } catch {}
