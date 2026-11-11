@@ -1,6 +1,6 @@
 # Afterglow for the bar and wave effects
 
-Design, 11 November 2026. Status: awaiting approval.
+Design, 11 November 2026. Status: approved by the owner, 11 November 2026.
 
 ## Intent
 
