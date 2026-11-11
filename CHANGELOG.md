@@ -12,6 +12,23 @@ traceability.
 
 ### Added
 
+- **Scene kit** — `overlay/scene-kit.js` and `overlay/scene-parts.js`: a shared base
+  for floating 3D scenes that sit over the stream with no backdrop. A scene supplies a
+  `frame`, a `build()` and an `update()`; the kit supplies the renderer, camera
+  framing for any canvas shape, shadows, a light-only afterglow (length follows Trail
+  veil), frame-rate-independent audio smoothing and beat detection, and full disposal.
+  Light is written with alpha 0 so it adds to the picture behind it and only solid
+  objects darken it. Loaded by all three overlay pages; the kit also loads under Node
+  for `verify`. Documented in `docs/EFFECTS.md` ("Kit scenes (floating 3D)").
+- **Scene placement settings** — a "Scene placement" group in the control panel,
+  shown for kit scenes: Left-right, Up-down and Size % (new `placement` in the
+  config, clamped by `PLACEMENT_RANGES`). They move and scale the scene through the
+  camera, live, without rebuilding it.
+- `verify` gains scene-kit arithmetic, placement-config and page-load checks;
+  `verify:render` gains scene checks (internal scale, placement, resize without
+  rebuilds, fps independence, no GPU growth on re-select, clean hand-off to the
+  other WebGL effects, no-THREE fallback) and a per-frame cost check (`draw()`
+  averaging under 4 ms; about 1.6 ms measured).
 - **`overlay/mic-visualizers-1920x1080.html`** — a 16:9 overlay page alongside the
   300×220 and 1440×1080 (4:3) ones. It is the 4:3 page widened by 480px: identical
   border, type, chevrons and 624px-tall canvas, with a 1728×624 drawing buffer.
@@ -37,6 +54,15 @@ traceability.
   1920×1080 pass (buffer/`SCALE` geometry, ring-bars stays inside the canvas,
   decoration + no-border toggles rescale); writes `test-render-1920.png` /
   `test-render-640.png`.
+
+### Changed
+
+- **Thanksgiving Harvest is now a 3D scene** on the scene kit: a wicker cornucopia
+  spilling pumpkins, apples, gourds, corn, grapes and wheat toward the viewer, with
+  three candles that flicker with the voice and cast real light and shadow, and autumn
+  leaves that fall more with volume and beats. Its knobs are now **Candle glow**,
+  **Leaf density** and **Camera drift**; **Pumpkin pulse** and **Wheat sway** are gone
+  (saved values for them are dropped on load). The effect id and count are unchanged.
 
 ## [1.0.9] — 2026-07-29
 

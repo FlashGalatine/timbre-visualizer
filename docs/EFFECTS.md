@@ -57,7 +57,7 @@ let horizontal layouts (bars, columns, scrolling scenes) fill `W` naturally.
    if it renders WebGL); add a `DEFAULT_PER_VIZ['my-effect'] = { myKnob: 50 }` entry if it
    has knobs — the control panel generates sliders from it automatically (numeric knobs
    are 0–100 unless overridden in `PER_VIZ_MAX`).
-3. Add the `<script src="factories/my-effect.js">` tag to **both** overlay HTML pages.
+3. Add the `<script src="factories/my-effect.js">` tag to all three overlay HTML pages.
 
 `npm run verify` fails if a name/factory-file/defaults entry is missing — run it.
 
@@ -68,6 +68,120 @@ The STL effect (`rose`) shares the
 `overlay/factories/rose.js`). ASCII STL files are not supported — export binary. To swap
 in your own model, replace the file in `overlay/assets/` and update the `*_STL_URL`
 constant in the factory.
+
+## Kit scenes (floating 3D)
+
+A kit scene is a lit 3D set that floats over the stream with no backdrop. It is written
+against the **scene kit** (`overlay/scene-kit.js`, plus the shared geometry in
+`overlay/scene-parts.js`), which owns everything that is easy to get wrong: the one shared
+WebGL renderer, the camera and framing, the Scene placement sliders, the afterglow, shadows
+and disposal. A scene only builds objects and animates them. `thanksgiving-harvest` is the
+first; copy its factory.
+
+### The factory
+
+The factory is a thin wrapper that hands the kit a scene definition:
+
+```js
+VIZ_FACTORIES['my-scene'] = function () {
+  function definition() {
+    return {
+      frame: { width: 6.8, height: 3.1, center: [-0.4, 0.75, 0.3] }, // the box that must always fit
+      fov: 30,               // vertical field of view, degrees
+      pitch: 14,             // camera elevation above the centre, degrees
+      groundColor: 0x7a6f66, // optional: the invisible ground that catches practical light
+      build(k) {},           // once: create objects, add them to k.scene
+      update(k, audio, now, dt) {},  // every frame, before drawing
+      debug() { return {}; },        // optional: state for tests / DevTools
+    };
+  }
+  let scene = null;
+  return {
+    start() { scene = TimbreScene.create(definition()); },
+    stop() { if (scene) scene.dispose(); scene = null; },
+    onResize() { if (scene) scene.resize(); },
+    draw(now, dt) { if (scene) scene.draw(now, dt); },
+  };
+};
+```
+
+`TimbreScene.create(def)` returns `null` when three.js or WebGL is missing; the wrapper
+above then simply draws nothing. `dispose()` frees everything the scene made and puts the
+WebGL context back to its defaults, so the next effect (including the older WebGL ones)
+starts clean.
+
+### The `k` context (passed to `build` and `update`)
+
+| Name | Meaning |
+|---|---|
+| `k.THREE` | three.js r160 |
+| `k.scene` | the `THREE.Scene` to add objects to |
+| `k.camera` | the camera; the kit places it every frame, so don't move it |
+| `k.orbit` | radians; set it in `update` to swing the camera around the frame centre |
+| `k.keep(obj)` | register a geometry, material or texture for disposal; returns `obj` |
+| `k.practical(light)` | mark a light as a *practical* (see below); returns the light |
+| `k.addLight(material)` | make a material add light without adding alpha; returns it |
+| `k.glowTexture(r, g, b)` | a soft round glow texture (0-255 channels), already kept |
+
+`audio` in `update` is already smoothed, and every field but `beat` is 0 to 1:
+
+| Field | Meaning |
+|---|---|
+| `level` | the raw mic loudness (Gain applied) |
+| `flame` | fast attack, slow release: for anything that should flicker |
+| `slow` | a slow average of the level: for ambient drift |
+| `kick` | 1 on a beat, then decays quickly |
+| `burst` | builds on beats, decays over a few seconds |
+| `beat` | `true` on the one step a beat fires |
+
+With no mic the level is a slow swell when **Idle animation** is on, otherwise silence.
+
+### The rules
+
+- **Only solid objects may darken the stream.** Light is written with alpha 0, so it adds
+  to whatever is behind the overlay in OBS and never greys it. Never use three's stock
+  `AdditiveBlending` for light, glows or sprites; wrap their material in `k.addLight()`.
+- **Light goes through the kit.** A light whose glow should land on the ground is marked
+  with `k.practical(light)` (a candle's point light, say). Other lights light the solids
+  only. Shadow-casting lights are the most expensive thing in a scene; keep their shadow
+  maps small.
+- **Everything is per second.** Speeds, decays and probabilities are computed from `dt`
+  (`x += speed * dt`, `v *= Math.exp(-rate * dt)`), never per frame, so a scene looks the
+  same at 30 and 60 fps. A random part that must not speed up with the frame rate is
+  redrawn at a fixed rate, not on every call.
+- **Size the scene in the frame, not in pixels.** `frame` is the box (in scene units) that
+  must fit the canvas at Size 100%, in any canvas shape: the kit picks the camera distance
+  from it and the canvas aspect. Design for the frame; the 300x220, 4:3 and 16:9 pages all
+  show it whole.
+- **Own what you create.** Everything the scene allocates (geometries, materials,
+  textures) must be reachable by `dispose()`: pass it through `k.keep()`. Lights and
+  instanced meshes added to `k.scene` are swept up by the kit.
+- **Rendering is the kit's.** The kit draws solids and light into a half-float target,
+  folds in the previous frame so light lingers, tone-maps, and writes the canvas. The
+  afterglow length follows the global **Trail veil** setting. Don't render, clear or resize
+  anything yourself.
+
+### Scene placement
+
+Every kit scene gets the **Scene placement** group in the control panel: Left-right and
+Up-down (-100 to 100, percent of the half frame) and Size % (40 to 200). They are the
+`placement` object in the config (`PLACEMENT_RANGES` in `shared/viz-config.js` is the
+schema) and apply live through the camera, without rebuilding the scene.
+
+### Registering a scene
+
+The same three edits as any effect (above), plus the id in two lists in
+`shared/viz-config.js`:
+
+1. Add the id to `VIZ_SCENES` (this shows the Scene placement group for it) and to
+   `VIZ_USES_3D` (this shows the WebGL canvas). `ACTIVE_VIZ_NAMES` and `DEFAULT_PER_VIZ`
+   work as usual.
+2. Add the scene's `<script>` tag to all three overlay pages, after `scene-kit.js` and
+   `scene-parts.js`, which the pages already load before the factories.
+
+For tests, `TimbreScene.testLevel = 0.8` replaces the mic level (`null` restores it), and
+`TimbreScene.debug()` returns the live scene's render scale, GPU resource counts and its own
+`debug()` state.
 
 ## Wire format (for driving Timbre from elsewhere)
 
