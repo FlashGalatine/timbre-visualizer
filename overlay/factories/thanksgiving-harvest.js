@@ -179,7 +179,7 @@ VIZ_FACTORIES['thanksgiving-harvest'] = function () {
     const candles = [];
     const leaves = [];
     let leafMesh = null, dummy = null;
-    const state = { leafTarget: 0, falling: 0 };
+    const state = { leafTarget: 0, falling: 0, fallingHeight: 0 };
 
     function build(k) {
       const { THREE, scene } = k;
@@ -402,7 +402,8 @@ VIZ_FACTORIES['thanksgiving-harvest'] = function () {
         const ground = i < GROUND_LEAVES;
         leaves.push({
           ground, on: ground,
-          x: -4.2 + Math.random() * 8, y: ground ? 0.012 : 0, z: -1.6 + Math.random() * 4,
+          // Each ground leaf a hair higher than the last, so overlapping ones never z-fight.
+          x: -4.2 + Math.random() * 8, y: ground ? 0.012 + 0.002 * i : 0, z: -1.6 + Math.random() * 4,
           speed: 0.45 + Math.random() * 0.5, vx: 0,
           rx: Math.random() * 6, ry: Math.random() * 6, rz: Math.random() * 6,
           spin: 0.8 + Math.random() * 1.6, sway: Math.random() * 6.28, size: 0.8 + Math.random() * 0.8,
@@ -441,7 +442,7 @@ VIZ_FACTORIES['thanksgiving-harvest'] = function () {
       // Leaves: how many fall follows volume and beats; a beat gusts the falling ones sideways.
       const target = Math.min(FALLING_LEAVES, Math.round((4 + 16 * audio.flame + 18 * audio.burst) * knob('leafDensity') / 50));
       const settle = Math.exp(-1.5 * dt);
-      let falling = 0;
+      let falling = 0, height = 0;
       for (let i = 0; i < leaves.length; i++) {
         const l = leaves[i];
         if (!l.ground) {
@@ -455,7 +456,7 @@ VIZ_FACTORIES['thanksgiving-harvest'] = function () {
             l.on = true; l.vx = 0;
             l.x = -4.2 + Math.random() * 8; l.y = 4.2 + Math.random(); l.z = -1.6 + Math.random() * 4;
           }
-          if (l.on) falling++;
+          if (l.on) { falling++; height += l.y; }
         }
         // A falling leaf shrinks to nothing over its last third of a unit.
         const s = l.on ? l.size * (l.ground ? 1 : Math.min(1, l.y * 3)) : 0;
@@ -468,6 +469,7 @@ VIZ_FACTORIES['thanksgiving-harvest'] = function () {
       leafMesh.instanceMatrix.needsUpdate = true;
       state.leafTarget = target;
       state.falling = falling;
+      state.fallingHeight = falling ? height / falling : 0;
     }
 
     return {
@@ -480,7 +482,7 @@ VIZ_FACTORIES['thanksgiving-harvest'] = function () {
       debug() {
         return {
           candles: candles.map((c) => c.brightness), follow: candles.map((c) => c.follow),
-          leafTarget: state.leafTarget, falling: state.falling,
+          leafTarget: state.leafTarget, falling: state.falling, fallingHeight: state.fallingHeight,
         };
       },
     };

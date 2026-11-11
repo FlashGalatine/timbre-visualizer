@@ -179,7 +179,8 @@
     });
   }
 
-  // Build a scene from its definition. Returns null without three.js or WebGL.
+  // Build a scene from its definition. Returns null without three.js or WebGL, or
+  // when def.build() throws (the error goes to the console).
   function create(def) {
     if (typeof THREE === 'undefined' || !THREE) return null;
     const r = getRenderer();
@@ -240,8 +241,6 @@
     quadScene.add(quad);
     const quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
-    def.build(k);
-
     function disposeTargets() {
       if (!targets) return;
       targets.scene.dispose(); targets.prev.dispose(); targets.next.dispose();
@@ -269,6 +268,7 @@
         next: new THREE.WebGLRenderTarget(w, h, Object.assign({ depthBuffer: false }, opts)),
       };
       // Start from nothing (and allocate now, so GPU memory is the same from the first frame).
+      r.setClearColor(0x000000, 0);   // see draw(): a restored context clears to opaque black
       for (const t of [targets.scene, targets.prev, targets.next]) { r.setRenderTarget(t); r.clear(); }
       r.setRenderTarget(null);
       targetGeneration++;
@@ -312,6 +312,9 @@
         // 1 + 2: solids with every light, then the light-catcher with the practicals.
         r.shadowMap.needsUpdate = true;
         r.setRenderTarget(targets.scene);
+        // After a WebGL context restore three's clear colour is opaque black until its first
+        // render(); clearing with it would make one opaque frame. three caches it, so this is free.
+        r.setClearColor(0x000000, 0);
         r.clear();
         camera.layers.set(0);
         r.render(scene, camera);
@@ -341,25 +344,39 @@
       dispose() {
         if (disposed) return;
         disposed = true;
-        // Lights own their shadow maps; instanced meshes own their instance buffers.
-        const owned = new Set(kept);
-        scene.traverse((o) => { if (o.isLight || o.isInstancedMesh) owned.add(o); });
-        for (const o of owned) o.dispose();
-        disposeTargets();
-        r.setRenderTarget(null);
-        r.resetState();
-        // resetState() leaves the upload flags as the last texture set them; a
-        // renderer built next on this canvas then fails texImage3D (FLIP_Y on).
-        const gl = r.getContext();
-        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-        gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.BROWSER_DEFAULT_WEBGL);
-        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
-        gl.pixelStorei(gl.PACK_ALIGNMENT, 4);
-        if (active === internals) active = null;
+        try {
+          // Lights own their shadow maps; instanced meshes own their instance buffers.
+          // Something kept with no dispose() (a Group, say) holds nothing to free.
+          const owned = new Set(kept);
+          scene.traverse((o) => { if (o.isLight || o.isInstancedMesh) owned.add(o); });
+          for (const o of owned) if (typeof o.dispose === 'function') o.dispose();
+          disposeTargets();
+        } finally {
+          // Hand the context back even if a dispose() threw, so the next effect starts clean.
+          r.setRenderTarget(null);
+          r.resetState();
+          // resetState() leaves the upload flags as the last texture set them; a
+          // renderer built next on this canvas then fails texImage3D (FLIP_Y on).
+          const gl = r.getContext();
+          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+          gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+          gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.BROWSER_DEFAULT_WEBGL);
+          gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+          gl.pixelStorei(gl.PACK_ALIGNMENT, 4);
+          if (active === internals) active = null;
+        }
       },
     };
 
+    // A build() that throws gives no scene: log it, free whatever it had made, and
+    // return null, which the factory wrapper already treats as nothing to draw.
+    try {
+      def.build(k);
+    } catch (e) {
+      console.error('TimbreScene: build() failed; the scene will not draw.', e);
+      handle.dispose();
+      return null;
+    }
     reconcile();
     active = internals;
     return handle;
