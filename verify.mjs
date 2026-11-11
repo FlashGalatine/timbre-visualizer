@@ -14,6 +14,9 @@
 //      config (defaults, clamping, merging) and that all three overlay pages
 //      load scene-kit.js then scene-parts.js between core.js and the factories.
 //      (Numbered 5 because it was added last; it runs before section 4.)
+//   6. Afterglow arithmetic — overlay/afterglow.js under Node: the fade rule,
+//      bar ghosts, echo trigger, smooth-curve tracing, and that all three
+//      overlay pages load it before the factories. (Also runs before section 4.)
 //   4. Live transport seam — spawns mock-sb-server.mjs on side ports, loads the
 //      REAL shared/panel-client-sb.js under a browser shim, and asserts:
 //      Subscribe (lowercase), sync-on-connect DoAction, control push →
@@ -193,6 +196,77 @@ await import('./overlay/scene-kit.js');
   ok(K.renderScale(130) === 4 && K.renderScale(170) === 4 && K.renderScale(180) === 3 && K.renderScale(624) === 1 && K.renderScale(1080) === 1, 'internal render scale');
   const v = K.viewOffset({ x: 100, y: -50, size: 200 }, 1728, 624);
   ok(v.x === -864 && v.y === -156 && v.zoom === 2, 'placement to lens shift');
+}
+
+// ── 6. Afterglow arithmetic (pure; no browser) ───────────────────────────────
+console.log('\n[6] afterglow arithmetic');
+await import('./overlay/afterglow.js');
+{
+  const G = globalThis.TimbreGlow;
+  const near = (a, b, tol) => Math.abs(a - b) <= tol;
+  ok(G.fade(0, 2) === 1 && G.fade(0.3, 2) === 1 && near(G.fade(1.15, 2), 0.25, 1e-9) && G.fade(2, 2) === 0 && G.fade(5, 2) === 0, 'fade: holds 15%, eases out, ends at T');
+  ok(G.fade(-1, 2) === 1 && G.fade(0.1, 0) === 0, 'fade: a negative age is full strength, T of 0 is off');
+
+  const g = G.createBarGhosts();
+  g.step(0, 100, 0, 2, true);
+  let s = g.step(0, 20, 100, 2, true);
+  ok(s.length === 1 && s[0].lo === 20 && s[0].hi === 100 && s[0].strength === 1, 'bars: a drop leaves a ghost at the old height');
+  g.step(0, 60, 600, 2, true);
+  s = g.step(0, 20, 700, 2, true);
+  ok(s.length === 2 && s[0].lo === 20 && s[0].hi === 60 && s[1].lo === 60 && s[1].hi === 100 && s[0].strength > s[1].strength, 'bars: a lower later peak sits in front, brighter');
+  ok(g.step(0, 100, 800, 2, true).length === 0, 'bars: rising past the ghosts clears them');
+  g.step(0, 20, 900, 2, true);
+  ok(g.step(0, 20, 2900, 2, true).length === 0, 'bars: ghosts are gone at T');
+  g.step(1, 50, 0, 2, false);
+  ok(g.step(1, 10, 100, 2, false).length === 0, 'bars: nothing is recorded while the mic is off');
+  const off = G.createBarGhosts(); off.step(0, 100, 0, 0, true);
+  ok(off.step(0, 20, 100, 0, true).length === 0, 'bars: afterglow 0 keeps no ghosts');
+  const k = G.createBarGhosts(); k.sync('20:1728:624'); k.step(0, 100, 0, 2, true); k.step(0, 20, 100, 2, true);
+  k.sync('20:1728:624');
+  ok(k.step(0, 20, 200, 2, true).length === 1, 'bars: sync with the same key keeps ghosts');
+  k.sync('8:1728:624');
+  ok(k.step(0, 20, 300, 2, true).length === 0, 'bars: sync with a new key starts again');
+  // The sound changes every 33 ms whatever the frame rate: loud for 1 s, then quiet.
+  const runBars = (fps) => { const b = G.createBarGhosts(); let out = [];
+    for (let i = 1; i <= Math.round(1.5 * fps); i++) { const t = i / fps; out = b.step(0, Math.floor(t / 0.033) * 0.033 < 1 ? 100 : 20, t * 1000, 2, true); }
+    return out; };
+  const [b30, b60, b165] = [30, 60, 165].map(runBars);
+  ok([b30, b60, b165].every((x) => x.length === 1 && x[0].hi === 100) && near(b30[0].strength, b60[0].strength, 0.05) && near(b60[0].strength, b165[0].strength, 0.05), 'bars: the same ghost at 30/60/165 fps');
+
+  const runEchoes = (amp, fps, secs, T = 1.6, record = true) => { const e = G.createEchoes(); const born = new Set(); let most = 0, last = [];
+    for (let i = 1; i <= Math.round(secs * fps); i++) { const t = i / fps; const a = amp(Math.floor(t / 0.033) * 0.033);
+      last = e.step(a, t * 1000, 1 / fps, T, record, () => a); for (const x of last) born.add(x.born); most = Math.max(most, last.length); }
+    return { count: born.size, most, last }; };
+  const sudden = (t) => (t % 1 < 0.4 ? 0.8 : 0.02);
+  const ramp = (t) => (t % 1 < 0.4 ? 0.8 * ((t % 1) / 0.4) : 0.02);
+  const fast = (t) => (t % 0.2 < 0.1 ? 0.8 : 0.05);
+  ok([30, 60, 165].every((f) => runEchoes(sudden, f, 10).count === 10), 'echoes: one per sudden burst at 30/60/165 fps');
+  ok([30, 60, 165].every((f) => runEchoes(ramp, f, 10).count === 10), 'echoes: one per ramped burst at 30/60/165 fps');
+  ok(runEchoes((t) => sudden(t) * 2.5, 60, 10).count === 10, 'echoes: gain at 200% changes nothing');
+  ok(runEchoes(fast, 60, 20, 4).most <= G.MAX_ECHOES && runEchoes(fast, 165, 20, 1.6).most <= G.MAX_ECHOES, 'echoes: never more than six alive');
+  ok(runEchoes(sudden, 60, 10, 1.6, false).count === 0, 'echoes: none while the mic is off');
+  ok(runEchoes(sudden, 60, 10, 0).count === 0, 'echoes: afterglow 0 makes none');
+  const shaped = runEchoes(ramp, 60, 0.7);
+  ok(shaped.last.length === 1 && shaped.last[0].shape > 0.7 && shaped.last[0].strength > 0, 'echoes: the frozen shape is the loudest frame of the burst');
+  // 0.9 s: one burst and its echo, ending in quiet. Then the source is hidden for 10 s.
+  const e = G.createEchoes(); let before = [];
+  for (let i = 1; i <= 54; i++) before = e.step(sudden(i / 60), i * 1000 / 60, 1 / 60, 1.6, true, () => 1);
+  ok(before.length === 1 && e.step(0, 900 + 10000, 0.1, 1.6, true, () => 1).length === 0, 'echoes: none left after a long gap');
+  const e2 = G.createEchoes(); e2.sync('64:1728:624'); for (let i = 1; i <= 36; i++) e2.step(sudden(i / 60), i * 1000 / 60, 1 / 60, 1.6, true, () => 1);
+  e2.sync('32:1728:624');
+  ok(e2.step(0, 620, 1 / 60, 1.6, true, () => 1).length === 0, 'echoes: sync with a new key starts again');
+
+  const calls = []; const mock = { moveTo: (...a) => calls.push(['M', ...a]), lineTo: (...a) => calls.push(['L', ...a]), quadraticCurveTo: (...a) => calls.push(['Q', ...a]), closePath: () => calls.push(['Z']) };
+  G.trace(mock, [0, 10, 20, 30], [5, 15, 5, 15], false);
+  ok(calls[0].join() === 'M,0,5' && calls.filter((c) => c[0] === 'Q').length === 2 && calls.at(-1).join() === 'L,30,15', 'trace: an open curve starts and ends on the end samples');
+  calls.length = 0; G.trace(mock, [0, 10, 10, 0], [0, 0, 10, 10], true);
+  ok(calls[0].join() === 'M,0,5' && calls.filter((c) => c[0] === 'Q').length === 4 && calls.at(-1)[0] === 'Z', 'trace: a closed curve rounds every sample and closes');
+
+  for (const p of ['300x220', '1440x1080', '1920x1080']) {
+    const html = await readFile(resolve(__dirname, `overlay/mic-visualizers-${p}.html`), 'utf8');
+    const at = html.indexOf('src="afterglow.js"');
+    ok(at > html.indexOf('src="scene-parts.js"') && at < html.indexOf('src="factories/'), `${p} page loads afterglow.js before the factories`);
+  }
 }
 
 // ── 4. Live transport seam (mock SB + real panel-client-sb.js) ───────────────
