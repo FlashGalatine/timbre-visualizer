@@ -156,9 +156,10 @@
     };
   }
 
-  // Adds a smooth curve through the points to ctx's current path (never begins
-  // or strokes it). Each point is a control point, and the curve passes through
-  // the midpoints between neighbours.
+  // Adds a smooth curve that follows the points, rounding each one, to ctx's
+  // current path (never begins or strokes it). Each point is a control point:
+  // the curve passes through the midpoints between neighbours, and an open
+  // curve starts and ends on its end points.
   function trace(ctx, xs, ys, closed) {
     const n = xs.length;
     if (n === 0) return;

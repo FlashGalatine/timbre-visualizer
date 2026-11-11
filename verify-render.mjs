@@ -324,7 +324,8 @@ async function main() {
     check('peak-hold: the marker holds for 0.3 s', h60.top === l60.top, `${l60.top} → ${h60.top}`);
     // 0.75 s after the drop: 0.45 s of falling at (12 + 1.08 × 50) × 4.8 = 316.8 px/s = 142.6 px.
     check('peak-hold: the marker falls at the same speed at 30 and 60 fps', Math.abs(pk60.top - l60.top - 142.6) <= 16 && Math.abs(pk30.top - pk60.top) <= 16, `60 fps ${pk60.top - l60.top} px, 30 fps ${pk30.top - l60.top} px`);
-    await glowChecks(wide, 'waveform', { maxGhostAlpha: 50 });
+    // 42: the real echoes read 35.1; an echo stroke at full alpha reads 47.8 (its faint fill dominates the mean).
+    await glowChecks(wide, 'waveform', { maxGhostAlpha: 42 });
     await glowChecks(wide, 'ring-waveform', { maxGhostAlpha: 165 });
     await pushConfig((c) => { c.activeViz = 'visualizer'; c.afterglow = 1.6; c.idleAnim = false; });
     await wide.waitForFunction(() => cfgAfterglow === 1.6);

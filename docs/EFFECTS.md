@@ -201,7 +201,7 @@ the effect decides what to draw, `TimbreGlow` says what to remember and how stro
 | `fade(ageSec, T)` | a ghost's strength, 0 to 1: full for the first 15% of `T`, then eased down to 0 at `T` |
 | `createBarGhosts()` | per-bar memory of recent peaks. `sync(key)`, then `step(i, height, now, T, record)` returns the strips (`{ lo, hi, strength }`, nearest the live bar first) to draw above bar `i` |
 | `createEchoes()` | frozen copies of a wave's loudest moments. `sync(key)`, then `step(loudness, now, dt, T, record, snapshot)` returns `{ shape, strength, born }` for each live echo; `snapshot()` is called to capture the wave. Never more than `MAX_ECHOES` (6) are alive, even if `T` is raised |
-| `trace(ctx, xs, ys, closed)` | adds a smooth curve through the points to the current path (it does not begin or stroke it) |
+| `trace(ctx, xs, ys, closed)` | adds a smooth curve that follows the points to the current path, rounding each one: it passes through the midpoints between neighbours, and an open curve starts and ends on its end points (it does not begin or stroke the path) |
 | `glowLine(ctx, addPath, { width, stroke, glowColor, blur })` | the live wave line: a glowing stroke with a thin white core, drawn from the path `addPath` adds |
 | `BAR`, `BAR_TIP`, `ECHO`, `ECHO_FILL` | alpha ceilings (0.42, 0.63, 0.6, 0.07); multiply each by the ghost's `strength` |
 
