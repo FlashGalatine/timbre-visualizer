@@ -267,6 +267,11 @@ await import('./overlay/afterglow.js');
   calls.length = 0; G.trace(mock, [0, 10, 10, 0], [0, 0, 10, 10], true);
   ok(calls[0].join() === 'M,0,5' && calls.filter((c) => c[0] === 'Q').length === 4 && calls.at(-1)[0] === 'Z', 'trace: a closed curve rounds every sample and closes');
 
+  // glowLine: records what the stroke looked like at the moment each stroke() ran.
+  const rec = { adds: 0, strokes: [], shadowBlur: -1, lineWidth: 0, strokeStyle: '', shadowColor: '', lineJoin: '', lineCap: '', beginPath() {}, stroke() { this.strokes.push({ blur: this.shadowBlur, width: this.lineWidth }); } };
+  G.glowLine(rec, () => { rec.adds++; }, { width: 4, stroke: '#fff', glowColor: 'rgb(1,2,3)', blur: 9 });
+  ok(rec.adds === 2 && rec.strokes.length === 2 && rec.strokes[0].blur === 9 && rec.strokes[0].width === 4 && rec.strokes[1].blur === 0 && near(rec.strokes[1].width, 1.4, 1e-9) && rec.shadowBlur === 0, 'glowLine: a glowing stroke, then a white core, shadow left off');
+
   for (const p of ['300x220', '1440x1080', '1920x1080']) {
     const html = await readFile(resolve(__dirname, `overlay/mic-visualizers-${p}.html`), 'utf8');
     const at = html.indexOf('src="afterglow.js"');
