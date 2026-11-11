@@ -43,6 +43,12 @@
     size: { min: 40,   max: 200, step: 1, default: 100 },
   };
 
+  // 2D effects that draw a fading afterglow behind their live shape.
+  const VIZ_AFTERGLOW = ['visualizer', 'peak-hold', 'ring-bars', 'sine-bars', 'waveform', 'ring-waveform'];
+
+  // How long the afterglow lingers, in seconds; 0 turns it off.
+  const AFTERGLOW_RANGE = { min: 0, max: 4, step: 0.1, default: 1.6 };
+
   // Per-viz knobs are 0-100 sliders by default; each visualizer normalizes to
   // its own range. String-typed defaults (see 'matrix') pass through verbatim
   // (capped at 4096 chars) instead of clamped.
@@ -181,6 +187,7 @@
     cfg.stlObject = clone(STL_OBJECT_DEFAULTS);
     cfg.placement = {};
     for (const [k, r] of Object.entries(PLACEMENT_RANGES)) cfg.placement[k] = r.default;
+    cfg.afterglow = AFTERGLOW_RANGE.default;
     cfg.perViz = clone(DEFAULT_PER_VIZ);
     return cfg;
   }
@@ -218,6 +225,9 @@
         if (r && typeof v === 'number') cfg.placement[k] = clamp(v, r.min, r.max);
       }
     }
+    if (typeof partial.afterglow === 'number') {
+      cfg.afterglow = clamp(partial.afterglow, AFTERGLOW_RANGE.min, AFTERGLOW_RANGE.max);
+    }
     if (partial.perViz && typeof partial.perViz === 'object') {
       for (const [name, knobs] of Object.entries(partial.perViz)) {
         const target = cfg.perViz[name];
@@ -240,6 +250,8 @@
     VIZ_USES_3D,
     VIZ_SCENES,
     PLACEMENT_RANGES,
+    VIZ_AFTERGLOW,
+    AFTERGLOW_RANGE,
     DEFAULT_PER_VIZ,
     PER_VIZ_MAX,
     STL_OBJECT_DEFAULTS,

@@ -80,6 +80,7 @@ let cfgColorSpeed = 1;
 let cfgColorHue = 0;
 let cfgIdleAnim = true;
 let cfgEffectBgOpacity = 1;
+let cfgAfterglow = 1.6;
 let cfgBars = 20;
 let cfgBounce = 50;
 
@@ -213,6 +214,7 @@ function applyConfig(raw) {
   cfgColorHue = (cfg.colorHue / 100) * PALETTE.length;
   cfgIdleAnim = cfg.idleAnim;
   cfgEffectBgOpacity = cfg.effectBgOpacity / 100;
+  cfgAfterglow = cfg.afterglow;
   applyShowLabels(cfg.showLabels);
   applyShowChevrons(cfg.showChevrons);
   applyShowDecorations(cfg.showDecorations);
