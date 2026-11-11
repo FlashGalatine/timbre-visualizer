@@ -57,6 +57,7 @@
       <div class="row"><button id="btnMatrixApply">Apply text</button></div>
     </div>
     <div id="stlKnobs" hidden><h2>3D model</h2><div id="stlKnobRows"></div></div>
+    <div id="scenePlacement" hidden><h2>Scene placement</h2><div id="scenePlacementRows"></div></div>
   </section>
 
   <section>
@@ -207,6 +208,7 @@
     $('matrixExtras').hidden = cfg.activeViz !== 'matrix';
     if (cfg.activeViz === 'matrix') refreshMatrixUI();
     $('stlKnobs').hidden = !STL_VIZ.has(cfg.activeViz);
+    $('scenePlacement').hidden = !T.VIZ_SCENES.includes(cfg.activeViz);
   }
 
   // ── Shared STL knob group (built once; shown for STL vizes) ────────────
@@ -214,6 +216,15 @@
     const row = sliderRow('stl-' + k, nice(k), r,
       () => cfg.stlObject[k], (v) => { cfg.stlObject[k] = v; }, STL_FORMAT[k]);
     $('stlKnobRows').appendChild(row);
+    refreshers.push(row.refresh);
+  }
+
+  // ── Scene placement knobs (built once; shown for scene effects) ────────
+  const PLACEMENT_LABELS = { x: 'Left-right', y: 'Up-down', size: 'Size %' };
+  for (const [k, r] of Object.entries(T.PLACEMENT_RANGES)) {
+    const row = sliderRow('place-' + k, PLACEMENT_LABELS[k] || nice(k), r,
+      () => cfg.placement[k], (v) => { cfg.placement[k] = v; });
+    $('scenePlacementRows').appendChild(row);
     refreshers.push(row.refresh);
   }
 
