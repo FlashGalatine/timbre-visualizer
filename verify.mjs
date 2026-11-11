@@ -74,6 +74,7 @@ console.log('\n[1] table consistency');
     const css = pages[f].match(/\.canvas-stack \{[^}]*width: (\d+)px;\s*height: (\d+)px;/);
     ok(cw && cw3 && css && cw[1] === css[1] && cw[2] === css[2] && cw3[1] === css[1] && cw3[2] === css[2],
       `${f} canvas buffers match .canvas-stack CSS box (${cw && cw[1]}×${cw && cw[2]})`);
+    ok(/<script src="core\.js"><\/script>[\s\S]*<script src="scene-kit\.js"><\/script>[\s\S]*<script src="factories\//.test(pages[f]), `${f} loads scene-kit.js after core.js and before the factories`);
   }
   // The 16:9 page is the 4:3 page widened — same vertical metrics, SCALE pinned to the 4:3 page's value.
   ok(/^\s*SCALE = 4\.8;$/m.test(pages['mic-visualizers-1920x1080.html']) && /1728" height="624"/.test(pages['mic-visualizers-1920x1080.html']),
@@ -136,6 +137,50 @@ console.log('\n[3] C# raw-embed round-trip');
   ok(parsed && parsed.type === 'timbre:config', 'wire string parses');
   ok(parsed && parsed.config.perViz.matrix.pool === cfg.perViz.matrix.pool, 'kana survives');
   ok(parsed && parsed.config.perViz.matrix.messages === cfg.perViz.matrix.messages, 'newlines/quotes/backslashes survive');
+}
+
+// ── 5. Scene kit arithmetic (pure; no browser) ───────────────────────────────
+console.log('\n[5] scene kit arithmetic');
+await import('./overlay/scene-kit.js');
+{
+  const K = globalThis.TimbreScene;
+  const near = (a, b, tol) => Math.abs(a - b) <= tol;
+
+  // Same input, three frame rates: 1 s at 0.8, then 0.5 s of silence.
+  const run = (fps) => {
+    const env = K.createEnvelope(); let now = 0, out;
+    for (let i = 0; i < Math.round(1.5 * fps); i++) { now += 1000 / fps; out = env.step(i < fps ? 0.8 : 0, now, 1 / fps, false); }
+    return out;
+  };
+  const a = run(30), b = run(60), c = run(165);
+  ok(near(a.flame, 0.8 * Math.exp(-1.5), 0.02) && near(b.flame, a.flame, 0.02) && near(c.flame, a.flame, 0.02), `flame agrees at 30/60/165 fps (${a.flame.toFixed(3)} ${b.flame.toFixed(3)} ${c.flame.toFixed(3)})`);
+  ok(near(a.slow, b.slow, 0.02) && near(b.slow, c.slow, 0.02), 'slow agrees at 30/60/165 fps');
+
+  const env = K.createEnvelope(); let now = 0;
+  for (let i = 0; i < 60; i++) { now += 1000 / 60; env.step(0.1, now, 1 / 60, true); }
+  now += 1000 / 60; const hit = env.step(0.9, now, 1 / 60, true);
+  ok(hit.beat === true && hit.kick === 1 && near(hit.burst, 0.3, 0.01), 'a jump in level fires one beat');
+  now += 1000 / 60; const next = env.step(0.9, now, 1 / 60, true);
+  ok(next.beat === false, 'the beat flag lasts one step');
+  for (let i = 0; i < 6; i++) { now += 1000 / 60; env.step(0.1, now, 1 / 60, true); }
+  now += 1000 / 60; ok(env.step(0.95, now, 1 / 60, true).beat === false, 'no second beat inside 220 ms');
+  const quiet = K.createEnvelope(); quiet.step(0.1, 16, 1 / 60, false);
+  ok(quiet.step(0.9, 32, 1 / 60, false).beat === false, 'no beats without a mic');
+
+  const big = K.createEnvelope(); let o;
+  for (let i = 0; i < 50; i++) o = big.step(i % 2 ? 1 : 0, i * 100, 0.1, true);
+  ok([o.flame, o.slow, o.kick, o.burst].every((v) => Number.isFinite(v) && v >= 0 && v <= 1), 'envelope survives a 0.1 s step');
+
+  ok(near(K.fitDistance(6.8, 3.1, 30, 2.77), 5.785, 0.01), 'fit: wide canvas is height-limited');
+  ok(near(K.fitDistance(6.8, 3.1, 30, 2.0), 6.344, 0.01), 'fit: 2:1 canvas is width-limited');
+  ok(near(K.fitDistance(6.8, 3.1, 30, 4 / 3), 9.517, 0.01), 'fit: 4:3 canvas backs off further');
+  ok(K.afterglowTime(100) === 0.35 && K.afterglowTime(0) === 1.5 && near(K.afterglowTime(50), 0.925, 1e-9), 'afterglow time from Trail veil');
+  const d60 = K.decay(1 / 60, 0.35), d30 = K.decay(1 / 30, 0.35), d165 = K.decay(1 / 165, 0.35);
+  ok([0, 1, 2].every((i) => near(d60[i] * d60[i], d30[i], 1e-9)), 'two 60 fps decays equal one 30 fps decay');
+  ok(near(d165[1] / d165[0], 0.94, 0.002) && near(d165[2] / d165[0], 0.84, 0.002), 'cooling matches the approved look at 165 Hz');
+  ok(K.renderScale(130) === 4 && K.renderScale(170) === 4 && K.renderScale(180) === 3 && K.renderScale(624) === 1 && K.renderScale(1080) === 1, 'internal render scale');
+  const v = K.viewOffset({ x: 100, y: -50, size: 200 }, 1728, 624);
+  ok(v.x === -864 && v.y === -156 && v.zoom === 2, 'placement to lens shift');
 }
 
 // ── 4. Live transport seam (mock SB + real panel-client-sb.js) ───────────────
