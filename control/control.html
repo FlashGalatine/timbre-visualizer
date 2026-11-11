@@ -58,6 +58,7 @@
     </div>
     <div id="stlKnobs" hidden><h2>3D model</h2><div id="stlKnobRows"></div></div>
     <div id="scenePlacement" hidden><h2>Scene placement</h2><div id="scenePlacementRows"></div></div>
+    <div id="afterglowGroup" hidden><h2>Afterglow</h2><div id="afterglowRows"></div></div>
   </section>
 
   <section>
@@ -209,6 +210,7 @@
     if (cfg.activeViz === 'matrix') refreshMatrixUI();
     $('stlKnobs').hidden = !STL_VIZ.has(cfg.activeViz);
     $('scenePlacement').hidden = !T.VIZ_SCENES.includes(cfg.activeViz);
+    $('afterglowGroup').hidden = !T.VIZ_AFTERGLOW.includes(cfg.activeViz);
   }
 
   // ── Shared STL knob group (built once; shown for STL vizes) ────────────
@@ -225,6 +227,14 @@
     const row = sliderRow('place-' + k, PLACEMENT_LABELS[k] || nice(k), r,
       () => cfg.placement[k], (v) => { cfg.placement[k] = v; });
     $('scenePlacementRows').appendChild(row);
+    refreshers.push(row.refresh);
+  }
+
+  // ── Afterglow (one slider; shown for the six afterglow effects) ────────
+  {
+    const row = sliderRow('afterglow', 'Afterglow (seconds)', T.AFTERGLOW_RANGE,
+      () => cfg.afterglow, (v) => { cfg.afterglow = v; }, (v) => Number(v).toFixed(1));
+    $('afterglowRows').appendChild(row);
     refreshers.push(row.refresh);
   }
 

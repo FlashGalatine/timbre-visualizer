@@ -516,6 +516,29 @@ async function main() {
       }, 100);
     });
     check('moving Left-right pushes placement.x', placed);
+    check('afterglow group is hidden for another effect', await ctlPage.evaluate(() => document.getElementById('afterglowGroup').hidden === true));
+    await ctlPage.selectOption('#activeViz', 'ring-bars');
+    check('afterglow group shows for one of the six', await ctlPage.evaluate(() => document.getElementById('afterglowGroup').hidden === false));
+    await ctlPage.evaluate(() => { const e = document.getElementById('afterglow'); e.value = '3'; e.dispatchEvent(new Event('input', { bubbles: true })); });
+    const glowPushed = await new Promise((res) => {
+      const t0 = Date.now();
+      const iv = setInterval(() => {
+        const hit = observed.find((m) => m.type === 'timbre:config' && m.config && m.config.afterglow === 3);
+        if (hit || Date.now() - t0 > 5000) { clearInterval(iv); res(!!hit); }
+      }, 100);
+    });
+    check('moving Afterglow pushes afterglow', glowPushed);
+    check('the overlay takes the afterglow setting', await page.waitForFunction(() => cfgAfterglow === 3, { timeout: 5000 }).then(() => true).catch(() => false));
+    // Put afterglow back to its default so the shared mock state stays clean.
+    const glowMark = observed.length;
+    await ctlPage.evaluate(() => { const e = document.getElementById('afterglow'); e.value = '1.6'; e.dispatchEvent(new Event('input', { bubbles: true })); });
+    await new Promise((res) => {
+      const t0 = Date.now();
+      const iv = setInterval(() => {
+        const hit = observed.slice(glowMark).find((m) => m.type === 'timbre:config' && m.config && m.config.afterglow === 1.6);
+        if (hit || Date.now() - t0 > 5000) { clearInterval(iv); res(); }
+      }, 100);
+    });
     // Put the shared mock state back so the later mic-denied page starts on a 2D effect again.
     const mark = observed.length;
     await ctlPage.selectOption('#activeViz', 'waveform');
