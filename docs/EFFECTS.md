@@ -263,12 +263,14 @@ source from `TimbreHelix`, so it hears what DNA hears. It offers:
   slow reshaping.
 - `speed(loud, flash)`, `reach(loud)`, `tailLength(trail, loud, scale)`, `radius(a, loudNow,
   loudThen, z, scale)`, `alpha(a, loudNow, loudThen)`: how the voice sets the flight and the tail.
+- `capBulges(radii)`: trims each half-width (tip first, head last) to at most `BULGE` (1.25)
+  times the narrowest one nearer the head, so a loud stretch of tail bulges gently.
 - `createTrail({ step, keep })` and `fly(trail, { ... })`: the tail's memory of where the head has
   been and how loud the voice was there. `fly` cuts each frame's movement into sub-steps, so the
   remembered path is the same smooth curve at any frame rate.
 - `createFlare()`: the gate that decides when a peak flares the head, driven by
   `step({ dt, live, peak, threshold })`.
-- `step(scale)`, `keep(scale)`, `MARGIN`, `REACH_MIN`, `LEAN_MAX`, `REARM_S`: its sizes and constants.
+- `step(scale)`, `keep(scale)`, `MARGIN`, `REACH_MIN`, `LEAN_MAX`, `REARM_S`, `BULGE`: its sizes and constants.
 
 `window.__cometSeed` seeds the effect's sparks. Like `helix.js`, the file must stay loadable under
 Node, because `npm run verify` imports it.

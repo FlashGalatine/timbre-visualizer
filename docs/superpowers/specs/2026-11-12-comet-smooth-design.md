@@ -29,9 +29,11 @@ than the wave's shape. The owner was told this is the biggest change and chose t
 
 ## Anti-goals
 
-- A tail that looks like a worm: it must always narrow away from the head.
+- A tail that looks like a worm: it narrows away from the head, and a bulge never stands more than
+  a quarter wider than the tail nearer the head.
 - Flares during normal speech, or a flare the moment the mic opens.
-- Anything that stops, jumps or leaves the frame.
+- A head or tail that stops, jumps or leaves the frame. (A flare's ring and sparks may run off the
+  edge; they are meant to.)
 
 ## Constraints
 
@@ -65,9 +67,14 @@ the waveform peak × 1.5 × Gain, `low` is bins 0–1, `high` is bins 2–10.
 | Sparks shed from the head | `3 + 70·high + 14·loud` a second |
 
 "Loud then" is the loudness when the head passed that point (smoothed over 0.05 s), so syllables
-travel down the tail as gentle bulges. "Loud now" swells the whole tail together and is the larger
-term, so at a steady level the tail narrows all the way from head to tip, and the bulges ride on that
-taper without overtaking it.
+travel down the tail as bulges. "Loud now" swells the whole tail together, so at a steady level the
+tail narrows all the way from head to tip. To keep the bulges gentle, each half-width is then trimmed
+to at most 1.25 times the narrowest one nearer the head (`capBulges`). Without the trim a bulge
+reached about 1.4 to 1.5 times.
+
+**A fresh tail.** After the effect starts or the box changes size, the tail has not yet flown its
+full length. Until it has, "the way from head to tip" is measured to the oldest remembered point, so
+the growing tail tapers to nothing from the first moment.
 
 **The tail's memory.** The path is remembered as points between half a step and one step apart
 (`step = max(3, 2.4 × scale)` px), whatever the frame rate: each frame's movement is cut into
@@ -132,3 +139,14 @@ The control panel builds both sliders from the settings table; no control-panel 
   and "b" sounds flare it.
 - The blurred glow's cost on the graphics card, and the frame rate in OBS.
 - Whether the glow's off-canvas shadow trick draws in OBS's browser.
+
+## Known and left alone
+
+- A stale cache that serves the new `factories/comet.js` beside an old page without
+  `comet-flight.js` leaves Comet's canvas blank until another effect is picked (the rest of the
+  overlay keeps working). DNA has the same exposure with `helix.js`. Beside an old
+  `viz-config.js` the flares are simply off.
+- At Trail 0, silent, on the smallest page, the tail is 15 px long and about half of it sits under
+  the head's glow.
+- **Trail veil** no longer affects Comet: the old Comet's fading picture used it, the new one
+  clears the canvas every frame.

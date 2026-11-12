@@ -79,7 +79,7 @@ traceability.
   sound sheds sparks, and a hard peak flares the head. The old Comet plotted the sound
   wave as a stepped looping figure; that figure is gone. **Trail** now sets the tail's
   length and a higher value is a longer tail (it was the fade speed, where higher was
-  shorter).
+  shorter). **Trail veil** no longer affects Comet.
 - **DNA is now a smooth glowing double helix** that twists faster and glows brighter
   with loudness, opens its two strands with the low and high end of the sound, and
   shatters on a hard peak, then reassembles. The stepped look is gone.
