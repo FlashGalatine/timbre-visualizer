@@ -23,6 +23,11 @@
 //      flying outward and staying in the frame, and that all three overlay
 //      pages load it after afterglow.js and before the factories. (Also runs
 //      before section 4.)
+//   8. Comet arithmetic — overlay/comet-flight.js under Node: the path (inside
+//      the frame, never stalling), the rules that follow the voice, the tail's
+//      point memory at any frame rate, the flare gate, and that all three
+//      overlay pages load it after helix.js and before the factories. (Also
+//      runs before section 4.)
 //   4. Live transport seam — spawns mock-sb-server.mjs on side ports, loads the
 //      REAL shared/panel-client-sb.js under a browser shim, and asserts:
 //      Subscribe (lowercase), sync-on-connect DoAction, control push →
@@ -149,6 +154,13 @@ ok(JSON.stringify(T.defaultConfig().perViz.dna) === JSON.stringify({ helixFreq: 
   ok(c.perViz.dna.shatterSensitivity === 100 && c.perViz.dna.reconnectSeconds === 10, 'dna knobs clamp: sensitivity to 100, reconnect to 10');
   const old = T.sanitizeConfig({ perViz: { dna: { helixFreq: 80 } } });   // a config saved before this change
   ok(old.perViz.dna.helixFreq === 80 && old.perViz.dna.shatterSensitivity === 50 && old.perViz.dna.reconnectSeconds === 3, 'an old saved dna config gains the new defaults');
+}
+ok(JSON.stringify(T.defaultConfig().perViz.comet) === JSON.stringify({ trail: 50, flareSensitivity: 50 }), 'comet defaults: trail 50, flareSensitivity 50');
+{
+  const c = T.sanitizeConfig({ perViz: { comet: { trail: 250, flareSensitivity: -4 } } });
+  ok(c.perViz.comet.trail === 100 && c.perViz.comet.flareSensitivity === 0, 'comet knobs clamp to 0..100');
+  const old = T.sanitizeConfig({ perViz: { comet: { trail: 80 } } });   // a config saved before this change
+  ok(old.perViz.comet.trail === 80 && old.perViz.comet.flareSensitivity === 50, 'an old saved comet config gains the new default');
 }
 
 // ── 3. C# embed simulation ───────────────────────────────────────────────────
@@ -417,6 +429,159 @@ await import('./overlay/helix.js');
     order.push(pos > html.indexOf('src="afterglow.js"') && pos < html.indexOf('src="factories/'));
   }
   ok(order.every(Boolean), 'all three overlay pages load helix.js after afterglow.js and before the factories');
+}
+
+// ── 8. Comet arithmetic (pure; no browser) ───────────────────────────────────
+console.log('\n[8] comet arithmetic');
+await import('./overlay/comet-flight.js');
+{
+  const C = globalThis.TimbreComet;
+  const near = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol;
+  const SIZES = [[260, 130, 1], [1248, 624, 4.8], [1728, 624, 4.8]];
+  const WIDE = SIZES[2];
+
+  // The path: inside the margin everywhere, and the head never stops. Speed is in px per radian
+  // per unit of scale; the slowest moment is about 11 (silent reach, lean at its limit). A figure
+  // folded into a line (lean at a quarter turn) drops to 0.
+  let inside = true, slowest = Infinity;
+  for (const [W, H, scale] of SIZES) {
+    const m = C.MARGIN * scale, N = 2000, dTh = (2 * Math.PI) / N;
+    for (const lean of [-C.LEAN_MAX, -0.2, 0, 0.2, C.LEAN_MAX]) {
+      for (const reach of [C.REACH_MIN, 0.7, 1]) {
+        let prev = C.at(0, reach, lean, W, H, scale);
+        for (let i = 1; i <= N; i++) {
+          const p = C.at(i * dTh, reach, lean, W, H, scale);
+          if (p.x < m - 1e-6 || p.x > W - m + 1e-6 || p.y < m - 1e-6 || p.y > H - m + 1e-6 || Math.abs(p.z) > 1) inside = false;
+          slowest = Math.min(slowest, Math.hypot(p.x - prev.x, p.y - prev.y) / dTh / scale);
+          prev = p;
+        }
+      }
+    }
+  }
+  ok(inside, 'the path stays inside the margin on all three pages');
+  ok(slowest > 8, `the head never stalls (slowest ${slowest.toFixed(1)} px per radian per scale)`);
+  ok(Math.abs(C.lean(0)) <= C.LEAN_MAX && [10, 100, 1000, 12345].every((s) => Math.abs(C.lean(s)) <= C.LEAN_MAX) && C.LEAN_MAX < Math.PI / 4 - 0.3,
+    'the lean stays well clear of the fold at a quarter turn');
+  {
+    const c = C.at(0, 1, 0, 1728, 624, 4.8), far = C.at(Math.PI / 6, 1, 0, 1728, 624, 4.8);
+    ok(near(c.x, 864) && near(c.y, 312) && near(far.x, 1728 - C.MARGIN * 4.8, 1e-6), 'the figure is centred and reaches the margin at full reach');
+  }
+
+  // Following the voice.
+  ok(near(C.speed(0), 0.2) && near(C.speed(1), 0.95) && near(C.speed(1, 1), 0.95 * 2.6) && C.speed(0.5) > C.speed(0.2), 'speed: 0.2 silent, 0.95 loud, a flare adds a dash');
+  ok(near(C.reach(0), 0.42) && near(C.reach(1), 1) && C.reach(0.5) > C.reach(0.2), 'reach: 0.42 silent, the whole frame when loud');
+  ok(near(C.tailLength(50, 0, 4.8), 4.8 * 190 * 0.3) && near(C.tailLength(50, 1, 4.8), 4.8 * 190) && C.tailLength(0, 0, 1) > 10
+    && C.tailLength(100, 1, 1) > C.tailLength(50, 1, 1) && near(C.keep(4.8), C.tailLength(100, 1, 4.8)), 'tail length grows with Trail and with loudness; keep is the longest tail');
+  ok(near(C.radius(0, 0, 0, 1, 1), 1.75) && near(C.radius(0, 1, 1, 1, 1), 5.45) && near(C.radius(1, 1, 1, 1, 1), 0.45)
+    && near(C.radius(0, 0, 0, -1, 4.8), 1.75 * 0.64 * 4.8) && C.radius(0.3, 0.5, 1, 0, 1) > C.radius(0.3, 0.5, 0, 0, 1), 'tail width: thin when silent, wide when loud, wider where the voice was louder, smaller far away');
+  {
+    let falls = true;
+    for (const lv of [0, 0.5, 1]) for (let i = 1; i <= 20; i++) {
+      if (!(C.radius(i / 20, lv, lv, 0, 1) < C.radius((i - 1) / 20, lv, lv, 0, 1))) falls = false;
+      if (!(C.alpha(i / 20, lv, lv) < C.alpha((i - 1) / 20, lv, lv) || C.alpha((i - 1) / 20, lv, lv) === 1)) falls = false;
+    }
+    ok(falls, 'at a steady level the tail narrows and fades from head to tip');
+  }
+  ok(C.alpha(1, 1, 1) === 0 && near(C.alpha(0, 0, 0), 0.5) && C.alpha(0, 1, 1) === 1, 'tail opacity: half when silent, full when loud, nothing at the tip');
+
+  // The tail's memory. A flight at a steady loudness on a page of the given size.
+  const flight = (fps, secs, loud, [W, H, scale] = WIDE) => {
+    const step = C.step(scale), keep = C.keep(scale), trail = C.createTrail({ step, keep });
+    let theta = 0.6, clock = 0, maxPoints = 0, kept = 0, out = false;
+    const reach = C.reach(loud), m = C.MARGIN * scale;
+    for (let k = 0, n = Math.round(secs * fps); k < n; k++) {
+      const dt = 1 / fps, dTheta = C.speed(loud) * dt, lean0 = C.lean(clock);
+      clock += dt;
+      const head = C.fly(trail, { theta, dTheta, reach0: reach, reach1: reach, lean0, lean1: C.lean(clock), W, H, scale, level: loud });
+      theta += dTheta;
+      const last = trail.points[trail.points.length - 1];
+      if (!near(head.x, last.x) || !near(head.y, last.y)) out = true;       // the head is the last point
+      maxPoints = Math.max(maxPoints, trail.points.length);
+      kept = Math.max(kept, trail.travelled - trail.points[0].s);
+    }
+    let maxGap = 0, minGap = Infinity;
+    const pts = trail.points;
+    for (let i = 1; i < pts.length; i++) {
+      const gap = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+      maxGap = Math.max(maxGap, gap);
+      if (i < pts.length - 1) minGap = Math.min(minGap, gap);                // the last point is the live head
+      if (pts[i].x < m - 1e-6 || pts[i].x > W - m + 1e-6 || pts[i].y < m - 1e-6 || pts[i].y > H - m + 1e-6) out = true;
+    }
+    return { trail, step, keep, maxGap, minGap, maxPoints, kept, out };
+  };
+  {
+    const runs = [];
+    for (const fps of [10, 30, 60, 165]) for (const loud of [0, 1]) for (const size of [SIZES[0], WIDE]) runs.push(flight(fps, 12, loud, size));
+    ok(runs.every((r) => r.maxGap <= r.step * 1.0001), `the remembered path has no gap longer than a step at 10 to 165 fps (worst ${Math.max(...runs.map((r) => r.maxGap / r.step)).toFixed(3)} steps)`);
+    ok(runs.every((r) => r.minGap >= r.step * 0.4999), 'remembered points are at least half a step apart, whatever the frame rate');
+    // The oldest point kept is at most a step past the longest tail, and the head moves up to half a step more before the next trim.
+    ok(runs.every((r) => r.kept <= r.keep + 1.5 * r.step && r.maxPoints <= (2 * r.keep) / r.step + 3), 'the memory holds no more than the longest tail');
+    ok(runs.every((r) => !r.out), 'every remembered point is inside the margin, and the head is the last point');
+  }
+  {
+    const { trail, keep } = flight(60, 12, 1);
+    const L = keep / 2, i = trail.first(L);
+    ok(trail.travelled - trail.points[i].s <= L && i > 0 && trail.travelled - trail.points[i - 1].s > L && trail.first(keep * 10) === 0,
+      'first(length) is the oldest point within that length of the head');
+    trail.clear();
+    ok(trail.points.length === 0 && trail.travelled === 0, 'clear() empties the memory');
+  }
+  {
+    // One second silent, then loud: the points remember the level the head passed them at.
+    const [W, H, scale] = WIDE, trail = C.createTrail({ step: C.step(scale), keep: C.keep(scale) });
+    let theta = 0.6;
+    for (const level of [0, 1]) for (let k = 0; k < 60; k++) {
+      const dTheta = C.speed(level) / 60;
+      C.fly(trail, { theta, dTheta, reach0: 0.7, reach1: 0.7, lean0: 0, lean1: 0, W, H, scale, level });
+      theta += dTheta;
+    }
+    const pts = trail.points;
+    ok(pts[0].level === 0 && pts[pts.length - 1].level === 1 && pts.every((p, i) => i === 0 || p.level >= pts[i - 1].level), 'each point remembers how loud the voice was when the head passed');
+  }
+  {
+    // A frame at the 0.1 s cap while the reach is changing fast still leaves a gap-free path.
+    const [W, H, scale] = WIDE, step = C.step(scale), trail = C.createTrail({ step, keep: C.keep(scale) });
+    C.fly(trail, { theta: 0.6, dTheta: 0, reach0: 0.42, reach1: 0.42, lean0: 0, lean1: 0, W, H, scale, level: 0 });
+    C.fly(trail, { theta: 0.6, dTheta: C.speed(1, 1) * 0.1, reach0: 0.42, reach1: 1, lean0: 0, lean1: 0.007, W, H, scale, level: 1 });
+    let maxGap = 0;
+    for (let i = 1; i < trail.points.length; i++) maxGap = Math.max(maxGap, Math.hypot(trail.points[i].x - trail.points[i - 1].x, trail.points[i].y - trail.points[i - 1].y));
+    ok(trail.points.length > 10 && maxGap <= step * 1.0001, 'a long frame with the reach growing leaves no gap');
+  }
+
+  // The flare gate. script: [{ secs, peak, live = true }]; returns the times it fired, in seconds.
+  const flares = (script, { threshold = 0.9, fps = 60 } = {}) => {
+    const gate = C.createFlare(), times = [];
+    let t = 0;
+    for (const s of script) for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) {
+      t += 1 / fps;
+      if (gate.step({ dt: 1 / fps, live: s.live !== false, peak: s.peak, threshold })) times.push(t);
+    }
+    return times;
+  };
+  const quiet = { secs: 1, peak: 0.3 }, hit = { secs: 0.1, peak: 0.95 };
+  {
+    const once = flares([quiet, hit, quiet]);
+    ok(once.length === 1 && near(once[0], 1 + 1 / 60, 1e-6), 'a peak flares once, on its first frame');
+    ok(flares([quiet, { secs: 5, peak: 0.6 }]).length === 0, 'talking below the threshold never flares');
+    const held = flares([quiet, { secs: 2, peak: 0.95 }]);
+    ok(held.length === 3 && held.every((x, i) => i === 0 || x - held[i - 1] >= C.REARM_S - 1e-6), `a held peak flares again only after ${C.REARM_S} s (${held.map((x) => x.toFixed(2)).join(', ')})`);
+    ok(flares([quiet, { secs: 2, peak: 0.95, live: false }]).length === 0, 'no flare with the mic off');
+    ok(flares([quiet, { secs: 2, peak: 1 }], { threshold: Infinity }).length === 0, 'no flare when the threshold is off');
+    ok(flares([quiet, { secs: 1, peak: NaN }, { secs: 1, peak: null }, { secs: 1, peak: undefined }]).length === 0, 'a missing peak never flares');
+    // The 0.7 s counts only time with the mic on, so the mic opening on a loud moment cannot flare.
+    ok(flares([{ secs: 2, peak: 0.95, live: false }, { secs: 0.2, peak: 0.95 }, { secs: 1, peak: 0.3 }]).length === 0
+      && flares([{ secs: 2, peak: 0.3, live: false }, quiet, hit]).length === 1, 'the mic opening on a peak does not flare');
+    const t30 = flares([quiet, hit], { fps: 30 })[0], t165 = flares([quiet, hit], { fps: 165 })[0];
+    ok(near(t30, 1, 1 / 30 + 1e-6) && near(t165, 1, 1 / 165 + 1e-6), 'the flare comes at the same moment at 30 and 165 fps');
+  }
+
+  const order = [];
+  for (const p of ['300x220', '1440x1080', '1920x1080']) {
+    const html = await readFile(resolve(__dirname, `overlay/mic-visualizers-${p}.html`), 'utf8');
+    const pos = html.indexOf('src="comet-flight.js"');
+    order.push(pos > html.indexOf('src="helix.js"') && pos < html.indexOf('src="factories/'));
+  }
+  ok(order.every(Boolean), 'all three overlay pages load comet-flight.js after helix.js and before the factories');
 }
 
 // ── 4. Live transport seam (mock SB + real panel-client-sb.js) ───────────────
