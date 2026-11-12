@@ -56,7 +56,7 @@
     'peak-hold':     { fallSpeed: 50 },
     'ring-bars':     { spokes: 50 },
     'ring-waveform': { amplitude: 50 },
-    'comet':         { trail: 50 },
+    'comet':         { trail: 50, flareSensitivity: 50 },
     'pulse-rings':   { sensitivity: 50, flow: 0 },
     'orbit':         { density: 50 },
     'spectrogram':   { scrollSpeed: 50 },
