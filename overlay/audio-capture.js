@@ -5,7 +5,7 @@
    tab over a WebSocket relay. Here each overlay page runs its own
    getUserMedia + AnalyserNode, so no audio data crosses any wire — only
    config does (via Streamer.bot). Loaded as a plain <script> AFTER core.js;
-   it assigns the same script-scope `frequencies` / `waveform` / `micActive`
+   it assigns the same script-scope `frequencies` / `waveform` / `micPeak` / `micActive`
    bindings the 52 factories already read, so the factories are untouched.
 
    Emits `timbre:mic` CustomEvents ({ state: 'listening'|'denied'|'acquiring' })
@@ -24,6 +24,8 @@
 
   let audioCtx = null;
   let analyser = null;
+  let peakAnalyser = null;        // second analyser: a window covering the whole sample interval
+  let peakBuf = null;
   let stream = null;
   let sampleTimer = null;
   let retryTimer = null;
@@ -43,9 +45,12 @@
     if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
     if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
     analyser = null;
+    peakAnalyser = null;
+    peakBuf = null;
     micActive = false;
     frequencies = null;
     waveform = null;
+    micPeak = null;
   }
 
   // Build getUserMedia constraints for the configured device. `ideal` (not
@@ -86,6 +91,17 @@
       analyser.smoothingTimeConstant = SMOOTHING;
       source.connect(analyser);
 
+      // The first analyser only ever sees 64 samples per tick (~4% of the sound), so a
+      // short thump can fall between two looks. This one spans the whole interval:
+      // the smallest power of two >= sampleRate * SAMPLE_MS / 1000, within 256..32768.
+      const wanted = audioCtx.sampleRate * SAMPLE_MS / 1000;
+      let peakSize = 256;
+      while (peakSize < wanted && peakSize < 32768) peakSize *= 2;
+      peakAnalyser = audioCtx.createAnalyser();
+      peakAnalyser.fftSize = peakSize;
+      source.connect(peakAnalyser);
+      peakBuf = new Uint8Array(peakAnalyser.fftSize);
+
       // If the device disappears mid-stream (unplugged USB mic), re-acquire.
       stream.getTracks().forEach((t) => { t.onended = () => { if (running) acquire(); }; });
 
@@ -96,6 +112,15 @@
         analyser.getByteTimeDomainData(waveBuf);
         frequencies = freqBuf;
         waveform = waveBuf;
+        if (peakAnalyser) {
+          peakAnalyser.getByteTimeDomainData(peakBuf);
+          let hi = 0;
+          for (let i = 0; i < peakBuf.length; i++) {
+            const d = Math.abs(peakBuf[i] - 128);
+            if (d > hi) hi = d;
+          }
+          micPeak = Math.min(1, hi / 127);
+        }
         micActive = true;
       }, SAMPLE_MS);
       emit('listening');

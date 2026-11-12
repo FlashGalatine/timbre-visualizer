@@ -71,6 +71,7 @@ const statusEl = document.getElementById('vizStatus');
 const labelEl = document.querySelector('.viz-label');
 let frequencies = null;
 let waveform = null;
+let micPeak = null;   // loudest input sample (0..1) across the whole sample interval; null with no mic
 let micActive = false;
 
 /* ── Shared visualizer config — normalized values the factories consume.
@@ -244,6 +245,7 @@ window.addEventListener('svc:message', (evt) => {
 window.__timbre = {
   get micActive() { return micActive; },
   get frequencies() { return frequencies; },
+  get micPeak() { return micPeak; },
   get currentVizName() { return currentVizName; },
   get cfgGain() { return cfgGain; },
   get config() { return timbreConfig; },
