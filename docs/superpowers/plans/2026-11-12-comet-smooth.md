@@ -49,6 +49,15 @@ whole branch at the end. The owner's look in OBS with the real mic comes last an
 - `docs/EFFECTS.md`: a short `TimbreComet` section. `CHANGELOG.md`: Unreleased entries.
 - `verify.mjs` header comment: section 8.
 
+## After the review
+
+The whole-branch review found nothing critical. Fixed in one wave, each with a check written first:
+bulges trimmed to 1.25 times the tail nearer the head; a fresh tail tapers to nothing; a fresh head
+starts at the reach the frame starts from. Checks were added for what the review found untested (the
+glow, the remembered level, the low and high ends, the mic opening on a loud moment, the shadow
+offset and transform left behind). Left alone and listed in the spec: the stale-cache case, the
+flare's ring and sparks running off the edge, and Trail 0 on the smallest page.
+
 ## Review focus
 
 1. A size change mid-flight: the tail must not draw at stale positions or outside the frame.
