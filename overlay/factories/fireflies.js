@@ -26,8 +26,9 @@ VIZ_FACTORIES['fireflies'] = function () {
 
   let low = 0, high = 0;                   // smoothed low and high ends of the sound, 0 to 1
   let clock = 0;                           // seconds drawn, for the flicker
+  let order = [], orderOf = null;          // the fireflies far to near, and the list that order was made from
 
-  const rgba = (c, a) => `rgba(${c[0] | 0}, ${c[1] | 0}, ${c[2] | 0}, ${Math.max(0, Math.min(1, a)).toFixed(3)})`;
+  const rgba = (c, a) => 'rgba(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ',' + (a <= 0 ? 0 : a >= 1 ? 1 : Math.round(a * 1000) / 1000) + ')';
   const whiten = (c, k) => [c[0] + (255 - c[0]) * k, c[1] + (255 - c[1]) * k, c[2] + (255 - c[2]) * k];
   const haloScale = () => 4 + 5 * low;     // the glow's radius in cores, before depth and brightness
   // A firefly's brightness as drawn: its flash, dimmed by the flicker and by fading in or out.
@@ -35,26 +36,39 @@ VIZ_FACTORIES['fireflies'] = function () {
 
   function drawFly(f, colorT) {
     const c = getColor(colorT + f.col), core = (1.0 + 1.5 * f.z) * SCALE, lit = shine(f);
-    // The body: always there, faint, so the swarm shows even when no one is lit.
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = rgba(c, (BODY + BODY_NEAR * f.z) * f.born);
-    ctx.beginPath();
-    ctx.arc(f.x, f.y, core * 0.55, 0, TURN);
-    ctx.fill();
+    // The body: always there, faint, so the swarm shows even when no one is lit. A bright flash
+    // hides it under its core, so it is skipped then.
+    if (lit < 0.5) {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = rgba(c, (BODY + BODY_NEAR * f.z) * f.born);
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, core * 0.55, 0, TURN);
+      ctx.fill();
+    }
     if (lit < DARK) return;
     ctx.globalCompositeOperation = 'lighter';
-    // The streak it has just flown, brightest at the firefly.
-    const tail = f.hist[0];
-    if (tail && Math.hypot(f.x - tail.x, f.y - tail.y) > 1) {
-      const g = ctx.createLinearGradient(f.x, f.y, tail.x, tail.y);
-      g.addColorStop(0, rgba(whiten(c, 0.3), 0.55 * lit));
-      g.addColorStop(1, rgba(c, 0));
-      ctx.strokeStyle = g;
-      ctx.lineWidth = core * 1.3;
-      ctx.beginPath();
-      ctx.moveTo(f.x, f.y);
-      for (let i = f.hist.length - 2; i >= 0; i--) ctx.lineTo(f.hist[i].x, f.hist[i].y);
-      ctx.stroke();
+    // The streak it has just flown, brightest at the firefly. Its far end is where the firefly
+    // was TRAIL_S ago, placed between the two notes either side of that moment.
+    const h = f.hist;
+    if (h.length) {
+      let tx = h[0].x, ty = h[0].y;
+      if (h.length > 1 && h[1].t > h[0].t) {
+        const u = Math.max(0, Math.min(1, (swarm.clock - TimbreSwarm.TRAIL_S - h[0].t) / (h[1].t - h[0].t)));
+        tx += (h[1].x - tx) * u;
+        ty += (h[1].y - ty) * u;
+      }
+      if (Math.hypot(f.x - tx, f.y - ty) > 1) {
+        const g = ctx.createLinearGradient(f.x, f.y, tx, ty);
+        g.addColorStop(0, rgba(whiten(c, 0.3), 0.55 * lit));
+        g.addColorStop(1, rgba(c, 0));
+        ctx.strokeStyle = g;
+        ctx.lineWidth = core * 1.3;
+        ctx.beginPath();
+        ctx.moveTo(f.x, f.y);
+        for (let i = h.length - 1; i >= 1; i--) ctx.lineTo(h[i].x, h[i].y);
+        ctx.lineTo(tx, ty);
+        ctx.stroke();
+      }
     }
     // The glow, swelling with the low end, and a bright core.
     const R = core * (haloScale() + 3 * f.z) * (0.55 + 0.45 * lit);
@@ -99,7 +113,13 @@ VIZ_FACTORIES['fireflies'] = function () {
       });
 
       const colorT = ((Date.now() * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
-      const order = swarm.flies.slice().sort((a, b) => a.z - b.z);   // far ones first
+      // Far ones first. Depth never changes, so the order is made again only when the swarm's
+      // list does (a firefly added or gone).
+      const flies = swarm.flies;
+      if (flies !== orderOf || flies.length !== order.length) {
+        order = flies.slice().sort((a, b) => a.z - b.z);
+        orderOf = flies;
+      }
       ctx.save();
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';

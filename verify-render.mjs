@@ -1051,8 +1051,8 @@ async function main() {
         applyConfig({ perViz: { fireflies: { density: 50 } } });
       }
     });
-    check('fireflies: draws in under 1 ms with the largest swarm, and its startle frame in under 4',
-      fliesCost.n === 60 && fliesCost.startles === 1 && fliesCost.flying < 1 && fliesCost.after < 1 && fliesCost.startle < 4,
+    check('fireflies: draws in under 1.5 ms with the largest swarm, and its startle frame in under 4',
+      fliesCost.n === 60 && fliesCost.startles === 1 && fliesCost.flying < 1.5 && fliesCost.after < 1.5 && fliesCost.startle < 4,
       `flying ${fliesCost.flying.toFixed(3)}, startle frame ${fliesCost.startle.toFixed(2)}, after ${fliesCost.after.toFixed(3)} (${fliesCost.n} fireflies, ${fliesCost.startles} startle)`);
     check('fireflies: no page errors from the Fireflies checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
       [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));

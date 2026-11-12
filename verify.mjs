@@ -640,7 +640,7 @@ await import('./overlay/fireflies-swarm.js');
   function runSwarm(script, o = {}) {
     const [W0, H0, scale] = o.size ?? WIDE, fps = o.fps ?? 60;
     const swarm = o.swarm ?? S.createSwarm({ random: HX.rng(o.seed ?? 1) });
-    let t = 0, bad = false, mostWaves = 0, path = 0;
+    let t = 0, bad = false, longHist = false, mostWaves = 0, path = 0;
     const events = [], lit = [], glow = [], fired = [];
     for (const s of script) {
       for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) {
@@ -651,6 +651,7 @@ await import('./overlay/fireflies-swarm.js');
         if (e) events.push({ e, t });
         for (const f of swarm.flies) {
           if (!(f.x >= 0 && f.x <= W && f.y >= 0 && f.y <= H) || !(f.env >= 0 && f.env <= 1) || !(f.born >= 0 && f.born <= 1)) bad = true;
+          if (f.hist.length > 11) longHist = true;                   // a streak is a handful of remembered places, whatever the frame rate
         }
         for (const [f, x, y] of before) path += Math.hypot(f.x - x, f.y - y);
         mostWaves = Math.max(mostWaves, swarm.waves.length);
@@ -659,7 +660,7 @@ await import('./overlay/fireflies-swarm.js');
         fired.push(swarm.flashes);
       }
     }
-    return { swarm, events, bad, lit, glow, fired, mostWaves, path, secs: t };
+    return { swarm, events, bad, longHist, lit, glow, fired, mostWaves, path, secs: t };
   }
   const rate = (r, n = 35) => r.swarm.flashes / (n * r.secs);       // flashes per firefly per second
 
@@ -777,6 +778,7 @@ await import('./overlay/fireflies-swarm.js');
   {
     const at = (fps) => runSwarm([{ secs: 120, loud: 0 }], { fps });
     const r30 = at(30), r165 = at(165), base = rate(quiet);
+    ok(!r30.longHist && !quiet.longHist && !r165.longHist && r165.swarm.flies.every((f) => f.hist.length >= 2 && r165.secs - f.hist[0].t <= S.TRAIL_S + S.TRAIL_S / 8 + 1e-6), 'a streak remembers no more than eleven places over its 0.4 s, at 30, 60 and 165 fps');
     ok(Math.abs(rate(r30) - base) < 0.25 * base && Math.abs(rate(r165) - base) < 0.25 * base, `the blink rate is the same at 30, 60 and 165 fps (${rate(r30).toFixed(3)}, ${base.toFixed(3)}, ${rate(r165).toFixed(3)})`);
     const speed = (r) => r.path / (35 * r.secs);
     ok(Math.abs(speed(r30) - speed(quiet)) < 0.03 * speed(quiet) && Math.abs(speed(r165) - speed(quiet)) < 0.03 * speed(quiet)

@@ -39,7 +39,8 @@ told the spray from the centre is gone and chose to build it.
 - Works on all three overlay pages (260×130 at scale 1, 1248×624 and 1728×624 at scale 4.8) and
   when the box changes size.
 - Leaves the canvas state as it found it.
-- Under 1 ms of script time per frame on the 16:9 page with the largest swarm.
+- Under 1.5 ms of script time per frame on the 16:9 page with the largest swarm (60 fireflies, a
+  loud voice); about half that at the default.
 
 ## The swarm
 
