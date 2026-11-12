@@ -138,17 +138,15 @@ const glowRun = (pg, name, steps, fps = 60) => pg.evaluate(({ name, steps, fps }
 // frequency bins 0-1, high bins 2-10. peak is micPeak (null or missing: the effect reads the waveform);
 // mic: false turns the mic off as a real mic-off does (micActive false; frequencies, waveform and
 // micPeak null); jump skips that many seconds before the step, as a hidden source does.
-// fresh: a new effect seeded with window.__dnaSeed = seed; otherwise the current one carries on, its
-// clock kept on window.__dnaNow between calls. The page's own sound and micPeak are restored.
-const dnaRun = (pg, steps, { fps = 60, seed = 1, fresh = true } = {}) => pg.evaluate(({ steps, fps, seed, fresh }) => {
+// Every call starts a new effect, seeded with window.__dnaSeed = seed. Nothing carries over between
+// calls: the page's own loop may draw the effect in between, so a scenario runs in one call. The
+// page's own sound and micPeak are restored.
+const dnaRun = (pg, steps, { fps = 60, seed = 1 } = {}) => pg.evaluate(({ steps, fps, seed }) => {
   const saved = { frequencies, waveform, micActive, micPeak, seed: window.__dnaSeed };
   try {
-    if (fresh) {
-      window.__dnaSeed = seed;
-      currentViz = VIZ_FACTORIES['dna']();
-      window.__dnaNow = performance.now();
-    }
-    let now = window.__dnaNow ?? performance.now();
+    window.__dnaSeed = seed;
+    currentViz = VIZ_FACTORIES['dna']();
+    let now = performance.now();
     const f = new Uint8Array(32), w = new Uint8Array(64), out = [];
     for (const s of steps) {
       if (s.config) applyConfig(s.config);
@@ -171,13 +169,12 @@ const dnaRun = (pg, steps, { fps = 60, seed = 1, fresh = true } = {}) => pg.eval
       for (let x = 0; x < W; x++) if (!inked[x]) emptyCols++;
       out.push({ ...currentViz.probe(), ink, alpha, top, bottom, emptyCols });
     }
-    window.__dnaNow = now;
     return out;
   } finally {
     frequencies = saved.frequencies; waveform = saved.waveform; micActive = saved.micActive; micPeak = saved.micPeak;
     window.__dnaSeed = saved.seed;
   }
-}, { steps, fps, seed, fresh });
+}, { steps, fps, seed });
 const talk = { wave: 0.5, low: 0.5, high: 0.3, peak: 0.5 }, silence = { wave: 0, low: 0, high: 0, peak: 0 };
 
 // The five checks every afterglow effect must pass. slack: live pixels that legitimately
@@ -712,8 +709,8 @@ async function main() {
     check('dna: sensitivity 0 never shatters', sens0.state === 'whole', sens0.state);
     const [, fromWave] = await dnaRun(wide, [{ secs: 1, ...talk }, { secs: 0.1, wave: 0.95, low: 0.5, high: 0.3, peak: null }]);
     check('dna: falls back to the waveform peak', fromWave.state === 'pieces', fromWave.state);
-    const [, , pushedFrom] = await dnaRun(wide, [...blast, { secs: 0.3, ...talk }]);
-    const [pushedTo] = await dnaRun(wide, [{ secs: 1 / 60, ...talk, config: { perViz: { dna: { reconnectSeconds: 2 } }, bounce: 70 } }], { fresh: false });
+    const [, , pushedFrom, pushedTo] = await dnaRun(wide, [...blast, { secs: 0.3, ...talk },
+      { secs: 1 / 60, ...talk, config: { perViz: { dna: { reconnectSeconds: 2 } }, bounce: 70 } }]);
     await wide.evaluate(() => applyConfig({ perViz: { dna: { reconnectSeconds: 1 } }, bounce: 50 }));
     check('dna: a config push leaves the pieces alone',
       pushedFrom.state === 'pieces' && pushedTo.state === 'pieces' && pushedTo.pieces === pushedFrom.pieces && Math.abs(pushedTo.ink - pushedFrom.ink) <= 0.05 * pushedFrom.ink,
