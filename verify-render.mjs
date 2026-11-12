@@ -29,7 +29,11 @@
 //           afterglow (bars and waves): ghosts appear, fade on the way out and are gone
 //           after the afterglow time, afterglow 0 leaves none, config pushes keep ghosts, a Bars change
 //           starts again, Peak Hold falls at the same speed at 30/60 fps, the control
-//           panel's Afterglow slider, and the six effects drawing in under 0.5 ms.
+//           panel's Afterglow slider, and the six effects drawing in under 0.5 ms •
+//           the DNA helix: draws edge to edge on all three pages, opens and brightens with
+//           the voice (strand A with the low end, strand B with the high end), turns at
+//           0.7 rad/s in quiet and 6.5 loud, alike at 30, 60 and 165 fps, and with the mic
+//           off breathes only in width (idle animation) or stays quiet (none).
 
 import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -122,6 +126,53 @@ const glowRun = (pg, name, steps, fps = 60) => pg.evaluate(({ name, steps, fps }
     frequencies = saved.frequencies; waveform = saved.waveform; micActive = saved.micActive;
   }
 }, { name, steps, fps });
+
+// Drive the DNA effect with a scripted sound the way glowRun does, one reading per step: its probe()
+// plus pixel facts (ink: pixels with alpha; alpha: summed; top / bottom: first and last rows with ink;
+// emptyCols: columns with no ink).
+// steps: [{ secs, wave, low, high, peak, mic, config, jump }] — wave/low/high/peak are 0..1; low fills
+// frequency bins 0-1, high bins 2-10. peak is micPeak (null or missing: the effect reads the waveform);
+// mic: false turns the mic off; jump skips that many seconds before the step, as a hidden source does.
+// fresh: a new effect seeded with window.__dnaSeed = seed; otherwise the current one carries on, its
+// clock kept on window.__dnaNow between calls. The page's own sound and micPeak are restored.
+const dnaRun = (pg, steps, { fps = 60, seed = 1, fresh = true } = {}) => pg.evaluate(({ steps, fps, seed, fresh }) => {
+  const saved = { frequencies, waveform, micActive, micPeak, seed: window.__dnaSeed };
+  try {
+    if (fresh) {
+      window.__dnaSeed = seed;
+      currentViz = VIZ_FACTORIES['dna']();
+      window.__dnaNow = performance.now();
+    }
+    let now = window.__dnaNow ?? performance.now();
+    const f = new Uint8Array(32), w = new Uint8Array(64), out = [];
+    for (const s of steps) {
+      if (s.config) applyConfig(s.config);
+      if (s.jump) now += s.jump * 1000;
+      f.fill(0);
+      f.fill(Math.round((s.low || 0) * 255), 0, 2);
+      f.fill(Math.round((s.high || 0) * 255), 2, 11);
+      for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * (s.wave || 0) * 127);
+      frequencies = f; waveform = w; micActive = s.mic !== false; micPeak = s.mic === false ? null : (s.peak ?? null);
+      for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) { now += 1000 / fps; currentViz.draw(now, 1 / fps); }
+      const d = ctx.getImageData(0, 0, W, H).data, inked = new Uint8Array(W);
+      let ink = 0, alpha = 0, top = -1, bottom = -1;
+      for (let p = 0; p < d.length / 4; p++) {
+        if (d[p * 4 + 3] === 0) continue;
+        ink++; alpha += d[p * 4 + 3]; inked[p % W] = 1;
+        bottom = Math.floor(p / W); if (top < 0) top = bottom;
+      }
+      let emptyCols = 0;
+      for (let x = 0; x < W; x++) if (!inked[x]) emptyCols++;
+      out.push({ ...currentViz.probe(), ink, alpha, top, bottom, emptyCols });
+    }
+    window.__dnaNow = now;
+    return out;
+  } finally {
+    frequencies = saved.frequencies; waveform = saved.waveform; micActive = saved.micActive; micPeak = saved.micPeak;
+    window.__dnaSeed = saved.seed;
+  }
+}, { steps, fps, seed, fresh });
+const talk = { wave: 0.5, low: 0.5, high: 0.3, peak: 0.5 }, silence = { wave: 0, low: 0, high: 0, peak: 0 };
 
 // The five checks every afterglow effect must pass. slack: live pixels that legitimately
 // differ from the quiet baseline (Peak Hold's marker). tweak: extra config for this effect.
@@ -533,8 +584,8 @@ async function main() {
       !restored.error && restored.cornerAlpha === 0 && restored.solid < restored.w * restored.h / 2, JSON.stringify(restored));
     check('no page errors from the scene checks', wideErrors.length === 0, wideErrors.join(' | '));
     // The mock replays its last config to each page that connects: leave it on visualizer.
+    // The 16:9 page stays open (its own loop stopped) for the DNA checks after the 4:3 page.
     await pushConfig((c) => { c.activeViz = 'visualizer'; });
-    await wide.close();
 
     // ── 1440×1080 (4:3) page: same fit-to-source trick, 1248×624 buffer ───────
     const p43 = await ctxt.newPage();
@@ -577,7 +628,53 @@ async function main() {
     check('4:3 no-border while scaled → buffer height follows layout (1080)', nb43, String(await p43.evaluate(() => window.__timbre.H)));
     check('no page errors on the 1440×1080 page', p43Errors.length === 0, p43Errors.join(' | '));
     await pushConfig((c) => { c.activeViz = 'visualizer'; });
+
+    // ── DNA: the calm helix, on all three pages ──────────────────────────────
+    // A pushed config is the defaults plus the changes, so DNA's knobs are at their defaults.
+    const dnaOn = async (pages, idle) => {
+      await pushConfig((c) => { c.activeViz = 'dna'; c.idleAnim = idle; });
+      for (const pg of pages) await pg.waitForFunction((i) => window.__timbre.currentVizName === 'dna' && cfgIdleAnim === i, idle, { timeout: 5000 });
+    };
+    const near = (v, want, tol) => Math.abs(v - want) <= tol;
+    await dnaOn([page, p43, wide], false);
+    for (const pg of [page, p43, wide]) {
+      const size = await pg.evaluate(() => `${W}×${H}`);
+      const [r] = await dnaRun(pg, [{ secs: 1, ...talk }]);
+      check(`dna: the helix draws edge to edge at ${size}`, r.ink > 0 && r.emptyCols === 0 && r.state === 'whole', JSON.stringify({ ink: r.ink, emptyCols: r.emptyCols, state: r.state }));
+    }
+    const dnaScale = await wide.evaluate(() => window.__timbre.SCALE), quietR = 12 * dnaScale;
+    const [dq, dl] = await dnaRun(wide, [{ secs: 1, ...silence }, { secs: 1, wave: 0.6, low: 0.8, high: 0.8, peak: 0.6 }]);
+    check('dna: louder is wider and brighter',
+      dl.ra > dq.ra && dl.rb > dq.rb && dl.bright > dq.bright && dl.alpha > dq.alpha && dl.bottom - dl.top > dq.bottom - dq.top,
+      JSON.stringify([dq, dl].map(({ ra, rb, bright, alpha, top, bottom }) => ({ ra, rb, bright, alpha, height: bottom - top }))));
+    const [ds, ds1] = await dnaRun(wide, [{ secs: 2, ...silence }, { secs: 1, ...silence }]);
+    check('dna: the quiet helix is narrow, dim and slow',
+      near(ds.ra, quietR, 0.05 * quietR) && near(ds.rb, quietR, 0.05 * quietR) && near(ds.bright, 0.5, 0.02) && near(ds1.phase - ds.phase, 0.7, 0.05),
+      JSON.stringify({ ra: ds.ra, rb: ds.rb, bright: ds.bright, turned: ds1.phase - ds.phase }));
+    const loud = { wave: 0.7, low: 0.5, high: 0.5, peak: 0.7 };   // loudness 0.7 × 1.5 clamps to 1
+    const turned = async (fps) => { const [a, b] = await dnaRun(wide, [{ secs: 1, ...loud }, { secs: 1, ...loud }], { fps }); return b.phase - a.phase; };
+    const t60 = await turned(60);
+    check('dna: a loud helix turns at 6.5 radians a second', near(t60, 6.5, 0.15), t60.toFixed(3));
+    const t30 = await turned(30), t165 = await turned(165);
+    check('dna: the twist is the same at 30 and 165 fps', Math.max(t30, t60, t165) - Math.min(t30, t60, t165) <= 0.05, `30 fps ${t30.toFixed(3)}, 60 fps ${t60.toFixed(3)}, 165 fps ${t165.toFixed(3)}`);
+    const [lowOnly] = await dnaRun(wide, [{ secs: 1, wave: 0.3, low: 0.9, high: 0, peak: 0.3 }]);
+    const [highOnly] = await dnaRun(wide, [{ secs: 1, wave: 0.3, low: 0, high: 0.9, peak: 0.3 }]);
+    check('dna: low sound opens strand A, high sound strand B', lowOnly.ra > lowOnly.rb * 1.5 && highOnly.rb > highOnly.ra * 1.5,
+      JSON.stringify({ low: [lowOnly.ra, lowOnly.rb], high: [highOnly.ra, highOnly.rb] }));
+    const off = { ...silence, mic: false };
+    await dnaOn([wide], true);
+    const [idle0, ...idle] = await dnaRun(wide, [{ secs: 0, ...off }, ...Array.from({ length: 16 }, () => ({ secs: 0.25, ...off }))]);
+    const idleRa = idle.map((r) => r.ra), idleBright = idle.map((r) => r.bright);
+    const idleTurned = idle[idle.length - 1].phase - idle0.phase;
+    check('dna: mic off with idle animation: only the widths breathe',
+      Math.max(...idleRa) - Math.min(...idleRa) > 2 * dnaScale && idleBright.every((b) => near(b, 0.5, 0.02)) && near(idleTurned, 2.8, 0.2),
+      JSON.stringify({ raRange: Math.max(...idleRa) - Math.min(...idleRa), bright: [Math.min(...idleBright), Math.max(...idleBright)], turned: idleTurned }));
+    await dnaOn([wide], false);
+    const [dm] = await dnaRun(wide, [{ secs: 2, ...off }]);
+    check('dna: mic off without idle animation is the quiet helix', near(dm.ra, quietR, 0.05 * quietR) && near(dm.rb, quietR, 0.05 * quietR), JSON.stringify({ ra: dm.ra, rb: dm.rb }));
+    await pushConfig((c) => { c.activeViz = 'visualizer'; });
     await p43.close();
+    await wide.close();
 
     // ── Control panel: UI change → Timbre Push → broadcast round-trip ─────
     const observed = [];
