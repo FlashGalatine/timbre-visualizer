@@ -12,6 +12,9 @@ traceability.
 
 ### Added
 
+- **DNA settings and measurement**: the `shatterSensitivity` and `reconnectSeconds`
+  settings for the DNA effect, and the `micPeak` measurement (the loudest input sample
+  since the last look, before Gain) that the shatter reads.
 - **Scene kit** — `overlay/scene-kit.js` and `overlay/scene-parts.js`: a shared base
   for floating 3D scenes that sit over the stream with no backdrop. A scene supplies a
   `frame`, a `build()` and an `update()`; the kit supplies the renderer, camera
@@ -66,6 +69,9 @@ traceability.
 
 ### Changed
 
+- **DNA is now a smooth glowing double helix** that twists faster and glows brighter
+  with loudness, opens its two strands with the low and high end of the sound, and
+  shatters on a hard peak, then reassembles. The stepped look is gone.
 - **Thanksgiving Harvest is now a 3D scene** on the scene kit: a wicker cornucopia
   spilling pumpkins, apples, gourds, corn, grapes and wheat toward the viewer, with
   three candles that flicker with the voice and cast real light and shadow, and autumn

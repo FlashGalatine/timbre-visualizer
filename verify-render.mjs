@@ -37,7 +37,8 @@
 //           it into pieces that stay in the frame (wide and small pages) and come back whole, the
 //           twist holds while in pieces, Gain at 200% and Sensitivity 0 never shatter, the waveform
 //           peak stands in for a missing micPeak, a config push keeps the pieces, a size change or a
-//           hidden source resumes whole, and a seeded shatter repeats.
+//           hidden source resumes whole, and a seeded shatter repeats, and a draw
+//           (whole, in pieces, and the blast frame) stays inside its time budget.
 
 import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -725,6 +726,35 @@ async function main() {
     check('dna: a seeded shatter repeats', seedA.state === 'pieces' && seedA.inside === seedB.inside && seedA.ink === seedB.ink,
       JSON.stringify([seedA, seedB].map(({ state, inside, ink }) => ({ state, inside, ink }))));
     await reconnectIs(3);
+    // Cost: 300 talking frames (the first second brings the helix to the 0.4 s of calm the shatter
+    // needs), the one frame of a 0.95 peak, then 150 frames in pieces (2.5 s, inside the 3 s reconnect).
+    const dnaCost = await wide.evaluate(() => {
+      const saved = { frequencies, waveform, micActive, micPeak, seed: window.__dnaSeed };
+      try {
+        window.__dnaSeed = 1;
+        currentViz = VIZ_FACTORIES['dna']();
+        const f = new Uint8Array(32), w = new Uint8Array(64);
+        f.fill(128, 0, 2); f.fill(77, 2, 11);
+        for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * 0.5 * 127);
+        frequencies = f; waveform = w; micActive = true;
+        let now = performance.now();
+        const frames = (n, peak) => {
+          micPeak = peak; const t0 = performance.now();
+          for (let k = 0; k < n; k++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+          return (performance.now() - t0) / n;
+        };
+        const whole = frames(300, 0.5), wholeState = currentViz.probe().state;
+        const blast = frames(1, 0.95);
+        const pieces = frames(150, 0.5), piecesState = currentViz.probe().state;
+        return { whole, pieces, blast, wholeState, piecesState };
+      } finally {
+        frequencies = saved.frequencies; waveform = saved.waveform; micActive = saved.micActive; micPeak = saved.micPeak;
+        window.__dnaSeed = saved.seed;
+      }
+    });
+    check('dna: draws in under 1 ms, and its blast frame in under 4',
+      dnaCost.wholeState === 'whole' && dnaCost.piecesState === 'pieces' && dnaCost.whole < 1 && dnaCost.pieces < 1 && dnaCost.blast < 4,
+      `whole ${dnaCost.whole.toFixed(3)}, pieces ${dnaCost.pieces.toFixed(3)}, blast ${dnaCost.blast.toFixed(2)} (${dnaCost.wholeState}, ${dnaCost.piecesState})`);
 
     await pushConfig((c) => { c.activeViz = 'visualizer'; });
     check('dna: no page errors from the DNA checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
