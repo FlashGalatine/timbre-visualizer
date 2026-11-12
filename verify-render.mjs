@@ -174,6 +174,8 @@ async function main() {
       () => window.__timbre.frequencies && Array.from(window.__timbre.frequencies).reduce((a, b) => a + b, 0) > 0,
       { timeout: 5000 }).then(() => true).catch(() => false);
     check('analyser sees audio energy (fake tone)', energy);
+    check('micPeak is a level between 0 and 1 while listening', await page.waitForFunction(
+      () => typeof window.__timbre.micPeak === 'number' && window.__timbre.micPeak > 0 && window.__timbre.micPeak <= 1, { timeout: 5000 }).then(() => true).catch(() => false));
 
     await page.waitForTimeout(400);
     check('default 2D factory (visualizer) draws pixels', await page.evaluate(canvas2dHasPixels));
@@ -675,6 +677,7 @@ async function main() {
       { timeout: 8000 }).then(() => true).catch(() => false);
     check('mic denied → MIC DENIED status', denied,
       await dpage.evaluate(() => document.getElementById('vizStatus').textContent));
+    check('micPeak is null with no mic', await dpage.evaluate(() => window.__timbre.micPeak === null));
     await dpage.waitForTimeout(600);
     check('idle animation still draws with no mic', await dpage.evaluate(canvas2dHasPixels));
     await dpage.evaluate(() => { cfgIdleAnim = false; setActiveViz('thanksgiving-harvest'); });
