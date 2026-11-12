@@ -88,18 +88,22 @@ VIZ_FACTORIES['comet'] = function () {
   /* The tail's body: short round-ended strokes from the tip to the head. Each stroke first clears
      its own footprint and then adds its colour, so overlaps never double up and no joins show. */
   function drawBody(pts, first, colorT) {
-    const end = trail.travelled;
-    const colAt = (a, p) => rgba(whiten(getColor(colorT + a * COL_RUN), WHITEN * Math.pow(1 - a, 3)),
-      TimbreComet.alpha(a, loud, p.level) * (0.6 + 0.4 * bright));
+    const end = trail.travelled, shine = 0.6 + 0.4 * bright;
+    // Each point's colour and half-width, worked out once: a point ends one stroke and starts the next.
+    const col = [], rad = [];
+    for (let i = first; i < pts.length; i++) {
+      const p = pts[i], a = Math.min(1, (end - p.s) / tail);
+      col.push(rgba(whiten(getColor(colorT + a * COL_RUN), WHITEN * Math.pow(1 - a, 3)), TimbreComet.alpha(a, loud, p.level) * shine));
+      rad.push(TimbreComet.radius(a, loud, p.level, p.z, SCALE));
+    }
     ctx.lineCap = 'round';
     for (let i = first; i < pts.length - 1; i++) {
-      const p0 = pts[i], p1 = pts[i + 1];
+      const p0 = pts[i], p1 = pts[i + 1], j = i - first;
       if (Math.hypot(p1.x - p0.x, p1.y - p0.y) < 0.25) continue;   // the head sitting on the last fixed point
-      const a0 = Math.min(1, (end - p0.s) / tail), a1 = Math.min(1, (end - p1.s) / tail);
       const g = ctx.createLinearGradient(p0.x, p0.y, p1.x, p1.y);
-      g.addColorStop(0, colAt(a0, p0));
-      g.addColorStop(1, colAt(a1, p1));
-      ctx.lineWidth = TimbreComet.radius(a0, loud, p0.level, p0.z, SCALE) + TimbreComet.radius(a1, loud, p1.level, p1.z, SCALE);
+      g.addColorStop(0, col[j]);
+      g.addColorStop(1, col[j + 1]);
+      ctx.lineWidth = rad[j] + rad[j + 1];
       ctx.beginPath();
       ctx.moveTo(p0.x, p0.y);
       ctx.lineTo(p1.x, p1.y);
