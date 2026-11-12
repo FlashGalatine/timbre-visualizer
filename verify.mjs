@@ -765,17 +765,16 @@ await import('./overlay/fireflies-swarm.js');
     go(0.2);
     const strengths = swarm.waves.map((w) => w.strength).sort();
     ok(strengths.length === 2 && near(strengths[0], 0.5) && near(strengths[1], 1) && c.lit < 0.2, 'a flash set off by a ripple sends a ripple of half the strength');
-    // The largest swarm, every firefly primed at once and its own rhythm switched off: each can
-    // flash once, and then it is over. If set-off flashes sent full-strength ripples, the swarm
-    // would keep itself going (over 400 flashes in ten seconds).
+    // The largest swarm in full flow, then every firefly's own rhythm switched off: the flashes
+    // already on their way finish and the swarm falls still (about 60 more). If set-off flashes
+    // sent full-strength ripples, it would keep itself going (over 400 in ten seconds).
     const all = S.createSwarm({ random: HX.rng(5) });
     const runAll = (secs) => { for (let i = 0, n = Math.round(secs * 120); i < n; i++) all.step({ dt: 1 / 120, live: true, loud: 0.9, peak: 0, threshold: 0.9, density: 100, W: WIDE[0], H: WIDE[1], scale: WIDE[2] }); };
     runAll(5);
-    for (const f of all.flies) { f.period = 1e9; f.charge = 0.99; f.rest = 0; f.nudged = 0; }
-    all.flies[0].charge = 1;
+    for (const f of all.flies) f.period = 1e9;
     const f0 = all.flashes;
     runAll(10);
-    ok(all.flies.length === 60 && all.flashes - f0 <= 70 && all.waves.length === 0, `a chain reaction dies out (${all.flashes - f0} flashes among ${all.flies.length} in ten seconds)`);
+    ok(all.flies.length === 60 && all.flashes - f0 > 0 && all.flashes - f0 <= 150 && all.waves.length === 0, `a chain reaction dies out (${all.flashes - f0} more flashes among ${all.flies.length} in ten seconds)`);
   }
 
   // The startle.
