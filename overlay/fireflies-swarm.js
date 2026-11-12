@@ -19,6 +19,7 @@
   const MARGIN = 14;                         // × scale: inside this distance of an edge a firefly turns back
   const HOLD = 2;                            // px: no firefly gets nearer an edge than this
   const TRAIL_S = 0.4;                       // how much of its flight a firefly remembers, for its streak
+  const TRAIL_STEP_S = TRAIL_S / 8;          // it notes where it is this often, whatever the frame rate
   const RISE_S = 0.035, FADE_S = 0.32;       // a flash: quick up, slow down
   const BORN_S = 0.8, GONE_S = 0.5;          // a new firefly fading in, an extra one fading out
   const PERIOD_MIN = 5, PERIOD_RANGE = 6;    // seconds between a firefly's own blinks when it is quiet
@@ -71,7 +72,7 @@
         kx: 0, ky: 0,                           // the startle's push, px/s
         col: r() * 1.2,                         // palette offset
         born: 0, leaving: false,
-        hist: [],                               // where it has just been: { x, y, t }
+        hist: [],                               // where it has just been: { x, y, t }, t on the swarm's clock
       };
     }
 
@@ -178,8 +179,11 @@
         // Its brightness now. Lit ones also swell with the voice as it is right now.
         f.lit += dt;
         f.env = (1 - Math.exp(-f.lit / RISE_S)) * Math.exp(-f.lit / FADE_S) * Math.min(1, f.power * (0.75 + 0.5 * fast));
-        f.hist.push({ x: f.x, y: f.y, t: clock });
-        while (f.hist.length > 2 && clock - f.hist[0].t > TRAIL_S) f.hist.shift();
+        // Where it has been: a note every TRAIL_STEP_S, kept until the one after it is older than
+        // TRAIL_S too, so the streak's far end can be placed exactly between two notes.
+        const h = f.hist;
+        if (!h.length || clock - h[h.length - 1].t >= TRAIL_STEP_S) h.push({ x: f.x, y: f.y, t: clock });
+        while (h.length > 2 && clock - h[1].t > TRAIL_S) h.shift();
       }
       if (gone) flies = flies.filter((f) => !(f.leaving && f.born <= 0));
       return event;
@@ -193,6 +197,7 @@
       get loud() { return loud; },
       get fast() { return fast; },
       get sync() { return sync; },
+      get clock() { return clock; },
       step,
     };
   }
