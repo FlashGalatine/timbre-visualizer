@@ -66,7 +66,8 @@ the waveform peak × 1.5 × Gain, `low` is bins 0–1, `high` is bins 2–10.
 
 "Loud then" is the loudness when the head passed that point (smoothed over 0.05 s), so syllables
 travel down the tail as gentle bulges. "Loud now" swells the whole tail together and is the larger
-term, so the tail always narrows away from the head.
+term, so at a steady level the tail narrows all the way from head to tip, and the bulges ride on that
+taper without overtaking it.
 
 **The tail's memory.** The path is remembered as points between half a step and one step apart
 (`step = max(3, 1.7 × scale)` px), whatever the frame rate: each frame's movement is cut into
@@ -122,7 +123,8 @@ The control panel builds both sliders from the settings table; no control-panel 
   rules, the tail's memory at 10 to 165 frames a second, the flare gate) and the settings.
 - `npm run verify:render`: on real pages with scripted sound (draws inside the frame on all three
   pages, louder is faster, wider, brighter and longer, quiet states, the flare and its guards,
-  Trail, config push and size change, soft edges, canvas state, cost, the control panel's sliders).
+  Trail, config push and size change, a seeded run, canvas state, cost, the control panel's sliders).
+- Smoothness itself is judged by eye; no test measures it.
 
 ## Not checked by any test
 

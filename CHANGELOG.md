@@ -12,6 +12,10 @@ traceability.
 
 ### Added
 
+- **Comet setting**: `flareSensitivity` (0 to 100, default 50; 0 turns flares off) for the
+  Comet effect. The arithmetic behind the new Comet is in `overlay/comet-flight.js`
+  (`TimbreComet`), loaded by all three overlay pages and by `verify` under Node, and
+  documented in `docs/EFFECTS.md` ("Comet flight").
 - **DNA settings and measurement**: the `shatterSensitivity` and `reconnectSeconds`
   settings for the DNA effect, and the `micPeak` measurement (the loudest input sample
   over at least the last two looks, before Gain) that the shatter reads.
@@ -69,6 +73,13 @@ traceability.
 
 ### Changed
 
+- **Comet is now a smooth glowing comet.** A glowing head flies a slow looping path with
+  a tapering tail; louder, it flies faster and wider, glows brighter and trails longer.
+  The tail is thicker where the voice was louder as the head passed, the high end of the
+  sound sheds sparks, and a hard peak flares the head. The old Comet plotted the sound
+  wave as a stepped looping figure; that figure is gone. **Trail** now sets the tail's
+  length and a higher value is a longer tail (it was the fade speed, where higher was
+  shorter).
 - **DNA is now a smooth glowing double helix** that twists faster and glows brighter
   with loudness, opens its two strands with the low and high end of the sound, and
   shatters on a hard peak, then reassembles. The stepped look is gone.

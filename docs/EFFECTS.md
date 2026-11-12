@@ -252,6 +252,27 @@ the effect in `factories/dna.js` cuts and draws, nothing in `helix.js` draws. It
 It must stay loadable under Node (a classic script that only assigns `globalThis.TimbreHelix`; no
 `document`, `window`, `ctx` or core.js globals), because `npm run verify` imports it.
 
+## Comet flight (`TimbreComet`)
+
+`overlay/comet-flight.js` holds the plain numbers behind the Comet effect as
+`globalThis.TimbreComet`; the effect in `factories/comet.js` reads the sound and draws, nothing
+in `comet-flight.js` draws. Comet takes its sound levels, smoothing, peak threshold and random
+source from `TimbreHelix`, so it hears what DNA hears. It offers:
+
+- `at(theta, reach, lean, W, H, scale)`, `lean(clock)`: the looping path the head flies, and its
+  slow reshaping.
+- `speed(loud, flash)`, `reach(loud)`, `tailLength(trail, loud, scale)`, `radius(a, loudNow,
+  loudThen, z, scale)`, `alpha(a, loudNow, loudThen)`: how the voice sets the flight and the tail.
+- `createTrail({ step, keep })` and `fly(trail, { ... })`: the tail's memory of where the head has
+  been and how loud the voice was there. `fly` cuts each frame's movement into sub-steps, so the
+  remembered path is the same smooth curve at any frame rate.
+- `createFlare()`: the gate that decides when a peak flares the head, driven by
+  `step({ dt, live, peak, threshold })`.
+- `step(scale)`, `keep(scale)`, `MARGIN`, `REACH_MIN`, `LEAN_MAX`, `REARM_S`: its sizes and constants.
+
+`window.__cometSeed` seeds the effect's sparks. Like `helix.js`, the file must stay loadable under
+Node, because `npm run verify` imports it.
+
 ## Wire format (for driving Timbre from elsewhere)
 
 Anything that can call a Streamer.bot action can drive Timbre:
