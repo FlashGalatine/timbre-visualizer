@@ -49,7 +49,16 @@
 //           the voice, fades to nothing at its tip and has no gap after a long first frame; the low
 //           end swells the head's glow and the high end sheds sparks; Trail sets the tail length; a config push keeps the tail and a size change
 //           starts a fresh one; a seeded run repeats; the canvas state is left as found; a draw
-//           stays inside its time budget; and the control panel shows its two sliders.
+//           stays inside its time budget; and the control panel shows its two sliders •
+//           the fireflies: a swarm of 35 inside the frame on all three pages; silent, they blink
+//           rarely; a voice makes them blink more; flashes bunch on syllables; a peak startles the
+//           whole swarm (wide and small pages), which settles again; a held yell startles once a
+//           second; Gain at 200% and Startle Sensitivity 0 never startle; the waveform peak stands
+//           in for a missing micPeak; the mic opening on a loud moment does not startle; mic off is
+//           calm, and with the idle animation only the glow breathes; the low end swells the glow
+//           and the high end is heard; Density sets how many; a config push and a size change keep
+//           the swarm; a seeded run repeats; the canvas state is left as found; a draw stays inside
+//           its time budget; and the control panel shows its two sliders.
 
 import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -153,7 +162,7 @@ const glowRun = (pg, name, steps, fps = 60) => pg.evaluate(({ name, steps, fps }
 // mic: false turns the mic off as a real mic-off does (micActive false; frequencies, waveform and
 // micPeak null); jump skips that many seconds before the step, as a hidden source does.
 // Every call starts a new effect, seeded through the effect's seed global (window.__dnaSeed,
-// window.__cometSeed). Nothing carries over between
+// window.__cometSeed, window.__firefliesSeed). Nothing carries over between
 // calls: the page's own loop may draw the effect in between, so a scenario runs in one call. The
 // page's own sound and micPeak are restored.
 const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1 } = {}) => pg.evaluate(({ name, seedKey, steps, fps, seed }) => {
@@ -193,7 +202,7 @@ const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1 } = {}) =>
     window[seedKey] = saved.seed;
   }
 }, { name, seedKey, steps, fps, seed });
-const dnaRun = effectRun('dna', '__dnaSeed'), cometRun = effectRun('comet', '__cometSeed');
+const dnaRun = effectRun('dna', '__dnaSeed'), cometRun = effectRun('comet', '__cometSeed'), fliesRun = effectRun('fireflies', '__firefliesSeed');
 const talk = { wave: 0.5, low: 0.5, high: 0.3, peak: 0.5 }, silence = { wave: 0, low: 0, high: 0, peak: 0 };
 
 // The five checks every afterglow effect must pass. slack: live pixels that legitimately
@@ -932,6 +941,122 @@ async function main() {
     check('comet: no page errors from the Comet checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
       [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
 
+    // ── Fireflies: a living swarm (16:9 page unless noted) ───────────────────
+    // A pushed config is the defaults plus the changes, so Fireflies' knobs are at their defaults.
+    const fliesOn = async (pages, idle) => {
+      await pushConfig((c) => { c.activeViz = 'fireflies'; c.idleAnim = idle; });
+      for (const pg of pages) await pg.waitForFunction((i) => window.__timbre.currentVizName === 'fireflies' && cfgIdleAnim === i, idle, { timeout: 5000 });
+    };
+    const ff = (...rs) => JSON.stringify(rs.map((r) => r && ({ n: r.n, lit: r.lit, flashes: r.flashes, startles: r.startles, waves: r.waves, inside: r.inside,
+      loud: r.loud, sync: r.sync, low: r.low, high: r.high, haloScale: r.haloScale, glow: r.glow, ink: r.ink, firstX: r.firstX })));
+    await fliesOn([page, p43, wide], false);
+    for (const pg of [page, p43, wide]) {
+      const size = await pg.evaluate(() => `${W}×${H}`);
+      const [r] = await fliesRun(pg, [{ secs: 3, ...talk }]);
+      check(`fireflies: a swarm of 35 inside the frame at ${size}`, r.ink > 0 && r.inside === true && r.n === 35 && r.flashes > 0 && r.startles === 0, ff(r));
+    }
+    // Ten seconds silent, then ten of a steady voice. Silent, 35 fireflies blink about 44 times in ten seconds.
+    const [fQuiet, fLoud] = await fliesRun(wide, [{ secs: 10, ...silence }, { secs: 10, ...loudTalk }]);
+    check('fireflies: silent, they blink rarely', fQuiet.flashes >= 20 && fQuiet.flashes <= 80 && fQuiet.loud < 0.01 && fQuiet.inside === true, ff(fQuiet));
+    check('fireflies: a voice makes them blink more', fLoud.flashes - fQuiet.flashes > 2.5 * fQuiet.flashes && fLoud.loud > 0.8 && fLoud.inside === true, ff(fQuiet, fLoud));
+    check('fireflies: leaves the canvas state as it found it',
+      [fQuiet, fLoud].every((r) => r.op === 'source-over' && r.blur === 0 && r.globalAlpha === 1 && r.offsetX === 0 && r.transformKept === true),
+      JSON.stringify([fQuiet, fLoud].map((r) => [r.op, r.blur, r.globalAlpha, r.offsetX, r.transformKept])));
+    // Syllables: 0.18 s of voice, 0.42 s of quiet. The voice is on for 30% of the time.
+    const fSyll = await fliesRun(wide, Array.from({ length: 40 }, (_, i) => (i % 2 ? { secs: 0.42, ...silence } : { secs: 0.18, ...loudTalk })));
+    let inVoice = 0, inQuiet = 0;
+    for (let i = 8; i < 40; i++) { const d = fSyll[i].flashes - fSyll[i - 1].flashes; if (i % 2) inQuiet += d; else inVoice += d; }
+    check('fireflies: flashes bunch on the syllables', inVoice > inQuiet && inVoice + inQuiet > 30, `${inVoice} flashes in the syllables, ${inQuiet} between them`);
+
+    // The startle.
+    const fYell = [{ secs: 1.5, ...talk }, { secs: 0.1, ...talk, peak: 0.95 }];
+    const [fCalm, fStartled] = await fliesRun(wide, fYell);
+    check('fireflies: a peak startles the whole swarm',
+      fCalm.startles === 0 && fStartled.startles === 1 && fStartled.lit === fStartled.n && fStartled.inside === true && fStartled.glow > 2 * fCalm.glow, ff(fCalm, fStartled));
+    const [, fSmall] = await fliesRun(page, fYell);
+    check('fireflies: the same on the small page', fSmall.startles === 1 && fSmall.lit === fSmall.n && fSmall.inside === true, ff(fSmall));
+    const [, , fAfter] = await fliesRun(wide, [...fYell, { secs: 4, ...talk }]);
+    check('fireflies: the swarm settles after a startle', fAfter.startles === 1 && fAfter.inside === true && fAfter.lit < fAfter.n, ff(fAfter));
+    const [, fHeld] = await fliesRun(wide, [{ secs: 1.5, ...talk }, { secs: 2.5, ...talk, peak: 0.95 }]);
+    check('fireflies: a held yell startles again only once a second', fHeld.startles === 3, ff(fHeld));
+    const [fGain] = await fliesRun(wide, [{ secs: 5, wave: 0.6, low: 0.6, high: 0.6, peak: 0.6, config: { gain: 200 } }]);
+    await wide.evaluate(() => applyConfig({ gain: 100 }));
+    check('fireflies: talking with Gain at 200% does not startle', fGain.startles === 0, ff(fGain));
+    const [, fSens0] = await fliesRun(wide, [{ secs: 1.5, ...talk, config: { perViz: { fireflies: { startleSensitivity: 0 } } } }, { secs: 1, ...talk, peak: 1 }]);
+    await wide.evaluate(() => applyConfig({ perViz: { fireflies: { startleSensitivity: 50 } } }));
+    check('fireflies: Startle Sensitivity 0 never startles', fSens0.startles === 0, ff(fSens0));
+    const [, fWave] = await fliesRun(wide, [{ secs: 1.5, ...talk }, { secs: 0.1, wave: 0.95, low: 0.5, high: 0.3, peak: null }]);
+    check('fireflies: falls back to the waveform peak', fWave.startles === 1, ff(fWave));
+    const [, fOpen] = await fliesRun(wide, [{ secs: 1.5, ...off }, { secs: 0.3, ...talk, peak: 0.95 }]);
+    check('fireflies: the mic opening on a loud moment does not startle', fOpen.startles === 0, ff(fOpen));
+
+    // Mic off.
+    const [fBefore, fOff] = await fliesRun(wide, [{ secs: 2, ...loudTalk }, { secs: 10, ...off }]);
+    check('fireflies: mic off, they drift and blink rarely',
+      fOff.loud < 0.01 && fOff.low < 0.001 && fOff.flashes - fBefore.flashes >= 15 && fOff.flashes - fBefore.flashes <= 90 && fOff.inside === true, ff(fBefore, fOff));
+    await fliesOn([wide], true);
+    const fIdle = (await fliesRun(wide, [{ secs: 0, ...off }, ...Array.from({ length: 16 }, () => ({ secs: 0.25, ...off }))])).slice(1);
+    const fIdleLow = fIdle.map((r) => r.low);
+    check('fireflies: mic off with idle animation: only the glow breathes',
+      Math.max(...fIdleLow) - Math.min(...fIdleLow) > 0.15 && fIdle.every((r) => r.loud === 0 && r.startles === 0),
+      JSON.stringify({ low: [Math.min(...fIdleLow), Math.max(...fIdleLow)], loud: fIdle[15].loud }));
+    await fliesOn([wide], false);
+    const [fLowOnly] = await fliesRun(wide, [{ secs: 2, wave: 0.3, low: 0.9, high: 0, peak: 0.3 }]);
+    const [fHighOnly] = await fliesRun(wide, [{ secs: 2, wave: 0.3, low: 0, high: 0.9, peak: 0.3 }]);
+    check('fireflies: the low end swells the glow, and the high end is heard',
+      fLowOnly.haloScale > fHighOnly.haloScale * 1.5 && fHighOnly.high > 0.5 && fLowOnly.high < 0.1, ff(fLowOnly, fHighOnly));
+
+    // Settings and the box.
+    const [fFew] = await fliesRun(wide, [{ secs: 2, ...talk, config: { perViz: { fireflies: { density: 0 } } } }]);
+    const [fMany] = await fliesRun(wide, [{ secs: 2, ...talk, config: { perViz: { fireflies: { density: 100 } } } }]);
+    await wide.evaluate(() => applyConfig({ perViz: { fireflies: { density: 50 } } }));
+    check('fireflies: Density sets how many there are', fFew.n === 10 && fMany.n === 60 && fMany.inside === true, ff(fFew, fMany));
+    const [, fPushFrom, fPushTo] = await fliesRun(wide, [{ secs: 2, ...talk }, { secs: 1 / 60, ...talk }, { secs: 1 / 60, ...talk, config: { bounce: 70 } }]);
+    await wide.evaluate(() => applyConfig({ bounce: 50 }));
+    check('fireflies: a config push keeps the swarm',
+      fPushTo.n === fPushFrom.n && fPushTo.flashes >= fPushFrom.flashes && fPushFrom.flashes > 0 && Math.abs(fPushTo.firstX - fPushFrom.firstX) < 10, ff(fPushFrom, fPushTo));
+    const [, fSizeFrom, fSized, fSizeLater] = await fliesRun(wide, [{ secs: 2, ...talk }, { secs: 1 / 60, ...talk },
+      { secs: 1 / 60, ...talk, config: { showLabels: false } }, { secs: 2, ...talk }]);
+    await wide.evaluate(() => applyConfig({ showLabels: true }));
+    check('fireflies: a real size change keeps the swarm, inside the new frame',
+      fSized.n === fSizeFrom.n && fSized.flashes >= fSizeFrom.flashes && fSized.inside === true && fSizeLater.inside === true && fSizeLater.n === fSizeFrom.n, ff(fSizeFrom, fSized, fSizeLater));
+    const fSeeded = async () => (await fliesRun(wide, [...fYell, { secs: 0.3, ...talk }], { seed: 7 }))[2];
+    const fSeedA = await fSeeded(), fSeedB = await fSeeded();
+    check('fireflies: a seeded run repeats', fSeedA.flashes > 35 && fSeedA.flashes === fSeedB.flashes && fSeedA.ink === fSeedB.ink && fSeedA.firstX === fSeedB.firstX, ff(fSeedA, fSeedB));
+
+    // Cost, with the largest swarm: 300 loud frames, the one frame of a 0.95 peak, then 60 more.
+    const fliesCost = await wide.evaluate(() => {
+      const saved = { frequencies, waveform, micActive, micPeak, seed: window.__firefliesSeed };
+      try {
+        applyConfig({ perViz: { fireflies: { density: 100 } } });
+        window.__firefliesSeed = 1;
+        currentViz = VIZ_FACTORIES['fireflies']();
+        const f = new Uint8Array(32), w = new Uint8Array(64);
+        f.fill(204, 0, 2); f.fill(204, 2, 11);
+        for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * 0.6 * 127);
+        frequencies = f; waveform = w; micActive = true;
+        let now = performance.now();
+        const frames = (n, peak) => {
+          micPeak = peak; const t0 = performance.now();
+          for (let k = 0; k < n; k++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+          return (performance.now() - t0) / n;
+        };
+        const flying = frames(300, 0.6), before = currentViz.probe();
+        const startle = frames(1, 0.95);
+        const after = frames(60, 0.6), then = currentViz.probe();
+        return { flying, startle, after, n: before.n, startles: then.startles };
+      } finally {
+        frequencies = saved.frequencies; waveform = saved.waveform; micActive = saved.micActive; micPeak = saved.micPeak;
+        window.__firefliesSeed = saved.seed;
+        applyConfig({ perViz: { fireflies: { density: 50 } } });
+      }
+    });
+    check('fireflies: draws in under 1 ms with the largest swarm, and its startle frame in under 4',
+      fliesCost.n === 60 && fliesCost.startles === 1 && fliesCost.flying < 1 && fliesCost.after < 1 && fliesCost.startle < 4,
+      `flying ${fliesCost.flying.toFixed(3)}, startle frame ${fliesCost.startle.toFixed(2)}, after ${fliesCost.after.toFixed(3)} (${fliesCost.n} fireflies, ${fliesCost.startles} startle)`);
+    check('fireflies: no page errors from the Fireflies checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
+      [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
+
     await pushConfig((c) => { c.activeViz = 'visualizer'; });
     check('dna: no page errors from the DNA checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
       [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
@@ -1010,6 +1135,10 @@ async function main() {
     check('Comet shows its two sliders', await ctlPage.evaluate(() =>
       ['Trail', 'Flare Sensitivity'].every((t) => [...document.querySelectorAll('#perVizKnobs label')].some((l) => l.textContent === t))
       && !!document.getElementById('pv-comet-flareSensitivity')));
+    await ctlPage.selectOption('#activeViz', 'fireflies');
+    check('Fireflies shows its two sliders', await ctlPage.evaluate(() =>
+      ['Density', 'Startle Sensitivity'].every((t) => [...document.querySelectorAll('#perVizKnobs label')].some((l) => l.textContent === t))
+      && !!document.getElementById('pv-fireflies-startleSensitivity')));
     // Put afterglow back to its default so the shared mock state stays clean.
     const glowMark = observed.length;
     await ctlPage.evaluate(() => { const e = document.getElementById('afterglow'); e.value = '1.6'; e.dispatchEvent(new Event('input', { bubbles: true })); });

@@ -1,106 +1,127 @@
-/* ── fireflies (twinkling drifting particles) ── */
+/* ── fireflies (a living swarm that blinks with the voice, and startles on a hard peak) ──
+   Soft glowing fireflies wander the whole frame, near ones larger and far ones smaller. Each
+   blinks on its own slow rhythm and leaves a short streak of light while it is lit. Louder,
+   they blink more often, glow brighter and fly faster; each syllable sets off a burst of
+   flashes, and every flash sends out an unseen ripple that nudges the fireflies it passes. The
+   low end of the sound swells each glow and the high end makes the lit ones flicker. A hard
+   peak (a yell, a thump on the mic) makes the whole swarm flash and scatter, then wander back.
+   The swarm itself (flight, charge, ripples, bursts and the startle) is TimbreSwarm in
+   fireflies-swarm.js; the sound levels are TimbreHelix's, so Fireflies hears what DNA and Comet
+   hear. Everything that moves runs on draw(now, dt); only the colour reads the wall clock, as
+   the bar and wave effects do, so the colours stay in step when the effect changes. */
 VIZ_FACTORIES['fireflies'] = function () {
-  const FIREFLY_LIFE = 1600;
-  const MAX_FIREFLIES = 80;
-  const FADE_ALPHA = 0.15;
-  const MIN_SPEED = 0.3 * SCALE;
-  const MAX_SPEED = 1.6 * SCALE;
-  const START_JITTER = 14 * SCALE;
-  const SIZE_SM = Math.max(2, Math.round(2 * SCALE));
-  const SIZE_LG = Math.max(2, Math.round(3 * SCALE));
-  const HILITE = Math.max(1, Math.round(SCALE));
-  let fireflies = [];
-  let smoothBass = 0, smoothMid = 0, smoothTreble = 0;
-  function bandAverage(start, end) {
-    if (!frequencies || frequencies.length === 0) return 0;
-    const lo = Math.floor(start * frequencies.length);
-    const hi = Math.min(frequencies.length, Math.floor(end * frequencies.length));
-    let sum = 0;
-    for (let i = lo; i < hi; i++) sum += frequencies[i];
-    const n = Math.max(1, hi - lo);
-    return (sum / (n * 255)) * cfgGain;
+  const LOW_OPEN_S = 0.05, LOW_CLOSE_S = 0.25;         // each glow swelling and shrinking with the low end, s
+  const HIGH_S = 0.08;                                 // smoothing of the high end (the flicker), s
+  const FLICKER = 0.35;                                // the most the high end dims a lit firefly
+  const FLICKER_RATE = 42;                             // rad/s
+  const BODY = 0.12, BODY_NEAR = 0.16;                 // an unlit body's opacity: far, and added for the nearest
+  const DARK = 0.02;                                   // below this brightness only the body is drawn
+  const WHITE = [255, 255, 255];
+  const QUIET = { loud: 0, low: 0, high: 0 };
+  const TURN = 2 * Math.PI;
+
+  // Every random choice comes from one source, seedable through window.__firefliesSeed so the
+  // render tests repeat.
+  const swarm = TimbreSwarm.createSwarm({ random: TimbreHelix.rng(window.__firefliesSeed) });
+
+  let low = 0, high = 0;                   // smoothed low and high ends of the sound, 0 to 1
+  let clock = 0;                           // seconds drawn, for the flicker
+
+  const rgba = (c, a) => `rgba(${c[0] | 0}, ${c[1] | 0}, ${c[2] | 0}, ${Math.max(0, Math.min(1, a)).toFixed(3)})`;
+  const whiten = (c, k) => [c[0] + (255 - c[0]) * k, c[1] + (255 - c[1]) * k, c[2] + (255 - c[2]) * k];
+  const haloScale = () => 4 + 5 * low;     // the glow's radius in cores, before depth and brightness
+  // A firefly's brightness as drawn: its flash, dimmed by the flicker and by fading in or out.
+  const shine = (f) => f.env * f.born * (1 - FLICKER * high * (0.5 + 0.5 * Math.sin(clock * FLICKER_RATE + f.pA)));
+
+  function drawFly(f, colorT) {
+    const c = getColor(colorT + f.col), core = (1.0 + 1.5 * f.z) * SCALE, lit = shine(f);
+    // The body: always there, faint, so the swarm shows even when no one is lit.
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = rgba(c, (BODY + BODY_NEAR * f.z) * f.born);
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, core * 0.55, 0, TURN);
+    ctx.fill();
+    if (lit < DARK) return;
+    ctx.globalCompositeOperation = 'lighter';
+    // The streak it has just flown, brightest at the firefly.
+    const tail = f.hist[0];
+    if (tail && Math.hypot(f.x - tail.x, f.y - tail.y) > 1) {
+      const g = ctx.createLinearGradient(f.x, f.y, tail.x, tail.y);
+      g.addColorStop(0, rgba(whiten(c, 0.3), 0.55 * lit));
+      g.addColorStop(1, rgba(c, 0));
+      ctx.strokeStyle = g;
+      ctx.lineWidth = core * 1.3;
+      ctx.beginPath();
+      ctx.moveTo(f.x, f.y);
+      for (let i = f.hist.length - 2; i >= 0; i--) ctx.lineTo(f.hist[i].x, f.hist[i].y);
+      ctx.stroke();
+    }
+    // The glow, swelling with the low end, and a bright core.
+    const R = core * (haloScale() + 3 * f.z) * (0.55 + 0.45 * lit);
+    const halo = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, R);
+    halo.addColorStop(0, rgba(whiten(c, 0.6), 0.9 * lit));
+    halo.addColorStop(0.25, rgba(c, 0.42 * lit));
+    halo.addColorStop(1, rgba(c, 0));
+    ctx.fillStyle = halo;
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, R, 0, TURN);
+    ctx.fill();
+    ctx.fillStyle = rgba(WHITE, lit);
+    ctx.beginPath();
+    ctx.arc(f.x, f.y, core * (0.55 + 0.4 * lit), 0, TURN);
+    ctx.fill();
   }
-  function spawnFirefly(now, vol) {
-    const angle = Math.random() * Math.PI * 2;
-    const speed = MIN_SPEED + Math.random() * (MAX_SPEED - MIN_SPEED) * (0.6 + vol * 0.8);
-    fireflies.push({
-      x: W / 2 + (Math.random() - 0.5) * START_JITTER,
-      y: H / 2 + (Math.random() - 0.5) * START_JITTER,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed,
-      born: now,
-      life: FIREFLY_LIFE * (0.7 + Math.random() * 0.6),
-      colorOffset: Math.random() * PALETTE.length,
-      twinklePhase: Math.random() * Math.PI * 2,
-      twinkleSpeed: 0.05 + Math.random() * 0.08,
-      size: vol > 0.4 ? SIZE_LG : SIZE_SM,
-    });
-    if (fireflies.length > MAX_FIREFLIES) fireflies.shift();
-  }
+
   return {
-    start() { fireflies = []; ctx.clearRect(0, 0, W, H); },
-    draw() {
-      const fadeAmount = FADE_ALPHA * cfgEffectBgOpacity;
-      if (fadeAmount > 0.001) {
-        ctx.save();
-        ctx.globalCompositeOperation = 'destination-out';
-        ctx.fillStyle = `rgba(0, 0, 0, ${fadeAmount})`;
-        ctx.fillRect(0, 0, W, H);
-        ctx.restore();
+    draw(now, dt) {
+      dt = dt > 0 ? dt : 0;
+      ctx.clearRect(0, 0, W, H);
+      clock += dt;
+      const knobs = perViz['fireflies'];
+      const live = micActive && !!waveform;
+      // Mic off: loudness stays at zero, so the swarm drifts and blinks at its slowest; with the
+      // idle animation on, only the size of each glow breathes.
+      const level = live ? TimbreHelix.levels(frequencies, waveform, cfgGain)
+        : cfgIdleAnim ? { loud: 0, low: 0.22 + 0.12 * Math.sin(now / 700), high: 0 }
+        : QUIET;
+      low = TimbreHelix.follow(low, level.low, dt, level.low > low ? LOW_OPEN_S : LOW_CLOSE_S);
+      high = TimbreHelix.follow(high, level.high, dt, HIGH_S);
+
+      // The peak is the raw input level, before Gain: the mic's loudest moment across at least the
+      // last two intervals when the capture code gives it, else the peak of the waveform.
+      swarm.step({
+        dt, live,
+        loud: level.loud,
+        peak: typeof micPeak === 'number' ? micPeak : TimbreHelix.peakOf(waveform),
+        threshold: TimbreHelix.threshold(knobs.startleSensitivity),
+        density: knobs.density,
+        W, H, scale: SCALE,
+      });
+
+      const colorT = ((Date.now() * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
+      const order = swarm.flies.slice().sort((a, b) => a.z - b.z);   // far ones first
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (const f of order) drawFly(f, colorT);
+      ctx.restore();
+    },
+
+    // Test surface: how many fireflies there are and how many are lit, the flashes and startles so
+    // far, the ripples alive, whether every firefly is inside the canvas, the swarm's slow loudness
+    // and its coupling, the smoothed low and high ends, the glow's radius in cores, the swarm's
+    // brightness added up, and where the first firefly is.
+    probe() {
+      const flies = swarm.flies;
+      let lit = 0, glow = 0, inside = true;
+      for (const f of flies) {
+        if (f.env > 0.15) lit++;
+        glow += f.env;
+        if (!(f.x >= 0 && f.x <= W && f.y >= 0 && f.y <= H)) inside = false;
       }
-      const now = Date.now();
-      const colorT = ((now * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
-      let bass, mid, treble;
-      if (micActive && frequencies) {
-        bass = bandAverage(0, 0.18);
-        mid = bandAverage(0.18, 0.55);
-        treble = bandAverage(0.55, 1.0);
-      } else if (cfgIdleAnim) {
-        const t = now / 900;
-        bass = 0.18 + 0.05 * Math.sin(t);
-        mid = 0.18 + 0.05 * Math.sin(t * 1.3);
-        treble = 0.18 + 0.05 * Math.sin(t * 1.7);
-      } else { bass = 0; mid = 0; treble = 0; }
-      smoothBass += (bass - smoothBass) * 0.2;
-      smoothMid += (mid - smoothMid) * 0.2;
-      smoothTreble += (treble - smoothTreble) * 0.25;
-      const densityFactor = 0.4 + (perViz['fireflies'].density / 100) * 1.6;
-      const spawnP = micActive
-        ? Math.min(0.95, smoothBass * 1.6 * densityFactor)
-        : (cfgIdleAnim ? 0.05 * densityFactor : 0);
-      if (Math.random() < spawnP) spawnFirefly(now, smoothBass + smoothMid);
-      if (micActive && smoothBass > 0.5 && Math.random() < smoothBass * 0.4) {
-        for (let k = 0; k < 3; k++) spawnFirefly(now, smoothBass);
-      }
-      const speedScale = 1 + smoothTreble * 1.6;
-      const stillAlive = [];
-      for (const f of fireflies) {
-        const age = now - f.born;
-        if (age >= f.life) continue;
-        f.x += f.vx * speedScale;
-        f.y += f.vy * speedScale;
-        if (f.x < -2) f.x = W + 2;
-        if (f.x > W + 2) f.x = -2;
-        if (f.y < -2) f.y = H + 2;
-        if (f.y > H + 2) f.y = -2;
-        const lifeT = age / f.life;
-        const baseAlpha = (1 - lifeT) * 0.95;
-        f.twinklePhase += f.twinkleSpeed;
-        const twinkle = 0.5 + 0.5 * Math.sin(f.twinklePhase);
-        const alpha = Math.max(0, baseAlpha * (0.35 + twinkle * 0.65));
-        const rgb = getColor(colorT + f.colorOffset);
-        const x = Math.round(f.x), y = Math.round(f.y);
-        ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha * 0.3})`;
-        ctx.fillRect(x - f.size, y - f.size, f.size * 2, f.size * 2);
-        ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
-        ctx.fillRect(x - f.size / 2, y - f.size / 2, f.size, f.size);
-        if (twinkle > 0.85) {
-          ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.9})`;
-          ctx.fillRect(x, y, HILITE, HILITE);
-        }
-        stillAlive.push(f);
-      }
-      fireflies = stillAlive;
+      return { n: flies.length, lit, flashes: swarm.flashes, startles: swarm.startles, waves: swarm.waves.length, inside,
+        loud: swarm.loud, sync: swarm.sync, low, high, haloScale: haloScale(), glow,
+        firstX: flies.length ? flies[0].x : 0, firstY: flies.length ? flies[0].y : 0 };
     },
   };
 };
