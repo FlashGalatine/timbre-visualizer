@@ -275,6 +275,24 @@ source from `TimbreHelix`, so it hears what DNA hears. It offers:
 `window.__cometSeed` seeds the effect's sparks. Like `helix.js`, the file must stay loadable under
 Node, because `npm run verify` imports it.
 
+## Fireflies swarm (`TimbreSwarm`)
+
+`overlay/fireflies-swarm.js` holds the swarm behind the Fireflies effect as
+`globalThis.TimbreSwarm`; the effect in `factories/fireflies.js` reads the sound and draws,
+nothing in `fireflies-swarm.js` draws. It offers:
+
+- `count(density)`: how many fireflies a Density of 0 to 100 gives (10 to 60).
+- `createSwarm({ random })`: the swarm, driven by
+  `step({ dt, live, loud, peak, threshold, density, W, H, scale })`, which returns `'startle'` on
+  the frame a peak startles it. It exposes `flies` (each with its place, depth `z`, brightness
+  `env`, fade `born`, palette offset `col` and recent places `hist`), `waves`, `flashes`,
+  `startles`, its smoothed `loud`, `fast` and `sync` levels, and its `clock`.
+- `MARGIN`, `TRAIL_S`, `REARM_S`, `PUSH`, `MAX_WAVES`: its sizes and constants.
+
+All its timing comes from `dt` and all its randomness from the `random` it is given;
+`window.__firefliesSeed` seeds the effect. Like `helix.js`, the file must stay loadable under
+Node, because `npm run verify` imports it.
+
 ## Wire format (for driving Timbre from elsewhere)
 
 Anything that can call a Streamer.bot action can drive Timbre:
