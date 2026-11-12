@@ -23,7 +23,7 @@
   const LEAN_MAX = 0.35, LEAN_RATE = 0.07;   // the figure's slow reshaping: limit in radians, and its rate
   const TAIL_MIN = 50, TAIL_PER_TRAIL = 2.8; // × scale: tail length at Trail 0, and added per point of Trail
   const TAIL_QUIET = 0.3;                    // share of that length when silent
-  const STEP = 1.7, STEP_FLOOR = 3;          // spacing of remembered points: × scale, and its floor in px
+  const STEP = 2.4, STEP_FLOOR = 3;          // spacing of remembered points: × scale, and its floor in px
   const REARM_S = 0.7;                       // the shortest time between two flares, counted with the mic on
 
   const clamp01 = (v) => Math.max(0, Math.min(1, v));

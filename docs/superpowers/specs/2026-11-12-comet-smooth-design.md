@@ -70,7 +70,7 @@ term, so at a steady level the tail narrows all the way from head to tip, and th
 taper without overtaking it.
 
 **The tail's memory.** The path is remembered as points between half a step and one step apart
-(`step = max(3, 1.7 × scale)` px), whatever the frame rate: each frame's movement is cut into
+(`step = max(3, 2.4 × scale)` px), whatever the frame rate: each frame's movement is cut into
 sub-steps along the figure. Points older than the longest possible tail are dropped.
 
 **Colour.** The palette runs 1.4 steps from head to tip, as the old trail did, lightened toward
