@@ -39,6 +39,7 @@ Script-scope globals available to factories (from core.js):
 | `frequencies` | `Uint8Array(32)` FFT bins, 0–255, or `null` when no mic |
 | `waveform` | `Uint8Array(64)` time-domain samples, 0–255, or `null` |
 | `micActive` | mic currently captured |
+| `micPeak` | loudest input sample since the last look, 0 to 1, before Gain, or `null` when no mic |
 | `cfgGain`, `cfgBars`, `cfgBounce`, `cfgColorSpeed`, `cfgColorHue`, `cfgIdleAnim`, `cfgEffectBgOpacity` | normalized global knobs |
 | `cfgSTLObject` | the shared 3D-model knob group (STL effects) |
 | `perViz['my-effect']` | your effect's own knobs |
@@ -232,6 +233,24 @@ or `createEchoes()` per activation, and follow the rules above. `npm run verify:
 a set of checks every afterglow effect should pass, and a speed check (under 0.5 ms a
 draw); add the new id to the `glowChecks` calls there. The speed check picks it up from
 `VIZ_AFTERGLOW`.
+
+## Helix arithmetic (`TimbreHelix`)
+
+`overlay/helix.js` holds the plain numbers behind the DNA effect as `globalThis.TimbreHelix`;
+the effect in `factories/dna.js` cuts and draws, nothing in `helix.js` draws. It offers:
+
+- `threshold(sensitivity)`: the peak a shatter needs, from Shatter Sensitivity (0 never shatters).
+- `peakOf(samples)`, `levels(frequencies, waveform, gain)`: the loudness, low and high levels (0 to 1).
+- `twist(loud)`, `radius(level)`, `follow(current, target, dt, tau)`: turn speed, strand radius and
+  frame-rate-independent smoothing.
+- `returnShare(u, lag)`: the return curve (share of the way home, and heat).
+- `rng(seed)`: a seedable random source; `window.__dnaSeed` makes the effect use it.
+- `createShatter({ random })`: the whole / pieces / returning state machine with the motion of the
+  pieces, driven by `step({ now, dt, ... })`; all timing comes from `now` and `dt`.
+- `RETURN_S`, `MIN_CALM_S`, `REARM_S`, `JOSTLE_GAP_S`, `GAP_MS`: its timing constants.
+
+It must stay loadable under Node (a classic script that only assigns `globalThis.TimbreHelix`; no
+`document`, `window`, `ctx` or core.js globals), because `npm run verify` imports it.
 
 ## Wire format (for driving Timbre from elsewhere)
 
