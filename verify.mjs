@@ -484,6 +484,36 @@ await import('./overlay/comet-flight.js');
   }
   ok(C.alpha(1, 1, 1) === 0 && near(C.alpha(0, 0, 0), 0.5) && C.alpha(0, 1, 1) === 1, 'tail opacity: half when silent, full when loud, nothing at the tip');
 
+  // Bulges: a stretch remembered as loud may stand out, but never by more than BULGE over any
+  // point nearer the head. Widths run from the tip (first) to the head (last).
+  {
+    const capped = C.capBulges([1, 2, 6, 2, 3, 5, 4, 8, 9, 10]);
+    ok(JSON.stringify(capped) === JSON.stringify([1, 2, 2.5, 2, 3, 5, 4, 8, 9, 10]) && C.BULGE === 1.25, 'capBulges trims a bulge to 1.25 times the narrowest point nearer the head');
+    const taper = [0.5, 1, 2, 3, 4.5, 6];
+    ok(JSON.stringify(C.capBulges([...taper])) === JSON.stringify(taper) && C.capBulges([]).length === 0 && C.capBulges([3])[0] === 3, 'capBulges leaves a tail that only narrows alone');
+    // Syllables through the real rules: 0.18 s loud, 0.12 s quiet, at 60 fps on the 16:9 page.
+    const [W, H, scale] = WIDE, trail = C.createTrail({ step: C.step(scale), keep: C.keep(scale) });
+    const follow = (cur, want, dt, tau) => cur + (want - cur) * (1 - Math.exp(-dt / tau));
+    let theta = 0.6, loud = 0, then = 0, len = 0, worstRaw = 0, worstCapped = 0, bulges = 0;
+    for (let k = 0; k < 600; k++) {
+      const dt = 1 / 60, level = (k / 60) % 0.3 < 0.18 ? 0.75 : 0;
+      loud = follow(loud, level, dt, 0.12); then = follow(then, level, dt, 0.05); len = follow(len, level, dt, 0.4);
+      const dTheta = C.speed(loud) * dt;
+      C.fly(trail, { theta, dTheta, reach0: 0.8, reach1: 0.8, lean0: 0, lean1: 0, W, H, scale, level: then });
+      theta += dTheta;
+      if (k < 120) continue;
+      const pts = trail.points, first = trail.first(C.tailLength(50, len, scale)), span = trail.travelled - pts[first].s;
+      const raw = [];
+      for (let i = first; i < pts.length; i++) raw.push(C.radius((trail.travelled - pts[i].s) / span, loud, pts[i].level, 0, scale));
+      const cap = C.capBulges([...raw]);
+      const worst = (r) => { let most = 0, least = Infinity; for (let i = r.length - 1; i >= 0; i--) { least = Math.min(least, r[i]); most = Math.max(most, r[i] / least); } return most; };
+      worstRaw = Math.max(worstRaw, worst(raw)); worstCapped = Math.max(worstCapped, worst(cap));
+      if (cap.some((r, i) => i < cap.length - 1 && r > cap[i + 1] * 1.05)) bulges++;
+    }
+    ok(worstCapped <= C.BULGE + 1e-9 && worstRaw > 1.3 && bulges > 100,
+      `syllables still ride the tail as bulges, none more than 1.25 times the tail nearer the head (uncapped ${worstRaw.toFixed(2)}, capped ${worstCapped.toFixed(2)}, ${bulges} of 480 frames with a bulge)`);
+  }
+
   // The tail's memory. A flight at a steady loudness on a page of the given size.
   const flight = (fps, secs, loud, [W, H, scale] = WIDE) => {
     const step = C.step(scale), keep = C.keep(scale), trail = C.createTrail({ step, keep });

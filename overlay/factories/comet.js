@@ -45,6 +45,8 @@ VIZ_FACTORIES['comet'] = function () {
   let head = null;                         // { x, y, z }
   let vel = [0, 0];                        // the head's velocity, px/s
   let tail = 0, drawn = 0, coma = 0;       // tail length in px, points in it, the head glow's radius in px
+  let tipAlpha = 0;                        // the tail's opacity at its tip, before brightness
+  let widths = [];                         // the tail's half-widths as last drawn, tip first
   let sparks = [], rings = [], sparkDebt = 0;
   let sizeW = W, sizeH = H;
 
@@ -87,14 +89,13 @@ VIZ_FACTORIES['comet'] = function () {
 
   /* The tail's body: short round-ended strokes from the tip to the head. Each stroke first clears
      its own footprint and then adds its colour, so overlaps never double up and no joins show. */
-  function drawBody(pts, first, colorT) {
-    const end = trail.travelled, shine = 0.6 + 0.4 * bright;
-    // Each point's colour and half-width, worked out once: a point ends one stroke and starts the next.
-    const col = [], rad = [];
+  function drawBody(pts, first, colorT, shape) {
+    const shine = 0.6 + 0.4 * bright, rad = shape.rad;
+    // Each point's colour, worked out once: a point ends one stroke and starts the next.
+    const col = [];
     for (let i = first; i < pts.length; i++) {
-      const p = pts[i], a = Math.min(1, (end - p.s) / tail);
-      col.push(rgba(whiten(getColor(colorT + a * COL_RUN), WHITEN * Math.pow(1 - a, 3)), TimbreComet.alpha(a, loud, p.level) * shine));
-      rad.push(TimbreComet.radius(a, loud, p.level, p.z, SCALE));
+      const a = shape.along[i - first];
+      col.push(rgba(whiten(getColor(colorT + a * COL_RUN), WHITEN * Math.pow(1 - a, 3)), TimbreComet.alpha(a, loud, pts[i].level) * shine));
     }
     ctx.lineCap = 'round';
     for (let i = first; i < pts.length - 1; i++) {
@@ -120,10 +121,10 @@ VIZ_FACTORIES['comet'] = function () {
   /* The glow: the tail again as a few wide, blurred stretches laid UNDER what is already drawn.
      Only the blur is wanted, so each stretch is stroked far off the canvas and its shadow is
      thrown back onto it. Stretches meet end to end, and the blur hides where. */
-  function drawGlow(pts, first, colorT) {
+  function drawGlow(pts, first, colorT, shape) {
     const count = pts.length - first;
     if (count < 3) return;
-    const end = trail.travelled, chunks = Math.min(GLOW_CHUNKS, Math.max(1, Math.floor(count / 3)));
+    const chunks = Math.min(GLOW_CHUNKS, Math.max(1, Math.floor(count / 3)));
     ctx.globalCompositeOperation = 'destination-over';
     ctx.lineCap = 'butt';
     ctx.lineJoin = 'round';
@@ -134,9 +135,9 @@ VIZ_FACTORIES['comet'] = function () {
     for (let c = 0; c < chunks; c++) {
       const i0 = first + Math.floor((c * (count - 1)) / chunks), i1 = first + Math.floor(((c + 1) * (count - 1)) / chunks);
       if (i1 <= i0) continue;
-      const mid = pts[(i0 + i1) >> 1], a = Math.min(1, (end - mid.s) / tail);
-      ctx.shadowColor = rgba(getColor(colorT + a * COL_RUN), TimbreComet.alpha(a, loud, mid.level) * (0.6 + 0.4 * bright) * (0.55 + 0.35 * bright));
-      ctx.lineWidth = 2.3 * TimbreComet.radius(a, loud, mid.level, mid.z, SCALE);
+      const mid = (i0 + i1) >> 1, a = shape.along[mid - first];
+      ctx.shadowColor = rgba(getColor(colorT + a * COL_RUN), TimbreComet.alpha(a, loud, pts[mid].level) * (0.6 + 0.4 * bright) * (0.55 + 0.35 * bright));
+      ctx.lineWidth = 2.3 * shape.rad[mid - first];
       const xs = [], ys = [];
       for (let i = i0; i <= i1; i++) { xs.push(pts[i].x); ys.push(pts[i].y); }
       ctx.beginPath();
@@ -151,9 +152,9 @@ VIZ_FACTORIES['comet'] = function () {
   }
 
   // A white thread down the front of the tail, fading out.
-  function drawThread(pts, first, depth) {
-    const end = trail.travelled, xs = [], ys = [];
-    for (let i = pts.length - 1; i >= first && end - pts[i].s <= tail * THREAD; i--) { xs.push(pts[i].x); ys.push(pts[i].y); }
+  function drawThread(pts, first, depth, shape) {
+    const xs = [], ys = [];
+    for (let i = pts.length - 1; i >= first && shape.along[i - first] <= THREAD; i--) { xs.push(pts[i].x); ys.push(pts[i].y); }
     if (xs.length < 3) return;
     const g = ctx.createLinearGradient(xs[0], ys[0], xs[xs.length - 1], ys[ys.length - 1]);
     g.addColorStop(0, rgba(WHITE, 0.25 + 0.65 * loud + flash));
@@ -247,7 +248,8 @@ VIZ_FACTORIES['comet'] = function () {
       const lean0 = TimbreComet.lean(clock);
       clock += dt;
       if (!head) {
-        head = TimbreComet.at(theta, reach, lean0, W, H, SCALE);
+        // A fresh start begins where this frame's flight begins, so the path has no jump in it.
+        head = TimbreComet.at(theta, reach0, lean0, W, H, SCALE);
         trail.add(head.x, head.y, head.z, then);
       }
       const from = head, dTheta = speed * dt;
@@ -267,11 +269,26 @@ VIZ_FACTORIES['comet'] = function () {
       const colorT = ((Date.now() * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
       const pts = trail.points, first = trail.first(tail);
       drawn = pts.length - first;
+      // How far along the tail each drawn point is, from the head (0) to the tip (1), and its
+      // half-width. A tail still growing after a fresh start is measured to its oldest point, so
+      // it tapers to nothing at its tip from the first moment instead of ending in a blunt stub.
+      const end = trail.travelled;
+      const span = first > 0 ? tail : Math.max(1e-6, Math.min(tail, end - pts[0].s));
+      const along = [], rad = [];
+      for (let i = first; i < pts.length; i++) {
+        const a = Math.min(1, (end - pts[i].s) / span);
+        along.push(a);
+        rad.push(TimbreComet.radius(a, loud, pts[i].level, pts[i].z, SCALE));
+      }
+      TimbreComet.capBulges(rad);
+      const shape = { along, rad };
+      widths = rad;
+      tipAlpha = TimbreComet.alpha(along[0], loud, pts[first].level);
 
       ctx.save();
-      drawBody(pts, first, colorT);
-      drawGlow(pts, first, colorT);
-      drawThread(pts, first, depth);
+      drawBody(pts, first, colorT, shape);
+      drawGlow(pts, first, colorT, shape);
+      drawThread(pts, first, depth, shape);
       drawSparks(colorT);
       drawRings(colorT);
       drawHead(colorT, depth);
@@ -281,14 +298,24 @@ VIZ_FACTORIES['comet'] = function () {
     // Test surface: where the head is on the figure (rad) and how fast it flies (rad/s), the reach,
     // brightness and smoothed low end (0 to 1), the tail's length (px) and how many remembered
     // points it holds, whether the head and all of them are inside the canvas, the head glow's
-    // radius (px), the sparks and rings alive, and how many times the head has flared.
+    // radius (px), the sparks and rings alive, and how many times the head has flared. Also the
+    // longest gap between two neighbouring points of the tail (px), the tail's opacity at its tip,
+    // the level remembered at the tip and at the head, and the widest any stretch of the tail
+    // stands over the narrowest point nearer the head (1 for a tail that only narrows).
     probe() {
-      const pts = trail.points;
-      let inside = !!head && head.x >= 0 && head.x <= W && head.y >= 0 && head.y <= H;
-      for (let i = pts.length - drawn; inside && i < pts.length; i++) {
-        if (i >= 0 && (pts[i].x < 0 || pts[i].x > W || pts[i].y < 0 || pts[i].y > H)) inside = false;
+      const pts = trail.points, from = Math.max(0, pts.length - drawn);
+      let inside = !!head && head.x >= 0 && head.x <= W && head.y >= 0 && head.y <= H, gap = 0;
+      for (let i = from; i < pts.length; i++) {
+        if (pts[i].x < 0 || pts[i].x > W || pts[i].y < 0 || pts[i].y > H) inside = false;
+        if (i > from) gap = Math.max(gap, Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
       }
-      return { theta, speed, reach, bright, low, tail, points: drawn, inside, coma, sparks: sparks.length, rings: rings.length, flares };
+      let bulge = 1, narrowest = Infinity;
+      for (let i = widths.length - 1; i >= 0; i--) {
+        narrowest = Math.min(narrowest, widths[i]);
+        bulge = Math.max(bulge, widths[i] / narrowest);
+      }
+      return { theta, speed, reach, bright, low, tail, points: drawn, inside, coma, sparks: sparks.length, rings: rings.length, flares,
+        gap, tipAlpha, bulge, levelTip: pts.length ? pts[from].level : 0, levelHead: pts.length ? pts[pts.length - 1].level : 0 };
     },
   };
 };

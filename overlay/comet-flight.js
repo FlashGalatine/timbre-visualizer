@@ -25,6 +25,7 @@
   const TAIL_QUIET = 0.3;                    // share of that length when silent
   const STEP = 2.4, STEP_FLOOR = 3;          // spacing of remembered points: × scale, and its floor in px
   const REARM_S = 0.7;                       // the shortest time between two flares, counted with the mic on
+  const BULGE = 1.25;                        // the most a stretch of tail may be wider than any point nearer the head
 
   const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
@@ -55,6 +56,18 @@
     scale * (0.45 + (1.3 + 2.2 * loudNow + 1.5 * loudThen) * Math.pow(1 - a, 1.1)) * (0.82 + 0.18 * z);
   // The tail's opacity at the same place, before brightness.
   const alpha = (a, loudNow, loudThen) => clamp01((0.5 + 0.3 * loudNow + 0.3 * loudThen) * Math.pow(1 - a, 1.15));
+
+  // Keeps the bulges gentle. `radii` runs from the tip (first) to the head (last); each is trimmed
+  // to at most BULGE times the narrowest one nearer the head, in place. A tail that only narrows
+  // away from the head is left alone, so the comet never looks swollen behind a thin neck.
+  function capBulges(radii) {
+    let narrowest = Infinity;
+    for (let i = radii.length - 1; i >= 0; i--) {
+      if (radii[i] > narrowest * BULGE) radii[i] = narrowest * BULGE;
+      if (radii[i] < narrowest) narrowest = radii[i];
+    }
+    return radii;
+  }
 
   // The tail's memory: points along the path the head has flown, oldest first. Every point but
   // the last is fixed and lies between half a step and one step from the one before it; the last
@@ -129,7 +142,7 @@
   }
 
   globalThis.TimbreComet = {
-    MARGIN, REACH_MIN, LEAN_MAX, REARM_S,
-    at, lean, speed, reach, tailLength, step, keep, radius, alpha, createTrail, fly, createFlare,
+    MARGIN, REACH_MIN, LEAN_MAX, REARM_S, BULGE,
+    at, lean, speed, reach, tailLength, step, keep, radius, alpha, capBulges, createTrail, fly, createFlare,
   };
 })();
