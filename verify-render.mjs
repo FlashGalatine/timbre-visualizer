@@ -626,6 +626,22 @@ async function main() {
     });
     check('moving Afterglow pushes afterglow', glowPushed);
     check('the overlay takes the afterglow setting', await page.waitForFunction(() => cfgAfterglow === 3, { timeout: 5000 }).then(() => true).catch(() => false));
+    await ctlPage.selectOption('#activeViz', 'dna');
+    check('DNA shows its three sliders', await ctlPage.evaluate(() =>
+      ['Helix Freq', 'Shatter Sensitivity', 'Reconnect Seconds'].every((t) => [...document.querySelectorAll('#perVizKnobs label')].some((l) => l.textContent === t))
+      && document.getElementById('pv-dna-reconnectSeconds').max === '10'));
+    await ctlPage.evaluate(() => { const e = document.getElementById('pv-dna-reconnectSeconds'); e.value = '7'; e.dispatchEvent(new Event('input', { bubbles: true })); });
+    check('moving Reconnect Seconds reaches the overlay', await page.waitForFunction(() => window.__timbre.config.perViz.dna.reconnectSeconds === 7, { timeout: 5000 }).then(() => true).catch(() => false));
+    // Put Reconnect Seconds back to 3 and wait for the push.
+    const dnaMark = observed.length;
+    await ctlPage.evaluate(() => { const e = document.getElementById('pv-dna-reconnectSeconds'); e.value = '3'; e.dispatchEvent(new Event('input', { bubbles: true })); });
+    await new Promise((res) => {
+      const t0 = Date.now();
+      const iv = setInterval(() => {
+        const hit = observed.slice(dnaMark).find((m) => m.type === 'timbre:config' && m.config && m.config.perViz && m.config.perViz.dna && m.config.perViz.dna.reconnectSeconds === 3);
+        if (hit || Date.now() - t0 > 5000) { clearInterval(iv); res(); }
+      }, 100);
+    });
     // Put afterglow back to its default so the shared mock state stays clean.
     const glowMark = observed.length;
     await ctlPage.evaluate(() => { const e = document.getElementById('afterglow'); e.value = '1.6'; e.dispatchEvent(new Event('input', { bubbles: true })); });
