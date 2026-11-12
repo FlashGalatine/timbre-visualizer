@@ -44,8 +44,10 @@
 //           and longer-tailed; it settles when the voice stops; the flight is alike at 30, 60 and
 //           165 fps; a peak flares the head (wide and small pages) and the flare dies away; Gain at
 //           200% and Flare Sensitivity 0 never flare; the waveform peak stands in for a missing
-//           micPeak; mic off is slow and dim, and with the idle animation only the head's glow
-//           breathes; Trail sets the tail length; a config push keeps the tail and a size change
+//           micPeak; the mic opening on a loud moment does not flare; mic off is slow and dim, and
+//           with the idle animation only the head's glow breathes; the tail has a glow, bulges gently, remembers
+//           the voice, fades to nothing at its tip and has no gap after a long first frame; the low
+//           end swells the head's glow and the high end sheds sparks; Trail sets the tail length; a config push keeps the tail and a size change
 //           starts a fresh one; a seeded run repeats; the canvas state is left as found; a draw
 //           stays inside its time budget; and the control panel shows its two sliders.
 
@@ -144,7 +146,8 @@ const glowRun = (pg, name, steps, fps = 60) => pg.evaluate(({ name, steps, fps }
 // Drive one effect (DNA, Comet) with a scripted sound the way glowRun does, one reading per step: its
 // probe() plus pixel facts (ink: pixels with alpha; alpha: summed; top / bottom: first and last rows
 // with ink; emptyCols: columns with no ink) and the canvas state the draw left behind (op: the blend
-// mode; blur: the shadow blur; globalAlpha).
+// mode; blur: the shadow blur; globalAlpha; offsetX: the shadow offset; transformKept: the transform
+// is what it was before the run).
 // steps: [{ secs, wave, low, high, peak, mic, config, jump }] — wave/low/high/peak are 0..1; low fills
 // frequency bins 0-1, high bins 2-10. peak is micPeak (null or missing: the effect reads the waveform);
 // mic: false turns the mic off as a real mic-off does (micActive false; frequencies, waveform and
@@ -160,6 +163,8 @@ const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1 } = {}) =>
     currentViz = VIZ_FACTORIES[name]();
     let now = performance.now();
     const f = new Uint8Array(32), w = new Uint8Array(64), out = [];
+    const matrix = () => { const m = ctx.getTransform(); return [m.a, m.b, m.c, m.d, m.e, m.f].join(); };
+    const matrix0 = matrix();
     for (const s of steps) {
       if (s.config) applyConfig(s.config);
       if (s.jump) now += s.jump * 1000;
@@ -179,7 +184,8 @@ const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1 } = {}) =>
       }
       let emptyCols = 0;
       for (let x = 0; x < W; x++) if (!inked[x]) emptyCols++;
-      out.push({ ...currentViz.probe(), ink, alpha, top, bottom, emptyCols, op: ctx.globalCompositeOperation, blur: ctx.shadowBlur, globalAlpha: ctx.globalAlpha });
+      out.push({ ...currentViz.probe(), ink, alpha, top, bottom, emptyCols, op: ctx.globalCompositeOperation, blur: ctx.shadowBlur, globalAlpha: ctx.globalAlpha,
+        offsetX: ctx.shadowOffsetX, transformKept: matrix() === matrix0 });
     }
     return out;
   } finally {
@@ -791,13 +797,16 @@ async function main() {
       for (const pg of pages) await pg.waitForFunction((i) => window.__timbre.currentVizName === 'comet' && cfgIdleAnim === i, idle, { timeout: 5000 });
     };
     const facts = (...rs) => JSON.stringify(rs.map((r) => r && ({ speed: r.speed, reach: r.reach, bright: r.bright, tail: r.tail, points: r.points,
-      inside: r.inside, low: r.low, sparks: r.sparks, rings: r.rings, flares: r.flares, ink: r.ink })));
+      inside: r.inside, low: r.low, sparks: r.sparks, rings: r.rings, flares: r.flares, ink: r.ink,
+      gap: r.gap, tipAlpha: r.tipAlpha, levelTip: r.levelTip, levelHead: r.levelHead, coma: r.coma })));
+    const cometStep = await wide.evaluate(() => TimbreComet.step(SCALE)), cometMaxR = await wide.evaluate(() => TimbreComet.radius(0, 1, 1, 1, SCALE));
     await cometOn([page, p43, wide], false);
     const loudTalk = { wave: 0.6, low: 0.8, high: 0.8, peak: 0.6 };   // loudness 0.6 × 1.5 = 0.9
     for (const pg of [page, p43, wide]) {
       const size = await pg.evaluate(() => `${W}×${H}`);
       const [r] = await cometRun(pg, [{ secs: 2, ...talk }]);
-      check(`comet: flies inside the frame at ${size}`, r.ink > 0 && r.inside === true && r.points > 5 && r.flares === 0, facts(r));
+      const stepHere = await pg.evaluate(() => TimbreComet.step(SCALE));
+      check(`comet: flies inside the frame at ${size}`, r.ink > 0 && r.inside === true && r.points > 5 && r.gap <= stepHere * 1.001 && r.flares === 0, facts(r));
     }
     const cometScale = await wide.evaluate(() => window.__timbre.SCALE);
     const [cq, cl] = await cometRun(wide, [{ secs: 3, ...silence }, { secs: 3, ...loudTalk }]);
@@ -806,7 +815,30 @@ async function main() {
     check('comet: louder flies faster and wider, glows brighter and trails longer',
       cl.speed > cq.speed * 3 && cl.reach > cq.reach * 1.8 && cl.bright > cq.bright + 0.3 && cl.tail > cq.tail * 2 && cl.ink > cq.ink * 2 && cl.inside === true, facts(cq, cl));
     check('comet: leaves the canvas state as it found it',
-      [cq, cl].every((r) => r.op === 'source-over' && r.blur === 0 && r.globalAlpha === 1), JSON.stringify([cq, cl].map((r) => [r.op, r.blur, r.globalAlpha])));
+      [cq, cl].every((r) => r.op === 'source-over' && r.blur === 0 && r.globalAlpha === 1 && r.offsetX === 0 && r.transformKept === true),
+      JSON.stringify([cq, cl].map((r) => [r.op, r.blur, r.globalAlpha, r.offsetX, r.transformKept])));
+    // The glow is only blur. Without it the picture is at most the tail's body (narrower than its
+    // length times its greatest width), the head's glow, and a few sparks.
+    check('comet: the tail has a soft glow round it', cl.ink > 1.3 * (cl.tail * 2 * cometMaxR + Math.PI * cl.coma * cl.coma),
+      JSON.stringify({ ink: cl.ink, bodyAndHeadAtMost: Math.round(cl.tail * 2 * cometMaxR + Math.PI * cl.coma * cl.coma) }));
+    const [, cRise] = await cometRun(wide, [{ secs: 2, ...silence }, { secs: 0.3, ...loudTalk }]);
+    const [, cFall] = await cometRun(wide, [{ secs: 2, ...loudTalk }, { secs: 0.3, ...silence }]);
+    check('comet: the tail remembers how loud the voice was where the head passed',
+      cRise.levelHead > 0.7 && cRise.levelTip < 0.1 && cFall.levelHead < 0.1 && cFall.levelTip > 0.7, facts(cRise, cFall));
+    // Syllables: 0.18 s of voice, 0.12 s of quiet, read after each. Uncapped, a bulge reaches about 1.4.
+    const cSyll = (await cometRun(wide, Array.from({ length: 24 }, (_, i) => (i % 2 ? { secs: 0.12, ...silence } : { secs: 0.18, wave: 0.5, low: 0.6, high: 0.4, peak: 0.5 })))).slice(6);
+    const cBulges = cSyll.map((r) => r.bulge);
+    check('comet: syllables bulge the tail, never more than 1.25 times the tail nearer the head',
+      Math.max(...cBulges) <= 1.2501 && Math.max(...cBulges) > 1.1, cBulges.map((b) => b.toFixed(3)).join(' '));
+    const [cLowOnly] = await cometRun(wide, [{ secs: 2, wave: 0.3, low: 0.9, high: 0, peak: 0.3 }]);
+    const [cHighOnly] = await cometRun(wide, [{ secs: 2, wave: 0.3, low: 0, high: 0.9, peak: 0.3 }]);
+    check('comet: the low end swells the glow round the head, the high end sheds sparks',
+      cLowOnly.coma > cHighOnly.coma * 1.5 && cHighOnly.sparks > cLowOnly.sparks * 3, facts(cLowOnly, cHighOnly));
+    const [cFirst] = await cometRun(wide, [{ secs: 0.1, ...loud }], { fps: 10 });   // one frame at the 0.1 s cap, at full loudness
+    check('comet: a long first frame leaves no gap in the path', cFirst.points > 3 && cFirst.gap <= cometStep * 1.001, facts(cFirst));
+    const [cYoung, cOld] = await cometRun(wide, [{ secs: 0.5, ...silence }, { secs: 5, ...silence }]);
+    check('comet: the tail fades to nothing at its tip, from the first moment',
+      cYoung.points > 3 && cYoung.tipAlpha < 0.005 && cOld.tipAlpha < 0.03, facts(cYoung, cOld));
     const [, cs] = await cometRun(wide, [{ secs: 2, ...loudTalk }, { secs: 6, ...silence }]);
     check('comet: it settles back when the voice stops', near(cs.speed, 0.2, 0.01) && near(cs.reach, 0.42, 0.02) && near(cs.bright, 0.5, 0.01), facts(cs));
     const flown = async (fps) => { const [a, b] = await cometRun(wide, [{ secs: 1, ...loudTalk }, { secs: 1, ...loudTalk }], { fps }); return b.theta - a.theta; };
@@ -838,8 +870,9 @@ async function main() {
     const [, cOff] = await cometRun(wide, [{ secs: 2, ...loudTalk }, { secs: 6, ...off }]);
     check('comet: mic off drifts slowly and dimly',
       near(cOff.speed, 0.2, 0.01) && near(cOff.reach, 0.42, 0.02) && near(cOff.bright, 0.5, 0.01) && cOff.low < 0.001 && cOff.flares === 0 && cOff.ink > 0, facts(cOff));
-    const [, cOffPeak] = await cometRun(wide, [{ secs: 1, ...talk }, { secs: 1, ...off, peak: 1 }]);
-    check('comet: no flare with the mic off', cOffPeak.flares === 0, facts(cOffPeak));
+    // A thump as the mic opens: the 0.7 s wait counts only time with the mic on.
+    const [, cOpen] = await cometRun(wide, [{ secs: 1, ...off }, { secs: 0.3, ...talk, peak: 0.95 }]);
+    check('comet: the mic opening on a loud moment does not flare', cOpen.flares === 0, facts(cOpen));
     await cometOn([wide], true);
     const cIdle = (await cometRun(wide, [{ secs: 0, ...off }, ...Array.from({ length: 16 }, () => ({ secs: 0.25, ...off }))])).slice(1);
     const idleLow = cIdle.map((r) => r.low);
