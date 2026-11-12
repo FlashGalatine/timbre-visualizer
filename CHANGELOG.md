@@ -12,6 +12,10 @@ traceability.
 
 ### Added
 
+- **Fireflies setting**: `startleSensitivity` (0 to 100, default 50; 0 turns the startle off)
+  for the Fireflies effect. The swarm behind the new Fireflies is in
+  `overlay/fireflies-swarm.js` (`TimbreSwarm`), loaded by all three overlay pages and by
+  `verify` under Node, and documented in `docs/EFFECTS.md` ("Fireflies swarm").
 - **Comet setting**: `flareSensitivity` (0 to 100, default 50; 0 turns flares off) for the
   Comet effect. The arithmetic behind the new Comet is in `overlay/comet-flight.js`
   (`TimbreComet`), loaded by all three overlay pages and by `verify` under Node, and
@@ -73,6 +77,13 @@ traceability.
 
 ### Changed
 
+- **Fireflies is now a living swarm.** Soft glowing fireflies wander the whole frame,
+  each blinking on its own slow rhythm and leaving a short streak of light. Louder, they
+  blink more, glow brighter and fly faster; each syllable sets off a burst of flashes,
+  and a hard peak makes the whole swarm flash and scatter. The old Fireflies sprayed
+  square particles out of the centre; that spray is gone. **Density** now sets how many
+  fireflies there are, 10 to 60 (it was the spawn rate). **Trail veil** no longer affects
+  Fireflies.
 - **Comet is now a smooth glowing comet.** A glowing head flies a slow looping path with
   a tapering tail; louder, it flies faster and wider, glows brighter and trails longer.
   The tail is thicker where the voice was louder as the head passed, the high end of the
