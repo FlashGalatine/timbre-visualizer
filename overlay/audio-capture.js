@@ -22,9 +22,16 @@
   const SAMPLE_MS = 33;           // ~30fps, same cadence as the legacy sender
   const RETRY_MS = 10000;         // re-attempt after denial / missing device
 
+  // `micPeak` is declared in core.js. OBS can serve this file fresh beside a cached core.js from
+  // before `micPeak` existed, and in strict mode writing an undeclared name throws: teardownStream()
+  // would throw at the start of acquire(), before getUserMedia, and every effect would stay without a
+  // mic. `typeof` does not throw on an undeclared name, so look once here, and without the binding
+  // skip both writes to it and the analyser that feeds it.
+  const HAS_PEAK = typeof micPeak !== 'undefined';
+
   let audioCtx = null;
   let analyser = null;
-  let peakAnalyser = null;        // second analyser: a window covering the whole sample interval
+  let peakAnalyser = null;        // second analyser: a window covering at least two sample intervals
   let peakBuf = null;
   let stream = null;
   let sampleTimer = null;
@@ -50,7 +57,7 @@
     micActive = false;
     frequencies = null;
     waveform = null;
-    micPeak = null;
+    if (HAS_PEAK) micPeak = null;
   }
 
   // Build getUserMedia constraints for the configured device. `ideal` (not
@@ -92,15 +99,19 @@
       source.connect(analyser);
 
       // The first analyser only ever sees 64 samples per tick (~4% of the sound), so a
-      // short thump can fall between two looks. This one spans the whole interval:
-      // the smallest power of two >= sampleRate * SAMPLE_MS / 1000, within 256..32768.
-      const wanted = audioCtx.sampleRate * SAMPLE_MS / 1000;
-      let peakSize = 256;
-      while (peakSize < wanted && peakSize < 32768) peakSize *= 2;
-      peakAnalyser = audioCtx.createAnalyser();
-      peakAnalyser.fftSize = peakSize;
-      source.connect(peakAnalyser);
-      peakBuf = new Uint8Array(peakAnalyser.fftSize);
+      // short thump can fall between two looks. This one spans at least two intervals:
+      // the smallest power of two >= 2 * sampleRate * SAMPLE_MS / 1000, within 256..32768
+      // (4096 at 48 kHz). Each moment then shows in at least two readings in a row, so a
+      // tick that comes late still sees everything since the one before.
+      if (HAS_PEAK) {
+        const wanted = 2 * audioCtx.sampleRate * SAMPLE_MS / 1000;
+        let peakSize = 256;
+        while (peakSize < wanted && peakSize < 32768) peakSize *= 2;
+        peakAnalyser = audioCtx.createAnalyser();
+        peakAnalyser.fftSize = peakSize;
+        source.connect(peakAnalyser);
+        peakBuf = new Uint8Array(peakAnalyser.fftSize);
+      }
 
       // If the device disappears mid-stream (unplugged USB mic), re-acquire.
       stream.getTracks().forEach((t) => { t.onended = () => { if (running) acquire(); }; });
@@ -112,7 +123,7 @@
         analyser.getByteTimeDomainData(waveBuf);
         frequencies = freqBuf;
         waveform = waveBuf;
-        if (peakAnalyser) {
+        if (HAS_PEAK && peakAnalyser) {
           peakAnalyser.getByteTimeDomainData(peakBuf);
           let hi = 0;
           for (let i = 0; i < peakBuf.length; i++) {

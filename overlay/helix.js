@@ -19,7 +19,7 @@
 
   const RETURN_S = 1.5;      // how long the return takes
   const MIN_CALM_S = 0.3;    // the shortest calm wait before the return, whatever Reconnect Seconds says
-  const REARM_S = 0.4;       // how long the helix must have been whole before it can shatter
+  const REARM_S = 0.4;       // how long the helix must have been whole, with the mic on, before it can shatter
   const JOSTLE_GAP_S = 0.6;  // the shortest time between two pushes while in pieces
   // A step this long after the one before means the page stopped drawing (the
   // source was hidden); the helix drops its pieces and resumes whole.
@@ -130,7 +130,7 @@
     let state = 'whole';
     let pieces = null;   // the array cut() returned, while not whole
     let motion = null;   // per piece: push velocity and spin, lasting drift, where its return started, its lag
-    let wholeS = 0;      // time whole, s
+    let wholeS = 0;      // time whole with the mic on, s
     let calmS = 0;       // time since the last peak, s
     let sinceBlastS = 0; // time since the last blast or jostle, s
     let u = 0;           // progress through the return, 0 to 1
@@ -253,7 +253,9 @@
       const isPeak = !!live && peak >= threshold;
 
       if (state === 'whole') {
-        wholeS += dt;
+        // Only time whole with the mic on counts, so a transient as the mic opens (a reload, a
+        // device switch) cannot shatter the helix at once.
+        wholeS = live ? wholeS + dt : 0;
         if (!isPeak || wholeS < REARM_S) return null;
         const cutPieces = cut();
         if (!cutPieces || !cutPieces.length) return null;
