@@ -28,6 +28,12 @@
 //      point memory at any frame rate, the flare gate, and that all three
 //      overlay pages load it after helix.js and before the factories. (Also
 //      runs before section 4.)
+//   9. Fireflies swarm — overlay/fireflies-swarm.js under Node with a seeded
+//      random source: how many, staying in the frame, blink rates quiet and
+//      loud, syllable bursts, the ripple's nudge, the startle and its guards,
+//      frame-rate independence, size and Density changes, the flash's shape,
+//      and that all three overlay pages load it after comet-flight.js and
+//      before the factories. (Also runs before section 4.)
 //   4. Live transport seam — spawns mock-sb-server.mjs on side ports, loads the
 //      REAL shared/panel-client-sb.js under a browser shim, and asserts:
 //      Subscribe (lowercase), sync-on-connect DoAction, control push →
@@ -161,6 +167,13 @@ ok(JSON.stringify(T.defaultConfig().perViz.comet) === JSON.stringify({ trail: 50
   ok(c.perViz.comet.trail === 100 && c.perViz.comet.flareSensitivity === 0, 'comet knobs clamp to 0..100');
   const old = T.sanitizeConfig({ perViz: { comet: { trail: 80 } } });   // a config saved before this change
   ok(old.perViz.comet.trail === 80 && old.perViz.comet.flareSensitivity === 50, 'an old saved comet config gains the new default');
+}
+ok(JSON.stringify(T.defaultConfig().perViz.fireflies) === JSON.stringify({ density: 50, startleSensitivity: 50 }), 'fireflies defaults: density 50, startleSensitivity 50');
+{
+  const c = T.sanitizeConfig({ perViz: { fireflies: { density: 250, startleSensitivity: -4 } } });
+  ok(c.perViz.fireflies.density === 100 && c.perViz.fireflies.startleSensitivity === 0, 'fireflies knobs clamp to 0..100');
+  const old = T.sanitizeConfig({ perViz: { fireflies: { density: 80 } } });   // a config saved before this change
+  ok(old.perViz.fireflies.density === 80 && old.perViz.fireflies.startleSensitivity === 50, 'an old saved fireflies config gains the new default');
 }
 
 // ── 3. C# embed simulation ───────────────────────────────────────────────────
@@ -612,6 +625,196 @@ await import('./overlay/comet-flight.js');
     order.push(pos > html.indexOf('src="helix.js"') && pos < html.indexOf('src="factories/'));
   }
   ok(order.every(Boolean), 'all three overlay pages load comet-flight.js after helix.js and before the factories');
+}
+
+// ── 9. Fireflies swarm (pure; no browser) ────────────────────────────────────
+console.log('\n[9] fireflies swarm');
+await import('./overlay/fireflies-swarm.js');
+{
+  const S = globalThis.TimbreSwarm, HX = globalThis.TimbreHelix;
+  const near = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol;
+  const SIZES = [[260, 130, 1], [1248, 624, 4.8], [1728, 624, 4.8]];
+  const WIDE = SIZES[2];
+  const isLit = (f) => f.env > 0.15;
+  // script: [{ secs, loud (a number or a function of the time in seconds), peak, live = true, density, W, H }]
+  function runSwarm(script, o = {}) {
+    const [W0, H0, scale] = o.size ?? WIDE, fps = o.fps ?? 60;
+    const swarm = o.swarm ?? S.createSwarm({ random: HX.rng(o.seed ?? 1) });
+    let t = 0, bad = false, mostWaves = 0, path = 0;
+    const events = [], lit = [], glow = [], fired = [];
+    for (const s of script) {
+      for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) {
+        t += 1 / fps;
+        const W = s.W ?? W0, H = s.H ?? H0, before = swarm.flies.map((f) => [f, f.x, f.y]);
+        const e = swarm.step({ dt: 1 / fps, live: s.live !== false, loud: typeof s.loud === 'function' ? s.loud(t) : (s.loud ?? 0),
+          peak: s.peak === undefined ? 0 : s.peak, threshold: o.threshold ?? 0.9, density: s.density ?? o.density ?? 50, W, H, scale });
+        if (e) events.push({ e, t });
+        for (const f of swarm.flies) {
+          if (!(f.x >= 0 && f.x <= W && f.y >= 0 && f.y <= H) || !(f.env >= 0 && f.env <= 1) || !(f.born >= 0 && f.born <= 1)) bad = true;
+        }
+        for (const [f, x, y] of before) path += Math.hypot(f.x - x, f.y - y);
+        mostWaves = Math.max(mostWaves, swarm.waves.length);
+        lit.push(swarm.flies.filter(isLit).length);
+        glow.push(swarm.flies.reduce((sum, f) => sum + f.env, 0));
+        fired.push(swarm.flashes);
+      }
+    }
+    return { swarm, events, bad, lit, glow, fired, mostWaves, path, secs: t };
+  }
+  const rate = (r, n = 35) => r.swarm.flashes / (n * r.secs);       // flashes per firefly per second
+
+  ok(S.count(0) === 10 && S.count(50) === 35 && S.count(100) === 60 && S.count(250) === 60 && S.count(-5) === 10 && S.count(NaN) === 35, 'count: 10 at Density 0, 35 at 50, 60 at 100');
+  {
+    const r = runSwarm([{ secs: 0.02 }]);
+    ok(r.swarm.flies.length === 35 && r.swarm.flies.every((f) => f.born < 0.1 && f.z >= 0 && f.z <= 1), 'the swarm starts with every firefly, fading in');
+    const up = runSwarm([{ secs: 2 }, { secs: 1 / 60, density: 100 }]);
+    const grown = up.swarm.flies.length, fresh = up.swarm.flies.filter((f) => f.born < 0.1).length;
+    const down = runSwarm([{ secs: 2, density: 100 }, { secs: 1 / 60, density: 0 }]);
+    const stillThere = down.swarm.flies.length;
+    const settled = runSwarm([{ secs: 1, density: 0 }], { swarm: down.swarm });
+    ok(grown === 60 && fresh === 25 && stillThere === 60 && settled.swarm.flies.length === 10 && !settled.bad,
+      `Density up adds fireflies that fade in; Density down fades the extra ones out (${grown}, ${fresh} new; ${stillThere} then ${settled.swarm.flies.length})`);
+  }
+
+  // Loud talk with a yell every three seconds, on every page: nothing leaves the frame.
+  const syllables = (t) => (t % 0.6 < 0.18 ? 0.7 : 0.05);
+  {
+    const yells = [];
+    for (let i = 0; i < 6; i++) yells.push({ secs: 2.9, loud: syllables, peak: 0.4 }, { secs: 0.1, loud: 1, peak: 0.95 });
+    const runs = SIZES.map((size) => runSwarm(yells, { size, density: 100 }));
+    ok(runs.every((r) => !r.bad), 'every firefly stays inside the frame through talk and startles, on all three pages');
+    ok(runs.every((r) => r.events.length === 6 && r.events.every((x) => x.e === 'startle')), 'each yell startles the swarm once');
+    ok(runs.every((r) => r.mostWaves <= S.MAX_WAVES), `the ripples never pass ${S.MAX_WAVES} at once`);
+  }
+
+  // Rhythm.
+  const quiet = runSwarm([{ secs: 120, loud: 0 }]), micOff = runSwarm([{ secs: 120, live: false }]);
+  ok(rate(quiet) > 0.09 && rate(quiet) < 0.18 && rate(micOff) > 0.09 && rate(micOff) < 0.18,
+    `silent or muted, each firefly blinks about once every 8 s (${rate(quiet).toFixed(3)} and ${rate(micOff).toFixed(3)} a second)`);
+  const steady = runSwarm([{ secs: 60, loud: 0.6 }]);
+  ok(rate(steady) > 2 * rate(quiet), `a steady voice makes them blink more (${rate(steady).toFixed(3)} a second)`);
+  {
+    const r = runSwarm([{ secs: 60, loud: syllables }]);
+    // A syllable starts every 0.6 s. Flashes spread evenly would put a third of them in its first
+    // 0.2 s; the swarm's glow is its fireflies' brightness added up.
+    let before = 0, after = 0, n = 0, early = 0, all = 0;
+    for (let c = 10; c < 98; c++) {
+      const i0 = c * 36;                                             // the frame the syllable starts on
+      const mean = (from, to) => { let sum = 0; for (let i = from; i < to; i++) sum += r.glow[i]; return sum / (to - from); };
+      before += mean(i0 - 12, i0); after += mean(i0 + 3, i0 + 18); n++;
+      early += r.fired[i0 + 12] - r.fired[i0 - 2]; all += r.fired[i0 + 34] - r.fired[i0 - 2];   // from just before it starts: the first flashes come on its first frame
+    }
+    const share = r.lit.slice(360).reduce((a, b) => a + b, 0) / (r.lit.length - 360) / 35;
+    ok(early / all > 0.5 && after / n > 1.3 * (before / n),
+      `each syllable sets off a burst of flashes (${Math.round((100 * early) / all)}% of flashes start in its first 0.2 s; glow ${(before / n).toFixed(1)} before, ${(after / n).toFixed(1)} after)`);
+    ok(share > 0.1 && share < 0.75, `talking keeps a rhythm: on average ${(share * 100).toFixed(0)}% of the swarm is lit, not all of it`);
+  }
+
+  // The ripple. Ten fireflies; the voice has been steady for five seconds, so the swarm is coupled.
+  const coupled = (fps) => {
+    const swarm = S.createSwarm({ random: HX.rng(3) }), [W, H, scale] = WIDE;
+    const go = (secs) => { for (let i = 0, n = Math.round(secs * fps); i < n; i++) swarm.step({ dt: 1 / fps, live: true, loud: 0.6, peak: 0, threshold: 0.9, density: 0, W, H, scale }); };
+    go(5);
+    for (const f of swarm.flies) { f.period = 1e9; f.charge = 0; f.rest = 0; f.nudged = 0; }
+    go(0.7);                                                         // any ripple still spreading dies out
+    return { swarm, go };
+  };
+  for (const fps of [120, 10]) {
+    const { swarm, go } = coupled(fps), fl = swarm.flies, flashes0 = swarm.flashes;
+    for (const f of fl) { f.x = 1600; f.y = 560; }                   // park the rest far away
+    const [a, b, d] = fl;
+    a.x = 400; a.y = 300; a.charge = 1;                              // a fires on the next step
+    b.x = 700; b.y = 300; b.charge = 0.5;                            // 300 px away
+    d.x = 600; d.y = 300; d.charge = 0.5; d.rest = 5;                // resting: it ignores ripples
+    go(0.45);
+    const gain = (b.charge - 0.5) / (S.PUSH * swarm.sync);           // as a share of a full-strength nudge
+    const after = b.charge;
+    go(0.4);
+    ok(swarm.flashes === flashes0 + 1 && gain > 0.4 && gain < 0.9 && near(b.charge, after, 1e-6) && near(d.charge, 0.5, 1e-6) && swarm.waves.length === 0,
+      `a flash's ripple nudges a firefly it passes once, and not one that is resting (at ${fps} fps: ${(gain * 100).toFixed(0)}% of a full nudge)`);
+  }
+  {
+    const { swarm, go } = coupled(120), fl = swarm.flies;
+    for (const f of fl) { f.x = 1600; f.y = 560; }
+    const [a, c] = fl;
+    a.x = 400; a.y = 300; a.charge = 1;
+    c.x = 500; c.y = 300; c.charge = 0.97;                           // the ripple will set this one off
+    go(0.2);
+    const strengths = swarm.waves.map((w) => w.strength).sort();
+    ok(strengths.length === 2 && near(strengths[0], 0.5) && near(strengths[1], 1) && c.lit < 0.2, 'a flash set off by a ripple sends a ripple of half the strength');
+    // Everything primed at once: each firefly can flash once, and then it is over.
+    const all = coupled(120);
+    for (const f of all.swarm.flies) f.charge = 0.99;
+    all.swarm.flies[0].charge = 1;
+    const f0 = all.swarm.flashes;
+    all.go(3);
+    ok(all.swarm.flashes - f0 <= all.swarm.flies.length && all.swarm.waves.length === 0, `a chain reaction dies out (${all.swarm.flashes - f0} flashes among ${all.swarm.flies.length})`);
+  }
+
+  // The startle.
+  const calm = { secs: 1.5, loud: 0.3, peak: 0.3 }, yell = { secs: 0.05, loud: 1, peak: 0.95 };
+  {
+    const r = runSwarm([calm, { secs: 1 / 60, loud: 1, peak: 0.95 }]);
+    const fl = r.swarm.flies;
+    const dot = (f) => f.kx * (f.x - 864) + f.ky * (f.y - 312);
+    const away = fl.filter((f) => dot(f) > 0).length, inward = fl.filter((f) => dot(f) < 0).length;
+    ok(r.events.length === 1 && r.events[0].e === 'startle' && near(r.events[0].t, 1.5 + 1 / 60, 1e-6) && r.swarm.startles === 1
+      && fl.every((f) => f.lit < 0.02 && f.power === 1) && away >= 0.8 * fl.length && inward === 0 && r.swarm.waves.length === 0,
+      `a peak startles the swarm: all flash, and they are pushed away from the middle (${away} of ${fl.length}; the rest are already at the edge)`);
+    const later = runSwarm([{ secs: 4, loud: 0.3, peak: 0.3 }], { swarm: r.swarm });
+    ok(!later.bad && later.swarm.flies.every((f) => Math.hypot(f.kx, f.ky) < 1), 'the push dies away and nobody leaves the frame');
+    ok(runSwarm([calm, { secs: 5, loud: 0.6, peak: 0.6 }]).events.length === 0, 'talking below the threshold never startles');
+    const held = runSwarm([calm, { secs: 2.5, loud: 1, peak: 0.95 }]).events.map((x) => x.t);
+    ok(held.length === 3 && held.every((x, i) => i === 0 || x - held[i - 1] >= S.REARM_S - 1e-6), `a held peak startles again only after ${S.REARM_S} s (${held.map((x) => x.toFixed(2)).join(', ')})`);
+    ok(runSwarm([calm, { secs: 2, live: false, peak: 0.95 }]).events.length === 0, 'no startle with the mic off');
+    ok(runSwarm([calm, { secs: 2, loud: 1, peak: 1 }], { threshold: Infinity }).events.length === 0, 'no startle when the threshold is off');
+    ok(runSwarm([calm, { secs: 1, loud: 1, peak: NaN }, { secs: 1, loud: 1, peak: null }]).events.length === 0, 'a missing peak never startles');
+    ok(runSwarm([{ secs: 2, live: false, peak: 0.95 }, { secs: 0.5, loud: 1, peak: 0.95 }, { secs: 1, loud: 0.3, peak: 0.3 }]).events.length === 0
+      && runSwarm([{ secs: 2, live: false }, calm, yell]).events.length === 1, 'the mic opening on a peak does not startle');
+  }
+
+  // The same at any frame rate.
+  {
+    const at = (fps) => runSwarm([{ secs: 120, loud: 0 }], { fps });
+    const r30 = at(30), r165 = at(165), base = rate(quiet);
+    ok(Math.abs(rate(r30) - base) < 0.25 * base && Math.abs(rate(r165) - base) < 0.25 * base, `the blink rate is the same at 30, 60 and 165 fps (${rate(r30).toFixed(3)}, ${base.toFixed(3)}, ${rate(r165).toFixed(3)})`);
+    const speed = (r) => r.path / (35 * r.secs);
+    ok(Math.abs(speed(r30) - speed(quiet)) < 0.03 * speed(quiet) && Math.abs(speed(r165) - speed(quiet)) < 0.03 * speed(quiet)
+      && speed(quiet) > 7 * 4.8 && speed(quiet) < 19 * 4.8, `they fly at the same speed at 30, 60 and 165 fps (${speed(r30).toFixed(1)}, ${speed(quiet).toFixed(1)}, ${speed(r165).toFixed(1)} px a second)`);
+    const startle = (fps) => runSwarm([calm, yell], { fps }).events[0].t;
+    ok(near(startle(30), 1.5, 2 / 30) && near(startle(165), 1.5, 2 / 165), 'the startle comes at the same moment at 30 and 165 fps');
+  }
+
+  // A size change keeps the swarm: everyone moves to the same relative place.
+  {
+    const r = runSwarm([{ secs: 3, loud: 0.5 }]);
+    const where = r.swarm.flies.map((f) => [f.x / 1728, f.y / 624]);
+    const small = runSwarm([{ secs: 1 / 60, loud: 0.5, W: 864, H: 312 }], { swarm: r.swarm });
+    const moved = small.swarm.flies.every((f, i) => Math.abs(f.x / 864 - where[i][0]) < 0.03 && Math.abs(f.y / 312 - where[i][1]) < 0.05);
+    ok(!small.bad && small.swarm.flies.length === 35 && moved && small.swarm.flies.every((f) => f.hist.length <= 2) && small.swarm.waves.every((w) => w.age < 0.02),
+      'a size change keeps every firefly, at the same relative place, with no streak left from the old frame');
+    ok(!runSwarm([{ secs: 5, loud: syllables, W: 864, H: 312 }], { swarm: small.swarm }).bad, 'and they stay inside the new frame');
+  }
+
+  // One flash, in quiet: up quickly, down slowly.
+  {
+    const r = runSwarm([{ secs: 1 }], { density: 0 });
+    const f = r.swarm.flies[0];
+    f.period = 1e9; f.charge = 1; f.rest = 0;
+    const env = [];
+    for (let i = 0; i < 90; i++) { r.swarm.step({ dt: 1 / 60, live: true, loud: 0, peak: 0, threshold: 0.9, density: 0, W: 1728, H: 624, scale: 4.8 }); env.push(f.env); }
+    const top = Math.max(...env), topAt = env.indexOf(top) / 60;
+    ok(near(f.power, 0.55) && top > 0.25 && top < 0.42 && topAt < 0.15 && env[89] < 0.01 && env[6] > env[40],
+      `a quiet flash rises within ${topAt.toFixed(2)} s to ${top.toFixed(2)} and fades inside a second and a half`);
+  }
+
+  const order = [];
+  for (const p of ['300x220', '1440x1080', '1920x1080']) {
+    const html = await readFile(resolve(__dirname, `overlay/mic-visualizers-${p}.html`), 'utf8');
+    const pos = html.indexOf('src="fireflies-swarm.js"');
+    order.push(pos > html.indexOf('src="comet-flight.js"') && pos < html.indexOf('src="factories/'));
+  }
+  ok(order.every(Boolean), 'all three overlay pages load fireflies-swarm.js after comet-flight.js and before the factories');
 }
 
 // ── 4. Live transport seam (mock SB + real panel-client-sb.js) ───────────────

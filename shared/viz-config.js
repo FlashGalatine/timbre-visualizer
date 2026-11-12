@@ -61,7 +61,7 @@
     'orbit':         { density: 50 },
     'spectrogram':   { scrollSpeed: 50 },
     'dna':           { helixFreq: 50, shatterSensitivity: 50, reconnectSeconds: 3 },
-    'fireflies':     { density: 50 },
+    'fireflies':     { density: 50, startleSensitivity: 50 },
     'matrix':        {
       flow: 50,
       mode: 'pool',
