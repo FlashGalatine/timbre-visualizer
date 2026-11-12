@@ -37,8 +37,9 @@
 //           it into pieces that stay in the frame (wide and small pages) and come back whole, the
 //           twist holds while in pieces, Gain at 200% and Sensitivity 0 never shatter, the waveform
 //           peak stands in for a missing micPeak, a config push keeps the pieces, a size change or a
-//           hidden source resumes whole, and a seeded shatter repeats, and a draw
-//           (whole, in pieces, and the blast frame) stays inside its time budget.
+//           hidden source resumes whole, a seeded shatter repeats, Helix Freq moved while in pieces
+//           rejoins on the old winding, and a draw (whole, in pieces, and the blast frame) stays
+//           inside its time budget; stopping the mic puts micPeak back to null.
 
 import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -679,28 +680,30 @@ async function main() {
     check('dna: mic off without idle animation is the quiet helix', near(dm.ra, quietR, 0.05 * quietR) && near(dm.rb, quietR, 0.05 * quietR), JSON.stringify({ ra: dm.ra, rb: dm.rb }));
 
     // ── DNA: the shatter and the return (16:9 page unless noted) ─────────────
-    // Reconnect Seconds is 1 for this block, so the return starts 1 s after the last peak.
+    // Reconnect Seconds is 2 for this block, so the return starts 2 s after the last peak.
     const reconnectIs = async (secs) => {
       await pushConfig((c) => { c.activeViz = 'dna'; c.idleAnim = false; c.perViz.dna.reconnectSeconds = secs; });
       for (const pg of [page, wide]) await pg.waitForFunction((s) => window.__timbre.config.perViz.dna.reconnectSeconds === s, secs, { timeout: 5000 });
     };
-    await reconnectIs(1);
+    await reconnectIs(2);
     const blast = [{ secs: 1, ...talk }, { secs: 0.1, ...talk, peak: 0.95 }];
     const tall = (r) => r.bottom - r.top;
     const shatterFacts = (calm, apart) => JSON.stringify({ state: apart.state, pieces: apart.pieces, inside: apart.inside, height: tall(apart), calmHeight: tall(calm) });
-    // In pieces the picture reaches the canvas's top and bottom rows, but the talking helix with its
-    // glow already spans about 0.7 of the height, so the shattered picture can be at most about 1.43
-    // times as tall. 1.3 times is more than the loudest whole helix reaches.
+    // Read 1 s after the blast: its sparks are gone (each within 0.95 s), so the height is the pieces'
+    // alone, and the return is still 1 s away. In pieces the picture reaches the canvas's top and bottom
+    // rows, but the talking helix with its glow already spans about 0.7 of the height, so the shattered
+    // picture can be at most about 1.43 times as tall. 1.3 times is more than the loudest whole helix reaches.
     const shattersOk = (calm, apart) => apart.state === 'pieces' && apart.pieces >= 60 && apart.pieces < 200
       && apart.inside >= 0.9 * apart.pieces && tall(apart) > 1.3 * tall(calm);
-    const [wCalm, wBlast, wApart] = await dnaRun(wide, [...blast, { secs: 0.5, ...talk }]);
+    const [wCalm, wBlast, wApart] = await dnaRun(wide, [...blast, { secs: 1, ...talk }]);
     check('dna: a peak shatters the helix', shattersOk(wCalm, wApart), shatterFacts(wCalm, wApart));
-    const [sCalm, , sApart] = await dnaRun(page, [...blast, { secs: 0.5, ...talk }]);
+    const [sCalm, , sApart] = await dnaRun(page, [...blast, { secs: 1, ...talk }]);
     check('dna: the same on the small page', shattersOk(sCalm, sApart), shatterFacts(sCalm, sApart));
-    const [, , wReturning, wBack] = await dnaRun(wide, [...blast, { secs: 1.2, ...talk }, { secs: 1.6, ...talk }]);
+    // The return starts 2 s after the last peak and takes 1.5 s; back means within the helix's band.
+    const [wTalk, , wReturning, wBack] = await dnaRun(wide, [...blast, { secs: 2.2, ...talk }, { secs: 1.6, ...talk }]);
     check('dna: the pieces come back',
-      wReturning.state === 'returning' && wBack.state === 'whole' && wBack.pieces === 0 && tall(wBack) < tall(wApart) * 0.8,
-      JSON.stringify({ after1_2: wReturning.state, after2_8: wBack.state, pieces: wBack.pieces, height: tall(wBack), shattered: tall(wApart) }));
+      wReturning.state === 'returning' && wBack.state === 'whole' && wBack.pieces === 0 && tall(wBack) < tall(wApart) * 0.8 && tall(wBack) <= 1.1 * tall(wTalk),
+      JSON.stringify({ after2_2: wReturning.state, after3_8: wBack.state, pieces: wBack.pieces, height: tall(wBack), talking: tall(wTalk), shattered: tall(wApart) }));
     check('dna: the twist waits while in pieces', wApart.phase === wBlast.phase, JSON.stringify({ state: wApart.state, phase: [wBlast.phase, wApart.phase] }));
     const [gain200] = await dnaRun(wide, [{ secs: 5, wave: 0.6, low: 0.6, high: 0.6, peak: 0.6, config: { gain: 200 } }]);
     await wide.evaluate(() => applyConfig({ gain: 100 }));
@@ -711,8 +714,8 @@ async function main() {
     const [, fromWave] = await dnaRun(wide, [{ secs: 1, ...talk }, { secs: 0.1, wave: 0.95, low: 0.5, high: 0.3, peak: null }]);
     check('dna: falls back to the waveform peak', fromWave.state === 'pieces', fromWave.state);
     const [, , pushedFrom, pushedTo] = await dnaRun(wide, [...blast, { secs: 0.3, ...talk },
-      { secs: 1 / 60, ...talk, config: { perViz: { dna: { reconnectSeconds: 2 } }, bounce: 70 } }]);
-    await wide.evaluate(() => applyConfig({ perViz: { dna: { reconnectSeconds: 1 } }, bounce: 50 }));
+      { secs: 1 / 60, ...talk, config: { perViz: { dna: { reconnectSeconds: 3 } }, bounce: 70 } }]);
+    await wide.evaluate(() => applyConfig({ perViz: { dna: { reconnectSeconds: 2 } }, bounce: 50 }));
     check('dna: a config push leaves the pieces alone',
       pushedFrom.state === 'pieces' && pushedTo.state === 'pieces' && pushedTo.pieces === pushedFrom.pieces && Math.abs(pushedTo.ink - pushedFrom.ink) <= 0.05 * pushedFrom.ink,
       JSON.stringify([pushedFrom, pushedTo].map(({ state, pieces, ink }) => ({ state, pieces, ink }))));
@@ -725,6 +728,20 @@ async function main() {
     const seedA = await seeded(), seedB = await seeded();
     check('dna: a seeded shatter repeats', seedA.state === 'pieces' && seedA.inside === seedB.inside && seedA.ink === seedB.ink,
       JSON.stringify([seedA, seedB].map(({ state, inside, ink }) => ({ state, inside, ink }))));
+    // Helix Freq moved while in pieces: the pieces go home to the winding they were cut from, so the
+    // helix rejoins on that winding, inside its band, and takes the new winding once it is whole.
+    // Readings: talk, blast, 0.3 s, the push, 3 s (returning), then one per frame through the rejoin.
+    // The band is 1.25 times the talking helix here, not 1.1: the first whole frame carries the closing
+    // flash's extra glow (it reads 1.18 times; the shattered picture reads 1.43).
+    const freqRun = await dnaRun(wide, [...blast, { secs: 0.3, ...talk },
+      { secs: 1 / 60, ...talk, config: { perViz: { dna: { helixFreq: 100 } } } }, { secs: 3, ...talk },
+      ...Array.from({ length: 60 }, () => ({ secs: 1 / 60, ...talk }))]).catch((e) => String(e));
+    await wide.evaluate(() => applyConfig({ perViz: { dna: { helixFreq: 50 } } }));
+    const rejoin = Array.isArray(freqRun) ? freqRun.findIndex((r, i) => i > 4 && r.state === 'whole') : -1;
+    const [fTalk, fWhole, fLast] = rejoin > 4 ? [freqRun[0], freqRun[rejoin], freqRun[freqRun.length - 1]] : [];
+    check('dna: Helix Freq moved while in pieces rejoins on the old winding',
+      rejoin > 4 && freqRun[rejoin - 1].state === 'returning' && fWhole.k === fTalk.k && tall(fWhole) <= 1.25 * tall(fTalk) && fLast.k > fTalk.k,
+      Array.isArray(freqRun) ? JSON.stringify({ rejoin, k: [fTalk && fTalk.k, fWhole && fWhole.k, fLast && fLast.k], height: fWhole && tall(fWhole), talking: fTalk && tall(fTalk) }) : freqRun);
     await reconnectIs(3);
     // Cost: 300 talking frames (the first second brings the helix to the 0.4 s of calm the shatter
     // needs), the one frame of a 0.95 peak, then 150 frames in pieces (2.5 s, inside the 3 s reconnect).
@@ -759,6 +776,9 @@ async function main() {
     await pushConfig((c) => { c.activeViz = 'visualizer'; });
     check('dna: no page errors from the DNA checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
       [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
+    // Stopping the capture puts micPeak back to null. The 4:3 page closes next, so stopping its mic disturbs nothing.
+    const stopped = await p43.evaluate(() => { const before = window.__timbre.micPeak; window.timbreCapture.stop(); return { before, after: window.__timbre.micPeak }; });
+    check('stopping the mic puts micPeak back to null', typeof stopped.before === 'number' && stopped.after === null, JSON.stringify(stopped));
     await p43.close();
     await wide.close();
 

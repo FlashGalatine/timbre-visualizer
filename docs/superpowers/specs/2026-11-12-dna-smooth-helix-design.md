@@ -116,6 +116,8 @@ A shatter starts when all of these hold:
 - the helix is whole, and has been for at least 0.4 s;
 - the **peak level** is at or above the **threshold**.
 
+The 0.4 s counts only time with the mic on, so a loud moment as the mic opens (a reload, a device switch) cannot shatter the helix at once.
+
 The peak level is the raw input level, 0 to 1, before Gain. Gain is a taste setting for how big the effects look; turning it up must not make shatters more common.
 
 The threshold comes from the Shatter Sensitivity setting `s` (0 to 100):
@@ -132,7 +134,7 @@ Today the overlay looks at 64 samples every 33 ms. That is about 1.3 ms of sound
 
 So the capture code gains one measurement: the largest sample over the whole interval since the last look.
 
-- In `overlay/audio-capture.js`, a second analyser on the same source, with a window long enough to cover the 33 ms interval at the audio context's sample rate (2048 samples at 48 kHz). On each tick, take the largest distance of any sample from the centre, as 0 to 1.
+- In `overlay/audio-capture.js`, a second analyser on the same source, with a window long enough to cover at least twice the 33 ms interval at the audio context's sample rate (4096 samples at 48 kHz), so a tick that comes late still misses nothing. On each tick, take the largest distance of any sample from the centre, as 0 to 1.
 - Publish it as a new global beside `frequencies` and `waveform`, and through `window.__timbre` for the tests. It is `null` while the mic is off.
 - Nothing else changes: `frequencies` and `waveform` keep their sizes and meaning, and no other effect reads the new value.
 - The helix uses it for the shatter trigger and the calm test only. Twist, glow and width keep using the existing arrays.

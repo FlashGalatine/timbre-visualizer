@@ -14,7 +14,7 @@ traceability.
 
 - **DNA settings and measurement**: the `shatterSensitivity` and `reconnectSeconds`
   settings for the DNA effect, and the `micPeak` measurement (the loudest input sample
-  since the last look, before Gain) that the shatter reads.
+  over at least the last two looks, before Gain) that the shatter reads.
 - **Scene kit** — `overlay/scene-kit.js` and `overlay/scene-parts.js`: a shared base
   for floating 3D scenes that sit over the stream with no backdrop. A scene supplies a
   `frame`, a `build()` and an `update()`; the kit supplies the renderer, camera

@@ -45,6 +45,7 @@ VIZ_FACTORIES['dna'] = function () {
   const machine = TimbreHelix.createShatter({ random });
 
   let phase = 0;                           // the twist, accumulated, rad
+  let k = winding(perViz['dna'].helixFreq);  // the winding, rad/px, from Helix Freq
   let loud = 0;                            // smoothed loudness, 0 to 1
   let ra = TimbreHelix.radius(0) * SCALE;  // strand A's radius, px
   let rb = ra;                             // strand B's radius, px
@@ -328,9 +329,11 @@ VIZ_FACTORIES['dna'] = function () {
         : cfgIdleAnim ? { loud: 0, low: 0.22 + 0.12 * Math.sin(now / 700), high: 0.22 + 0.12 * Math.sin(now / 540 + 1.2) }
         : QUIET;
       loud = TimbreHelix.follow(loud, level.loud, dt, LOUD_S);
-      // While the helix is in pieces or returning, its twist and widths hold, so every piece has a
-      // fixed place to return to and the helix resumes from the angle it stopped at.
+      // While the helix is in pieces or returning, its twist, widths and winding hold, so every piece
+      // has a fixed place to return to and the helix resumes from the angle it stopped at. A Helix
+      // Freq moved meanwhile takes effect once the helix is whole again.
       if (machine.state === 'whole') {
+        k = winding(knobs.helixFreq);
         phase += TimbreHelix.twist(loud) * dt;
         ra = toward(ra, TimbreHelix.radius(level.low) * SCALE, dt);
         rb = toward(rb, TimbreHelix.radius(level.high) * SCALE, dt);
@@ -338,9 +341,8 @@ VIZ_FACTORIES['dna'] = function () {
       flash *= Math.exp(-dt / FLASH_S);
       moveSparks(dt);
 
-      // The peak is the raw input level, before Gain: the mic's loudest moment across the
-      // interval when the capture code gives it, else the peak of the waveform.
-      const k = winding(knobs.helixFreq);
+      // The peak is the raw input level, before Gain: the mic's loudest moment across at least the
+      // last two intervals when the capture code gives it, else the peak of the waveform.
       const event = machine.step({
         now, dt, live,
         peak: typeof micPeak === 'number' ? micPeak : TimbreHelix.peakOf(waveform),
@@ -362,8 +364,8 @@ VIZ_FACTORIES['dna'] = function () {
       drawSparks(colorT);
     },
 
-    // Test surface: the strand radii in px, brightness 0 to 1, and the pieces (none while whole),
-    // with how many have their centre inside the canvas.
+    // Test surface: the strand radii in px, the winding in rad/px, brightness 0 to 1, and the pieces
+    // (none while whole), with how many have their centre inside the canvas.
     probe() {
       const pieces = machine.pieces;
       let inside = 0;
@@ -373,7 +375,7 @@ VIZ_FACTORIES['dna'] = function () {
           if (x >= 0 && x <= W && y >= 0 && y <= H) inside++;
         }
       }
-      return { state: machine.state, phase, ra, rb, bright, pieces: pieces ? pieces.length : 0, inside };
+      return { state: machine.state, phase, k, ra, rb, bright, pieces: pieces ? pieces.length : 0, inside };
     },
   };
 };

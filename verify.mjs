@@ -20,8 +20,9 @@
 //   7. Helix arithmetic — overlay/helix.js under Node: the shatter threshold,
 //      the sound levels, the return curve, the seeded random source, the
 //      whole / pieces / returning state machine with its timers, the pieces
-//      staying in the frame, and that all three overlay pages load it after
-//      afterglow.js and before the factories. (Also runs before section 4.)
+//      flying outward and staying in the frame, and that all three overlay
+//      pages load it after afterglow.js and before the factories. (Also runs
+//      before section 4.)
 //   4. Live transport seam — spawns mock-sb-server.mjs on side ports, loads the
 //      REAL shared/panel-client-sb.js under a browser shim, and asserts:
 //      Subscribe (lowercase), sync-on-connect DoAction, control push →
@@ -380,6 +381,11 @@ await import('./overlay/helix.js');
   const back = runHelix(60, [quiet, hit, { secs: 3.5, peak: 0.3 }, hit, { secs: 6, peak: 0.3 }]);
   ok(shape(back) === 'shatter,return,jostle,return,whole' && near(at(back, 3), 7.7, 0.07), 'a peak during the return scatters again');
   ok(shape(runHelix(60, [quiet, hit, { secs: 6, peak: 0.95, live: false }])) === 'shatter,return,whole', 'mic off in pieces returns');
+  // The 0.4 s the helix must be whole counts only time with the mic on, so the moment the mic opens
+  // (a reload, a device switch) cannot shatter it at once; 1 s of mic on is still enough.
+  const opened = runHelix(60, [{ secs: 2, peak: 0.95, live: false }, { secs: 0.2, peak: 0.95 }, { secs: 1, peak: 0.3 }]);
+  const openedQuiet = runHelix(60, [{ secs: 2, peak: 0.3, live: false }, { secs: 1, peak: 0.3 }, hit, { secs: 0.5, peak: 0.3 }]);
+  ok(opened.events.length === 0 && shape(openedQuiet) === 'shatter', 'the mic opening on a peak does not shatter');
   const off = runHelix(60, [{ secs: 5, peak: 1 }], { threshold: Infinity });
   const soon = runHelix(60, [quiet, hit, { secs: 3, peak: 0.3 }], { reconnectS: 0 });
   ok(off.events.length === 0 && shape(soon) === 'shatter,return,whole' && near(at(soon, 1), 1.4, 0.07), 'sensitivity 0 never shatters; reconnect 0 waits 0.3 s');
@@ -397,6 +403,12 @@ await import('./overlay/helix.js');
     return calm.minInside >= 0.9 && yell.minInside >= 0.9 && atEdge < yell.m.pieces.length / 2;
   });
   ok(contained, 'the pieces stay inside; a long yell spreads them');
+  // Half a second after a blast the pieces are well away from home, and most are farther from the
+  // axis than they started (measured: 23.0 × scale, 95%). Pieces that never move meet neither;
+  // pieces thrown inward travel as far but fail the second (17%).
+  const thrown = runHelix(60, [quiet, hit, { secs: 0.5, peak: 0.3 }]).m.pieces;
+  ok(!!thrown && thrown.reduce((sum, p) => sum + Math.hypot(p.ox, p.oy), 0) / thrown.length > 20 * 4.8
+    && thrown.filter((p) => Math.abs(p.cy + p.oy - 624 / 2) > Math.abs(p.cy - 624 / 2)).length > 0.7 * thrown.length, 'a blast throws the pieces outward');
 
   const order = [];
   for (const p of ['300x220', '1440x1080', '1920x1080']) {

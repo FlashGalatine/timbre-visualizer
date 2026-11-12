@@ -39,7 +39,7 @@ Script-scope globals available to factories (from core.js):
 | `frequencies` | `Uint8Array(32)` FFT bins, 0–255, or `null` when no mic |
 | `waveform` | `Uint8Array(64)` time-domain samples, 0–255, or `null` |
 | `micActive` | mic currently captured |
-| `micPeak` | loudest input sample since the last look, 0 to 1, before Gain, or `null` when no mic |
+| `micPeak` | loudest input sample over at least the last two looks (4096 samples at 48 kHz), 0 to 1, before Gain, or `null` when no mic |
 | `cfgGain`, `cfgBars`, `cfgBounce`, `cfgColorSpeed`, `cfgColorHue`, `cfgIdleAnim`, `cfgEffectBgOpacity` | normalized global knobs |
 | `cfgSTLObject` | the shared 3D-model knob group (STL effects) |
 | `perViz['my-effect']` | your effect's own knobs |
