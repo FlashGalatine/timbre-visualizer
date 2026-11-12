@@ -17,6 +17,11 @@
 //   6. Afterglow arithmetic — overlay/afterglow.js under Node: the fade rule,
 //      bar ghosts, echo trigger, smooth-curve tracing, and that all three
 //      overlay pages load it before the factories. (Also runs before section 4.)
+//   7. Helix arithmetic — overlay/helix.js under Node: the shatter threshold,
+//      the sound levels, the return curve, the seeded random source, the
+//      whole / pieces / returning state machine with its timers, the pieces
+//      staying in the frame, and that all three overlay pages load it after
+//      afterglow.js and before the factories. (Also runs before section 4.)
 //   4. Live transport seam — spawns mock-sb-server.mjs on side ports, loads the
 //      REAL shared/panel-client-sb.js under a browser shim, and asserts:
 //      Subscribe (lowercase), sync-on-connect DoAction, control push →
@@ -302,6 +307,104 @@ await import('./overlay/afterglow.js');
     const at = html.indexOf('src="afterglow.js"');
     ok(at > html.indexOf('src="scene-parts.js"') && at < html.indexOf('src="factories/'), `${p} page loads afterglow.js before the factories`);
   }
+}
+
+// ── 7. Helix arithmetic (pure; no browser) ───────────────────────────────────
+console.log('\n[7] helix arithmetic');
+await import('./overlay/helix.js');
+{
+  const HX = globalThis.TimbreHelix;
+  const near = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol;
+  const cutFor = (W, H, scale) => () => Array.from({ length: 120 }, (_, i) => ({ cx: (i + 0.5) / 120 * W, cy: H / 2 + (i % 2 ? 1 : -1) * 34 * scale * Math.sin(i) }));
+  // script: [{ secs, peak, live = true, reconnectS, W, H, jump }]; returns the events with their times in seconds
+  function runHelix(fps, script, o = {}) {
+    const W = o.W ?? 1728, H = o.H ?? 624, scale = o.scale ?? 4.8;
+    const m = o.machine ?? HX.createShatter({ random: HX.rng(o.seed ?? 1) });
+    let now = 0, minInside = 1; const events = [];
+    for (const s of script) {
+      if (s.jump) now += s.jump * 1000;
+      for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) {
+        now += 1000 / fps;
+        const e = m.step({ now, dt: 1 / fps, live: s.live !== false, peak: s.peak, threshold: o.threshold ?? 0.9,
+          reconnectS: s.reconnectS ?? o.reconnectS ?? 3, W: s.W ?? W, H: s.H ?? H, scale, cut: cutFor(W, H, scale) });
+        if (e) events.push({ e, t: now / 1000 });
+        if (m.pieces) minInside = Math.min(minInside, m.pieces.filter((p) => p.cx + p.ox >= 0 && p.cx + p.ox <= W && p.cy + p.oy >= 0 && p.cy + p.oy <= H).length / m.pieces.length);
+      }
+    }
+    return { events, minInside, m };
+  }
+  const shape = (r) => r.events.map((x) => x.e).join(',');
+  const at = (r, i) => r.events[i] ? r.events[i].t : NaN;
+  const quiet = { secs: 1, peak: 0.3 }, hit = { secs: 0.1, peak: 0.95 };
+
+  ok(HX.threshold(0) === Infinity, 'threshold: off at 0');
+  ok(near(HX.threshold(1), 1) && near(HX.threshold(50), 0.9) && near(HX.threshold(75), 0.7) && near(HX.threshold(100), 0.5), 'threshold: 1, 50, 75, 100');
+
+  // A waveform sample of 128 is the centre line, so a waveform full of 128s is silence.
+  const centred = () => new Uint8Array(64).fill(128);
+  const half = centred(); half[20] = 192;
+  const clipped = centred(); clipped[40] = 0;
+  ok(HX.peakOf(centred()) === 0 && near(HX.peakOf(half), 64 / 127) && HX.peakOf(clipped) === 1 && HX.peakOf(null) === 0, 'peakOf: silence, half, clipped, none');
+  const z = HX.levels(new Uint8Array(32), centred(), 1), none = HX.levels(null, null, 1);
+  ok(z.loud === 0 && z.low === 0 && z.high === 0 && none.loud === 0 && none.low === 0 && none.high === 0, 'levels: silence is zero');
+  const bins = (from, to) => { const f = new Uint8Array(32); for (let i = from; i <= to; i++) f[i] = 255; return f; };
+  const lo = HX.levels(bins(0, 1), centred(), 1), hi = HX.levels(bins(2, 10), centred(), 1), top = HX.levels(bins(11, 31), centred(), 1);
+  ok(lo.low === 1 && lo.high === 0 && hi.low === 0 && hi.high === 1 && top.low === 0 && top.high === 0, 'levels: low and high read their own bins');
+  const g1 = HX.levels(new Uint8Array(32), half, 1), g2 = HX.levels(new Uint8Array(32), half, 2);
+  ok(near(g1.loud, 64 / 127 * 1.5) && g2.loud === 1 && near(HX.peakOf(half), 64 / 127), 'levels: Gain scales loudness and clamps');
+  ok(near(HX.twist(0), 0.7) && near(HX.twist(1), 6.5) && HX.radius(0) === 12 && HX.radius(1) === 34, 'twist and radius at the ends');
+  // 0.5 s is 82.5 frames at 165 fps, so the last step is the part-frame left over.
+  const followFor = (fps) => { let v = 0, t = 0; while (t < 0.5 - 1e-12) { const dt = Math.min(1 / fps, 0.5 - t); v = HX.follow(v, 1, dt, 0.2); t += dt; } return v; };
+  const f30 = followFor(30), f165 = followFor(165);
+  ok(near(f30, f165, 1e-6) && near(f30, 1 - Math.exp(-2.5), 1e-6) && near(f165, 1 - Math.exp(-2.5), 1e-6), 'follow is frame-rate independent');
+
+  const end = HX.returnShare(1, 1);
+  ok(HX.returnShare(0, 1).e === 0 && near(HX.returnShare(0.78, 1).e, 0.72) && near(end.e, 1, 1e-12) && near(end.heat, 0.8, 1e-12) && HX.returnShare(0.5, 1).heat === 0, 'returnShare: ends and the hand-over');
+  const forward = (lag) => { let last = -Infinity; for (let i = 0; i <= 100; i++) { const e = HX.returnShare(i / 100, lag).e; if (e < last) return false; last = e; } return true; };
+  ok(forward(0.6) && forward(1), 'returnShare never goes backward');
+  const ra = HX.rng(7), rb = HX.rng(7);
+  const xa = Array.from({ length: 5 }, () => ra()), xb = Array.from({ length: 5 }, () => rb());
+  ok(xa.join() === xb.join() && xa.every((x) => x >= 0 && x < 1) && HX.rng(undefined) === Math.random, 'rng: seeded runs repeat');
+
+  const onePeak = [quiet, hit, { secs: 6, peak: 0.3 }];
+  const one = runHelix(60, onePeak);
+  ok(shape(one) === 'shatter,return,whole' && near(at(one, 0), 1.0, 0.07) && near(at(one, 1), 4.1, 0.07) && near(at(one, 2), 5.6, 0.07)
+    && one.m.state === 'whole' && one.m.pieces === null, 'one peak: shatter, return, whole');
+  const s30 = runHelix(30, onePeak), s165 = runHelix(165, onePeak);
+  ok(shape(s30) === 'shatter,return,whole' && shape(s165) === shape(s30) && [0, 1, 2].every((i) => near(at(s30, i), at(s165, i), 0.07)), 'the same at 30 and 165 fps');
+  ok(runHelix(60, [{ secs: 60, peak: 0.7 }]).events.length === 0, 'talking never shatters');
+  const talk = runHelix(60, [quiet, hit, { secs: 6, peak: 0.7 }]);
+  ok(shape(talk) === 'shatter,return,whole' && near(at(talk, 1), 4.1, 0.07), 'talking after a shatter still returns');
+  const again = runHelix(60, [quiet, hit, { secs: 2, peak: 0.3 }, hit, { secs: 6, peak: 0.3 }]);
+  ok(shape(again) === 'shatter,jostle,return,whole' && near(at(again, 2), 6.2, 0.07), 'a peak in pieces restarts the wait');
+  const back = runHelix(60, [quiet, hit, { secs: 3.5, peak: 0.3 }, hit, { secs: 6, peak: 0.3 }]);
+  ok(shape(back) === 'shatter,return,jostle,return,whole' && near(at(back, 3), 7.7, 0.07), 'a peak during the return scatters again');
+  ok(shape(runHelix(60, [quiet, hit, { secs: 6, peak: 0.95, live: false }])) === 'shatter,return,whole', 'mic off in pieces returns');
+  const off = runHelix(60, [{ secs: 5, peak: 1 }], { threshold: Infinity });
+  const soon = runHelix(60, [quiet, hit, { secs: 3, peak: 0.3 }], { reconnectS: 0 });
+  ok(off.events.length === 0 && shape(soon) === 'shatter,return,whole' && near(at(soon, 1), 1.4, 0.07), 'sensitivity 0 never shatters; reconnect 0 waits 0.3 s');
+  const moved = runHelix(60, [quiet, hit, { secs: 1, peak: 0.3, reconnectS: 10 }, { secs: 3, peak: 0.3, reconnectS: 1 }]);
+  ok(moved.events[1] && moved.events[1].e === 'return' && near(at(moved, 1), 2.1, 0.07), 'a new reconnect time applies to the running wait');
+  const resized = runHelix(60, [quiet, hit, { secs: 0.5, peak: 0.3 }, { secs: 0.1, peak: 0.3, H: 816 }]);
+  const hidden = runHelix(60, [quiet, hit, { secs: 0.5, peak: 0.3 }, { secs: 0.1, peak: 0.3, jump: 5 }]);
+  ok(shape(resized) === 'shatter,reset' && resized.m.state === 'whole' && resized.m.pieces === null
+    && shape(hidden) === 'shatter,reset' && hidden.m.state === 'whole' && hidden.m.pieces === null, 'a size change and a gap resume whole');
+  const contained = [[260, 130, 1], [1728, 624, 4.8]].every(([W, H, scale]) => {
+    const calm = runHelix(60, [quiet, hit, { secs: 10, peak: 0.3 }], { W, H, scale, reconnectS: 100 });
+    const yell = runHelix(60, [quiet, { secs: 10, peak: 0.95 }], { W, H, scale, reconnectS: 100 });
+    if (shape(calm) !== 'shatter' || !yell.m.pieces) return false;
+    const atEdge = yell.m.pieces.filter((p) => p.cy + p.oy < 16 * scale || p.cy + p.oy > H - 16 * scale).length;
+    return calm.minInside >= 0.9 && yell.minInside >= 0.9 && atEdge < yell.m.pieces.length / 2;
+  });
+  ok(contained, 'the pieces stay inside; a long yell spreads them');
+
+  const order = [];
+  for (const p of ['300x220', '1440x1080', '1920x1080']) {
+    const html = await readFile(resolve(__dirname, `overlay/mic-visualizers-${p}.html`), 'utf8');
+    const pos = html.indexOf('src="helix.js"');
+    order.push(pos > html.indexOf('src="afterglow.js"') && pos < html.indexOf('src="factories/'));
+  }
+  ok(order.every(Boolean), 'all three overlay pages load helix.js after afterglow.js and before the factories');
 }
 
 // ── 4. Live transport seam (mock SB + real panel-client-sb.js) ───────────────
