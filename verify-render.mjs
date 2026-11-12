@@ -33,7 +33,11 @@
 //           the DNA helix: draws edge to edge on all three pages, opens and brightens with
 //           the voice (strand A with the low end, strand B with the high end), turns at
 //           0.7 rad/s in quiet and 6.5 loud, alike at 30, 60 and 165 fps, and with the mic
-//           off breathes only in width (idle animation) or stays quiet (none).
+//           off breathes only in width (idle animation) or stays quiet (none); a peak shatters
+//           it into pieces that stay in the frame (wide and small pages) and come back whole, the
+//           twist holds while in pieces, Gain at 200% and Sensitivity 0 never shatter, the waveform
+//           peak stands in for a missing micPeak, a config push keeps the pieces, a size change or a
+//           hidden source resumes whole, and a seeded shatter repeats.
 
 import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -132,7 +136,8 @@ const glowRun = (pg, name, steps, fps = 60) => pg.evaluate(({ name, steps, fps }
 // emptyCols: columns with no ink).
 // steps: [{ secs, wave, low, high, peak, mic, config, jump }] — wave/low/high/peak are 0..1; low fills
 // frequency bins 0-1, high bins 2-10. peak is micPeak (null or missing: the effect reads the waveform);
-// mic: false turns the mic off; jump skips that many seconds before the step, as a hidden source does.
+// mic: false turns the mic off as a real mic-off does (micActive false; frequencies, waveform and
+// micPeak null); jump skips that many seconds before the step, as a hidden source does.
 // fresh: a new effect seeded with window.__dnaSeed = seed; otherwise the current one carries on, its
 // clock kept on window.__dnaNow between calls. The page's own sound and micPeak are restored.
 const dnaRun = (pg, steps, { fps = 60, seed = 1, fresh = true } = {}) => pg.evaluate(({ steps, fps, seed, fresh }) => {
@@ -152,7 +157,8 @@ const dnaRun = (pg, steps, { fps = 60, seed = 1, fresh = true } = {}) => pg.eval
       f.fill(Math.round((s.low || 0) * 255), 0, 2);
       f.fill(Math.round((s.high || 0) * 255), 2, 11);
       for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * (s.wave || 0) * 127);
-      frequencies = f; waveform = w; micActive = s.mic !== false; micPeak = s.mic === false ? null : (s.peak ?? null);
+      const on = s.mic !== false;
+      frequencies = on ? f : null; waveform = on ? w : null; micActive = on; micPeak = on ? (s.peak ?? null) : null;
       for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) { now += 1000 / fps; currentViz.draw(now, 1 / fps); }
       const d = ctx.getImageData(0, 0, W, H).data, inked = new Uint8Array(W);
       let ink = 0, alpha = 0, top = -1, bottom = -1;
@@ -647,7 +653,8 @@ async function main() {
     check('dna: louder is wider and brighter',
       dl.ra > dq.ra && dl.rb > dq.rb && dl.bright > dq.bright && dl.alpha > dq.alpha && dl.bottom - dl.top > dq.bottom - dq.top,
       JSON.stringify([dq, dl].map(({ ra, rb, bright, alpha, top, bottom }) => ({ ra, rb, bright, alpha, height: bottom - top }))));
-    const [ds, ds1] = await dnaRun(wide, [{ secs: 2, ...silence }, { secs: 1, ...silence }]);
+    // A loud second first, so the helix has to narrow and dim again.
+    const [, ds, ds1] = await dnaRun(wide, [{ secs: 1, wave: 0.6, low: 0.8, high: 0.8, peak: 0.6 }, { secs: 2, ...silence }, { secs: 1, ...silence }]);
     check('dna: the quiet helix is narrow, dim and slow',
       near(ds.ra, quietR, 0.05 * quietR) && near(ds.rb, quietR, 0.05 * quietR) && near(ds.bright, 0.5, 0.02) && near(ds1.phase - ds.phase, 0.7, 0.05),
       JSON.stringify({ ra: ds.ra, rb: ds.rb, bright: ds.bright, turned: ds1.phase - ds.phase }));
@@ -670,9 +677,61 @@ async function main() {
       Math.max(...idleRa) - Math.min(...idleRa) > 2 * dnaScale && idleBright.every((b) => near(b, 0.5, 0.02)) && near(idleTurned, 2.8, 0.2),
       JSON.stringify({ raRange: Math.max(...idleRa) - Math.min(...idleRa), bright: [Math.min(...idleBright), Math.max(...idleBright)], turned: idleTurned }));
     await dnaOn([wide], false);
-    const [dm] = await dnaRun(wide, [{ secs: 2, ...off }]);
+    const [, dm] = await dnaRun(wide, [{ secs: 1, wave: 0.6, low: 0.8, high: 0.8, peak: 0.6 }, { secs: 2, ...off }]);
     check('dna: mic off without idle animation is the quiet helix', near(dm.ra, quietR, 0.05 * quietR) && near(dm.rb, quietR, 0.05 * quietR), JSON.stringify({ ra: dm.ra, rb: dm.rb }));
+
+    // ── DNA: the shatter and the return (16:9 page unless noted) ─────────────
+    // Reconnect Seconds is 1 for this block, so the return starts 1 s after the last peak.
+    const reconnectIs = async (secs) => {
+      await pushConfig((c) => { c.activeViz = 'dna'; c.idleAnim = false; c.perViz.dna.reconnectSeconds = secs; });
+      for (const pg of [page, wide]) await pg.waitForFunction((s) => window.__timbre.config.perViz.dna.reconnectSeconds === s, secs, { timeout: 5000 });
+    };
+    await reconnectIs(1);
+    const blast = [{ secs: 1, ...talk }, { secs: 0.1, ...talk, peak: 0.95 }];
+    const tall = (r) => r.bottom - r.top;
+    const shatterFacts = (calm, apart) => JSON.stringify({ state: apart.state, pieces: apart.pieces, inside: apart.inside, height: tall(apart), calmHeight: tall(calm) });
+    // In pieces the picture reaches the canvas's top and bottom rows, but the talking helix with its
+    // glow already spans about 0.7 of the height, so the shattered picture can be at most about 1.43
+    // times as tall. 1.3 times is more than the loudest whole helix reaches.
+    const shattersOk = (calm, apart) => apart.state === 'pieces' && apart.pieces >= 60 && apart.pieces < 200
+      && apart.inside >= 0.9 * apart.pieces && tall(apart) > 1.3 * tall(calm);
+    const [wCalm, wBlast, wApart] = await dnaRun(wide, [...blast, { secs: 0.5, ...talk }]);
+    check('dna: a peak shatters the helix', shattersOk(wCalm, wApart), shatterFacts(wCalm, wApart));
+    const [sCalm, , sApart] = await dnaRun(page, [...blast, { secs: 0.5, ...talk }]);
+    check('dna: the same on the small page', shattersOk(sCalm, sApart), shatterFacts(sCalm, sApart));
+    const [, , wReturning, wBack] = await dnaRun(wide, [...blast, { secs: 1.2, ...talk }, { secs: 1.6, ...talk }]);
+    check('dna: the pieces come back',
+      wReturning.state === 'returning' && wBack.state === 'whole' && wBack.pieces === 0 && tall(wBack) < tall(wApart) * 0.8,
+      JSON.stringify({ after1_2: wReturning.state, after2_8: wBack.state, pieces: wBack.pieces, height: tall(wBack), shattered: tall(wApart) }));
+    check('dna: the twist waits while in pieces', wApart.phase === wBlast.phase, JSON.stringify({ state: wApart.state, phase: [wBlast.phase, wApart.phase] }));
+    const [gain200] = await dnaRun(wide, [{ secs: 5, wave: 0.6, low: 0.6, high: 0.6, peak: 0.6, config: { gain: 200 } }]);
+    await wide.evaluate(() => applyConfig({ gain: 100 }));
+    check('dna: talking with Gain at 200% does not shatter', gain200.state === 'whole', gain200.state);
+    const [, sens0] = await dnaRun(wide, [{ secs: 1, ...talk, config: { perViz: { dna: { shatterSensitivity: 0 } } } }, { secs: 1, ...talk, peak: 1 }]);
+    await wide.evaluate(() => applyConfig({ perViz: { dna: { shatterSensitivity: 50 } } }));
+    check('dna: sensitivity 0 never shatters', sens0.state === 'whole', sens0.state);
+    const [, fromWave] = await dnaRun(wide, [{ secs: 1, ...talk }, { secs: 0.1, wave: 0.95, low: 0.5, high: 0.3, peak: null }]);
+    check('dna: falls back to the waveform peak', fromWave.state === 'pieces', fromWave.state);
+    const [, , pushedFrom] = await dnaRun(wide, [...blast, { secs: 0.3, ...talk }]);
+    const [pushedTo] = await dnaRun(wide, [{ secs: 1 / 60, ...talk, config: { perViz: { dna: { reconnectSeconds: 2 } }, bounce: 70 } }], { fresh: false });
+    await wide.evaluate(() => applyConfig({ perViz: { dna: { reconnectSeconds: 1 } }, bounce: 50 }));
+    check('dna: a config push leaves the pieces alone',
+      pushedFrom.state === 'pieces' && pushedTo.state === 'pieces' && pushedTo.pieces === pushedFrom.pieces && Math.abs(pushedTo.ink - pushedFrom.ink) <= 0.05 * pushedFrom.ink,
+      JSON.stringify([pushedFrom, pushedTo].map(({ state, pieces, ink }) => ({ state, pieces, ink }))));
+    const [, , resizedFrom, resized] = await dnaRun(wide, [...blast, { secs: 0.3, ...talk }, { secs: 1 / 60, ...talk, config: { showLabels: false } }]);
+    await wide.evaluate(() => applyConfig({ showLabels: true }));
+    check('dna: a real size change comes back whole', resizedFrom.state === 'pieces' && resized.state === 'whole', `${resizedFrom.state} → ${resized.state}`);
+    const [, , hiddenFrom, shown] = await dnaRun(wide, [...blast, { secs: 0.3, ...talk }, { secs: 1 / 60, ...talk, jump: 5 }]);
+    check('dna: a hidden source comes back whole', hiddenFrom.state === 'pieces' && shown.state === 'whole', `${hiddenFrom.state} → ${shown.state}`);
+    const seeded = async () => (await dnaRun(wide, [...blast, { secs: 0.5, ...talk }], { seed: 7 }))[2];
+    const seedA = await seeded(), seedB = await seeded();
+    check('dna: a seeded shatter repeats', seedA.state === 'pieces' && seedA.inside === seedB.inside && seedA.ink === seedB.ink,
+      JSON.stringify([seedA, seedB].map(({ state, inside, ink }) => ({ state, inside, ink }))));
+    await reconnectIs(3);
+
     await pushConfig((c) => { c.activeViz = 'visualizer'; });
+    check('dna: no page errors from the DNA checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
+      [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
     await p43.close();
     await wide.close();
 
