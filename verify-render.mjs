@@ -948,7 +948,8 @@ async function main() {
       for (const pg of pages) await pg.waitForFunction((i) => window.__timbre.currentVizName === 'fireflies' && cfgIdleAnim === i, idle, { timeout: 5000 });
     };
     const ff = (...rs) => JSON.stringify(rs.map((r) => r && ({ n: r.n, lit: r.lit, flashes: r.flashes, startles: r.startles, waves: r.waves, inside: r.inside,
-      loud: r.loud, sync: r.sync, low: r.low, high: r.high, haloScale: r.haloScale, glow: r.glow, ink: r.ink, firstX: r.firstX })));
+      loud: r.loud, sync: r.sync, low: r.low, high: r.high, haloScale: r.haloScale, glow: r.glow, ink: r.ink, firstX: r.firstX,
+      flicker: r.flicker, drawn: r.drawn })));
     await fliesOn([page, p43, wide], false);
     for (const pg of [page, p43, wide]) {
       const size = await pg.evaluate(() => `${W}×${H}`);
@@ -1003,14 +1004,20 @@ async function main() {
     await fliesOn([wide], false);
     const [fLowOnly] = await fliesRun(wide, [{ secs: 2, wave: 0.3, low: 0.9, high: 0, peak: 0.3 }]);
     const [fHighOnly] = await fliesRun(wide, [{ secs: 2, wave: 0.3, low: 0, high: 0.9, peak: 0.3 }]);
-    check('fireflies: the low end swells the glow, and the high end is heard',
-      fLowOnly.haloScale > fHighOnly.haloScale * 1.5 && fHighOnly.high > 0.5 && fLowOnly.high < 0.1, ff(fLowOnly, fHighOnly));
+    check('fireflies: the low end swells the glow, and the high end makes lit ones flicker',
+      fLowOnly.haloScale > fHighOnly.haloScale * 1.5 && fHighOnly.high > 0.5 && fLowOnly.high < 0.1 && fHighOnly.flicker > 0.1 && fLowOnly.flicker < 0.02, ff(fLowOnly, fHighOnly));
 
     // Settings and the box.
     const [fFew] = await fliesRun(wide, [{ secs: 2, ...talk, config: { perViz: { fireflies: { density: 0 } } } }]);
     const [fMany] = await fliesRun(wide, [{ secs: 2, ...talk, config: { perViz: { fireflies: { density: 100 } } } }]);
     await wide.evaluate(() => applyConfig({ perViz: { fireflies: { density: 50 } } }));
     check('fireflies: Density sets how many there are', fFew.n === 10 && fMany.n === 60 && fMany.inside === true, ff(fFew, fMany));
+    // Density moved while the swarm is flying: every firefly that is there is drawn, and no other.
+    const [fGrowFrom, fGrown, fShrunk] = await fliesRun(wide, [{ secs: 2, ...talk }, { secs: 1, ...talk, config: { perViz: { fireflies: { density: 100 } } } },
+      { secs: 1.5, ...talk, config: { perViz: { fireflies: { density: 0 } } } }]);
+    await wide.evaluate(() => applyConfig({ perViz: { fireflies: { density: 50 } } }));
+    check('fireflies: Density moved mid-flight adds and removes fireflies, and all of them are drawn',
+      fGrowFrom.n === 35 && fGrowFrom.drawn === 35 && fGrown.n === 60 && fGrown.drawn === 60 && fShrunk.n === 10 && fShrunk.drawn === 10, ff(fGrowFrom, fGrown, fShrunk));
     const [, fPushFrom, fPushTo] = await fliesRun(wide, [{ secs: 2, ...talk }, { secs: 1 / 60, ...talk }, { secs: 1 / 60, ...talk, config: { bounce: 70 } }]);
     await wide.evaluate(() => applyConfig({ bounce: 50 }));
     check('fireflies: a config push keeps the swarm',

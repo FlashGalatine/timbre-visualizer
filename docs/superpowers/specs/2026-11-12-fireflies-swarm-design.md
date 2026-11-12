@@ -53,7 +53,8 @@ steps), and its own blink period (5 to 11 s when quiet).
 **Flight.** Speed `(7 + 12·z) × scale × (1 + 2.2·loud)` px a second along its heading. The heading
 wanders: two slow sine wobbles, each firefly with its own rates, turning faster with loudness
 (`× (1 + loud)`). Within `14 × scale` of an edge it turns back toward the middle of the frame, more
-strongly the closer it gets, and it is held 2 px inside the frame.
+strongly the closer it gets and, like the wandering, faster with loudness (`× (1 + loud)`), so a loud
+swarm cannot out-turn it and slide along the edge. It is held 2 px inside the frame.
 
 **Hearing.** `loud` is `TimbreHelix.levels(...).loud` (the waveform peak × 1.5 × Gain). The swarm
 keeps three smoothed copies: slow (0.25 s), fast (0.04 s), and "sync" (rises over 0.8 s, falls over
@@ -65,7 +66,8 @@ At 1 the firefly flashes and the charge returns to 0. Three other things add cha
 - **A syllable.** When the fast level stands more than 0.12 above the slow one (at most once every
   0.12 s), every firefly gains `(0.08 + 0.3·fast) × a random share`.
 - **A ripple.** Each flash sends out an unseen ring that grows at 0.9 frame-widths a second for
-  0.55 s. A firefly the ring's front passes gains `0.2 × sync × strength × (1 − age / 0.55)`, once.
+  0.55 s. A firefly the ring's front passes gains `0.2 × sync × strength × (1 − age / 0.55)`, once,
+  with the ring's age taken at the middle of the frame.
   A flash a firefly makes on its own has strength 1; a flash set off within 0.15 s of a ripple's
   nudge has half the strength of that ripple; below 0.2 a flash sends no ripple. At most 40 rings.
 - For 0.5 s after flashing, a firefly ignores ripples.
@@ -77,7 +79,8 @@ right now.
 
 **Drawing**, far ones first:
 
-- the body, always: a faint dot (`0.12 + 0.16·z` opacity), so the swarm shows when none is lit;
+- the body: a faint dot (`0.12 + 0.16·z` opacity), so the swarm shows when none is lit. It is
+  skipped while the firefly's brightness is 0.5 or more, when its core hides it;
 - while lit: a streak along the last 0.4 s of its flight, brightest at the firefly; a soft round
   glow of radius `core × (4 + 5·low + 3·z) × (0.55 + 0.45·brightness)`; and a white core. `core` is
   `(1.0 + 1.5·z) × scale`. `low` is the low end of the sound (opens over 0.05 s, closes over
@@ -130,6 +133,16 @@ The control panel builds both sliders from the settings table; no control-panel 
   pages, louder is busier and brighter, syllable bursts, the startle and its guards, quiet states,
   Density, config push and size change, a seeded run, canvas state, cost, the two sliders).
 - Whether it looks like fireflies is judged by eye; no test measures it.
+
+## Known and left alone
+
+- A syllable that lasts gives more than one push: the fast level stays above the slow one for
+  about 0.4 s after a rise, so a second, larger push comes 0.12 s in. This is how the version the
+  owner saw behaved; pushing once per syllable would make each burst crisper and the swarm quieter.
+- A stale cache that serves the new `factories/fireflies.js` beside an old page without
+  `fireflies-swarm.js` leaves Fireflies blank until another effect is picked (the rest of the
+  overlay keeps working); Comet and DNA have the same exposure. Beside an old `viz-config.js` the
+  startle is simply off.
 
 ## Not checked by any test
 

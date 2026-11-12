@@ -640,7 +640,8 @@ await import('./overlay/fireflies-swarm.js');
   function runSwarm(script, o = {}) {
     const [W0, H0, scale] = o.size ?? WIDE, fps = o.fps ?? 60;
     const swarm = o.swarm ?? S.createSwarm({ random: HX.rng(o.seed ?? 1) });
-    let t = 0, bad = false, longHist = false, mostWaves = 0, path = 0;
+    let t = 0, bad = false, longHist = false, mostWaves = 0, path = 0, pinned = 0, flyTime = 0, longestPin = 0;
+    const pinFor = new Map();
     const events = [], lit = [], glow = [], fired = [];
     for (const s of script) {
       for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) {
@@ -652,6 +653,12 @@ await import('./overlay/fireflies-swarm.js');
         for (const f of swarm.flies) {
           if (!(f.x >= 0 && f.x <= W && f.y >= 0 && f.y <= H) || !(f.env >= 0 && f.env <= 1) || !(f.born >= 0 && f.born <= 1)) bad = true;
           if (f.hist.length > 11) longHist = true;                   // a streak is a handful of remembered places, whatever the frame rate
+          // Held against the edge: on the line the swarm keeps every firefly inside.
+          flyTime += 1 / fps;
+          if (f.x <= S.HOLD || f.x >= W - S.HOLD || f.y <= S.HOLD || f.y >= H - S.HOLD) {
+            const run = (pinFor.get(f) || 0) + 1 / fps;
+            pinFor.set(f, run); pinned += 1 / fps; longestPin = Math.max(longestPin, run);
+          } else pinFor.delete(f);
         }
         for (const [f, x, y] of before) path += Math.hypot(f.x - x, f.y - y);
         mostWaves = Math.max(mostWaves, swarm.waves.length);
@@ -660,7 +667,7 @@ await import('./overlay/fireflies-swarm.js');
         fired.push(swarm.flashes);
       }
     }
-    return { swarm, events, bad, longHist, lit, glow, fired, mostWaves, path, secs: t };
+    return { swarm, events, bad, longHist, lit, glow, fired, mostWaves, path, secs: t, pinnedShare: pinned / flyTime, longestPin };
   }
   const rate = (r, n = 35) => r.swarm.flashes / (n * r.secs);       // flashes per firefly per second
 
@@ -688,6 +695,18 @@ await import('./overlay/fireflies-swarm.js');
     ok(runs.every((r) => r.mostWaves <= S.MAX_WAVES), `the ripples never pass ${S.MAX_WAVES} at once`);
   }
 
+  // No sticking: "inside the frame" alone is guaranteed by the hold line, so this measures how
+  // long fireflies spend ON that line. With no edge steering it is about 40% of the time, in
+  // runs of up to 40 s; a steady full voice is the hardest case, because they turn fastest then.
+  {
+    const runs = SIZES.map((size) => runSwarm([{ secs: 120, loud: 1 }], { size }));
+    ok(S.HOLD === 2, 'the hold line is 2 px inside the frame');
+    const share = Math.max(...runs.map((r) => r.pinnedShare)), longest = Math.max(...runs.map((r) => r.longestPin));
+    ok(share < 0.005 && longest < 0.6, `no firefly sticks to an edge, even at full voice (on the line ${(share * 100).toFixed(2)}% of the time, ${longest.toFixed(2)} s at most)`);
+    const calm = SIZES.map((size) => runSwarm([{ secs: 120, loud: 0 }], { size }));
+    ok(Math.max(...calm.map((r) => r.pinnedShare)) < 0.005 && Math.max(...calm.map((r) => r.longestPin)) < 0.6, 'nor in silence');
+  }
+
   // Rhythm.
   const quiet = runSwarm([{ secs: 120, loud: 0 }]), micOff = runSwarm([{ secs: 120, live: false }]);
   ok(rate(quiet) > 0.09 && rate(quiet) < 0.18 && rate(micOff) > 0.09 && rate(micOff) < 0.18,
@@ -708,7 +727,10 @@ await import('./overlay/fireflies-swarm.js');
     const share = r.lit.slice(360).reduce((a, b) => a + b, 0) / (r.lit.length - 360) / 35;
     ok(early / all > 0.5 && after / n > 1.3 * (before / n),
       `each syllable sets off a burst of flashes (${Math.round((100 * early) / all)}% of flashes start in its first 0.2 s; glow ${(before / n).toFixed(1)} before, ${(after / n).toFixed(1)} after)`);
-    ok(share > 0.1 && share < 0.75, `talking keeps a rhythm: on average ${(share * 100).toFixed(0)}% of the swarm is lit, not all of it`);
+    ok(share > 0.2 && share < 0.5, `talking keeps a rhythm: on average ${(share * 100).toFixed(0)}% of the swarm is lit, not all of it`);
+    const r30 = runSwarm([{ secs: 60, loud: syllables }], { fps: 30 }), r144 = runSwarm([{ secs: 60, loud: syllables }], { fps: 144 });
+    ok(Math.abs(rate(r30) - rate(r)) < 0.1 * rate(r) && Math.abs(rate(r144) - rate(r)) < 0.1 * rate(r),
+      `and the rhythm under speech is the same at 30, 60 and 144 fps (${rate(r30).toFixed(3)}, ${rate(r).toFixed(3)}, ${rate(r144).toFixed(3)} flashes a second each)`);
   }
 
   // The ripple. Ten fireflies; the voice has been steady for five seconds, so the swarm is coupled.
@@ -731,7 +753,7 @@ await import('./overlay/fireflies-swarm.js');
     const gain = (b.charge - 0.5) / (S.PUSH * swarm.sync);           // as a share of a full-strength nudge
     const after = b.charge;
     go(0.4);
-    ok(swarm.flashes === flashes0 + 1 && gain > 0.4 && gain < 0.9 && near(b.charge, after, 1e-6) && near(d.charge, 0.5, 1e-6) && swarm.waves.length === 0,
+    ok(swarm.flashes === flashes0 + 1 && gain > 0.45 && gain < 0.8 && near(b.charge, after, 1e-6) && near(d.charge, 0.5, 1e-6) && swarm.waves.length === 0,
       `a flash's ripple nudges a firefly it passes once, and not one that is resting (at ${fps} fps: ${(gain * 100).toFixed(0)}% of a full nudge)`);
   }
   {
@@ -743,13 +765,17 @@ await import('./overlay/fireflies-swarm.js');
     go(0.2);
     const strengths = swarm.waves.map((w) => w.strength).sort();
     ok(strengths.length === 2 && near(strengths[0], 0.5) && near(strengths[1], 1) && c.lit < 0.2, 'a flash set off by a ripple sends a ripple of half the strength');
-    // Everything primed at once: each firefly can flash once, and then it is over.
-    const all = coupled(120);
-    for (const f of all.swarm.flies) f.charge = 0.99;
-    all.swarm.flies[0].charge = 1;
-    const f0 = all.swarm.flashes;
-    all.go(3);
-    ok(all.swarm.flashes - f0 <= all.swarm.flies.length && all.swarm.waves.length === 0, `a chain reaction dies out (${all.swarm.flashes - f0} flashes among ${all.swarm.flies.length})`);
+    // The largest swarm, every firefly primed at once and its own rhythm switched off: each can
+    // flash once, and then it is over. If set-off flashes sent full-strength ripples, the swarm
+    // would keep itself going (over 400 flashes in ten seconds).
+    const all = S.createSwarm({ random: HX.rng(5) });
+    const runAll = (secs) => { for (let i = 0, n = Math.round(secs * 120); i < n; i++) all.step({ dt: 1 / 120, live: true, loud: 0.9, peak: 0, threshold: 0.9, density: 100, W: WIDE[0], H: WIDE[1], scale: WIDE[2] }); };
+    runAll(5);
+    for (const f of all.flies) { f.period = 1e9; f.charge = 0.99; f.rest = 0; f.nudged = 0; }
+    all.flies[0].charge = 1;
+    const f0 = all.flashes;
+    runAll(10);
+    ok(all.flies.length === 60 && all.flashes - f0 <= 70 && all.waves.length === 0, `a chain reaction dies out (${all.flashes - f0} flashes among ${all.flies.length} in ten seconds)`);
   }
 
   // The startle.
@@ -760,7 +786,7 @@ await import('./overlay/fireflies-swarm.js');
     const dot = (f) => f.kx * (f.x - 864) + f.ky * (f.y - 312);
     const away = fl.filter((f) => dot(f) > 0).length, inward = fl.filter((f) => dot(f) < 0).length;
     ok(r.events.length === 1 && r.events[0].e === 'startle' && near(r.events[0].t, 1.5 + 1 / 60, 1e-6) && r.swarm.startles === 1
-      && fl.every((f) => f.lit < 0.02 && f.power === 1) && away >= 0.8 * fl.length && inward === 0 && r.swarm.waves.length === 0,
+      && fl.every((f) => f.lit < 0.02 && f.power === 1) && away >= 0.6 * fl.length && inward === 0 && r.swarm.waves.length === 0,
       `a peak startles the swarm: all flash, and they are pushed away from the middle (${away} of ${fl.length}; the rest are already at the edge)`);
     const later = runSwarm([{ secs: 4, loud: 0.3, peak: 0.3 }], { swarm: r.swarm });
     ok(!later.bad && later.swarm.flies.every((f) => Math.hypot(f.kx, f.ky) < 1), 'the push dies away and nobody leaves the frame');

@@ -41,6 +41,16 @@ whole branch at the end. The owner's look in OBS with the real mic comes last an
 - `docs/EFFECTS.md`: a short `TimbreSwarm` section. `CHANGELOG.md`: Unreleased entries.
 - `verify.mjs` and `verify-render.mjs` header comments.
 
+## After the review
+
+The whole-branch review found nothing critical. Fixed in one wave, each with a check written first:
+at full voice a firefly could slide along the frame's edge for up to two seconds (the turn back now
+quickens with loudness as the wandering does); a ripple's nudge was stronger at low frame rates.
+Checks were added or tightened for what the review found untested: time spent on the hold line,
+the rhythm under speech at three frame rates, a chain reaction in the largest swarm, the share lit
+while talking, the flicker, and fireflies added and removed mid-flight. Left alone and listed in
+the spec: a lasting syllable's second push, and the stale-cache case.
+
 ## Review focus
 
 1. A size change or a Density change mid-flight: no firefly outside the frame, none popping.
