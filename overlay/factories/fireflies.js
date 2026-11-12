@@ -130,17 +130,21 @@ VIZ_FACTORIES['fireflies'] = function () {
     // Test surface: how many fireflies there are and how many are lit, the flashes and startles so
     // far, the ripples alive, whether every firefly is inside the canvas, the swarm's slow loudness
     // and its coupling, the smoothed low and high ends, the glow's radius in cores, the swarm's
-    // brightness added up, and where the first firefly is.
+    // brightness added up, and where the first firefly is. Also how many fireflies the last draw
+    // drew, and the most the flicker is dimming any fully faded-in lit firefly (0 to 0.35).
     probe() {
       const flies = swarm.flies;
-      let lit = 0, glow = 0, inside = true;
+      let lit = 0, glow = 0, inside = true, flicker = 0;
       for (const f of flies) {
-        if (f.env > 0.15) lit++;
+        if (f.env > 0.15) {
+          lit++;
+          if (f.born >= 1) flicker = Math.max(flicker, 1 - shine(f) / f.env);
+        }
         glow += f.env;
         if (!(f.x >= 0 && f.x <= W && f.y >= 0 && f.y <= H)) inside = false;
       }
       return { n: flies.length, lit, flashes: swarm.flashes, startles: swarm.startles, waves: swarm.waves.length, inside,
-        loud: swarm.loud, sync: swarm.sync, low, high, haloScale: haloScale(), glow,
+        loud: swarm.loud, sync: swarm.sync, low, high, haloScale: haloScale(), glow, flicker, drawn: order.length,
         firstX: flies.length ? flies[0].x : 0, firstY: flies.length ? flies[0].y : 0 };
     },
   };

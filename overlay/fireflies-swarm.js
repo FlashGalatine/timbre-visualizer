@@ -138,7 +138,8 @@
       // Ripples spread from each flash. A firefly is nudged once by each, as its front arrives.
       const grow = WAVE_SPEED * W * dt;
       for (const w of waves) {
-        const front = WAVE_SPEED * W * w.age + grow, push = PUSH * sync * w.strength * (1 - w.age / WAVE_S);
+        // The nudge is the ring's strength at the middle of this frame, so it is alike at any frame rate.
+        const front = WAVE_SPEED * W * w.age + grow, push = PUSH * sync * w.strength * (1 - (w.age + dt / 2) / WAVE_S);
         for (const f of flies) {
           if (w.done.has(f)) continue;
           if (Math.hypot(f.x - w.x, f.y - w.y) >= front) continue;
@@ -165,10 +166,11 @@
         f.charge += (dt / f.period) * (1 + RATE * loud);
         if (f.charge >= 1) fire(f, 0.55 + 0.45 * fast);
 
-        // Wandering flight; near an edge it turns back toward the middle.
+        // Wandering flight; near an edge it turns back toward the middle. The turn back quickens with
+        // loudness exactly as the wandering does, or a loud swarm would out-turn it and slide along the edge.
         f.heading += dt * (f.wA * Math.sin(clock * f.fA + f.pA) + f.wB * Math.sin(clock * f.fB + f.pB)) * (1 + loud);
         const edge = Math.max(0, (m - f.x) / m, (f.x - (W - m)) / m, (m - f.y) / m, (f.y - (H - m)) / m);
-        if (edge > 0) f.heading += shortWay(Math.atan2(H / 2 - f.y, W / 2 - f.x) - f.heading) * Math.min(1, dt * 3 * Math.min(1.5, edge + 0.3));
+        if (edge > 0) f.heading += shortWay(Math.atan2(H / 2 - f.y, W / 2 - f.x) - f.heading) * Math.min(1, dt * 3 * (1 + loud) * Math.min(1.5, edge + 0.3));
         const speed = (7 + 12 * f.z) * scale * (1 + 2.2 * loud);
         f.x += Math.cos(f.heading) * speed * dt + f.kx * travel;
         f.y += Math.sin(f.heading) * speed * dt + f.ky * travel;
@@ -202,5 +204,5 @@
     };
   }
 
-  globalThis.TimbreSwarm = { MARGIN, TRAIL_S, REARM_S, PUSH, MAX_WAVES, count, createSwarm };
+  globalThis.TimbreSwarm = { MARGIN, HOLD, TRAIL_S, REARM_S, PUSH, MAX_WAVES, count, createSwarm };
 })();
