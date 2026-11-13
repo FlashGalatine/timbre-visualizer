@@ -12,6 +12,9 @@ traceability.
 
 ### Added
 
+- **Characters**: what the character effects share is in `overlay/characters.js`
+  (`TimbreCharacters`), loaded by all three overlay pages and by `verify` under Node, and
+  documented in `docs/EFFECTS.md` ("Characters").
 - **Black Hole**, a new effect (the fiftieth), listed after Pulse Rings. A solid black disc
   with a bright rim and a tilted, turning disc of glowing gas. Streaks of light, small comets
   and fireflies come in from beyond the frame, spiral round faster as they close in, and vanish
@@ -96,6 +99,11 @@ traceability.
 
 ### Changed
 
+- **Blob is now a vector character.** A smooth solid body with a clean outline in place of
+  the stepped, see-through one. It still swells with loudness, bulges with the sound, bounces
+  on each syllable (now stretching on the way up and squashing as it lands), blinks, turns
+  happy when the voice is loud and opens its mouth with the voice. **Bounce** still scales it,
+  and at 0 stills it. It no longer leaves the frame at a high Bounce.
 - **Orbit is now a sun with planets.** A glowing sun and up to nine planets, each on its own
   slightly different tilted orbit and leaning on its own axis, passing behind the sun and in
   front of it. Louder sound makes every planet orbit faster and leave a longer streak of light;

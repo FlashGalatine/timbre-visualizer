@@ -90,7 +90,14 @@
 //           moment does not gulp; mic off a trickle keeps falling, and with the idle animation
 //           the hole breathes; Density sets how much falls in; a config push and a size change
 //           keep everything falling; a seeded run repeats; the canvas state is left as found; a
-//           draw stays inside its time budget; and the control panel lists it with its two sliders.
+//           draw stays inside its time budget; and the control panel lists it with its two sliders •
+//           blob: a whole blob inside the frame on all three pages; a voice swells it, opens its
+//           mouth and makes it happy; a syllable bounces it, stretching on the way up, and it
+//           settles; it blinks; the low end pushes out its top and the high end its bottom;
+//           Bounce 0 stills it and Bounce 100 keeps it inside the frame; mic off it is still, and
+//           with the idle animation it breathes; a config push and a size change keep it; the
+//           canvas state is left as found and the picture does not depend on the line settings
+//           it is handed; and a draw stays inside its time budget.
 
 import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -246,6 +253,7 @@ const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1, odd = fal
 }, { name, seedKey, steps, fps, seed, odd });
 const dnaRun = effectRun('dna', '__dnaSeed'), cometRun = effectRun('comet', '__cometSeed'), fliesRun = effectRun('fireflies', '__firefliesSeed');
 const ringsRun = effectRun('pulse-rings', '__pulseRingsSeed'), orbitRun = effectRun('orbit', '__orbitSeed'), holeRun = effectRun('black-hole', '__blackHoleSeed');
+const blobRun = effectRun('blob', '__blobSeed');
 const talk = { wave: 0.5, low: 0.5, high: 0.3, peak: 0.5 }, silence = { wave: 0, low: 0, high: 0, peak: 0 };
 
 // The five checks every afterglow effect must pass. slack: live pixels that legitimately
@@ -1648,6 +1656,99 @@ async function main() {
       holeCost.filled > 65 && holeCost.gulps === 1 && holeCost.falling < 1.5 && holeCost.after < 1.5 && holeCost.gulp < 4,
       `falling ${holeCost.falling.toFixed(3)}, gulp frame ${holeCost.gulp.toFixed(2)}, after ${holeCost.after.toFixed(3)} (${holeCost.filled} then ${holeCost.most} things, ${holeCost.gulps} gulp)`);
     check('black hole: no page errors from the Black Hole checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
+      [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
+
+    // ── Blob: a vector character (16:9 page unless noted) ────────────────────
+    const charOn = async (name, pages, idle) => {
+      await pushConfig((c) => { c.activeViz = name; c.idleAnim = idle; });
+      for (const pg of pages) await pg.waitForFunction(([n, i]) => window.__timbre.currentVizName === n && cfgIdleAnim === i, [name, idle], { timeout: 5000 });
+    };
+    // What the three characters' probes share.
+    const ch = (...rs) => JSON.stringify(rs.map((r) => r && ({ loud: r.loud, fast: r.fast, low: r.low, high: r.high, lean: r.lean, happy: r.happy, open: r.open, blink: r.blink, clock: r.clock,
+      radius: r.radius, lift: r.lift, stretch: r.stretch, shrink: r.shrink, bulgeTop: r.bulgeTop, bulgeBottom: r.bulgeBottom, ink: r.ink, top: r.top, bottom: r.bottom, emptyCols: r.emptyCols })));
+    const stateKept = (r) => r.op === 'source-over' && r.blur === 0 && r.globalAlpha === 1 && r.offsetX === 0 && r.transformKept === true && r.linesKept === true && r.unclipped === true;
+    const stateOf = (rs) => JSON.stringify(rs.map((r) => [r.op, r.blur, r.globalAlpha, r.offsetX, r.transformKept, r.linesKept, r.unclipped]));
+    await charOn('blob', [page, p43, wide], false);
+    for (const pg of [page, p43, wide]) {
+      const [size, h, scale] = await pg.evaluate(() => [`${W}×${H}`, H, SCALE]);
+      const [r] = await blobRun(pg, [{ secs: 3, ...talk }]);
+      check(`blob: a whole blob inside the frame at ${size}`,
+        r.ink > 0 && r.top > 0 && r.bottom < h - 1 && r.emptyCols > 0 && r.shrink === 1 && Math.abs(r.radius - (25 + 13 * 0.75) * scale) < 0.6 * scale, ch(r));
+    }
+    const [bQuiet, bLoud] = await blobRun(wide, [{ secs: 3, ...silence }, { secs: 3, ...loudTalk }]);
+    check('blob: silent it rests with a small smile; a voice swells it, opens its mouth and makes it happy',
+      Math.abs(bQuiet.radius - 25 * 4.8) < 0.01 && bQuiet.open === 0 && bQuiet.happy === false && Math.abs(bQuiet.lift) < 0.01
+      && bLoud.radius > 35 * 4.8 && bLoud.open === 1 && bLoud.happy === true && bLoud.ink > 1.2 * bQuiet.ink, ch(bQuiet, bLoud));
+    // Resting, the first frames of a bounce, the bounce, and a loud voice; the canvas is handed over
+    // with unusual line settings, which must come back untouched.
+    const bStateSteps = [{ secs: 1, ...silence }, { secs: 0.05, ...loudTalk }, { secs: 0.25, ...loudTalk }, { secs: 2, ...loudTalk }];
+    const bStates = await blobRun(wide, bStateSteps, { odd: true }), bUsual = await blobRun(wide, bStateSteps);
+    check('blob: leaves the canvas state as it found it', [bQuiet, bLoud, ...bStates].every(stateKept), stateOf([bQuiet, bLoud, ...bStates]));
+    check('blob: draws the same whatever line settings it is handed', bStates.every((r, i) => r.ink === bUsual[i].ink && r.alpha === bUsual[i].alpha),
+      JSON.stringify(bStates.map((r, i) => [r.ink, bUsual[i].ink, r.alpha, bUsual[i].alpha])));
+    const [bRest, bHop, bLanded] = await blobRun(wide, [{ secs: 1.5, ...silence }, { secs: 0.15, ...loudTalk }, { secs: 4, ...loudTalk }]);
+    check('blob: a syllable bounces it, stretching on the way up, and it settles',
+      Math.abs(bRest.lift) < 0.01 && bHop.lift > 2 * 4.8 && bHop.stretch > 0.02 && bHop.top < bRest.top && Math.abs(bLanded.lift) < 0.5 * 4.8 && Math.abs(bLanded.stretch) < 0.005, ch(bRest, bHop, bLanded));
+    // It blinks: about once in three and a half seconds, for a sixth of a second.
+    const bBlinks = (await blobRun(wide, Array.from({ length: 90 }, () => ({ secs: 0.04, ...silence })))).map((r) => r.blink);
+    const bShut = bBlinks.filter((v) => v > 0).length;
+    check('blob: it blinks', Math.max(...bBlinks) > 0.7 && Math.min(...bBlinks) === 0 && bShut >= 2 && bShut <= 9, JSON.stringify({ most: Math.max(...bBlinks), framesShut: bShut }));
+    const [bLowOnly] = await blobRun(wide, [{ secs: 2, wave: 0.3, low: 0.9, high: 0, peak: 0.3 }]);
+    const [bHighOnly] = await blobRun(wide, [{ secs: 2, wave: 0.3, low: 0, high: 0.9, peak: 0.3 }]);
+    check('blob: the low end pushes out its top and the high end its bottom',
+      bLowOnly.bulgeTop > 0.8 && bLowOnly.bulgeBottom < 0.05 && bHighOnly.bulgeBottom > 0.8 && bHighOnly.bulgeTop < 0.05 && bLowOnly.lean < -0.9 && bHighOnly.lean > 0.9, ch(bLowOnly, bHighOnly));
+
+    // The Bounce setting.
+    const [, bStill, bStillLoud] = await blobRun(wide, [{ secs: 1.5, ...silence, config: { bounce: 0 } }, { secs: 0.15, ...loudTalk }, { secs: 3, ...loudTalk }]);
+    check('blob: Bounce 0 stills it: no bounce and no swelling, though the face still answers',
+      bStill.lift === 0 && bStill.stretch === 0 && Math.abs(bStillLoud.radius - 25 * 4.8) < 0.01 && bStillLoud.open === 1 && bStillLoud.happy === true, ch(bStill, bStillLoud));
+    const bHard = await blobRun(wide, [{ secs: 0, ...silence, config: { bounce: 100 } }, ...Array.from({ length: 24 }, (_, i) => (i % 2 ? { secs: 0.3, ...silence } : { secs: 0.2, wave: 0.67, low: 1, high: 1, peak: 0.6 }))]);
+    const bHardSmall = await blobRun(page, Array.from({ length: 24 }, (_, i) => (i % 2 ? { secs: 0.3, ...silence } : { secs: 0.2, wave: 0.67, low: 1, high: 1, peak: 0.6 })));
+    await wide.evaluate(() => applyConfig({ bounce: 50 }));
+    await page.waitForFunction(() => cfgBounce === 100 || cfgBounce === 50, null, { timeout: 5000 });
+    check('blob: at Bounce 100 and full voice it bounces higher and stays inside the frame, on the wide and the small page',
+      bHard.slice(1).every((r) => r.top > 0 && r.bottom < 623) && Math.max(...bHard.map((r) => r.lift)) > 8 * 4.8 && Math.max(...bHard.map((r) => r.radius)) > 40 * 4.8
+      && bHardSmall.every((r) => r.top > 0 && r.bottom < 129), JSON.stringify({ lift: Math.max(...bHard.map((r) => r.lift)), radius: Math.max(...bHard.map((r) => r.radius)), top: Math.min(...bHard.slice(1).map((r) => r.top)), bottom: Math.max(...bHard.map((r) => r.bottom)), smallTop: Math.min(...bHardSmall.map((r) => r.top)), smallBottom: Math.max(...bHardSmall.map((r) => r.bottom)) }));
+
+    // Mic off.
+    const bOff = await blobRun(wide, [{ secs: 2, ...loudTalk }, ...Array.from({ length: 16 }, () => ({ secs: 0.25, ...off }))]);
+    const bOffR = bOff.slice(9).map((r) => r.radius);   // from two seconds after the mic went off
+    check('blob: mic off it is still, with its mouth shut',
+      Math.max(...bOffR) - Math.min(...bOffR) < 0.05 && Math.abs(bOffR[0] - 25 * 4.8) < 0.05 && bOff[16].open < 1e-6 && bOff[16].happy === false && bOff[16].ink > 0, ch(bOff[16]));
+    await charOn('blob', [wide], true);
+    const bIdleR = (await blobRun(wide, Array.from({ length: 20 }, () => ({ secs: 0.25, ...off })))).map((r) => r.radius);
+    check('blob: mic off with idle animation: it breathes', Math.max(...bIdleR) - Math.min(...bIdleR) > 1.8 * 4.8 && Math.max(...bIdleR) - Math.min(...bIdleR) < 2.6 * 4.8,
+      JSON.stringify([Math.min(...bIdleR), Math.max(...bIdleR)]));
+    await charOn('blob', [wide], false);
+
+    // The box.
+    const [, bPushFrom, bPushTo] = await blobRun(wide, [{ secs: 2, ...talk }, { secs: 1 / 60, ...talk }, { secs: 1 / 60, ...talk, config: { colorHue: 30 } }]);
+    await wide.evaluate(() => applyConfig({ colorHue: 0 }));
+    check('blob: a config push keeps it as it is', bPushTo.clock > bPushFrom.clock && bPushTo.clock > 2 && Math.abs(bPushTo.radius - bPushFrom.radius) < 0.5, ch(bPushFrom, bPushTo));
+    const [, bSizeFrom, bSized, bSizeLater] = await blobRun(wide, [{ secs: 2, ...talk }, { secs: 1 / 60, ...talk }, { secs: 1 / 60, ...talk, config: { showLabels: false } }, { secs: 2, ...talk }]);
+    await wide.evaluate(() => applyConfig({ showLabels: true }));
+    check('blob: a real size change keeps it, in the middle of the new frame',
+      bSized.clock > bSizeFrom.clock && Math.abs(bSized.radius - bSizeFrom.radius) < 0.5 && Math.abs((bSized.top + bSized.bottom) / 2 - (816 / 2 + 4 * 4.8)) < 8
+      && Math.abs((bSizeFrom.top + bSizeFrom.bottom) / 2 - (624 / 2 + 4 * 4.8)) < 8 && bSizeLater.top > 0 && bSizeLater.ink > 0, ch(bSizeFrom, bSized, bSizeLater));
+
+    // Cost: 300 frames of a loud voice in syllables.
+    const charCost = (name) => wide.evaluate((name) => {
+      const saved = { frequencies, waveform, micActive, micPeak };
+      try {
+        currentViz = VIZ_FACTORIES[name]();
+        const f = new Uint8Array(32), loudW = new Uint8Array(64), quietW = new Uint8Array(64).fill(128);
+        f.fill(204, 0, 2); f.fill(204, 2, 11);
+        for (let i = 0; i < 64; i++) loudW[i] = 128 + Math.round(Math.sin(i * 0.4) * 0.6 * 127);
+        frequencies = f; micActive = true; micPeak = 0.6;
+        let now = performance.now();
+        const t0 = performance.now();
+        for (let k = 0; k < 300; k++) { waveform = (k % 30) < 12 ? loudW : quietW; now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+        return (performance.now() - t0) / 300;
+      } finally { frequencies = saved.frequencies; waveform = saved.waveform; micActive = saved.micActive; micPeak = saved.micPeak; }
+    }, name);
+    const blobCost = await charCost('blob');
+    check('blob: draws in under 1.5 ms', blobCost < 1.5, `${blobCost.toFixed(3)} ms a frame`);
+    check('blob: no page errors from the Blob checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
       [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
 
     await pushConfig((c) => { c.activeViz = 'visualizer'; });
