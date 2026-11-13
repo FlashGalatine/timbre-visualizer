@@ -71,7 +71,16 @@
 //           Sensitivity and Flow do what they say; a config push keeps the planet as it is and a
 //           size change in pieces puts it back whole; a seeded run repeats; the canvas state is
 //           left as found; a draw stays inside its time budget; and the control panel shows its
-//           four sliders.
+//           four sliders •
+//           orbit: a sun and six planets inside the frame on all three pages; a voice makes them
+//           orbit faster and streak farther; the low end swells the sun and the high end lengthens
+//           its rays; a peak flares the sun and the planets surge, then settle (wide and small
+//           pages); a held yell flares once a second; Gain at 200% and Flare Sensitivity 0 never
+//           flare; the waveform peak stands in for a missing micPeak; the mic opening on a loud
+//           moment does not flare; mic off the planets drift, and with the idle animation the sun
+//           breathes; Planets sets how many, down to the sun alone, also mid-flight; a config push
+//           and a size change keep the planets; a seeded run repeats; the canvas state is left as
+//           found; a draw stays inside its time budget; and the control panel shows its two sliders.
 
 import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -226,7 +235,7 @@ const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1, odd = fal
   }
 }, { name, seedKey, steps, fps, seed, odd });
 const dnaRun = effectRun('dna', '__dnaSeed'), cometRun = effectRun('comet', '__cometSeed'), fliesRun = effectRun('fireflies', '__firefliesSeed');
-const ringsRun = effectRun('pulse-rings', '__pulseRingsSeed');
+const ringsRun = effectRun('pulse-rings', '__pulseRingsSeed'), orbitRun = effectRun('orbit', '__orbitSeed');
 const talk = { wave: 0.5, low: 0.5, high: 0.3, peak: 0.5 }, silence = { wave: 0, low: 0, high: 0, peak: 0 };
 
 // The five checks every afterglow effect must pass. slack: live pixels that legitimately
@@ -1248,6 +1257,122 @@ async function main() {
     check('pulse rings: no page errors from the Pulse Rings checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
       [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
 
+    // ── Orbit: planets round a sun (16:9 page unless noted) ──────────────────
+    const orbitOn = async (pages, idle) => {
+      await pushConfig((c) => { c.activeViz = 'orbit'; c.idleAnim = idle; });
+      for (const pg of pages) await pg.waitForFunction((i) => window.__timbre.currentVizName === 'orbit' && cfgIdleAnim === i, idle, { timeout: 5000 });
+    };
+    const ob = (...rs) => JSON.stringify(rs.map((r) => r && ({ n: r.n, listed: r.listed, drawn: r.drawn, inside: r.inside, speed: r.speed, loud: r.loud, low: r.low, high: r.high,
+      sunR: r.sunR, flares: r.flares, flare: r.flare, turned: r.turned, streak: r.streak, rays: r.rays, ink: r.ink, top: r.top, bottom: r.bottom, emptyCols: r.emptyCols })));
+    const obKnobs = (k) => ({ perViz: { orbit: k } });
+    await orbitOn([page, p43, wide], false);
+    for (const pg of [page, p43, wide]) {
+      const [size, h] = await pg.evaluate(() => [`${W}×${H}`, H]);
+      const [r] = await orbitRun(pg, [{ secs: 3, ...talk }]);
+      check(`orbit: a sun and six planets inside the frame at ${size}`,
+        r.ink > 0 && r.n === 6 && r.listed === 6 && r.drawn === 6 && r.inside === true && r.flares === 0 && r.top > 0 && r.bottom < h - 1 && r.emptyCols > 0, ob(r));
+    }
+    const [oQuiet, oLoud] = await orbitRun(wide, [{ secs: 3, ...silence }, { secs: 3, ...loudTalk }]);
+    check('orbit: silent, the planets drift; a voice makes them orbit faster and streak farther',
+      oQuiet.turned > 0.5 && oLoud.turned - oQuiet.turned > 5 * oQuiet.turned && oLoud.speed > 3 && Math.abs(oQuiet.speed - 0.4) < 0.01 && oLoud.streak > 3 * oQuiet.streak
+      && oQuiet.inside === true && oLoud.inside === true, ob(oQuiet, oLoud));
+    check('orbit: leaves the canvas state as it found it',
+      [oQuiet, oLoud].every((r) => r.op === 'source-over' && r.blur === 0 && r.globalAlpha === 1 && r.offsetX === 0 && r.transformKept === true),
+      JSON.stringify([oQuiet, oLoud].map((r) => [r.op, r.blur, r.globalAlpha, r.offsetX, r.transformKept])));
+    const [oLowOnly] = await orbitRun(wide, [{ secs: 2, wave: 0.3, low: 0.9, high: 0, peak: 0.3 }]);
+    const [oHighOnly] = await orbitRun(wide, [{ secs: 2, wave: 0.3, low: 0, high: 0.9, peak: 0.3 }]);
+    check('orbit: the low end swells the sun, and the high end lengthens its rays',
+      oLowOnly.sunR > oHighOnly.sunR * 1.3 && Math.abs(oHighOnly.sunR - 12 * 4.8) < 0.5 && oHighOnly.high > 0.5 && oLowOnly.high < 0.1
+      && oHighOnly.rays / oHighOnly.sunR > 1.4 * oLowOnly.rays / oLowOnly.sunR, ob(oLowOnly, oHighOnly));
+
+    // The flare.
+    const oYell = [{ secs: 1.5, ...talk }, { secs: 0.1, ...talk, peak: 0.95 }];
+    const [oCalm, oFlared, oAfter] = await orbitRun(wide, [...oYell, { secs: 4, ...talk }]);
+    check('orbit: a peak flares the sun and the planets surge, then settle',
+      oCalm.flares === 0 && oFlared.flares === 1 && oFlared.speed > oCalm.speed + 1.8 && oFlared.sunR > oCalm.sunR * 1.15 && oFlared.alpha > 1.3 * oCalm.alpha
+      && oAfter.flares === 1 && Math.abs(oAfter.speed - oCalm.speed) < 0.1 && oAfter.inside === true, ob(oCalm, oFlared, oAfter));
+    const [, oSmall] = await orbitRun(page, oYell);
+    check('orbit: the same on the small page', oSmall.flares === 1 && oSmall.inside === true && oSmall.n === 6, ob(oSmall));
+    const [, oHeld] = await orbitRun(wide, [{ secs: 1.5, ...talk }, { secs: 2.5, ...talk, peak: 0.95 }]);
+    check('orbit: a held yell flares again only once a second', oHeld.flares === 3 && oHeld.inside === true, ob(oHeld));
+    const [oGain] = await orbitRun(wide, [{ secs: 5, wave: 0.6, low: 0.6, high: 0.6, peak: 0.6, config: { gain: 200 } }]);
+    await wide.evaluate(() => applyConfig({ gain: 100 }));
+    check('orbit: talking with Gain at 200% does not flare', oGain.flares === 0, ob(oGain));
+    const [, oSens0] = await orbitRun(wide, [{ secs: 1.5, ...talk, config: obKnobs({ flareSensitivity: 0 }) }, { secs: 1, ...talk, peak: 1 }]);
+    await wide.evaluate(() => applyConfig({ perViz: { orbit: { flareSensitivity: 50 } } }));
+    check('orbit: Flare Sensitivity 0 never flares', oSens0.flares === 0, ob(oSens0));
+    const [, oWave] = await orbitRun(wide, [{ secs: 1.5, ...talk }, { secs: 0.1, wave: 0.95, low: 0.5, high: 0.3, peak: null }]);
+    check('orbit: falls back to the waveform peak', oWave.flares === 1, ob(oWave));
+    const [, oOpen] = await orbitRun(wide, [{ secs: 1.5, ...off }, { secs: 0.3, ...talk, peak: 0.95 }]);
+    check('orbit: the mic opening on a loud moment does not flare', oOpen.flares === 0, ob(oOpen));
+
+    // Mic off.
+    const [oBefore, oOff] = await orbitRun(wide, [{ secs: 2, ...loudTalk }, { secs: 3, ...off }]);
+    check('orbit: mic off, the planets drift at their slowest and the sun rests',
+      Math.abs(oOff.speed - 0.4) < 0.01 && oOff.loud < 0.01 && oOff.low < 0.001 && oOff.turned > oBefore.turned && Math.abs(oOff.sunR - 12 * 4.8) < 0.1 && oOff.inside === true, ob(oBefore, oOff));
+    await orbitOn([wide], true);
+    const oIdle = (await orbitRun(wide, [{ secs: 0, ...off }, ...Array.from({ length: 24 }, () => ({ secs: 0.25, ...off }))])).slice(1);
+    const oIdleR = oIdle.map((r) => r.sunR);
+    check('orbit: mic off with idle animation: the sun breathes and the planets keep drifting',
+      Math.max(...oIdleR) - Math.min(...oIdleR) > 0.05 * 12 * 4.8 && oIdle.every((r) => r.flares === 0 && Math.abs(r.speed - 0.4) < 0.01) && oIdle[23].turned > oIdle[0].turned,
+      JSON.stringify({ sunR: [Math.min(...oIdleR), Math.max(...oIdleR)], speed: oIdle[23].speed }));
+    await orbitOn([wide], false);
+
+    // Settings and the box.
+    const [oNone] = await orbitRun(wide, [{ secs: 2, ...talk, config: obKnobs({ planets: 0 }) }]);
+    const [oNine] = await orbitRun(wide, [{ secs: 2, ...talk, config: obKnobs({ planets: 9 }) }]);
+    await wide.evaluate(() => applyConfig({ perViz: { orbit: { planets: 6 } } }));
+    check('orbit: Planets sets how many there are, down to the sun alone',
+      oNone.n === 0 && oNone.drawn === 0 && oNone.ink > 0 && oNine.n === 9 && oNine.drawn === 9 && oNine.inside === true && oNine.ink > oNone.ink, ob(oNone, oNine));
+    const [oGrowFrom, oGrown, oShrunk] = await orbitRun(wide, [{ secs: 2, ...talk }, { secs: 1, ...talk, config: obKnobs({ planets: 9 }) }, { secs: 1.5, ...talk, config: obKnobs({ planets: 2 }) }]);
+    await wide.evaluate(() => applyConfig({ perViz: { orbit: { planets: 6 } } }));
+    check('orbit: Planets moved mid-flight adds and removes planets, and all of them are drawn',
+      oGrowFrom.n === 6 && oGrowFrom.drawn === 6 && oGrown.n === 9 && oGrown.drawn === 9 && oShrunk.n === 2 && oShrunk.listed === 2 && oShrunk.drawn === 2 && oShrunk.inside === true, ob(oGrowFrom, oGrown, oShrunk));
+    const [, oPushFrom, oPushTo] = await orbitRun(wide, [{ secs: 2, ...talk }, { secs: 1 / 60, ...talk }, { secs: 1 / 60, ...talk, config: { bounce: 70 } }]);
+    await wide.evaluate(() => applyConfig({ bounce: 50 }));
+    check('orbit: a config push keeps the planets on their way', oPushTo.n === 6 && oPushTo.turned > oPushFrom.turned && oPushTo.turned - oPushFrom.turned < 0.2, ob(oPushFrom, oPushTo));
+    const [, oSizeFrom, oSized, oSizeLater] = await orbitRun(wide, [{ secs: 2, ...talk }, { secs: 1 / 60, ...talk },
+      { secs: 1 / 60, ...talk, config: { showLabels: false } }, { secs: 2, ...talk }]);
+    await wide.evaluate(() => applyConfig({ showLabels: true }));
+    check('orbit: a real size change keeps the planets, inside the new frame',
+      oSized.n === 6 && oSized.inside === true && oSized.turned > oSizeFrom.turned && oSized.turned - oSizeFrom.turned < 0.2 && oSizeLater.inside === true && oSizeLater.drawn === 6, ob(oSizeFrom, oSized, oSizeLater));
+    const oSeeded = async (seed) => (await orbitRun(wide, [...oYell, { secs: 0.3, ...talk }], { seed }))[2];
+    const oSeedA = await oSeeded(7), oSeedB = await oSeeded(7), oSeedC = await oSeeded(8);
+    check('orbit: a seeded run repeats', oSeedA.flares === 1 && oSeedA.ink === oSeedB.ink && oSeedA.turned === oSeedB.turned && oSeedA.ink !== oSeedC.ink, ob(oSeedA, oSeedB, oSeedC));
+
+    // Cost, with nine planets: 300 loud frames, the one frame of a 0.95 peak, then 60 more.
+    const orbitCost = await wide.evaluate(() => {
+      const saved = { frequencies, waveform, micActive, micPeak, seed: window.__orbitSeed };
+      try {
+        applyConfig({ perViz: { orbit: { planets: 9 } } });
+        window.__orbitSeed = 1;
+        currentViz = VIZ_FACTORIES['orbit']();
+        const f = new Uint8Array(32), w = new Uint8Array(64);
+        f.fill(204, 0, 2); f.fill(204, 2, 11);
+        for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * 0.6 * 127);
+        frequencies = f; waveform = w; micActive = true;
+        let now = performance.now();
+        const frames = (n, peak) => {
+          micPeak = peak; const t0 = performance.now();
+          for (let k = 0; k < n; k++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+          return (performance.now() - t0) / n;
+        };
+        const flying = frames(300, 0.6);
+        const flare = frames(1, 0.95);
+        const after = frames(60, 0.6), then = currentViz.probe();
+        return { flying, flare, after, n: then.n, flares: then.flares };
+      } finally {
+        frequencies = saved.frequencies; waveform = saved.waveform; micActive = saved.micActive; micPeak = saved.micPeak;
+        window.__orbitSeed = saved.seed;
+        applyConfig({ perViz: { orbit: { planets: 6 } } });
+      }
+    });
+    check('orbit: draws in under 1.5 ms with nine planets, flaring or not',
+      orbitCost.n === 9 && orbitCost.flares === 1 && orbitCost.flying < 1.5 && orbitCost.after < 1.5 && orbitCost.flare < 4,
+      `flying ${orbitCost.flying.toFixed(3)}, flare frame ${orbitCost.flare.toFixed(2)}, after ${orbitCost.after.toFixed(3)} (${orbitCost.n} planets, ${orbitCost.flares} flare)`);
+    check('orbit: no page errors from the Orbit checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
+      [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
+
     await pushConfig((c) => { c.activeViz = 'visualizer'; });
     check('dna: no page errors from the DNA checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
       [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
@@ -1334,6 +1459,10 @@ async function main() {
     check('Pulse Rings shows its four sliders', await ctlPage.evaluate(() =>
       ['Sensitivity', 'Flow', 'Explode Sensitivity', 'Reconnect Seconds'].every((t) => [...document.querySelectorAll('#perVizKnobs label')].some((l) => l.textContent === t))
       && document.getElementById('pv-pulse-rings-reconnectSeconds').max === '10' && document.getElementById('pv-pulse-rings-explodeSensitivity').max === '100'));
+    await ctlPage.selectOption('#activeViz', 'orbit');
+    check('Orbit shows its two sliders', await ctlPage.evaluate(() =>
+      ['Planets', 'Flare Sensitivity'].every((t) => [...document.querySelectorAll('#perVizKnobs label')].some((l) => l.textContent === t))
+      && document.getElementById('pv-orbit-planets').max === '9' && document.querySelectorAll('#perVizKnobs .row').length === 2));
     // Put afterglow back to its default so the shared mock state stays clean.
     const glowMark = observed.length;
     await ctlPage.evaluate(() => { const e = document.getElementById('afterglow'); e.value = '1.6'; e.dispatchEvent(new Event('input', { bubbles: true })); });
