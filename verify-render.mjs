@@ -97,7 +97,14 @@
 //           Bounce 0 stills it and Bounce 100 keeps it inside the frame; mic off it is still, and
 //           with the idle animation it breathes; a config push and a size change keep it; the
 //           canvas state is left as found and the picture does not depend on the line settings
-//           it is handed; and a draw stays inside its time budget.
+//           it is handed; and a draw stays inside its time budget •
+//           owl: a whole owl inside the frame on all three pages; a voice lifts its wings, opens
+//           its beak, makes it happy and sets it singing; a syllable bobs it and it settles; it
+//           blinks; it leans toward the end of the sound that is winning; Bounce 0 stills it and
+//           Bounce 100 keeps it inside the frame; mic off it is still, and with the idle animation
+//           it sways; a config push and a size change keep it; the canvas state is left as found
+//           and the picture does not depend on the line settings it is handed; and a draw stays
+//           inside its time budget.
 
 import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -269,7 +276,7 @@ const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1, odd = fal
 }, { name, seedKey, steps, fps, seed, odd, still });
 const dnaRun = effectRun('dna', '__dnaSeed'), cometRun = effectRun('comet', '__cometSeed'), fliesRun = effectRun('fireflies', '__firefliesSeed');
 const ringsRun = effectRun('pulse-rings', '__pulseRingsSeed'), orbitRun = effectRun('orbit', '__orbitSeed'), holeRun = effectRun('black-hole', '__blackHoleSeed');
-const blobRun = effectRun('blob', '__blobSeed');
+const blobRun = effectRun('blob', '__blobSeed'), owlRun = effectRun('owl', '__owlSeed');
 const talk = { wave: 0.5, low: 0.5, high: 0.3, peak: 0.5 }, silence = { wave: 0, low: 0, high: 0, peak: 0 };
 
 // The five checks every afterglow effect must pass. slack: live pixels that legitimately
@@ -1791,6 +1798,69 @@ async function main() {
     const blobCost = await charCost('blob');
     check('blob: draws in under 1.5 ms', blobCost < 1.5, `${blobCost.toFixed(3)} ms a frame`);
     check('blob: no page errors from the Blob checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
+      [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
+
+    // ── Owl: a vector character (16:9 page unless noted) ─────────────────────
+    const ow = (...rs) => JSON.stringify(rs.map((r) => r && ({ loud: r.loud, fast: r.fast, lean: r.lean, happy: r.happy, open: r.open, blink: r.blink, clock: r.clock, lift: r.lift, shrink: r.shrink,
+      tilt: r.tilt, wing: r.wing, flap: r.flap, sing: r.sing, notes: r.notes, ink: r.ink, top: r.top, bottom: r.bottom, emptyCols: r.emptyCols })));
+    await charOn('owl', [page, p43, wide], false);
+    for (const pg of [page, p43, wide]) {
+      const [size, h] = await pg.evaluate(() => [`${W}×${H}`, H]);
+      const [r] = await owlRun(pg, [{ secs: 3, ...talk }]);
+      check(`owl: a whole owl inside the frame at ${size}`, r.ink > 0 && r.top > 0 && r.bottom < h - 1 && r.emptyCols > 0 && r.shrink === 1 && r.wing > 0.8 && r.notes >= 1, ow(r));
+    }
+    const [oQuiet2, oLoud2] = await owlRun(wide, [{ secs: 3, ...silence }, { secs: 3, ...loudTalk }]);
+    check('owl: silent it rests with folded wings; a voice lifts its wings, opens its beak, makes it happy and sets it singing',
+      Math.abs(oQuiet2.wing - 0.12) < 1e-6 && oQuiet2.open === 0 && oQuiet2.happy === false && oQuiet2.sing === 0 && oQuiet2.notes === 0 && Math.abs(oQuiet2.lift) < 0.01 && oQuiet2.tilt === 0
+      && oLoud2.wing > 1.1 && oLoud2.open === 1 && oLoud2.happy === true && oLoud2.sing === 1 && oLoud2.notes >= 1 && oLoud2.alpha > 1.03 * oQuiet2.alpha, ow(oQuiet2, oLoud2));
+    const owStateSteps = [{ secs: 1, ...silence }, { secs: 0.05, ...loudTalk }, { secs: 0.25, ...loudTalk }, { secs: 2, ...loudTalk }];
+    const owStates = await owlRun(wide, owStateSteps, { odd: true }), owUsual = await owlRun(wide, owStateSteps);
+    check('owl: leaves the canvas state as it found it', [oQuiet2, oLoud2, ...owStates].every(stateKept), stateOf([oQuiet2, oLoud2, ...owStates]));
+    check('owl: draws the same whatever line settings it is handed', owStates.every((r, i) => r.ink === owUsual[i].ink && r.alpha === owUsual[i].alpha),
+      JSON.stringify(owStates.map((r, i) => [r.ink, owUsual[i].ink, r.alpha, owUsual[i].alpha])));
+    const [owRest, owHop, owLanded] = await owlRun(wide, [{ secs: 1.5, ...silence }, { secs: 0.15, ...loudTalk }, { secs: 4, ...loudTalk }]);
+    check('owl: a syllable bobs it, and it settles', Math.abs(owRest.lift) < 0.01 && owHop.lift > 2 * 4.8 && Math.abs(owLanded.lift) < 0.5 * 4.8, ow(owRest, owHop, owLanded));
+    const owBlinks = (await owlRun(wide, Array.from({ length: 96 }, () => ({ secs: 0.04, ...silence })))).map((r) => r.blink);
+    const owShut = owBlinks.filter((v) => v > 0).length;
+    check('owl: it blinks', Math.max(...owBlinks) > 0.7 && Math.min(...owBlinks) === 0 && owShut >= 2 && owShut <= 9, JSON.stringify({ most: Math.max(...owBlinks), framesShut: owShut }));
+    const [owLowOnly] = await owlRun(wide, [{ secs: 2, wave: 0.3, low: 0.9, high: 0, peak: 0.3 }]);
+    const [owHighOnly] = await owlRun(wide, [{ secs: 2, wave: 0.3, low: 0, high: 0.9, peak: 0.3 }]);
+    check('owl: it leans toward the end of the sound that is winning', owLowOnly.tilt < -0.12 && owHighOnly.tilt > 0.12 && Math.abs(owLowOnly.tilt + owHighOnly.tilt) < 0.01, ow(owLowOnly, owHighOnly));
+
+    // The Bounce setting.
+    const [, owStill, owStillLoud] = await owlRun(wide, [{ secs: 1.5, ...silence, config: { bounce: 0 } }, { secs: 0.15, ...loudTalk }, { secs: 3, ...loudTalk }]);
+    check('owl: Bounce 0 stills it: no bob, no lean, no flap, though its beak and eyes still answer',
+      owStill.lift === 0 && Math.abs(owStillLoud.wing - 0.12) < 1e-6 && owStillLoud.tilt === 0 && owStillLoud.open === 1 && owStillLoud.happy === true, ow(owStill, owStillLoud));
+    const owSyll = Array.from({ length: 24 }, (_, i) => (i % 2 ? { secs: 0.3, ...silence } : { secs: 0.2, wave: 0.67, low: 0.2, high: 1, peak: 0.6 }));
+    const owHard = await owlRun(wide, [{ secs: 0, ...silence, config: { bounce: 100 } }, ...owSyll]);
+    const owHardSmall = await owlRun(page, owSyll);
+    await wide.evaluate(() => applyConfig({ bounce: 50 }));
+    check('owl: at Bounce 100 and full voice it bobs higher and stays inside the frame, on the wide and the small page',
+      owHard.slice(1).every((r) => r.top > 0 && r.bottom < 623) && Math.max(...owHard.map((r) => r.lift)) > 6 * 4.8 && owHardSmall.every((r) => r.top > 0 && r.bottom < 129),
+      JSON.stringify({ lift: Math.max(...owHard.map((r) => r.lift)), top: Math.min(...owHard.slice(1).map((r) => r.top)), bottom: Math.max(...owHard.map((r) => r.bottom)), smallTop: Math.min(...owHardSmall.map((r) => r.top)), smallBottom: Math.max(...owHardSmall.map((r) => r.bottom)) }));
+
+    // Mic off.
+    const owOff = await owlRun(wide, [{ secs: 2, ...loudTalk }, ...Array.from({ length: 16 }, () => ({ secs: 0.25, ...off }))]);
+    check('owl: mic off it is still: upright, wings folded, beak shut, no notes',
+      owOff.slice(9).every((r) => Math.abs(r.tilt) < 1e-3 && Math.abs(r.wing - 0.12) < 1e-4 && r.open < 1e-6 && r.notes === 0 && Math.abs(r.lift) < 0.05) && owOff[16].ink > 0, ow(owOff[16]));
+    await charOn('owl', [wide], true);
+    const owIdle = (await owlRun(wide, Array.from({ length: 36 }, () => ({ secs: 0.25, ...off })))).map((r) => r.tilt);
+    check('owl: mic off with idle animation: it sways', Math.max(...owIdle) > 0.04 && Math.min(...owIdle) < -0.04 && Math.max(...owIdle) < 0.051, JSON.stringify([Math.min(...owIdle), Math.max(...owIdle)]));
+    await charOn('owl', [wide], false);
+
+    // The box.
+    const [, owPushFrom, owPushTo] = await owlRun(wide, [{ secs: 2, ...talk }, { secs: 1 / 60, ...talk }, { secs: 1 / 60, ...talk, config: { colorHue: 30 } }]);
+    await wide.evaluate(() => applyConfig({ colorHue: 0 }));
+    check('owl: a config push keeps it as it is', owPushTo.clock > owPushFrom.clock && owPushTo.clock > 2 && Math.abs(owPushTo.wing - owPushFrom.wing) < 0.2, ow(owPushFrom, owPushTo));
+    const [, owSizeFrom, owSized, owSizeLater] = await owlRun(wide, [{ secs: 2, ...silence }, { secs: 1 / 60, ...silence }, { secs: 1 / 60, ...silence, config: { showLabels: false } }, { secs: 2, ...silence }]);
+    await wide.evaluate(() => applyConfig({ showLabels: true }));
+    check('owl: a real size change keeps it, in the middle of the new frame',
+      owSized.clock > owSizeFrom.clock && Math.abs((owSized.top + owSized.bottom) / 2 - (816 / 2 + 4 * 4.8)) < 8 && Math.abs((owSizeFrom.top + owSizeFrom.bottom) / 2 - (624 / 2 + 4 * 4.8)) < 8
+      && owSizeLater.top > 0 && owSizeLater.ink > 0, ow(owSizeFrom, owSized, owSizeLater));
+
+    const owlCost = await charCost('owl');
+    check('owl: draws in under 1.5 ms', owlCost < 1.5, `${owlCost.toFixed(3)} ms a frame`);
+    check('owl: no page errors from the Owl checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
       [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
 
     await pushConfig((c) => { c.activeViz = 'visualizer'; });
