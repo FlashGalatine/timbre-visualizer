@@ -1,6 +1,6 @@
 # Timbre
 
-A **Streamer.bot-native microphone audio visualizer** for OBS — 49 hand-built canvas/WebGL
+A **Streamer.bot-native microphone audio visualizer** for OBS — 50 hand-built canvas/WebGL
 effects in one overlay, driven live from a browser control panel (usable as an OBS dock).
 **No dedicated server**: the overlay captures its own microphone with the Web Audio API,
 and Streamer.bot's built-in HTTP + WebSocket servers do the hosting and config relay.
@@ -15,7 +15,7 @@ control.html ── DoAction "Timbre Push" {config} ──► Streamer.bot (C# c
                                                         ▼
                                     overlay page (OBS Browser Source)
                                     ├─ getUserMedia + AnalyserNode  ← its OWN mic capture
-                                    └─ 49 self-registering effect factories
+                                    └─ 50 self-registering effect factories
 ```
 
 - **No audio crosses any wire.** Each overlay page runs its own `getUserMedia` →
@@ -55,9 +55,9 @@ OBS Browser Source and
 > `.../timbre-spike/mic-test.html` as a Browser Source once to confirm it auto-grants
 > the microphone on your OBS build (see docs/SETUP.md → "CEF mic check").
 
-## The 49 effects
+## The 50 effects
 
-37 canvas-2D + 12 WebGL (three.js, vendored — works offline). Includes spectrum bars,
+37 canvas-2D + 13 WebGL (three.js, vendored — works offline). Includes spectrum bars,
 waveforms, matrix rain with custom text, seasonal/holiday scenes, pride ribbons, and
 spinning 3D STL models with a shared knob group (rotation, position, clones, spark
 particles). Add your own: drop a factory file in `overlay/factories/`, register it in

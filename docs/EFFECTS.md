@@ -331,6 +331,27 @@ All its timing comes from `dt` and all its randomness from the `random` it is gi
 `window.__pulseRingsSeed` seeds Pulse Rings and `window.__orbitSeed` Orbit. Like `helix.js`, the file must stay loadable under
 Node, because `npm run verify` imports it.
 
+## Infall (`TimbreInfall`)
+
+`overlay/infall.js` holds what falls into the Black Hole effect as `globalThis.TimbreInfall`;
+the effect in `factories/black-hole.js` reads the sound and draws, nothing in `infall.js` draws.
+It offers:
+
+- `most(density)` and `rate(density)`: the most things there can be at once for a Density of 0
+  to 100 (30 to 100), and how often they arrive as a multiple (0.4 to 1.6).
+- `createInfall({ random })`: everything that is falling, driven by
+  `step({ dt, live, loud, peak, threshold, density, W, H, scale })`, which returns `'gulp'` on the
+  frame a peak makes the hole gulp. It exposes `things` (each with its `kind`, its distance `r`
+  and angle `th`, its place `x`, `y` as an offset from the hole, depth `z`, `near`, fade `born`,
+  `size`, palette offset `col` and the recent places `hist` its trail is drawn from), `eaten`,
+  `gulps`, `pull`, `feed`, `gulp`, `jet`, `spin`, `sinceGulp`, `loud`, `fast` and `clock`.
+- `HOLE_R`, `END`, `TRAIL`, `NOTE_S`: its sizes and constants.
+
+All its timing comes from `dt` and all its randomness from the `random` it is given;
+`window.__blackHoleSeed` seeds the effect. It uses `TimbrePlanets.place` and `reach`, so
+`planets.js` must be loaded before it. Like `helix.js`, the file must stay loadable under Node,
+because `npm run verify` imports it.
+
 ## Wire format (for driving Timbre from elsewhere)
 
 Anything that can call a Streamer.bot action can drive Timbre:

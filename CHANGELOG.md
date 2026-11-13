@@ -12,6 +12,16 @@ traceability.
 
 ### Added
 
+- **Black Hole**, a new effect (the fiftieth), listed after Pulse Rings. A solid black disc
+  with a bright rim and a tilted, turning disc of glowing gas. Streaks of light, small comets
+  and fireflies come in from beyond the frame, spiral round faster as they close in, and vanish
+  into the hole. Louder, the hole pulls harder: more falls in, and faster; each syllable throws
+  in a handful more and ripples inward through the gas. A hard peak makes the hole gulp down
+  everything in sight and fire a jet of light from each pole. Settings: `density` (how much
+  falls in) and `gulpSensitivity` (0 to 100, default 50; 0 turns the gulp off). What falls in
+  is in `overlay/infall.js` (`TimbreInfall`), loaded by all three overlay pages and by
+  `verify` under Node, and documented in `docs/EFFECTS.md` ("Infall"). Unlike the other
+  effects of this family, which only add light, the hole itself is drawn solid black.
 - **Orbit settings**: `planets` (0 to 9, default 6) and `flareSensitivity` (0 to 100, default
   50; 0 turns the sun's flare off) for the Orbit effect. The system behind the new Orbit is
   `TimbrePlanets.createSystem` in `overlay/planets.js`.
