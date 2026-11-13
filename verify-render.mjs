@@ -80,7 +80,17 @@
 //           moment does not flare; mic off the planets drift, and with the idle animation the sun
 //           breathes; Planets sets how many, down to the sun alone, also mid-flight; a config push
 //           and a size change keep the planets; a seeded run repeats; the canvas state is left as
-//           found; a draw stays inside its time budget; and the control panel shows its two sliders.
+//           found; a draw stays inside its time budget; and the control panel shows its two sliders •
+//           black hole: things falling into a solid black hole on all three pages; a voice feeds
+//           it far more and the gas brightens and turns faster; a syllable ripples inward through
+//           the gas; the low end swells the hole and the high end makes the fireflies flicker; a
+//           peak makes it gulp down what is in sight and fire its jets (wide and small pages); a
+//           held yell gulps every second and a half; Gain at 200% and Gulp Sensitivity 0 never
+//           gulp; the waveform peak stands in for a missing micPeak; the mic opening on a loud
+//           moment does not gulp; mic off a trickle keeps falling, and with the idle animation
+//           the hole breathes; Density sets how much falls in; a config push and a size change
+//           keep everything falling; a seeded run repeats; the canvas state is left as found; a
+//           draw stays inside its time budget; and the control panel lists it with its two sliders.
 
 import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -235,7 +245,7 @@ const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1, odd = fal
   }
 }, { name, seedKey, steps, fps, seed, odd });
 const dnaRun = effectRun('dna', '__dnaSeed'), cometRun = effectRun('comet', '__cometSeed'), fliesRun = effectRun('fireflies', '__firefliesSeed');
-const ringsRun = effectRun('pulse-rings', '__pulseRingsSeed'), orbitRun = effectRun('orbit', '__orbitSeed');
+const ringsRun = effectRun('pulse-rings', '__pulseRingsSeed'), orbitRun = effectRun('orbit', '__orbitSeed'), holeRun = effectRun('black-hole', '__blackHoleSeed');
 const talk = { wave: 0.5, low: 0.5, high: 0.3, peak: 0.5 }, silence = { wave: 0, low: 0, high: 0, peak: 0 };
 
 // The five checks every afterglow effect must pass. slack: live pixels that legitimately
@@ -1436,6 +1446,140 @@ async function main() {
     check('orbit: no page errors from the Orbit checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
       [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
 
+    // ── Black Hole: light, comets and fireflies falling in (16:9 page unless noted) ──
+    const holeOn = async (pages, idle) => {
+      await pushConfig((c) => { c.activeViz = 'black-hole'; c.idleAnim = idle; });
+      for (const pg of pages) await pg.waitForFunction((i) => window.__timbre.currentVizName === 'black-hole' && cfgIdleAnim === i, idle, { timeout: 5000 });
+    };
+    const bh = (...rs) => JSON.stringify(rs.map((r) => r && ({ n: r.n, drawn: r.drawn, eaten: r.eaten, gulps: r.gulps, pull: r.pull, feed: r.feed, gulp: r.gulp, jet: r.jet,
+      loud: r.loud, low: r.low, high: r.high, holeR: r.holeR, glow: r.glow, levelOut: r.levelOut, levelMid: r.levelMid, levelIn: r.levelIn, gasAlpha: r.gasAlpha,
+      flicker: r.flicker, spin: r.spin, ink: r.ink })));
+    const bhKnobs = (k) => ({ perViz: { 'black-hole': k } });
+    // The middle of the canvas, as the last frame of a run left it: [r, g, b, a].
+    const middle = (pg) => pg.evaluate(() => [...ctx.getImageData(Math.floor(W / 2), Math.floor(H / 2), 1, 1).data]);
+    await holeOn([page, p43, wide], false);
+    for (const pg of [page, p43, wide]) {
+      const size = await pg.evaluate(() => `${W}×${H}`);
+      const [r, dot] = await pg.evaluate(() => 0).then(async () => { const out = await holeRun(pg, [{ secs: 6, ...talk }]); return [out[0], await middle(pg)]; });
+      check(`black hole: things falling into a solid black hole at ${size}`,
+        r.ink > 0 && r.n > 5 && r.drawn === r.n && r.eaten > 0 && r.gulps === 0 && dot.join() === '0,0,0,255', bh(r) + ' middle ' + dot.join());
+    }
+    const [hQuiet, hLoud] = await holeRun(wide, [{ secs: 8, ...silence }, { secs: 8, ...loudTalk }]);
+    check('black hole: silent, a trickle falls in; a voice feeds it far more, and the gas brightens and turns faster',
+      hQuiet.n > 3 && Math.abs(hQuiet.pull - 0.45) < 0.01 && hLoud.pull > 2.5 && hLoud.eaten - hQuiet.eaten > 4 * Math.max(1, hQuiet.eaten) && hLoud.gasAlpha > 1.5 * hQuiet.gasAlpha
+      && hLoud.glow > hQuiet.glow + 0.3 && hLoud.spin - hQuiet.spin > 2 * hQuiet.spin, bh(hQuiet, hLoud));
+    check('black hole: leaves the canvas state as it found it',
+      [hQuiet, hLoud].every((r) => r.op === 'source-over' && r.blur === 0 && r.globalAlpha === 1 && r.offsetX === 0 && r.transformKept === true),
+      JSON.stringify([hQuiet, hLoud].map((r) => [r.op, r.blur, r.globalAlpha, r.offsetX, r.transformKept])));
+    // One syllable, then quiet: it is at the gas's outer edge first, the middle next, the inner edge last.
+    const [, hOut, hMid, hIn] = await holeRun(wide, [{ secs: 1.5, ...silence }, { secs: 0.1, ...loudTalk }, { secs: 0.36, ...silence }, { secs: 0.4, ...silence }]);
+    check('black hole: a syllable ripples inward through the gas',
+      hOut.levelOut > 0.6 && hOut.levelMid < 0.05 && hOut.levelIn < 0.05 && hMid.levelMid > 0.3 && hMid.levelOut < 0.05 && hMid.levelIn < 0.05
+      && hIn.levelIn > 0.3 && hIn.levelOut < 0.05 && hIn.levelMid < 0.05, bh(hOut, hMid, hIn));
+    const [hLowOnly] = await holeRun(wide, [{ secs: 4, wave: 0.3, low: 0.9, high: 0, peak: 0.3 }]);
+    const [hHighOnly] = await holeRun(wide, [{ secs: 4, wave: 0.3, low: 0, high: 0.9, peak: 0.3 }]);
+    check('black hole: the low end swells the hole, and the high end makes the fireflies flicker',
+      hLowOnly.holeR > hHighOnly.holeR * 1.06 && hHighOnly.high > 0.5 && hLowOnly.high < 0.1, bh(hLowOnly, hHighOnly));
+    const hFlick = await holeRun(wide, Array.from({ length: 20 }, () => ({ secs: 0.05, wave: 0.5, low: 0, high: 0.9, peak: 0.3 })));
+    const hCalm = await holeRun(wide, Array.from({ length: 20 }, () => ({ secs: 0.05, wave: 0.5, low: 0.9, high: 0, peak: 0.3 })));
+    check('black hole: (the flicker is seen on the fireflies that are there)',
+      Math.max(...hFlick.map((r) => r.flicker)) > 0.2 && Math.max(...hCalm.map((r) => r.flicker)) < 0.02, JSON.stringify([Math.max(...hFlick.map((r) => r.flicker)), Math.max(...hCalm.map((r) => r.flicker))]));
+
+    // The gulp.
+    const hYell = [{ secs: 4, ...talk }, { secs: 0.1, ...talk, peak: 0.95 }];
+    const [hCalmly, hGulped, hJets, hEmpty] = await holeRun(wide, [...hYell, { secs: 0.3, ...talk }, { secs: 0.9, ...silence }]);
+    check('black hole: a peak makes the hole gulp down what is in sight and fire its jets',
+      hCalmly.gulps === 0 && hCalmly.n > 10 && hGulped.gulps === 1 && hGulped.gulp > 0.5 && hGulped.jet === 0 && hJets.jet > 0.5 && hJets.pull > hCalmly.pull
+      && hEmpty.n < 0.35 * hCalmly.n && hEmpty.eaten - hCalmly.eaten >= 0.7 * hCalmly.n, bh(hCalmly, hGulped, hJets, hEmpty));
+    const [, hSmall, , hSmallEmpty] = await holeRun(page, [...hYell, { secs: 0.3, ...talk }, { secs: 0.9, ...silence }]);
+    check('black hole: the same on the small page', hSmall.gulps === 1 && hSmallEmpty.n <= 5, bh(hSmall, hSmallEmpty));
+    const [, hHeld] = await holeRun(wide, [{ secs: 2, ...talk }, { secs: 3.5, ...talk, peak: 0.95 }]);
+    check('black hole: a held yell gulps again only every second and a half', hHeld.gulps === 3, bh(hHeld));
+    const [hGain] = await holeRun(wide, [{ secs: 5, wave: 0.6, low: 0.6, high: 0.6, peak: 0.6, config: { gain: 200 } }]);
+    await wide.evaluate(() => applyConfig({ gain: 100 }));
+    check('black hole: talking with Gain at 200% does not make it gulp', hGain.gulps === 0, bh(hGain));
+    const [, hSens0] = await holeRun(wide, [{ secs: 2, ...talk, config: bhKnobs({ gulpSensitivity: 0 }) }, { secs: 1, ...talk, peak: 1 }]);
+    await wide.evaluate(() => applyConfig({ perViz: { 'black-hole': { gulpSensitivity: 50 } } }));
+    check('black hole: Gulp Sensitivity 0 never gulps', hSens0.gulps === 0, bh(hSens0));
+    const [, hWave] = await holeRun(wide, [{ secs: 2, ...talk }, { secs: 0.1, wave: 0.95, low: 0.5, high: 0.3, peak: null }]);
+    check('black hole: falls back to the waveform peak', hWave.gulps === 1, bh(hWave));
+    const [, hOpen] = await holeRun(wide, [{ secs: 2, ...off }, { secs: 0.3, ...talk, peak: 0.95 }]);
+    check('black hole: the mic opening on a loud moment does not make it gulp', hOpen.gulps === 0, bh(hOpen));
+
+    // Mic off.
+    const [hBefore, hOff] = await holeRun(wide, [{ secs: 3, ...loudTalk }, { secs: 8, ...off }]);
+    check('black hole: mic off, a trickle keeps falling in',
+      Math.abs(hOff.pull - 0.45) < 0.01 && hOff.loud < 0.01 && hOff.low < 0.001 && hOff.eaten > hBefore.eaten && hOff.n > 3 && Math.abs(hOff.holeR - 12 * 4.8) < 0.6, bh(hBefore, hOff));
+    await holeOn([wide], true);
+    const hIdle = (await holeRun(wide, [{ secs: 0, ...off }, ...Array.from({ length: 24 }, () => ({ secs: 0.25, ...off }))])).slice(1);
+    const hIdleR = hIdle.map((r) => r.holeR);
+    check('black hole: mic off with idle animation: the hole breathes',
+      Math.max(...hIdleR) - Math.min(...hIdleR) > 0.015 * 12 * 4.8 && hIdle.every((r) => r.gulps === 0 && Math.abs(r.pull - 0.45) < 0.01),
+      JSON.stringify({ holeR: [Math.min(...hIdleR), Math.max(...hIdleR)], pull: hIdle[23].pull }));
+    await holeOn([wide], false);
+
+    // Settings and the box. Speech keeps the frame fullest: syllables of 0.2 s every half second.
+    const speech = Array.from({ length: 40 }, (_, i) => (i % 2 ? { secs: 0.3, ...silence } : { secs: 0.2, ...loudTalk }));
+    const mostOf = (rs) => Math.max(...rs.map((r) => r.n));
+    const hFew = await holeRun(wide, [{ secs: 0, ...silence, config: bhKnobs({ density: 0 }) }, ...speech]);
+    const hDefault = await holeRun(wide, [{ secs: 0, ...silence, config: bhKnobs({ density: 50 }) }, ...speech]);
+    const hMany = await holeRun(wide, [{ secs: 0, ...silence, config: bhKnobs({ density: 100 }) }, ...speech]);
+    await wide.evaluate(() => applyConfig({ perViz: { 'black-hole': { density: 50 } } }));
+    check('black hole: Density sets how much falls in, up to its limit',
+      mostOf(hFew) <= 30 && mostOf(hFew) > 8 && mostOf(hDefault) <= 65 && mostOf(hDefault) > mostOf(hFew) + 10 && mostOf(hMany) <= 100 && mostOf(hMany) > mostOf(hDefault) + 10
+      && hMany.every((r) => r.drawn === r.n), JSON.stringify([mostOf(hFew), mostOf(hDefault), mostOf(hMany)]));
+    const [, hPushFrom, hPushTo] = await holeRun(wide, [{ secs: 3, ...talk }, { secs: 1 / 60, ...talk }, { secs: 1 / 60, ...talk, config: { bounce: 70 } }]);
+    await wide.evaluate(() => applyConfig({ bounce: 50 }));
+    check('black hole: a config push keeps everything falling', hPushFrom.n > 5 && Math.abs(hPushTo.n - hPushFrom.n) <= 2 && hPushTo.eaten >= hPushFrom.eaten && hPushTo.spin > hPushFrom.spin, bh(hPushFrom, hPushTo));
+    const [, hSizeFrom, hSized, hSizeLater] = await holeRun(wide, [{ secs: 3, ...talk }, { secs: 1 / 60, ...talk },
+      { secs: 1 / 60, ...talk, config: { showLabels: false } }, { secs: 3, ...talk }]);
+    await wide.evaluate(() => applyConfig({ showLabels: true }));
+    check('black hole: a real size change keeps everything falling',
+      Math.abs(hSized.n - hSizeFrom.n) <= 2 && hSized.drawn === hSized.n && hSizeLater.eaten > hSizeFrom.eaten && hSizeLater.n > 5 && hSizeLater.ink > 0, bh(hSizeFrom, hSized, hSizeLater));
+    // The size change just above gave the page a fresh canvas, and the browser draws a canvas a
+    // little differently once its pixels have been read back twice (measured on this effect: the
+    // same seeded run inks 116111 px on the first two reads of a fresh canvas and 116522 px on every
+    // read after). Three runs are thrown away first so the runs compared are all drawn the same way.
+    const hSeeded = async (seed) => (await holeRun(wide, [{ secs: 3, ...talk }], { seed }))[0];
+    for (let i = 0; i < 3; i++) await hSeeded(1);
+    const hSeedA = await hSeeded(7), hSeedB = await hSeeded(7), hSeedC = await hSeeded(8);
+    check('black hole: a seeded run repeats', hSeedA.n > 5 && hSeedA.n === hSeedB.n && hSeedA.ink === hSeedB.ink && hSeedA.eaten === hSeedB.eaten && hSeedA.ink !== hSeedC.ink, bh(hSeedA, hSeedB, hSeedC));
+
+    // Cost, at the highest Density: 420 frames of speech, the one frame of a 0.95 peak, then 60 more.
+    const holeCost = await wide.evaluate(() => {
+      const saved = { frequencies, waveform, micActive, micPeak, seed: window.__blackHoleSeed };
+      try {
+        applyConfig({ perViz: { 'black-hole': { density: 100 } } });
+        window.__blackHoleSeed = 1;
+        currentViz = VIZ_FACTORIES['black-hole']();
+        const f = new Uint8Array(32), loudW = new Uint8Array(64), quietW = new Uint8Array(64).fill(128);
+        f.fill(204, 0, 2); f.fill(204, 2, 11);
+        for (let i = 0; i < 64; i++) loudW[i] = 128 + Math.round(Math.sin(i * 0.4) * 0.6 * 127);
+        frequencies = f; micActive = true;
+        let now = performance.now(), most = 0, frame = 0;
+        const frames = (n, peak) => {
+          micPeak = peak; const t0 = performance.now();
+          for (let k = 0; k < n; k++) { waveform = (frame++ % 30) < 12 ? loudW : quietW; now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+          return (performance.now() - t0) / n;
+        };
+        frames(240, 0.6);                                   // fill the frame first
+        const before = currentViz.probe();
+        const falling = frames(180, 0.6); most = currentViz.probe().n;
+        const gulp = frames(1, 0.95);
+        const after = frames(60, 0.6), then = currentViz.probe();
+        return { falling, gulp, after, filled: before.n, most, gulps: then.gulps };
+      } finally {
+        frequencies = saved.frequencies; waveform = saved.waveform; micActive = saved.micActive; micPeak = saved.micPeak;
+        window.__blackHoleSeed = saved.seed;
+        applyConfig({ perViz: { 'black-hole': { density: 50 } } });
+      }
+    });
+    check('black hole: draws in under 1.5 ms at the highest Density, gulping or not',
+      holeCost.filled > 65 && holeCost.gulps === 1 && holeCost.falling < 1.5 && holeCost.after < 1.5 && holeCost.gulp < 4,
+      `falling ${holeCost.falling.toFixed(3)}, gulp frame ${holeCost.gulp.toFixed(2)}, after ${holeCost.after.toFixed(3)} (${holeCost.filled} then ${holeCost.most} things, ${holeCost.gulps} gulp)`);
+    check('black hole: no page errors from the Black Hole checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
+      [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
+
     await pushConfig((c) => { c.activeViz = 'visualizer'; });
     check('dna: no page errors from the DNA checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
       [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
@@ -1453,7 +1597,7 @@ async function main() {
 
     const ctlPage = await ctxt.newPage();
     await ctlPage.goto(controlUrl, { waitUntil: 'load' });
-    await ctlPage.waitForFunction(() => document.querySelectorAll('#activeViz option').length >= 49, { timeout: 5000 });
+    await ctlPage.waitForFunction(() => document.querySelectorAll('#activeViz option').length >= 50, { timeout: 5000 });
     // sync-on-connect should have populated the picker with the pushed state
     check('control panel syncs current activeViz on connect', await ctlPage.waitForFunction(
       () => document.getElementById('activeViz').value === 'visualizer', { timeout: 5000 }).then(() => true).catch(() => false));
@@ -1526,6 +1670,13 @@ async function main() {
     check('Orbit shows its two sliders', await ctlPage.evaluate(() =>
       ['Planets', 'Flare Sensitivity'].every((t) => [...document.querySelectorAll('#perVizKnobs label')].some((l) => l.textContent === t))
       && document.getElementById('pv-orbit-planets').max === '9' && document.querySelectorAll('#perVizKnobs .row').length === 2));
+    await ctlPage.selectOption('#activeViz', 'black-hole');
+    check('Black Hole is in the list after Pulse Rings and shows its two sliders', await ctlPage.evaluate(() => {
+      const names = [...document.querySelectorAll('#activeViz option')].map((o) => o.value);
+      return names.indexOf('black-hole') === names.indexOf('pulse-rings') + 1 && names.length === 50
+        && ['Density', 'Gulp Sensitivity'].every((t) => [...document.querySelectorAll('#perVizKnobs label')].some((l) => l.textContent === t))
+        && !!document.getElementById('pv-black-hole-gulpSensitivity') && document.querySelectorAll('#perVizKnobs .row').length === 2;
+    }));
     // Put afterglow back to its default so the shared mock state stays clean.
     const glowMark = observed.length;
     await ctlPage.evaluate(() => { const e = document.getElementById('afterglow'); e.value = '1.6'; e.dispatchEvent(new Event('input', { bubbles: true })); });
