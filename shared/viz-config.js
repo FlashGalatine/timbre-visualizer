@@ -13,7 +13,7 @@
   // Allowlist of visualizer names accepted by `activeViz`. Order is the
   // dropdown order in the control panel.
   const ACTIVE_VIZ_NAMES = [
-    'visualizer', 'waveform', 'blob', 'owl', 'peak-hold', 'ring-bars', 'ring-waveform',
+    'visualizer', 'waveform', 'blob', 'owl', 'television', 'peak-hold', 'ring-bars', 'ring-waveform',
     'comet', 'orbit', 'spectrogram', 'dna', 'fireflies', 'pulse-rings', 'black-hole', 'matrix',
     'sine-bars', 'mountains-2d', 'mountains-3d', 'vaporwave', 'peaks-mirror', 'sunburst-3d',
     'galaxy-ripple', 'tunnel', 'metaball', 'glass-prism', 'chladni', 'phosphor', 'ink',
@@ -53,6 +53,7 @@
   // its own range. String-typed defaults (see 'matrix') pass through verbatim
   // (capped at 4096 chars) instead of clamped.
   const DEFAULT_PER_VIZ = {
+    'television':    {},
     'peak-hold':     { fallSpeed: 50 },
     'ring-bars':     { spokes: 50 },
     'ring-waveform': { amplitude: 50 },

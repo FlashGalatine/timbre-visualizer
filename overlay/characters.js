@@ -65,6 +65,18 @@
   const OWL_BLINK = 3.8, OWL_BLINK_AT = 1.3; // seconds between its blinks, and its place in that cycle
   const OWL_LOOK = 1.23;                     // its eyes are turned fully at a lean of 1 / this
 
+  // The Television. Its drawing is in units of its own; TV_K turns one into px × scale.
+  const TV_K = 0.92;
+  const TV_DOWN = 5;                         // × scale: how far below the middle of the frame it floats
+  const TV_UP = 56, TV_BELOW = 40;           // drawing units: how far it reaches above its middle (antennae, tilting) and below (feet, tilting)
+  const TV_HZ = 2.1, TV_DAMP = 0.24, TV_KICK = 2000;         // its spring, and how hard a syllable kicks it
+  const TV_HOVER = 2.2, TV_HOVER_RATE = 1.7; // × scale and rad/s: it floats
+  const TV_TILT = 0.1, TV_TILT_BOUNCE = 0.0025, TV_TILT_S = 0.12;   // rad at a full lean; rad per unit of the spring's speed; its easing
+  const TV_TILT_MAX = 0.3;                   // rad: the most it tilts, which its reach above and below allows for
+  const WAG_HZ = 3.4, WAG_DAMP = 0.14, WAG_KICK = 180, WAG_LEAN = 90;   // the antennae's own spring: a syllable's kick, and the pull of a full lean (about 0.2)
+  const ROLL_RATE = 0.35;                    // the band on the screen rolls down this many times a second
+  const TV_MOUTH = 1.4, TV_SMILE = 2;        // its mouth is at full swing at a fast loudness of 1 / the first; its smile is gone at 1 / the second
+
   const clamp01 = (v) => (v > 1 ? 1 : v > 0 ? v : 0);
   const follow = (current, target, dt, tau) => current + (target - current) * (1 - Math.exp(-dt / tau));
   // The same, for a weight that must arrive: within a thousandth of the target it is the target.
@@ -246,6 +258,40 @@
     return o;
   }
 
+  // The Television's pose. step({ dt, live, level, bounce, idle, W, H, scale }) takes the sound
+  // levels, the Bounce setting and whether the idle animation applies. It then holds: k (px for
+  // one unit of its drawing), cy (its middle, as an offset from the frame's, with the hover and
+  // the bounce in it), lift (how far the bounce has raised it, px), shrink, tilt (rad), wag (how
+  // far its antennae are sprung, about -1 to 1), dials ([low, high], 0 to 1), speaker (0 to 1),
+  // roll (where the band on its screen is, 0 to 1), asleep (the mic is off), open (how far its
+  // mouth swings, 0 to 1), smile (1 quiet to 0 talking), and its ears.
+  function createTelevision() {
+    const ears = createEars(), spring = createSpring(TV_HZ, TV_DAMP), antennae = createSpring(WAG_HZ, WAG_DAMP);
+    const v = { ears, k: 0, cy: 0, lift: 0, shrink: 1, tilt: 0, wag: 0, dials: [0, 0], speaker: 0, roll: 0, asleep: true, open: 0, smile: 1 };
+    v.step = ({ dt, live, level, bounce: setting, idle, W, H, scale }) => {
+      ears.step({ dt, live, loud: level.loud, low: level.low, high: level.high });
+      const k = bounce(setting);
+      spring.step(dt, ears.rise * TV_KICK * k);
+      antennae.step(dt, (ears.rise * WAG_KICK + ears.lean * WAG_LEAN) * k);
+      if (k === 0) { spring.reset(); antennae.reset(); }
+      v.tilt = k === 0 ? 0 : follow(v.tilt, Math.max(-TV_TILT_MAX, Math.min(TV_TILT_MAX, ears.lean * TV_TILT * k + spring.v * TV_TILT_BOUNCE)), dt, TV_TILT_S);
+      v.wag = antennae.x;
+      v.lift = k === 0 ? 0 : spring.x * scale;
+      v.dials[0] = ears.low; v.dials[1] = ears.high;
+      v.speaker = ears.fast;
+      v.roll = (v.roll + dt * ROLL_RATE) % 1;
+      v.asleep = !live;
+      v.open = clamp01(ears.fast * TV_MOUTH);
+      v.smile = 1 - clamp01(ears.fast * TV_SMILE);
+      // It floats while the mic is on, and in its sleep when the idle animation is on.
+      const hover = live || idle ? Math.sin(ears.clock * TV_HOVER_RATE) * TV_HOVER : 0;
+      const unit = TV_K * scale;
+      const at = settle(H, scale, TV_UP * unit, TV_BELOW * unit, (TV_DOWN + hover) * scale - v.lift);
+      v.shrink = at.shrink; v.cy = at.cy; v.k = unit * at.shrink;
+    };
+    return v;
+  }
+
   // The shared face, painted on `ctx` at (x, y). u is its unit, px. f gives: open (the mouth, 0
   // to 1), happy, blink (0 to 1), look (-1 to 1, where the eyes are turned), gap (half the
   // distance between the eyes, in units; 4.2 if not given) and eyesOnly (no mouth and no blush,
@@ -333,7 +379,7 @@
   }
 
   globalThis.TimbreCharacters = {
-    HAPPY_ON, HAPPY_OFF, BLINK_S, INK, WHITE, PINK, EDGE, OWL_UP, OWL_BELOW,
-    createEars, createSpring, blink, bounce, mouth, createBlob, createOwl, paintFace, glowBehind,
+    HAPPY_ON, HAPPY_OFF, BLINK_S, INK, WHITE, PINK, EDGE, OWL_UP, OWL_BELOW, TV_UP, TV_BELOW,
+    createEars, createSpring, blink, bounce, mouth, createBlob, createOwl, createTelevision, paintFace, glowBehind,
   };
 })();

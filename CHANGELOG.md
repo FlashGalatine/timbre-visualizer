@@ -12,6 +12,12 @@ traceability.
 
 ### Added
 
+- **Television**, a new character (the 51st effect), listed after Blob and Owl. A floating
+  retro set with two springy antennae, two dials and a speaker. It hovers, bounces on each
+  syllable and tilts with the sound, as Blob and Owl do. Its screen shows a face in glowing
+  lines: two bars for eyes, which blink and turn happy, and a mouth that is the live waveform.
+  With the mic off the screen is static and the face is asleep. It has no settings of its
+  own; the global **Bounce** scales it.
 - **Characters**: what the character effects share is in `overlay/characters.js`
   (`TimbreCharacters`), loaded by all three overlay pages and by `verify` under Node, and
   documented in `docs/EFFECTS.md` ("Characters").

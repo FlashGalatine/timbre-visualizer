@@ -380,11 +380,16 @@ It offers:
   `{ x, y, a, hue }`) and its `ears`. `OWL_UP` (48) and `OWL_BELOW` (41.5) are how far it
   reaches above and below its middle however it leans, in those units; it is fitted to the
   frame by them.
+- `createTelevision()`: the Television's pose, driven by the same `step({ ... })` as the Owl's. It
+  holds `k`, `cy` (with its hover in it), `lift`, `shrink`, `tilt`, `wag` (its antennae), `dials`
+  (`[low, high]`), `speaker`, `roll` (the band on its screen), `asleep` (the mic is off), `open`
+  and `smile` (its mouth), and its `ears`. `TV_UP` and `TV_BELOW` are its reach, in its own units.
 - `paintFace(ctx, x, y, u, f)` and `glowBehind(ctx, x, y, r, c, a)`: the shared face (or, with
   `eyesOnly`, just its eyes) and the glow behind a character. These two draw, on the context
   they are handed.
 
-All its timing comes from `dt`. It uses `TimbrePlanets`' colour helpers when it paints, so
+All its timing comes from `dt`; the Television's static is the only randomness, and
+`window.__televisionSeed` seeds it. It uses `TimbrePlanets`' colour helpers when it paints, so
 `planets.js` must be loaded before it. Like `helix.js`, the file must stay loadable under Node,
 because `npm run verify` imports it.
 
