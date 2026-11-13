@@ -20,7 +20,8 @@
 //   7. Helix arithmetic — overlay/helix.js under Node: the shatter threshold,
 //      the sound levels, the return curve, the seeded random source, the
 //      whole / pieces / returning state machine with its timers, the pieces
-//      flying outward and staying in the frame, and that all three overlay
+//      flying outward and staying in the frame, the optional aim (and that a
+//      blast without one is unchanged), and that all three overlay
 //      pages load it after afterglow.js and before the factories. (Also runs
 //      before section 4.)
 //   8. Comet arithmetic — overlay/comet-flight.js under Node: the path (inside

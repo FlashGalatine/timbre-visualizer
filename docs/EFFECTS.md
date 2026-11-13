@@ -245,8 +245,11 @@ the effect in `factories/dna.js` cuts and draws, nothing in `helix.js` draws. It
   frame-rate-independent smoothing.
 - `returnShare(u, lag)`: the return curve (share of the way home, and heat).
 - `rng(seed)`: a seedable random source; `window.__dnaSeed` makes the effect use it.
-- `createShatter({ random })`: the whole / pieces / returning state machine with the motion of the
-  pieces, driven by `step({ now, dt, ... })`; all timing comes from `now` and `dt`.
+- `createShatter({ random, aim })`: the whole / pieces / returning state machine with the motion of the
+  pieces, driven by `step({ now, dt, ... })`; all timing comes from `now` and `dt`. `aim` is
+  optional: `aim(x, y, W, H, scale, random)` returns the angle a blast pushes the piece at
+  `(x, y)`. Without it a blast pushes away from the frame's long axis, as the helix needs; Pulse
+  Rings aims every chunk away from the middle of the frame. A jostle is random either way.
 - `RETURN_S`, `MIN_CALM_S`, `REARM_S`, `JOSTLE_GAP_S`, `GAP_MS`: its timing constants.
 
 It must stay loadable under Node (a classic script that only assigns `globalThis.TimbreHelix`; no
@@ -291,6 +294,30 @@ nothing in `fireflies-swarm.js` draws. It offers:
 
 All its timing comes from `dt` and all its randomness from the `random` it is given;
 `window.__firefliesSeed` seeds the effect. Like `helix.js`, the file must stay loadable under
+Node, because `npm run verify` imports it.
+
+## Planets (`TimbrePlanets`)
+
+`overlay/planets.js` holds what the ringed-planet Pulse Rings and the other planet effects share,
+as `globalThis.TimbrePlanets`. The effects in `factories/` read the sound and draw. It offers:
+
+- `place(a, th, k, roll)`, `reach(k, roll)`, `fit(W, H, edge, k, roll)`: a point on a circle seen
+  tilted (flattened to `k` of its width) and leaning by `roll`, with `z` saying which half is
+  nearer; how far such a circle reaches; and the largest one that fits a frame.
+- `createEcho(span)`: a memory of a level; `note(t, v)` records it and `heard(t, delay)` is what
+  it was `delay` seconds ago.
+- `createRings()`: the ring disc, driven by `step({ dt, level, flow })`. Its `bands` each give
+  `u` (0 inner edge to 1 outer), `radius` (in planet radii), `level`, `lift`, `show` and `shock`.
+  `blast()` thins the rings from the inside out, `refill()` fills them back in, `reset()` puts
+  them back whole at once. `ringRest(u)`, `outer(flow)` and `gain(sensitivity)` are its rules.
+- `crack(R, pieces, random)`: cuts a planet's disc into convex chunks that tile it exactly.
+- `rgba`, `whiten`, `shade`: colour helpers.
+- `bodyFill(ctx, R, c, lx, ly, lit)` and `paintBands(ctx, R, c, k, list, lit)`: the shading of a
+  lit sphere and its cloud bands. These two draw, on the context they are handed.
+- `TILT`, `ROLL`, `INNER`, `OUTER`, `BANDS`, `TRAVEL_S`, `GHOST`, `PIECES`: its constants.
+
+All its timing comes from `dt` and all its randomness from the `random` it is given;
+`window.__pulseRingsSeed` seeds Pulse Rings. Like `helix.js`, the file must stay loadable under
 Node, because `npm run verify` imports it.
 
 ## Wire format (for driving Timbre from elsewhere)
