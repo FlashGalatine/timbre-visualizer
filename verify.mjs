@@ -1652,19 +1652,30 @@ await import('./overlay/characters.js');
     const [W0, H0, scale] = o.size ?? WIDE, fps = o.fps ?? 60;
     const v = o.tv ?? C.createTelevision();
     let t = 0, outside = false, bad = false, mostLift = -Infinity, mostWag = 0, mostTilt = 0, leastTilt = 0, highest = Infinity, lowest = -Infinity;
-    const rolls = [];
+    let cyStep = 0, everHeld = false, liftOff = 0, mostBlink = 0, last = null;
+    const rolls = [], snows = [];
     for (const s of script) for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) {
       t += 1 / fps;
       const W = s.W ?? W0, H = s.H ?? H0, loud = typeof s.loud === 'function' ? s.loud(t) : (s.loud ?? 0);
       v.step({ dt: 1 / fps, live: s.live !== false, level: { loud, low: s.low ?? 0, high: s.high ?? 0 }, bounce: s.bounce ?? o.bounce ?? 50, idle: !!s.idle, W, H, scale });
-      if (![v.lift, v.cy, v.tilt, v.wag, v.open, v.k, v.roll, v.speaker, v.dials[0], v.dials[1]].every(Number.isFinite)) bad = true;
-      if (v.cy - C.TV_UP * v.k < -H / 2 || v.cy + C.TV_BELOW * v.k > H / 2) outside = true;   // its antennae tips and its feet
+      if (![v.lift, v.cy, v.tilt, v.wag, v.open, v.k, v.roll, v.speaker, v.dials[0], v.dials[1], v.snow, v.blink, v.look].every(Number.isFinite)) bad = true;
+      // Measured from its drawing: an antenna's ball, straight up, reaches 53.4 units above its middle, and the
+      // corner of a foot, at its largest tilt, 38.4 below. Both stay 3 px × scale inside the frame.
+      const room = H / 2 - 3 * scale + 1e-6;
+      if (v.cy - 53.4 * v.k < -room || v.cy + 38.4 * v.k > room) outside = true;
+      if (v.held) everHeld = true;
+      // lift is how far above its resting place (which hovers) it is drawn.
+      if (!v.held) liftOff = Math.max(liftOff, Math.abs(v.lift - ((5 + Math.sin(v.ears.clock * 1.7) * 2.2 * v.ears.awake) * scale - v.cy)));
+      mostBlink = Math.max(mostBlink, v.blink);
+      if (last !== null) cyStep = Math.max(cyStep, Math.abs(v.cy - last));
+      last = v.cy;
+      snows.push(v.snow);
       if (Math.abs(v.tilt) > 0.3 + 1e-9) bad = true;   // the tilt its reach above and below allows for
       mostLift = Math.max(mostLift, v.lift); mostWag = Math.max(mostWag, Math.abs(v.wag)); mostTilt = Math.max(mostTilt, v.tilt); leastTilt = Math.min(leastTilt, v.tilt);
       highest = Math.min(highest, v.cy); lowest = Math.max(lowest, v.cy);
       rolls.push(v.roll);
     }
-    return { v, outside, bad, mostLift, mostWag, mostTilt, leastTilt, highest, lowest, rolls };
+    return { v, outside, bad, mostLift, mostWag, mostTilt, leastTilt, highest, lowest, rolls, snows, cyStep, everHeld, liftOff, mostBlink };
   };
   {
     const scale = WIDE[2];
@@ -1675,12 +1686,25 @@ await import('./overlay/characters.js');
     const off = tv([{ secs: 8, live: false }]), idling = tv([{ secs: 8, live: false, idle: true }]);
     ok(off.v.asleep === true && off.lowest === off.highest && near(off.v.cy, 5 * scale) && idling.v.asleep === true && near(idling.lowest - idling.highest, 2 * 2.2 * scale, 0.05 * scale),
       'mic off it is asleep and still; with the idle animation it hovers in its sleep');
+    // Still means still: with the mic and the idle animation both off the band on its screen stops, its static holds one
+    // picture and it does not blink. With the idle animation on the static changes 20 times a second, by the clock.
+    const offTail = tv([{ secs: 4, live: false }], { tv: off.v }), [s30, s144] = [30, 144].map((fps) => tv([{ secs: 3, live: false, idle: true }], { fps }));
+    ok(new Set(offTail.rolls).size === 1 && new Set(offTail.snows).size === 1 && off.mostBlink === 0 && offTail.mostBlink === 0
+      && near(idling.snows.at(-1) - idling.snows[0], 160, 2) && idling.rolls.some((x, i) => i > 0 && x < idling.rolls[i - 1]) && Math.abs(s30.v.snow - s144.v.snow) <= 1 && silent.mostBlink > 0.8,
+      'with the mic and the idle animation both off its screen holds still and it does not blink; asleep with the idle animation on, its static changes 20 times a second at any frame rate');
+    // The hover eases in and out with the mic: it does not jump.
+    const woken = tv([{ secs: 1, live: false }, { secs: 1 }]), dozed = tv([{ secs: 1 }, { secs: 2.5, live: false }]);
+    ok(woken.cyStep < 0.3 * scale && dozed.cyStep < 0.3 * scale && near(dozed.v.cy, 5 * scale, 0.01 * scale),
+      `the mic coming on or going off does not make it jump (at most ${(Math.max(woken.cyStep, dozed.cyStep) / scale).toFixed(2)} px × scale in a frame)`);
     const voiced = tv([{ secs: 3, loud: 0.5, low: 0.6, high: 0.3 }]).v, loud = tv([{ secs: 3, loud: 0.9 }]).v;
     ok(near(voiced.open, 0.7, 1e-3) && near(voiced.speaker, 0.5, 1e-3) && near(voiced.dials[0], 0.6, 1e-3) && near(voiced.dials[1], 0.3, 1e-3) && near(voiced.smile, 0, 1e-6) && loud.open === 1 && loud.ears.happy === true,
       'a voice opens its mouth, lights its speaker and turns its dials: one with the low end, one with the high');
     const hop = tv([{ secs: 1 }, { secs: 0.3, loud: 0.9 }]), landed = tv([{ secs: 1 }, { secs: 6, loud: 0.9 }]);
     ok(hop.mostLift > 3 * scale && hop.mostWag > 0.2 && hop.mostWag < 1 && Math.abs(landed.v.lift) < 0.3 * scale && Math.abs(landed.v.wag) < 0.02,
       `a syllable bounces it (${(hop.mostLift / scale).toFixed(1)} px × scale up) and springs its antennae, and both settle`);
+    ok(hop.liftOff < 1e-9 && landed.liftOff < 1e-9 && !hop.everHeld && 5 * scale - hop.highest > 3 * scale, 'the bounce is in what is drawn: its middle rises by the lift');
+    const stopped = tv([{ secs: 1 }, { secs: 0.15, loud: 0.9, low: 0.1, high: 0.9 }, { secs: 1 / 60, loud: 0.9, low: 0.1, high: 0.9, bounce: 0 }]).v;
+    ok(stopped.lift === 0 && stopped.tilt === 0 && stopped.wag === 0 && stopped.ears.lean > 0.05, 'Bounce set to 0 in the middle of a bounce stops the bounce, the tilt and the antennae at once');
     const lowish = tv([{ secs: 3, loud: 0.5, low: 0.8, high: 0.1 }]).v, highish = tv([{ secs: 3, loud: 0.5, low: 0.1, high: 0.8 }]).v;
     const stillOne = tv([{ secs: 1 }, { secs: 3, loud: 0.9, low: 0.1, high: 0.8 }], { bounce: 0 });
     ok(near(lowish.tilt, -0.1, 0.01) && near(highish.tilt, 0.1, 0.01) && lowish.wag < -0.01 && highish.wag > 0.01 && stillOne.mostLift === 0 && stillOne.mostTilt === 0 && stillOne.leastTilt === 0 && stillOne.mostWag === 0
@@ -1690,6 +1714,9 @@ await import('./overlay/characters.js');
     ok(r.every((x) => x >= 0 && x < 1) && wraps >= 2 && wraps <= 3, 'the band on its screen rolls down once in about three seconds');
     const hard = SIZES.map((size) => tv([{ secs: 20, loud: (t) => (t % 0.5 < 0.2 ? 1 : 0), low: 0.1, high: 0.9 }], { size, bounce: 100 }));
     ok(hard.every((x) => !x.outside && !x.bad && x.mostLift > 0), 'at Bounce 100 and full voice no part of it leaves the frame, on all three pages');
+    ok(C.TV_UP >= 53.4 && C.TV_BELOW >= 38.4, 'the reach it is fitted by covers its antennae and its feet however it tilts');
+    const shorts = [[260, 60, 1], [260, 100, 1], [1728, 300, 4.8]].flatMap((size) => [[0.9, 0.1], [0.1, 0.9]].map(([low, high]) => tv([{ secs: 12, loud: (t) => (t % 0.5 < 0.3 ? 1 : 0.5), low, high }], { size, bounce: 100 })));
+    ok(shorts.every((x) => !x.outside && !x.bad && x.everHeld) && shorts[0].v.shrink < 1 && shorts[4].v.shrink < 1, 'in a short frame, tilting at Bounce 100, it is drawn smaller and nothing is cut off');
     const short = tv([{ secs: 2, loud: 0.6 }, { secs: 2, loud: 0.6, W: 260, H: 60 }]);
     ok(!short.outside && !short.bad && short.v.shrink < 1 && short.v.k < 0.92 * scale, 'a frame too short for it draws it smaller, not cut off');
     const [f30, f60, f120] = [30, 60, 120].map((fps) => tv([{ secs: 6.6, loud: syllables(fps) }], { fps }));

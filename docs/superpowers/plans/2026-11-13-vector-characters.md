@@ -67,6 +67,15 @@ the bob, the lean and the sway (which ear tuft is higher), the wings (how wide i
 blink (its eyes' ink) and the beak (its pink); the Bounce 0 check uses a sound that would make
 it lean; the small page's Bounce 100 run really runs at Bounce 100.
 
+**Television.** Its mouth now follows Gain, and a sample of 0 is a trough, not silence. The
+static is timed by the clock (20 pictures a second, six fills a picture), and with the mic and
+the idle animation both off it holds, the band stops and the set does not hover; the hover
+eases in and out. `lift`, `held`, `look` and `blink` are as the others'. The eyes the probe
+counts are the ones stroked. On the canvas the checks now read the bounce and the tilt (the
+lower foot), the blink (the bright bars), the still screen and the static's rate; the line
+settings check compares the light as well; the asleep path is timed; the small page's Bounce
+100 run really runs at Bounce 100.
+
 ## Review focus
 
 1. Any part of a character outside the frame at Bounce 100 and full voice, on the small page too.
