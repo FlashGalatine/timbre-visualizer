@@ -313,14 +313,21 @@ as `globalThis.TimbrePlanets`. The effects in `factories/` read the sound and dr
   happened. `reset()` puts the rings back whole at once. `ringRest(u)`, `outer(flow)` and
   `gain(sensitivity)` are its rules.
 - `crack(R, pieces, random)`: cuts a planet's disc into convex chunks that tile it exactly.
+- `createSystem({ random })`: the sun-and-planets system behind Orbit, driven by
+  `step({ dt, live, loud, peak, threshold, count, W, H, scale })`, which returns `'flare'` on the
+  frame a peak flares the sun. It exposes `planets` (each with its orbit `a`, `k`, `roll`, its
+  angle `th`, its place `x`, `y` as an offset from the sun, depth `z`, drawn radius `r`, turning
+  `w`, fade `born`, `leaving`, and its looks), `speed`, `loud`, `fast`, `flare`, `flares`,
+  `sinceFlare`, `aMax` and `aMin`. `planetCount(setting)` is how many a Planets setting gives.
 - `rgba`, `whiten`, `shade`: colour helpers.
 - `bodyFill(ctx, R, c, lx, ly, lit)` returns the fill of a lit sphere, and
   `paintBands(ctx, R, c, k, list, lit)` paints its cloud bands. Both work on the context they are
   handed.
-- `TILT`, `ROLL`, `INNER`, `OUTER`, `BANDS`, `TRAVEL_S`, `GHOST`, `PIECES`: its constants.
+- `TILT`, `ROLL`, `INNER`, `OUTER`, `BANDS`, `TRAVEL_S`, `GHOST`, `PIECES`, `SUN_R`, `ORBIT_K`,
+  `ORBIT_ROLL`: its constants.
 
 All its timing comes from `dt` and all its randomness from the `random` it is given;
-`window.__pulseRingsSeed` seeds Pulse Rings. Like `helix.js`, the file must stay loadable under
+`window.__pulseRingsSeed` seeds Pulse Rings and `window.__orbitSeed` Orbit. Like `helix.js`, the file must stay loadable under
 Node, because `npm run verify` imports it.
 
 ## Wire format (for driving Timbre from elsewhere)
