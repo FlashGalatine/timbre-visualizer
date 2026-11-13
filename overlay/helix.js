@@ -126,7 +126,10 @@
   // The same angle, within half a turn of 0, so the return turns the short way round.
   const shortWay = (a) => a - TURN * Math.round(a / TURN);
 
-  function createShatter({ random = Math.random } = {}) {
+  // `aim`, when given, says which way a blast pushes each piece: aim(x, y, W, H, scale, random)
+  // returns the angle for the piece now at (x, y). Without it a blast pushes away from the
+  // frame's long axis, as the helix needs. A jostle is random either way.
+  function createShatter({ random = Math.random, aim } = {}) {
     let state = 'whole';
     let pieces = null;   // the array cut() returned, while not whole
     let motion = null;   // per piece: push velocity and spin, lasting drift, where its return started, its lag
@@ -155,6 +158,7 @@
         const x = p.cx + p.ox, y = p.cy + p.oy;
         const a = strength === JOSTLE
           ? random() * TURN
+          : aim ? aim(x, y, W, H, scale, random)
           : Math.atan2((y - H / 2) + (random() - 0.5) * SCATTER_Y * scale, (x - W / 2) * ALONG + (random() - 0.5) * SCATTER_X * scale);
         const c = Math.cos(a), s = Math.sin(a);
         const speed = (SPEED_MIN + SPEED_RANGE * random()) * scale * strength;

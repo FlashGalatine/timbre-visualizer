@@ -57,7 +57,7 @@
     'ring-bars':     { spokes: 50 },
     'ring-waveform': { amplitude: 50 },
     'comet':         { trail: 50, flareSensitivity: 50 },
-    'pulse-rings':   { sensitivity: 50, flow: 0 },
+    'pulse-rings':   { sensitivity: 50, flow: 0, explodeSensitivity: 50, reconnectSeconds: 3 },
     'orbit':         { density: 50 },
     'spectrogram':   { scrollSpeed: 50 },
     'dna':           { helixFreq: 50, shatterSensitivity: 50, reconnectSeconds: 3 },
@@ -106,7 +106,7 @@
   };
 
   // Per-knob max overrides for numeric perViz values; default max is 100.
-  const PER_VIZ_MAX = { 'dna': { reconnectSeconds: 10 } };
+  const PER_VIZ_MAX = { 'dna': { reconnectSeconds: 10 }, 'pulse-rings': { reconnectSeconds: 10 } };
 
   // Shared knob group for any visualizer that loads a 3D STL model. Whichever
   // STL viz is active reads from `config.stlObject`; adding a new STL viz means

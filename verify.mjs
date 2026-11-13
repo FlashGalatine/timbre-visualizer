@@ -34,6 +34,12 @@
 //      frame-rate independence, size and Density changes, the flash's shape,
 //      and that all three overlay pages load it after comet-flight.js and
 //      before the factories. (Also runs before section 4.)
+//  10. Planets — overlay/planets.js under Node: the tilted projection and the
+//      largest orbit that fits a frame, the loudness memory at any frame rate,
+//      the ring disc (the ripple's travel, the blast, the refill, Flow), the
+//      cracks that cut a planet into chunks, and that all three overlay pages
+//      load it after fireflies-swarm.js and before the factories. (Also runs
+//      before section 4.)
 //   4. Live transport seam — spawns mock-sb-server.mjs on side ports, loads the
 //      REAL shared/panel-client-sb.js under a browser shim, and asserts:
 //      Subscribe (lowercase), sync-on-connect DoAction, control push →
@@ -174,6 +180,15 @@ ok(JSON.stringify(T.defaultConfig().perViz.fireflies) === JSON.stringify({ densi
   ok(c.perViz.fireflies.density === 100 && c.perViz.fireflies.startleSensitivity === 0, 'fireflies knobs clamp to 0..100');
   const old = T.sanitizeConfig({ perViz: { fireflies: { density: 80 } } });   // a config saved before this change
   ok(old.perViz.fireflies.density === 80 && old.perViz.fireflies.startleSensitivity === 50, 'an old saved fireflies config gains the new default');
+}
+ok(JSON.stringify(T.defaultConfig().perViz['pulse-rings']) === JSON.stringify({ sensitivity: 50, flow: 0, explodeSensitivity: 50, reconnectSeconds: 3 }),
+  'pulse-rings defaults: sensitivity 50, flow 0, explodeSensitivity 50, reconnectSeconds 3');
+{
+  const c = T.sanitizeConfig({ perViz: { 'pulse-rings': { sensitivity: 250, flow: -4, explodeSensitivity: 250, reconnectSeconds: 99 } } });
+  const p = c.perViz['pulse-rings'];
+  ok(p.sensitivity === 100 && p.flow === 0 && p.explodeSensitivity === 100 && p.reconnectSeconds === 10, 'pulse-rings knobs clamp: the sliders to 0..100, reconnect to 10');
+  const old = T.sanitizeConfig({ perViz: { 'pulse-rings': { sensitivity: 80, flow: 30 } } }).perViz['pulse-rings'];   // a config saved before this change
+  ok(old.sensitivity === 80 && old.flow === 30 && old.explodeSensitivity === 50 && old.reconnectSeconds === 3, 'an old saved pulse-rings config gains the new defaults');
 }
 
 // ── 3. C# embed simulation ───────────────────────────────────────────────────
@@ -434,6 +449,38 @@ await import('./overlay/helix.js');
   const thrown = runHelix(60, [quiet, hit, { secs: 0.5, peak: 0.3 }]).m.pieces;
   ok(!!thrown && thrown.reduce((sum, p) => sum + Math.hypot(p.ox, p.oy), 0) / thrown.length > 20 * 4.8
     && thrown.filter((p) => Math.abs(p.cy + p.oy - 624 / 2) > Math.abs(p.cy - 624 / 2)).length > 0.7 * thrown.length, 'a blast throws the pieces outward');
+
+  // Without an aim, a seeded blast is exactly what it was before the aim option existed
+  // (recorded from the code as it stood then), so DNA shatters as it always did.
+  {
+    const p = runHelix(60, [quiet, hit, { secs: 0.5, peak: 0.3 }]).m.pieces;
+    const sum = (f) => p.reduce((s, q) => s + f(q), 0);
+    ok(p.length === 120 && near(sum((q) => q.ox), 459.405909, 1e-5) && near(sum((q) => q.oy), 238.736035, 1e-5)
+      && near(sum((q) => Math.hypot(q.ox, q.oy)), 13232.615726, 1e-5) && near(sum((q) => q.rot), 3.383599, 1e-5)
+      && near(p[0].ox, 24.661886, 1e-5) && near(p[0].oy, -26.227207, 1e-5), 'without an aim, a seeded blast is unchanged');
+  }
+  // With an aim, a blast pushes each piece the way the aim says; a jostle stays random.
+  {
+    const W = 1728, H = 624, scale = 4.8, seen = [];
+    const cut = () => Array.from({ length: 20 }, (_, i) => ({ cx: W / 2 + (i - 10) * 6, cy: H / 2 + ((i % 5) - 2) * 9 }));
+    const m = HX.createShatter({ random: HX.rng(3), aim: (x, y, w, h, s, random) => { seen.push([x, y, w, h, s, typeof random]); return 0; } });
+    let now = 0;
+    const run = (secs, peak) => { for (let k = 0, n = Math.round(secs * 60); k < n; k++) { now += 1000 / 60; m.step({ now, dt: 1 / 60, live: true, peak, threshold: 0.9, reconnectS: 100, W, H, scale, cut }); } };
+    run(1, 0.3); run(0.05, 0.95); run(0.4, 0.3);
+    const blown = m.pieces.map((p) => [p.ox, p.oy]);
+    ok(seen.length === 20 && seen.every((a) => a[2] === W && a[3] === H && a[4] === scale && a[5] === 'function') && seen[0][0] === W / 2 - 60
+      && blown.every(([ox, oy]) => ox > 5 * scale && Math.abs(oy) < 1e-6), 'an aim sends every piece of a blast the way it says');
+    run(0.4, 0.3); run(0.05, 0.95); run(0.3, 0.3);
+    ok(seen.length === 20 && m.pieces.some((p) => Math.abs(p.oy) > scale), 'a jostle is still random, and asks no aim');
+    // A peak during the return blasts again, by the aim.
+    const back = HX.createShatter({ random: HX.rng(3), aim: () => Math.PI / 2 });
+    let t = 0, events = [];
+    const go = (secs, peak) => { for (let k = 0, n = Math.round(secs * 60); k < n; k++) { t += 1000 / 60; const e = back.step({ now: t, dt: 1 / 60, live: true, peak, threshold: 0.9, reconnectS: 1, W, H, scale, cut }); if (e) events.push(e); } };
+    go(1, 0.3); go(0.05, 0.95); go(1.6, 0.3);
+    const before = back.pieces.map((p) => p.oy);
+    go(0.05, 0.95); go(0.2, 0.3);
+    ok(events.join() === 'shatter,return,jostle' && back.pieces.every((p, i) => p.oy > before[i] + scale), 'a peak during the return blasts again, by the aim');
+  }
 
   const order = [];
   for (const p of ['300x220', '1440x1080', '1920x1080']) {
@@ -842,6 +889,151 @@ await import('./overlay/fireflies-swarm.js');
     order.push(pos > html.indexOf('src="comet-flight.js"') && pos < html.indexOf('src="factories/'));
   }
   ok(order.every(Boolean), 'all three overlay pages load fireflies-swarm.js after comet-flight.js and before the factories');
+}
+
+// ── 10. Planets (pure; no browser) ───────────────────────────────────────────
+console.log('\n[10] planets');
+await import('./overlay/planets.js');
+{
+  const P = globalThis.TimbrePlanets, HX = globalThis.TimbreHelix;
+  const near = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol;
+  const SIZES = [[260, 130, 1], [1248, 624, 4.8], [1728, 624, 4.8]];
+  const TURN = 2 * Math.PI;
+
+  // The tilted projection.
+  {
+    const a = P.place(100, 0, 0.36, -0.28), top = P.place(100, -Math.PI / 2, 0.36, 0), near1 = P.place(100, Math.PI / 2, 0.36, 0);
+    ok(near(a.x, 100 * Math.cos(-0.28)) && near(a.y, 100 * Math.sin(-0.28)) && near(a.z, 0) && near(top.y, -36) && near(top.z, -1) && near(near1.y, 36) && near(near1.z, 1),
+      'place: a point on a tilted, leaning circle; the far half is up and behind, the near half down and in front');
+    let fits = true, tight = true;
+    for (const [W, H, scale] of SIZES) {
+      for (const [k, roll] of [[0.36, -0.28], [0.29, 0.14], [0.41, -0.36], [0.36, 0]]) {
+        const edge = 9 * scale, r = P.fit(W, H, edge, k, roll), reach = P.reach(k, roll);
+        let mx = 0, my = 0;
+        for (let i = 0; i < 720; i++) { const p = P.place(r, i / 720 * TURN, k, roll); mx = Math.max(mx, Math.abs(p.x)); my = Math.max(my, Math.abs(p.y)); }
+        if (mx > W / 2 - edge + 1e-6 || my > H / 2 - edge + 1e-6) fits = false;
+        if (Math.min(W / 2 - edge - mx, H / 2 - edge - my) > 0.01 * r) tight = false;
+        if (!near(reach.x * r, mx, 0.002 * r) || !near(reach.y * r, my, 0.002 * r)) fits = false;
+      }
+    }
+    ok(fits && tight, 'fit: the largest orbit that stays inside the frame, on every page and for every tilt');
+  }
+
+  // The loudness memory.
+  {
+    const run = (fps) => {
+      const e = P.createEcho(1);
+      let t = 0, worst = 0, most = 0;
+      for (let k = 0; k < 4 * fps; k++) {
+        t += 1 / fps; e.note(t, t);
+        most = Math.max(most, e.size);
+        if (t > 1.2) for (const d of [0, 0.3, 0.95]) worst = Math.max(worst, Math.abs(e.heard(t, d) - (t - d)));
+      }
+      return { worst, most, old: e.heard(t, 50), now: e.heard(t, 0), t };
+    };
+    const r30 = run(30), r60 = run(60), r144 = run(144);
+    ok([r30, r60, r144].every((r) => r.worst < 1e-9 && near(r.now, r.t)), 'echo: what was heard a moment ago, exactly, at 30, 60 and 144 fps');
+    ok(r30.most <= 30 * 1.2 + 3 && r144.most <= 144 * 1.2 + 3 && r60.old > r60.t - 1.3 && r60.old <= r60.t - 1 && P.createEcho(1).heard(5, 0.2) === 0,
+      `echo: its memory is bounded (${r30.most}, ${r60.most}, ${r144.most} notes), older than that gives the oldest, and none gives silence`);
+  }
+
+  // The ring disc.
+  const ring = (fps, script, o = {}) => {
+    const rings = o.rings ?? P.createRings();
+    let t = 0; const log = [];
+    for (const s of script) {
+      if (s.blast) rings.blast();
+      if (s.refill) rings.refill();
+      for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) {
+        t += 1 / fps;
+        rings.step({ dt: 1 / fps, level: s.level ?? 0, flow: s.flow ?? 0 });
+        log.push({ t, level: rings.bands.map((b) => b.level), show: rings.bands.map((b) => b.show), radius: rings.bands.map((b) => b.radius) });
+      }
+    }
+    return { rings, log, last: log[log.length - 1] };
+  };
+  ok(near(P.outer(0), 3.1) && near(P.outer(100), 4.1) && near(P.outer(250), 4.1) && near(P.outer(NaN), 3.1) && near(P.gain(0), 0.6) && near(P.gain(50), 1.15) && near(P.gain(100), 1.7),
+    'Flow sets how far the rings reach (3.1 to 4.1 planet radii); Sensitivity sets the ripple gain (0.6 to 1.7)');
+  ok(P.ringRest(0.3) > 0.9 && P.ringRest(0.58) < 0.1 && P.ringRest(0.75) > 0.5 && P.ringRest(0.05) < P.ringRest(0.3) && [0, 0.5, 1].every((u) => P.ringRest(u) >= 0 && P.ringRest(u) <= 1),
+    'the disc at rest: a bright broad ring, a dark gap, a second ring');
+  {
+    const r = ring(60, [{ secs: 2 }]);
+    const b = r.rings.bands;
+    ok(b.length === 30 && b.every((x, i) => near(x.u, (i + 0.5) / 30) && x.show === 1 && x.level === 0 && x.lift === 0 && near(x.radius, 1.34 + x.u * (3.1 - 1.34)))
+      && b.every((x, i) => i === 0 || x.radius > b[i - 1].radius), 'at rest: 30 whole bands from 1.34 to 3.1 planet radii, none lit, none lifted');
+    const wide = ring(60, [{ secs: 1, flow: 100 }]).rings.bands;
+    ok(near(wide[0].radius, 1.34 + (0.5 / 30) * (4.1 - 1.34)) && near(wide[29].radius, 1.34 + (29.5 / 30) * (4.1 - 1.34)), 'Flow at 100 spreads the same 30 bands out to 4.1 planet radii');
+  }
+  // A syllable: a tenth of a second of voice, then quiet. It reaches each band in turn.
+  {
+    const arrive = (fps) => {
+      const r = ring(fps, [{ secs: 1 }, { secs: 0.1, level: 1 }, { secs: 1.6 }]);
+      const peakAt = (i) => { let best = 0, at = 0; for (const f of r.log) if (f.level[i] > best) { best = f.level[i]; at = f.t; } return { best, at }; };
+      const mid = r.log.find((f) => f.t >= 1.05 + 0.5 * 0.95);
+      return { inner: peakAt(0), outer: peakAt(29), mid, bad: r.log.some((f) => f.level.some((v) => !(v >= 0 && v <= 1))) };
+    };
+    const a60 = arrive(60), a30 = arrive(30), a144 = arrive(144), a10 = arrive(10);
+    const travel = (a) => a.outer.at - a.inner.at;
+    ok(a60.inner.best === 1 && a60.outer.best === 1 && near(travel(a60), 0.95 * 29 / 30, 2 / 60) && !a60.bad,
+      `a syllable reaches the outer edge ${travel(a60).toFixed(3)} s after the inner one`);
+    ok(near(travel(a30), travel(a60), 2 / 30) && near(travel(a144), travel(a60), 2 / 60) && near(travel(a10), travel(a60), 0.11) && a10.outer.best > 0.5,
+      `at the same speed at 30, 144 and 10 fps (${travel(a30).toFixed(3)}, ${travel(a144).toFixed(3)}, ${travel(a10).toFixed(3)} s)`);
+    ok(a60.mid.level[14] > 0.8 && a60.mid.level[0] < 0.05 && a60.mid.level[29] < 0.05, 'while it crosses the middle of the disc, the inner and outer bands are dark: the ripple travels');
+    const lifted = ring(60, [{ secs: 1 }, { secs: 0.1, level: 1 }, { secs: 0.4 }]).rings.bands;
+    const top = lifted.reduce((m, b) => (b.lift > m.lift ? b : m));
+    ok(top.lift > 0.5 && top.lift <= 1 && near(top.lift, top.level * (0.4 + 0.6 * top.u)), 'a lit band is lifted off the disc, the outer ones farther');
+  }
+  // A blast thins the rings from the inside out and swells them; a refill fills them the same way.
+  {
+    const steps = [{ secs: 1 }, { secs: 0.1, blast: true }];
+    const early = ring(60, steps).last;
+    const blown = ring(60, [...steps, { secs: 2 }]);
+    const most = Math.max(...ring(60, [...steps, { secs: 2 }]).log.map((f) => Math.max(...f.radius.map((v, i) => v / (1.34 + (i + 0.5) / 30 * 1.76)))));
+    ok(early.show[0] < 0.85 && early.show[29] === 1 && blown.last.show.every((v) => near(v, P.GHOST, 0.01)),
+      `a blast thins the rings to ${P.GHOST}, the inner ones first`);
+    ok(most > 1.25 && most < 1.4 && blown.last.radius.every((v, i) => near(v, 1.34 + (i + 0.5) / 30 * 1.76, 1e-6)), `and swells each band outward as it passes (by up to ${((most - 1) * 100).toFixed(0)}%), after which it settles where it was`);
+    const filling = ring(60, [{ secs: 0.3, refill: true }], { rings: blown.rings }).last;
+    const full = ring(60, [{ secs: 2.5 }], { rings: blown.rings }).last;
+    ok(filling.show[0] > filling.show[29] + 0.2 && full.show.every((v) => v > 0.99), 'a refill fills the rings back in, the inner ones first');
+    const at = (fps) => ring(fps, [...steps, { secs: 0.4 }]).last.show;
+    const s30 = at(30), s144 = at(144);
+    ok(s30.every((v, i) => near(v, s144[i], 0.03)), 'the same at 30 and 144 fps');
+    const voiced = ring(60, [...steps, { secs: 1 }, { secs: 0.1, level: 1 }, { secs: 0.3 }]).last;
+    ok(Math.max(...voiced.level) > 0.9, 'thinned rings still carry the voice');
+    const again = ring(60, [{ secs: 0.5 }], { rings: (() => { const r = P.createRings(); r.blast(); r.step({ dt: 0.5, level: 0, flow: 0 }); r.reset(); return r; })() }).last;
+    ok(again.show.every((v) => v === 1), 'a reset puts every band back whole');
+  }
+
+  // The cracks.
+  {
+    const R = 115, pieces = P.crack(R, 22, HX.rng(4));
+    const area = (p) => { let s = 0; for (let i = 0; i < p.length; i++) { const q = p[(i + 1) % p.length]; s += p[i][0] * q[1] - q[0] * p[i][1]; } return s / 2; };
+    const convex = (p) => { let sign = 0; for (let i = 0; i < p.length; i++) { const a = p[i], b = p[(i + 1) % p.length], c = p[(i + 2) % p.length]; const z = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]); if (Math.abs(z) < 1e-9) continue; if (!sign) sign = Math.sign(z); else if (Math.sign(z) !== sign) return false; } return true; };
+    const areas = pieces.map((p) => Math.abs(area(p.pts))), total = areas.reduce((a, b) => a + b, 0);
+    const disc = 0.5 * 56 * R * R * Math.sin(TURN / 56);
+    ok(pieces.length === 22 && near(total, disc, 1e-6 * disc) && pieces.every((p) => convex(p.pts) && p.pts.every((v) => Math.hypot(v[0], v[1]) <= R * (1 + 1e-9))),
+      'crack: 22 convex chunks that tile the planet exactly');
+    const mean = total / 22;
+    // A sliver is a chunk much longer than it is wide: its area is a small share of the circle its longest reach would sweep.
+    const stout = pieces.map((p, i) => { let far = 0; for (const v of p.pts) far = Math.max(far, Math.hypot(v[0] - p.cx, v[1] - p.cy)); return areas[i] / (Math.PI * far * far); });
+    ok(Math.min(...areas) > 0.3 * mean && Math.max(...areas) < 2.2 * mean && Math.min(...stout) > 0.12,
+      `no slivers: the smallest chunk is ${(Math.min(...areas) / mean).toFixed(2)} of the average, the thinnest fills ${(Math.min(...stout) * 100).toFixed(0)}% of its own reach`);
+    const again = P.crack(R, 22, HX.rng(4)), other = P.crack(R, 22, HX.rng(5));
+    ok(JSON.stringify(again) === JSON.stringify(pieces) && JSON.stringify(other) !== JSON.stringify(pieces)
+      && pieces.every((p) => near(p.rm, Math.hypot(p.cx, p.cy)) && p.rm < R), 'crack: the same seed gives the same chunks');
+    for (const seed of [1, 2, 3, 6, 7, 8, 9, 10]) {
+      const ps = P.crack(R, 22, HX.rng(seed));
+      if (ps.length !== 22 || !ps.every((p) => convex(p.pts))) { ok(false, `crack: seed ${seed} gives 22 convex chunks`); }
+    }
+  }
+
+  const order = [];
+  for (const p of ['300x220', '1440x1080', '1920x1080']) {
+    const html = await readFile(resolve(__dirname, `overlay/mic-visualizers-${p}.html`), 'utf8');
+    const pos = html.indexOf('src="planets.js"');
+    order.push(pos > html.indexOf('src="fireflies-swarm.js"') && pos < html.indexOf('src="factories/'));
+  }
+  ok(order.every(Boolean), 'all three overlay pages load planets.js after fireflies-swarm.js and before the factories');
 }
 
 // ── 4. Live transport seam (mock SB + real panel-client-sb.js) ───────────────
