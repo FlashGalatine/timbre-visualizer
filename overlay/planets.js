@@ -201,6 +201,7 @@
   // lean. `list` is [[latitude as a sine, -1 to 1, width as a share of R, dark or light]].
   function paintBands(ctx, R, c, k, list, lit) {
     const up = Math.sqrt(1 - k * k);
+    ctx.lineCap = 'butt';   // a band ends square at the planet's edge, whatever the canvas was left with
     for (const [s, wide, dark] of list) {
       const rx = R * Math.sqrt(1 - s * s);
       ctx.strokeStyle = dark ? rgba(shade(c, 0.35), 0.34) : rgba(whiten(c, 0.55), 0.22 * lit);

@@ -177,10 +177,13 @@ const glowRun = (pg, name, steps, fps = 60) => pg.evaluate(({ name, steps, fps }
 // Every call starts a new effect, seeded through the effect's seed global (window.__dnaSeed,
 // window.__cometSeed, window.__firefliesSeed). Nothing carries over between
 // calls: the page's own loop may draw the effect in between, so a scenario runs in one call. The
-// page's own sound and micPeak are restored.
-const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1 } = {}) => pg.evaluate(({ name, seedKey, steps, fps, seed }) => {
-  const saved = { frequencies, waveform, micActive, micPeak, seed: window[seedKey] };
+// page's own sound and micPeak are restored. With `odd: true` the canvas is handed over with
+// unusual line settings (as another effect might leave it): linesKept then says the effect gave
+// them back untouched, and the picture shows whether it leaned on the usual ones.
+const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1, odd = false } = {}) => pg.evaluate(({ name, seedKey, steps, fps, seed, odd }) => {
+  const saved = { frequencies, waveform, micActive, micPeak, seed: window[seedKey], line: [ctx.lineWidth, ctx.lineCap, ctx.lineJoin] };
   try {
+    if (odd) { ctx.lineWidth = 7.25; ctx.lineCap = 'round'; ctx.lineJoin = 'bevel'; }
     window[seedKey] = seed;
     currentViz = VIZ_FACTORIES[name]();
     let now = performance.now();
@@ -219,8 +222,9 @@ const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1 } = {}) =>
   } finally {
     frequencies = saved.frequencies; waveform = saved.waveform; micActive = saved.micActive; micPeak = saved.micPeak;
     window[seedKey] = saved.seed;
+    [ctx.lineWidth, ctx.lineCap, ctx.lineJoin] = saved.line;
   }
-}, { name, seedKey, steps, fps, seed });
+}, { name, seedKey, steps, fps, seed, odd });
 const dnaRun = effectRun('dna', '__dnaSeed'), cometRun = effectRun('comet', '__cometSeed'), fliesRun = effectRun('fireflies', '__firefliesSeed');
 const ringsRun = effectRun('pulse-rings', '__pulseRingsSeed');
 const talk = { wave: 0.5, low: 0.5, high: 0.3, peak: 0.5 }, silence = { wave: 0, low: 0, high: 0, peak: 0 };
@@ -1110,7 +1114,12 @@ async function main() {
       rQuiet.ringAlpha > 0 && rLoud.ringAlpha > 3 * rQuiet.ringAlpha && rLoud.halo > 1.5 * rQuiet.halo && rLoud.alpha > 1.5 * rQuiet.alpha && rLoud.spin - rQuiet.spin > 3 * rQuiet.spin
       && rQuiet.state === 'whole' && rLoud.state === 'whole', pr(rQuiet, rLoud));
     // Whole, the frame of the blast, in pieces, on the way back, and whole again.
-    const rStates = await ringsRun(wide, [{ secs: 1.5, ...talk }, { secs: 1 / 60, ...talk, peak: 0.95 }, { secs: 1, ...talk }, { secs: 2.6, ...talk }, { secs: 2, ...talk }]);
+    // The canvas is handed over with unusual line settings, which must come back untouched.
+    const rStateSteps = [{ secs: 1.5, ...talk }, { secs: 1 / 60, ...talk, peak: 0.95 }, { secs: 1, ...talk }, { secs: 2.6, ...talk }, { secs: 2, ...talk }];
+    const rStates = await ringsRun(wide, rStateSteps, { odd: true });
+    const rUsual = await ringsRun(wide, rStateSteps);
+    check('pulse rings: draws the same whatever line settings it is handed',
+      rStates.every((r, i) => r.ink === rUsual[i].ink && r.alpha === rUsual[i].alpha), JSON.stringify(rStates.map((r, i) => [r.state, r.ink, rUsual[i].ink, r.alpha, rUsual[i].alpha])));
     check('pulse rings: leaves the canvas state as it found it, whole, in pieces and on the way back',
       rStates.map((r) => r.state).join() === 'whole,pieces,pieces,returning,whole'
       && [rQuiet, rLoud, ...rStates].every((r) => r.op === 'source-over' && r.blur === 0 && r.globalAlpha === 1 && r.offsetX === 0 && r.transformKept === true && r.linesKept === true && r.unclipped === true),
