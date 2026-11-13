@@ -1,181 +1,76 @@
-/* ── blob (kawaii bouncing blob with face) ── */
+/* ── blob (a soft vector character that swells, bulges and bounces with the voice) ──
+   A smooth body with a clean outline and a face. It swells with loudness and bulges with the
+   sound: the low end pushes out its top, the high end its bottom. Each syllable bounces it; it
+   stretches on the way up and squashes as it lands. Its eyes blink, and turn happy when the
+   voice is loud; its mouth opens with the voice. The global Bounce setting scales the swelling
+   and the bounce, and 0 stills it.
+   Its pose (hearing, the bounce, the outline) and the shared face are TimbreCharacters in
+   characters.js; the sound levels are TimbreHelix's and the colours TimbrePlanets'. Everything
+   that moves runs on draw(now, dt); only the colour reads the wall clock, as the bar and wave
+   effects do. */
 VIZ_FACTORIES['blob'] = function () {
-  const GRID = Math.max(2, Math.round(4 * SCALE));
-  const BASE_R = 28 * SCALE;
-  const MAX_R = 56 * SCALE;
-  const NUM_VERTS = 24;
-  const BOUNCE_DECAY = 0.88;
-  const BOUNCE_SPEED = 0.12;
-  const P = GRID;
-  let smoothVol = 0;
-  let bounceY = 0;
-  let bounceVel = 0;
+  const C = TimbreCharacters, P = TimbrePlanets, HX = TimbreHelix;
+  const BLINK_EVERY = 3.5;                             // seconds between blinks
+  const QUIET = { loud: 0, low: 0, high: 0 };
+  const TURN = 2 * Math.PI;
+  const { rgba, whiten, shade } = P;
 
-  function snap(v) { return Math.round(v / GRID) * GRID; }
-  function getVolume() {
-    if (!micActive || !frequencies) return 0;
-    let sum = 0;
-    for (let i = 0; i < frequencies.length; i++) sum += frequencies[i];
-    return (sum / (frequencies.length * 255)) * cfgGain;
-  }
-  function getFreqAt(vertIndex) {
-    if (!micActive || !frequencies || frequencies.length === 0) return 0;
-    const bin = Math.floor((vertIndex / NUM_VERTS) * frequencies.length);
-    return ((frequencies[bin] || 0) / 255) * cfgGain;
-  }
-  function drawBlobShape(verts, inflate, CX, CY) {
-    ctx.beginPath();
-    for (let i = 0; i < verts.length; i++) {
-      const v = verts[i];
-      let x = v.x, y = v.y;
-      if (inflate > 0) {
-        const dx = v.x - CX;
-        const dy = v.y - CY;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        x = snap(v.x + (dx / dist) * inflate);
-        y = snap(v.y + (dy / dist) * inflate);
-      }
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.closePath();
-  }
-  function drawSteppedLine(x0, y0, x1, y1, rgb) {
-    const dx = Math.abs(x1 - x0);
-    const dy = Math.abs(y1 - y0);
-    const steps = Math.max(dx, dy) / GRID;
-    if (steps < 1) return;
-    ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
-    for (let s = 0; s <= steps; s++) {
-      const t = s / steps;
-      const x = snap(x0 + (x1 - x0) * t);
-      const y = snap(y0 + (y1 - y0) * t);
-      ctx.fillRect(x - 1, y - 1, GRID - 1, GRID - 1);
-    }
-  }
-  function drawEye(ex, ey, blink, happy, now) {
-    if (blink) { ctx.fillStyle = '#0A0A1A'; ctx.fillRect(ex - 2 * P, ey, 5 * P, P); return; }
-    if (happy) {
-      ctx.fillStyle = '#0A0A1A';
-      ctx.fillRect(ex - 2 * P, ey + P, P, P);
-      ctx.fillRect(ex - P,      ey,     P, P);
-      ctx.fillRect(ex,           ey - P, P, P);
-      ctx.fillRect(ex + P,      ey,     P, P);
-      ctx.fillRect(ex + 2 * P,  ey + P, P, P);
-      return;
-    }
-    ctx.fillStyle = '#0A0A1A';
-    ctx.fillRect(ex - P,     ey - 2 * P, 3 * P, P);
-    ctx.fillRect(ex - 2 * P, ey - P,     5 * P, 3 * P);
-    ctx.fillRect(ex - P,     ey + 2 * P, 3 * P, P);
-    const irisShift = Math.round(Math.sin(now / 2000)) * P;
-    ctx.fillStyle = '#1a1a3a';
-    ctx.fillRect(ex - P + irisShift, ey - P, 3 * P, 3 * P);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(ex - P, ey - P, P * 2, P * 2);
-    ctx.fillRect(ex + P, ey + P, P, P);
-  }
-  function drawMouth(mx, my, vol) {
-    ctx.fillStyle = '#0A0A1A';
-    if (vol > 0.4) {
-      ctx.fillRect(mx - P,     my - P,     3 * P, P);
-      ctx.fillRect(mx - 2 * P, my,         P,     P);
-      ctx.fillRect(mx + 2 * P, my,         P,     P);
-      ctx.fillRect(mx - P,     my + P,     3 * P, P);
-      ctx.fillStyle = 'rgba(255, 100, 150, 0.6)';
-      ctx.fillRect(mx - P, my, 3 * P, P);
-    } else if (vol > 0.15) {
-      ctx.fillRect(mx - P, my - P, 3 * P, P);
-      ctx.fillRect(mx - P, my + P, 3 * P, P);
-      ctx.fillStyle = 'rgba(255, 100, 150, 0.5)';
-      ctx.fillRect(mx - P, my, 3 * P, P);
-    } else {
-      ctx.fillRect(mx - 3 * P, my - P, P, P);
-      ctx.fillRect(mx - 2 * P, my,     P, P);
-      ctx.fillRect(mx - P,     my - P, P, P);
-      ctx.fillRect(mx,         my - P, P, P);
-      ctx.fillRect(mx + P,     my,     P, P);
-      ctx.fillRect(mx + 2 * P, my - P, P, P);
-    }
-  }
-  function drawFace(cx, cy, vol, now) {
-    const eyeY = cy - 4 * P;
-    const mouthY = cy + 3 * P;
-    const eyeSpacing = 7 * P;
-    const blinkCycle = now % 3500;
-    const isBlinking = blinkCycle > 3350;
-    const isHappy = vol > 0.35;
-    drawEye(cx - eyeSpacing / 2, eyeY, isBlinking, isHappy, now);
-    drawEye(cx + eyeSpacing / 2, eyeY, isBlinking, isHappy, now);
-    drawMouth(cx, mouthY, vol);
-    const blushY = cy;
-    ctx.fillStyle = 'rgba(255, 100, 150, 0.35)';
-    ctx.fillRect(cx - eyeSpacing / 2 - 4 * P, blushY, P * 2, P);
-    ctx.fillRect(cx - eyeSpacing / 2 - 3 * P, blushY + P, P * 2, P);
-    ctx.fillRect(cx + eyeSpacing / 2 + 2 * P, blushY, P * 2, P);
-    ctx.fillRect(cx + eyeSpacing / 2 + P, blushY + P, P * 2, P);
-  }
+  const blob = C.createBlob();
 
   return {
-    draw() {
+    draw(now, dt) {
+      dt = dt > 0 ? dt : 0;
       ctx.clearRect(0, 0, W, H);
-      const CX = W / 2;
-      const CY = H / 2;
-      const now = Date.now();
-      const colorT = ((now * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
-      const bounceSens = cfgBounce / 100;
-      const rawVol = getVolume();
-      smoothVol += (rawVol - smoothVol) * 0.25;
-      const bScale = bounceSens * 2;
-      bounceVel += (rawVol - smoothVol) * 8 * bScale;
-      bounceVel -= bounceY * BOUNCE_SPEED;
-      bounceVel *= BOUNCE_DECAY;
-      bounceY += bounceVel;
-      const blobCX = CX;
-      const blobCY = snap(CY - bounceY * 20 * SCALE * bScale);
-      const dynR = BASE_R + smoothVol * (MAX_R - BASE_R) * bScale;
-      const verts = [];
-      for (let i = 0; i < NUM_VERTS; i++) {
-        const angle = (i / NUM_VERTS) * Math.PI * 2;
-        const freqInfluence = getFreqAt(i);
-        const wobble =
-          Math.sin(angle * 3 + now / 300) * 4 * SCALE +
-          Math.sin(angle * 5 - now / 500) * 3 * SCALE +
-          Math.sin(angle * 2 + now / 700) * 2 * SCALE;
-        const breath = (micActive || !cfgIdleAnim) ? 0 : Math.sin(now / 800) * 4 * SCALE;
-        const r = dynR + freqInfluence * 18 * SCALE * bScale + wobble + breath;
-        const vx = snap(blobCX + Math.cos(angle) * r);
-        const vy = snap(blobCY + Math.sin(angle) * r);
-        verts.push({ x: vx, y: vy, angle, freqInfluence });
-      }
-      const glowRgb = getColor(colorT);
-      ctx.globalAlpha = 0.08;
-      drawBlobShape(verts, 8 * SCALE, CX, CY);
-      ctx.fillStyle = `rgb(${glowRgb[0]}, ${glowRgb[1]}, ${glowRgb[2]})`;
+      const live = micActive && !!waveform;
+      const level = live ? HX.levels(frequencies, waveform, cfgGain) : QUIET;
+      blob.step({ dt, live, level, bins: live ? frequencies : null, gain: cfgGain, bounce: cfgBounce, idle: cfgIdleAnim, W, H, scale: SCALE });
+      const ears = blob.ears, n = blob.px.length;
+      const cx = W / 2, cy = H / 2 + blob.cy, R = blob.radius, stretch = blob.stretch;
+      const colorT = ((Date.now() * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
+      const c = getColor(colorT + 0.5);
+
+      // The glow behind it, kept a little inside the frame so it is never cut off flat.
+      C.glowBehind(ctx, cx, cy, Math.max(1, Math.min(R * 2.1, H / 2 - Math.abs(blob.cy) - 1.5 * SCALE, W / 2)), c, 0.3 + 0.3 * ears.fast);
+
+      ctx.save();
+      ctx.lineCap = 'butt';
+      ctx.lineJoin = 'round';
+      // The body: a smooth curve through the middles of the gaps between its points.
+      const X = (i) => cx + blob.px[i], Y = (i) => H / 2 + blob.py[i];
+      ctx.beginPath();
+      ctx.moveTo((X(n - 1) + X(0)) / 2, (Y(n - 1) + Y(0)) / 2);
+      for (let i = 0; i < n; i++) { const j = (i + 1) % n; ctx.quadraticCurveTo(X(i), Y(i), (X(i) + X(j)) / 2, (Y(i) + Y(j)) / 2); }
+      ctx.closePath();
+      const body = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.45, R * 0.1, cx, cy, R * 1.5);
+      body.addColorStop(0, rgba(whiten(c, 0.5), 1));
+      body.addColorStop(0.5, rgba(c, 1));
+      body.addColorStop(1, rgba(shade(c, 0.6), 1));
+      ctx.fillStyle = body;
       ctx.fill();
-      ctx.globalAlpha = 0.12;
-      drawBlobShape(verts, 4 * SCALE, CX, CY);
-      ctx.fillStyle = `rgb(${glowRgb[0]}, ${glowRgb[1]}, ${glowRgb[2]})`;
+      ctx.lineWidth = 1.5 * SCALE * blob.shrink;
+      ctx.strokeStyle = rgba(shade(c, 0.42), 1);
+      ctx.stroke();
+      ctx.fillStyle = rgba(C.WHITE, 0.4);    // a highlight
+      ctx.beginPath();
+      ctx.ellipse(cx - R * 0.42, cy - R * 0.52 * (1 + stretch), R * 0.2, R * 0.11, -0.6, 0, TURN);
       ctx.fill();
-      ctx.globalAlpha = 1.0;
-      drawBlobShape(verts, 0, CX, CY);
-      const bodyRgb = getColor(colorT + 0.5);
-      ctx.fillStyle = `rgba(${bodyRgb[0]}, ${bodyRgb[1]}, ${bodyRgb[2]}, 0.25)`;
-      ctx.fill();
-      for (let i = 0; i < NUM_VERTS; i++) {
-        const curr = verts[i];
-        const next = verts[(i + 1) % NUM_VERTS];
-        const rgb = getColor(colorT + (i / NUM_VERTS) * 1.5);
-        drawSteppedLine(curr.x, curr.y, next.x, next.y, rgb);
-      }
-      for (let i = 0; i < NUM_VERTS; i++) {
-        const v = verts[i];
-        const rgb = getColor(colorT + (i / NUM_VERTS) * 1.5);
-        const tipRgb = [Math.min(255, rgb[0] + 80), Math.min(255, rgb[1] + 80), Math.min(255, rgb[2] + 80)];
-        ctx.fillStyle = `rgb(${tipRgb[0]}, ${tipRgb[1]}, ${tipRgb[2]})`;
-        ctx.fillRect(v.x - GRID / 2, v.y - GRID / 2, GRID, GRID);
-      }
-      drawFace(blobCX, blobCY, smoothVol, now);
+      ctx.restore();
+
+      C.paintFace(ctx, cx, cy - R * 0.05, R / 12.5, { open: C.mouth(ears.fast), happy: ears.happy, blink: C.blink(ears.clock, BLINK_EVERY, 0), look: Math.sin(ears.clock * 0.5) });
+    },
+
+    // Test surface: what it hears (the slow and fast loudness, the low and high ends, the lean
+    // and whether it is happy), how far its mouth is open and its eyes shut, the seconds it has
+    // heard, its radius, how far the bounce has lifted it, its stretch, whether it was drawn
+    // smaller to fit, and how far the sound is pushing its top and its bottom points.
+    probe() {
+      const e = blob.ears;
+      return {
+        loud: e.loud, fast: e.fast, low: e.low, high: e.high, lean: e.lean, happy: e.happy,
+        open: C.mouth(e.fast), blink: C.blink(e.clock, BLINK_EVERY, 0), clock: e.clock,
+        radius: blob.radius, lift: blob.lift, stretch: blob.stretch, shrink: blob.shrink,
+        bulgeTop: blob.bulge[0], bulgeBottom: blob.bulge[blob.bulge.length >> 1],
+      };
     },
   };
 };
