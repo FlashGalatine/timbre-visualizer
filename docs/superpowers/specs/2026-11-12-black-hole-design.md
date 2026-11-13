@@ -87,7 +87,7 @@ while the mic is on. `gulpSensitivity` 0 turns it off.
 ## Quiet and muted
 
 Mic on and silent, or mic off: a slow trickle keeps drifting in (about 1.3 things a second at the
-default Density, each taking some twenty seconds to fall). Mic off with the idle animation on:
+default Density, each taking about eleven seconds to fall, against about two at full voice). Mic off with the idle animation on:
 the hole breathes (`low = 0.2 + 0.12 × sin(now / 800)`).
 
 ## Settings

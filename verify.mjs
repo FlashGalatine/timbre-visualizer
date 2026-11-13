@@ -44,6 +44,13 @@
 //      guards, a size change), and that all three overlay pages
 //      load it after fireflies-swarm.js and before the factories. (Also runs
 //      before section 4.)
+//  11. Infall — overlay/infall.js under Node with a seeded random source: how
+//      much falls into the black hole and how often, where things start, the
+//      spiral speeding up close in, the population quiet and loud and its
+//      limit, the syllable burst, the gulp and its guards, frame-rate
+//      independence, long frames, the trail memory, and that all three overlay
+//      pages load it after planets.js and before the factories. (Also runs
+//      before section 4.)
 //   4. Live transport seam — spawns mock-sb-server.mjs on side ports, loads the
 //      REAL shared/panel-client-sb.js under a browser shim, and asserts:
 //      Subscribe (lowercase), sync-on-connect DoAction, control push →
@@ -81,7 +88,8 @@ console.log('\n[1] table consistency');
   ok(missing.length === 0, `every viz name has a factory file${missing.length ? ' — MISSING: ' + missing.join(',') : ''}`);
   const orphan = [...factories].filter((f) => !T.ACTIVE_VIZ_NAMES.includes(f));
   ok(orphan.length === 0, `no orphan factory files${orphan.length ? ' — ORPHANS: ' + orphan.join(',') : ''}`);
-  ok(T.ACTIVE_VIZ_NAMES.length === 49, `49 visualizers (${T.ACTIVE_VIZ_NAMES.length})`);
+  ok(T.ACTIVE_VIZ_NAMES.length === 50, `50 visualizers (${T.ACTIVE_VIZ_NAMES.length})`);
+  ok(T.ACTIVE_VIZ_NAMES.indexOf('black-hole') === T.ACTIVE_VIZ_NAMES.indexOf('pulse-rings') + 1 && !T.VIZ_USES_3D.includes('black-hole'), 'black-hole is listed after pulse-rings, as a 2D effect');
   const badPerViz = Object.keys(T.DEFAULT_PER_VIZ).filter((n) => !T.ACTIVE_VIZ_NAMES.includes(n));
   ok(badPerViz.length === 0, 'DEFAULT_PER_VIZ keys are all known vizes');
   ok(T.VIZ_USES_3D.every((n) => T.ACTIVE_VIZ_NAMES.includes(n)), 'VIZ_USES_3D ⊆ viz names');
@@ -201,6 +209,11 @@ ok(JSON.stringify(T.defaultConfig().perViz.orbit) === JSON.stringify({ planets: 
   ok(c.planets === 9 && c.flareSensitivity === 100 && low.planets === 0 && low.flareSensitivity === 0, 'orbit knobs clamp: planets to 0..9, sensitivity to 0..100');
   const old = T.sanitizeConfig({ perViz: { orbit: { density: 80 } } }).perViz.orbit;   // a config saved before this change
   ok(!('density' in old) && old.planets === 6 && old.flareSensitivity === 50, 'an old saved orbit config loses the retired density and gains the new defaults');
+}
+ok(JSON.stringify(T.defaultConfig().perViz['black-hole']) === JSON.stringify({ density: 50, gulpSensitivity: 50 }), 'black-hole defaults: density 50, gulpSensitivity 50');
+{
+  const c = T.sanitizeConfig({ activeViz: 'black-hole', perViz: { 'black-hole': { density: 250, gulpSensitivity: -4, nope: 1 } } });
+  ok(c.activeViz === 'black-hole' && c.perViz['black-hole'].density === 100 && c.perViz['black-hole'].gulpSensitivity === 0 && !('nope' in c.perViz['black-hole']), 'black-hole is an accepted effect name, and its knobs clamp to 0..100');
 }
 
 // ── 3. C# embed simulation ───────────────────────────────────────────────────
@@ -1226,6 +1239,140 @@ await import('./overlay/planets.js');
     order.push(pos > html.indexOf('src="fireflies-swarm.js"') && pos < html.indexOf('src="factories/'));
   }
   ok(order.every(Boolean), 'all three overlay pages load planets.js after fireflies-swarm.js and before the factories');
+}
+
+// ── 11. Infall (pure; no browser) ────────────────────────────────────────────
+console.log('\n[11] infall');
+await import('./overlay/infall.js');
+{
+  const I = globalThis.TimbreInfall, P = globalThis.TimbrePlanets, HX = globalThis.TimbreHelix;
+  const near = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol;
+  const SIZES = [[260, 130, 1], [1248, 624, 4.8], [1728, 624, 4.8]];
+  const WIDE = SIZES[2];
+  const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+  // script: [{ secs, loud (a number or a function of the time in seconds), peak, live = true, density, W, H }]
+  function fall(script, o = {}) {
+    const [W0, H0, scale] = o.size ?? WIDE, fps = o.fps ?? 60;
+    const inf = o.inf ?? I.createInfall({ random: HX.rng(o.seed ?? 1) });
+    const seen = o.seen ?? new Map();   // thing -> { born, r0, r, turned }
+    let t = o.t ?? 0, bad = false, most = 0, longHist = 0, mostTurn = 0;
+    const events = [], pop = [], lives = [], far = [], close = [];
+    for (const s of script) {
+      for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) {
+        t += 1 / fps;
+        const W = s.W ?? W0, H = s.H ?? H0;
+        const e = inf.step({ dt: 1 / fps, live: s.live !== false, loud: typeof s.loud === 'function' ? s.loud(t) : (s.loud ?? 0), peak: s.peak ?? 0,
+          threshold: o.threshold ?? 0.9, density: s.density ?? o.density ?? 50, W, H, scale });
+        if (e) events.push({ e, t });
+        const here = new Set(inf.things);
+        for (const [thing, was] of seen) if (!here.has(thing)) { lives.push(t - was.born); seen.delete(thing); }
+        for (const th of inf.things) {
+          if (![th.r, th.th, th.x, th.y, th.z, th.born].every(Number.isFinite) || !(th.r > 0) || !(th.born >= 0 && th.born <= 1)) bad = true;
+          const was = seen.get(th);
+          if (!was) seen.set(th, { born: t, r0: th.r, r: th.r, turned: th.turned });
+          else {
+            if (th.r > was.r + 1e-9 || th.turned < was.turned) bad = true;            // always inward, always the same way round
+            const w = (th.turned - was.turned) * fps;
+            mostTurn = Math.max(mostTurn, th.turned - was.turned);
+            if (th.r > 10 * I.HOLE_R * scale) far.push(w); else if (th.r < 3 * I.HOLE_R * scale) close.push(w);
+            was.r = th.r; was.turned = th.turned;
+          }
+          longHist = Math.max(longHist, th.hist.length);
+        }
+        most = Math.max(most, inf.things.length);
+        pop.push(inf.things.length);
+      }
+    }
+    return { inf, events, bad, most, longHist, mostTurn, pop, lives, far, close, seen, t, secs: t - (o.t ?? 0) };
+  }
+
+  ok(I.most(0) === 30 && I.most(50) === 65 && I.most(100) === 100 && I.most(250) === 100 && I.most(NaN) === 65
+    && near(I.rate(0), 0.4) && near(I.rate(50), 1) && near(I.rate(100), 1.6) && near(I.rate(NaN), 1), 'Density sets the most there can be (30 to 100) and how often things arrive (0.4 to 1.6 times)');
+  {
+    const fresh = I.createInfall({ random: HX.rng(1) });
+    const silent = fall([{ secs: 60 }]);
+    const settled = mean(silent.pop.slice(-20 * 60)), life = mean(silent.lives);
+    ok(fresh.things.length === 0 && !silent.bad && silent.inf.eaten > 20 && settled > 10 && settled < 40,
+      `silent, a trickle keeps falling in: about ${settled.toFixed(0)} things at a time, ${silent.inf.eaten} swallowed in a minute`);
+    const outside = [...silent.seen.values()].every((s) => s.r0 > 0) && (() => {
+      const inf = I.createInfall({ random: HX.rng(2) }); let okAll = true, n = 0;
+      const [W, H, scale] = WIDE, known = new Set();
+      for (let i = 0; i < 3600; i++) {
+        inf.step({ dt: 1 / 60, live: true, loud: 0.5, peak: 0, threshold: 0.9, density: 50, W, H, scale });
+        for (const th of inf.things) if (!known.has(th)) { known.add(th); n++; if (!(th.r >= 0.99 * (W / 2 + 10 * scale) / P.reach(th.k, th.roll).x) || !(th.born < 0.1)) okAll = false; }
+      }
+      return okAll && n > 50;
+    })();
+    ok(outside, 'each thing starts on a circle that reaches beyond the sides of the frame, and fades in');
+    ok(mean(silent.close) > 5 * mean(silent.far) && silent.far.length > 100 && silent.close.length > 100 && life > 8 && life < 16,
+      `they spiral faster close in (${mean(silent.far).toFixed(2)} rad/s far out, ${mean(silent.close).toFixed(2)} near the hole) and take about ${life.toFixed(0)} s to fall when it is silent`);
+    const kinds = {}; { const inf = I.createInfall({ random: HX.rng(3) }); const all = new Set();
+      for (let i = 0; i < 6000; i++) { inf.step({ dt: 1 / 60, live: true, loud: 1, peak: 0, threshold: 0.9, density: 100, W: 1728, H: 624, scale: 4.8 }); for (const th of inf.things) all.add(th); }
+      for (const th of all) kinds[th.kind] = (kinds[th.kind] || 0) + 1; kinds.n = all.size; }
+    ok(kinds.streak > 0.4 * kinds.n && kinds.comet > 0.12 * kinds.n && kinds.firefly > 0.18 * kinds.n && kinds.streak + kinds.comet + kinds.firefly === kinds.n,
+      `streaks of light, comets and fireflies fall in (${kinds.streak}, ${kinds.comet}, ${kinds.firefly} of ${kinds.n})`);
+  }
+  // Louder: more falls in, and faster.
+  {
+    const silent = fall([{ secs: 30 }]), loud = fall([{ secs: 30, loud: 1 }]);
+    ok(!loud.bad && loud.inf.eaten > 4 * silent.inf.eaten && mean(loud.lives) < 0.35 * mean(fall([{ secs: 60 }]).lives) && loud.most <= 65 && near(loud.inf.pull, 0.45 + 1.9 + 0.8, 0.01) && near(silent.inf.pull, 0.45, 1e-6),
+      `at full voice ${(loud.inf.eaten / silent.inf.eaten).toFixed(1)} times as much is swallowed, each thing falling in about ${mean(loud.lives).toFixed(1)} s`);
+    const few = fall([{ secs: 30, loud: 1 }], { density: 0 }), many = fall([{ secs: 30, loud: 1 }], { density: 100 });
+    ok(few.most <= 30 && few.most > 10 && many.most <= 100 && many.most > 65 && !few.bad && !many.bad, `Density limits how many there are at once (${few.most} at 0, ${loud.most} at 50, ${many.most} at 100)`);
+    const micOff = fall([{ secs: 5, loud: 1, live: false }]);
+    ok(near(micOff.inf.pull, 0.45, 1e-6) && micOff.inf.loud === 0, 'mic off, the hole pulls at its gentlest whatever the sound arrays hold');
+    // A syllable starting throws in a handful at once.
+    const base = fall([{ secs: 3 }]);
+    const before = base.inf.things.length;
+    const burst = fall([{ secs: 0.1, loud: 0.9 }], { inf: base.inf, seen: base.seen, t: base.t });
+    ok(burst.inf.things.length - before >= 3, `a syllable starting throws in a handful at once (${burst.inf.things.length - before} more within a tenth of a second)`);
+  }
+  // The gulp.
+  {
+    const lead = fall([{ secs: 4, loud: 0.5 }]);
+    const there = new Set(lead.inf.things);
+    const hit = fall([{ secs: 0.1, loud: 0.5, peak: 0.95 }], { inf: lead.inf, seen: lead.seen, t: lead.t });
+    const jetEarly = hit.inf.jet, gulpNow = hit.inf.gulp;
+    const soon = fall([{ secs: 0.25, loud: 0.5 }], { inf: lead.inf, seen: lead.seen, t: hit.t });
+    const jetUp = soon.inf.jet;
+    const later = fall([{ secs: 0.9, loud: 0.5 }], { inf: lead.inf, seen: lead.seen, t: soon.t });
+    const left = lead.inf.things.filter((th) => there.has(th)).length, fed = lead.inf.eaten;
+    const after = fall([{ secs: 3, loud: 0.5 }], { inf: lead.inf, seen: lead.seen, t: later.t });
+    ok(hit.events.length === 1 && hit.events[0].e === 'gulp' && there.size > 10 && left <= 0.1 * there.size && gulpNow > 0.6 && jetEarly === 0 && jetUp > 0.7
+      && after.inf.jet < 0.01 && after.inf.gulp < 0.01 && after.inf.gulps === 1 && !hit.bad && !later.bad && fed >= there.size - left,
+      `a peak makes the hole gulp: ${there.size - left} of the ${there.size} things in sight are swallowed within a second and a quarter, and the jets fire a fifth of a second in`);
+    const held = fall([{ secs: 2, loud: 0.5 }, { secs: 3.5, loud: 0.5, peak: 0.95 }]);
+    ok(held.events.length === 3 && near(held.events[1].t - held.events[0].t, 1.5, 2 / 60), 'a held yell gulps again only every second and a half');
+    const opened = fall([{ secs: 2, peak: 0.95, live: false }, { secs: 0.3, loud: 0.5, peak: 0.95 }]);
+    const off = fall([{ secs: 5, loud: 0.5, peak: 1 }], { threshold: Infinity });
+    const talk = fall([{ secs: 30, loud: 1, peak: 0.7 }]);
+    ok(opened.events.length === 0 && off.events.length === 0 && talk.events.length === 0, 'no gulp when the mic opens on a peak, at sensitivity 0, or from talking');
+  }
+  // Any frame rate, and very long frames.
+  {
+    const [e30, e60, e144] = [30, 60, 144].map((fps) => fall([{ secs: 40 }], { fps }).inf.eaten);
+    ok(Math.abs(e30 - e60) <= 2 && Math.abs(e144 - e60) <= 2 && e60 > 10, `the same at 30, 60 and 144 fps (${e30}, ${e60}, ${e144} swallowed in forty silent seconds)`);
+    const yells = Array.from({ length: 6 }, () => [{ secs: 2.8, loud: 1 }, { secs: 0.2, loud: 1, peak: 0.95 }]).flat();
+    const slow = fall(yells, { fps: 10, density: 100 });
+    ok(!slow.bad && slow.events.length === 6 && slow.inf.eaten > 100 && slow.mostTurn <= 1.4 + 1e-9, `at ten frames a second, at full voice and gulping, nothing goes astray (${slow.inf.eaten} swallowed, at most ${slow.mostTurn.toFixed(2)} rad a frame)`);
+    const h30 = fall([{ secs: 20, loud: 1 }], { fps: 30 }).longHist, h144 = fall([{ secs: 20, loud: 1 }], { fps: 144 }).longHist;
+    ok(h30 <= Math.ceil(0.6 * 30) + 2 && h144 <= Math.ceil(0.6 * 30) + 2 && h144 >= 15 && slow.longHist <= 8, `a trail is a handful of remembered places, whatever the frame rate (${h30}, ${h144}; ${slow.longHist} at ten frames a second)`);
+    const sized = fall([{ secs: 5, loud: 0.6 }, { secs: 5, loud: 0.6, W: 1248, H: 480 }, { secs: 5, loud: 0.6, W: 1728, H: 816 }]);
+    ok(!sized.bad && sized.inf.eaten > 5, 'a size change leaves everything falling');
+    const where = (r) => r.inf.things.map((th) => [th.x.toFixed(6), th.y.toFixed(6)]).join();
+    const a = fall([{ secs: 6, loud: 0.7 }], { seed: 7 }), b = fall([{ secs: 6, loud: 0.7 }], { seed: 7 }), c = fall([{ secs: 6, loud: 0.7 }], { seed: 8 });
+    ok(where(a) === where(b) && where(a) !== where(c) && a.inf.things.length > 5, 'a seeded infall repeats');
+    const small = SIZES.map((size) => fall([{ secs: 20, loud: 0.8 }, { secs: 0.1, loud: 0.8, peak: 0.95 }, { secs: 3, loud: 0.8 }], { size }));
+    ok(small.every((r) => !r.bad && r.inf.eaten > 10 && r.events.length === 1), 'it works on all three pages');
+  }
+
+  const order = [];
+  for (const p of ['300x220', '1440x1080', '1920x1080']) {
+    const html = await readFile(resolve(__dirname, `overlay/mic-visualizers-${p}.html`), 'utf8');
+    const pos = html.indexOf('src="infall.js"');
+    order.push(pos > html.indexOf('src="planets.js"') && pos < html.indexOf('src="factories/'));
+  }
+  ok(order.every(Boolean), 'all three overlay pages load infall.js after planets.js and before the factories');
 }
 
 // ── 4. Live transport seam (mock SB + real panel-client-sb.js) ───────────────

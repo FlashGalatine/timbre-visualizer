@@ -14,7 +14,7 @@
   // dropdown order in the control panel.
   const ACTIVE_VIZ_NAMES = [
     'visualizer', 'waveform', 'blob', 'owl', 'peak-hold', 'ring-bars', 'ring-waveform',
-    'comet', 'orbit', 'spectrogram', 'dna', 'fireflies', 'pulse-rings', 'matrix',
+    'comet', 'orbit', 'spectrogram', 'dna', 'fireflies', 'pulse-rings', 'black-hole', 'matrix',
     'sine-bars', 'mountains-2d', 'mountains-3d', 'vaporwave', 'peaks-mirror', 'sunburst-3d',
     'galaxy-ripple', 'tunnel', 'metaball', 'glass-prism', 'chladni', 'phosphor', 'ink',
     'shards', 'jelly', 'boids', 'rose',
@@ -59,6 +59,7 @@
     'comet':         { trail: 50, flareSensitivity: 50 },
     'pulse-rings':   { sensitivity: 50, flow: 0, explodeSensitivity: 50, reconnectSeconds: 3 },
     'orbit':         { planets: 6, flareSensitivity: 50 },
+    'black-hole':    { density: 50, gulpSensitivity: 50 },
     'spectrogram':   { scrollSpeed: 50 },
     'dna':           { helixFreq: 50, shatterSensitivity: 50, reconnectSeconds: 3 },
     'fireflies':     { density: 50, startleSensitivity: 50 },
