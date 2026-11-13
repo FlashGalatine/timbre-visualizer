@@ -50,10 +50,14 @@ Owl work." Blob and Owl are the last two effects on the first list of issue #1.
 character keeps: a slow loudness (0.25 s), a fast one (0.05 s), the low end (opens over 0.05 s,
 closes over 0.25 s) and the high end (0.1 s); `rise`, how far the fast loudness stands above the
 slow one (a syllable starting); and `lean`, which end of the sound is winning, from −1 (low) to
-1 (high), eased over 0.3 s and zero when the voice is quieter than 0.05. Mic off, it hears silence.
+1 (high): 1.5 times the difference between the high end and the low end (so a difference of two
+thirds is a full lean), eased over 0.3 s and zero when the voice is quieter than 0.05. Mic off,
+it hears silence.
 
 **The bounce.** A damped spring, kicked upward by `rise × a strength × Bounce / 50` and solved
-exactly for each frame, so it moves the same at any frame rate. Bounce at 0 stills it.
+exactly for each frame, so it moves the same at any frame rate. Bounce at 0 stills it, at once.
+The spring must be one that rings (a frequency above 0, damping from 0 to below 1); anything
+else is refused when it is made.
 
 **The face.** Eyes that blink for 0.16 s every few seconds; happy eyes (upturned arcs) once the
 slow loudness passes 0.45, until it falls below 0.35; a mouth that opens with the fast loudness
@@ -63,10 +67,13 @@ slow loudness passes 0.45, until it falls below 0.35; a mouth that opens with th
 soft glow of light behind it that brightens with the voice.
 
 **Staying in the frame.** A character's bounce is limited to the room there is above it, and the
-Blob, which also grows, is drawn smaller when it would not fit.
+Blob, which also grows, is drawn smaller when it would not fit, top to bottom or side to side.
 
-**Quiet.** Mic on and silent: still, blinking. Mic off with the idle animation on: breathing (and
-the Owl sways). Mic off with it off: still.
+**Quiet.** Mic on and silent: at rest, with only its own small movements (the Blob's slow wobble,
+its eyes looking about) and its blinking. Mic off with the idle animation on: the same, and
+breathing (and the Owl sways). Mic off with it off: nothing about it moves, and it does not
+blink. A character eases between these over 0.3 s, so the mic coming on or going off never makes
+it jump.
 
 ## Blob
 
@@ -78,7 +85,9 @@ A body outlined by 32 points round a circle, joined by smooth curves.
   times), by up to `7 × scale × Bounce / 50`, rising over 0.04 s and falling over 0.18 s; and by
   a slow three-part wobble of a few percent.
 - The spring (2.6 Hz, damping 0.22, strength 2600) lifts it. It stretches on the way up and
-  squashes as it lands: by `0.007 ×` the spring's speed, at most 13% either way.
+  squashes on the way down: by `0.0025 ×` the spring's speed while that is small, levelling off
+  smoothly towards 13% either way (never held at a limit, which would snap from tall to flat
+  at the top of a bounce).
 - The face sits a little above its middle, sized to the body.
 
 ## Owl
@@ -133,6 +142,14 @@ dials and a three-line speaker; two antennae with ball tips on top.
   unusual line settings, cost; and for the Television, the face on the screen with the mic on and
   static with it off, and its place in the list).
 - Whether they look like a blob, an owl and a television is judged by eye; no test measures it.
+
+## Known and left alone
+
+- The Blob's stretch follows the spring's speed, so the end of a syllable (when the push stops)
+  changes it quickly: up to about 0.05 in a frame at the usual Bounce and 0.1 at Bounce 100, at
+  60 frames a second. Smoothing it further would make it lag the bounce.
+- The Blob is flat while it moves down, not at the moment it lands: the stretch is in step with
+  its speed, which is zero at the top and the bottom of a bounce.
 
 ## Not checked by any test
 
