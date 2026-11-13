@@ -38,7 +38,10 @@
 //  10. Planets — overlay/planets.js under Node: the tilted projection and the
 //      largest orbit that fits a frame, the loudness memory at any frame rate,
 //      the ring disc (the ripple's travel, the blast, the refill, Flow), the
-//      cracks that cut a planet into chunks, and that all three overlay pages
+//      cracks that cut a planet into chunks, the sun-and-planets system (how
+//      many, fading in and out, orbits inside the frame, inner planets lapping
+//      faster, speed quiet and loud at any frame rate, the flare and its
+//      guards, a size change), and that all three overlay pages
 //      load it after fireflies-swarm.js and before the factories. (Also runs
 //      before section 4.)
 //   4. Live transport seam — spawns mock-sb-server.mjs on side ports, loads the
@@ -190,6 +193,14 @@ ok(JSON.stringify(T.defaultConfig().perViz['pulse-rings']) === JSON.stringify({ 
   ok(p.sensitivity === 100 && p.flow === 0 && p.explodeSensitivity === 100 && p.reconnectSeconds === 10, 'pulse-rings knobs clamp: the sliders to 0..100, reconnect to 10');
   const old = T.sanitizeConfig({ perViz: { 'pulse-rings': { sensitivity: 80, flow: 30 } } }).perViz['pulse-rings'];   // a config saved before this change
   ok(old.sensitivity === 80 && old.flow === 30 && old.explodeSensitivity === 50 && old.reconnectSeconds === 3, 'an old saved pulse-rings config gains the new defaults');
+}
+ok(JSON.stringify(T.defaultConfig().perViz.orbit) === JSON.stringify({ planets: 6, flareSensitivity: 50 }), 'orbit defaults: planets 6, flareSensitivity 50');
+{
+  const c = T.sanitizeConfig({ perViz: { orbit: { planets: 40, flareSensitivity: 250 } } }).perViz.orbit;
+  const low = T.sanitizeConfig({ perViz: { orbit: { planets: -3, flareSensitivity: -4 } } }).perViz.orbit;
+  ok(c.planets === 9 && c.flareSensitivity === 100 && low.planets === 0 && low.flareSensitivity === 0, 'orbit knobs clamp: planets to 0..9, sensitivity to 0..100');
+  const old = T.sanitizeConfig({ perViz: { orbit: { density: 80 } } }).perViz.orbit;   // a config saved before this change
+  ok(!('density' in old) && old.planets === 6 && old.flareSensitivity === 50, 'an old saved orbit config loses the retired density and gains the new defaults');
 }
 
 // ── 3. C# embed simulation ───────────────────────────────────────────────────
@@ -1053,6 +1064,117 @@ await import('./overlay/planets.js');
     for (const seed of [1, 2, 3, 6, 7, 8, 9, 10]) {
       const ps = P.crack(R, 22, HX.rng(seed));
       if (ps.length !== 22 || !ps.every((p) => convex(p.pts))) { ok(false, `crack: seed ${seed} gives 22 convex chunks`); }
+    }
+  }
+
+  // The sun-and-planets system.
+  {
+    const WIDE = SIZES[2];
+    // script: [{ secs, loud (a number or a function of the time in seconds), peak, live = true, count, W, H }]
+    const orbit = (script, o = {}) => {
+      const [W0, H0, scale] = o.size ?? WIDE, fps = o.fps ?? 60;
+      const sys = o.sys ?? P.createSystem({ random: HX.rng(o.seed ?? 1) });
+      let t = 0, bad = false, mostStep = 0; const events = [];
+      for (const s of script) {
+        for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) {
+          t += 1 / fps;
+          const W = s.W ?? W0, H = s.H ?? H0, was = sys.planets.map((p) => [p, p.turned]);
+          const e = sys.step({ dt: 1 / fps, live: s.live !== false, loud: typeof s.loud === 'function' ? s.loud(t) : (s.loud ?? 0), peak: s.peak ?? 0,
+            threshold: o.threshold ?? 0.9, count: s.count ?? o.count ?? 6, W, H, scale });
+          if (e) events.push({ e, t });
+          for (const p of sys.planets) {
+            if (!(Math.abs(p.x) + p.r <= W / 2 && Math.abs(p.y) + p.r <= H / 2) || !(p.born >= 0 && p.born <= 1) || !(p.th >= 0 && p.th < TURN) || !(p.r > 0)) bad = true;
+          }
+          for (const [p, turned] of was) mostStep = Math.max(mostStep, p.turned - turned);
+        }
+      }
+      return { sys, events, bad, mostStep, secs: t };
+    };
+    const here = (r) => r.sys.planets.filter((p) => !p.leaving);
+
+    ok(P.planetCount(0) === 0 && P.planetCount(6) === 6 && P.planetCount(9) === 9 && P.planetCount(12) === 9 && P.planetCount(-3) === 0 && P.planetCount(2.6) === 3 && P.planetCount(NaN) === 6,
+      'planetCount: 0 to 9, and 6 when the setting is missing');
+    {
+      const r = orbit([{ secs: 0.02 }]);
+      const ps = r.sys.planets, scale = WIDE[2];
+      ok(ps.length === 6 && ps.every((p) => p.born < 0.1) && ps.every((p, i) => i === 0 || p.a > ps[i - 1].a) && near(ps[0].a, 2.7 * 12 * scale) && near(ps[5].a, r.sys.aMax)
+        && r.sys.aMax > 80 * scale, `the system starts with six planets fading in, spaced from 2.7 sun radii out to the largest orbit that fits (${(r.sys.aMax / scale).toFixed(0)} px × scale)`);
+      ok(ps.every((p) => p.k >= 0.29 && p.k <= 0.41 && p.roll >= -0.36 && p.roll <= -0.04 && Math.abs(p.axis) <= 0.6) && new Set(ps.map((p) => p.k.toFixed(3))).size === 6
+        && new Set(ps.map((p) => p.roll.toFixed(3))).size === 6 && new Set(ps.map((p) => p.axis.toFixed(3))).size === 6,
+        'every orbit is tilted and leans a little differently, and every planet leans on its own axis');
+      ok(ps[3].ringed && ps.filter((p) => p.ringed).length === 1 && ps.filter((p) => p.striped).length === 4 && ps.every((p) => p.size >= 2.9 * scale && p.size <= 6.9 * scale), 'the fourth planet has rings; two in three have cloud bands');
+      const up = orbit([{ secs: 2 }, { secs: 1 / 60, count: 9 }]);
+      const down = orbit([{ secs: 2, count: 9 }, { secs: 1 / 60, count: 3 }]);
+      const listed = down.sys.planets.length, leaving = down.sys.planets.filter((p) => p.leaving).length;
+      const settled = orbit([{ secs: 1, count: 3 }], { sys: down.sys });
+      // The same system carries on below, so what it holds now is noted first.
+      const stayed = settled.sys.planets.length, respaced = here(settled).map((p) => p.a), spread = settled.sys.aMax;
+      const none = orbit([{ secs: 1.2, count: 0 }], { sys: settled.sys });
+      ok(up.sys.planets.length === 9 && up.sys.planets.filter((p) => p.born < 0.1).length === 3 && listed === 9 && leaving === 6 && stayed === 3
+        && none.sys.planets.length === 0 && !up.bad && !down.bad && !settled.bad && !none.bad, 'more planets fade in; fewer fade out and are then gone; none leaves the sun alone');
+      ok(near(respaced[0], 2.7 * 12 * scale, 0.02 * scale) && respaced[2] > 0.9 * spread, 'the planets that stay spread back out over the whole system');
+    }
+    // Full voice with a yell every three seconds, nine planets, on every page: nothing leaves the frame.
+    {
+      const yells = Array.from({ length: 20 }, () => [{ secs: 2.9, loud: 1 }, { secs: 0.1, loud: 1, peak: 0.95 }]).flat();
+      const runs = SIZES.map((size) => orbit(yells, { size, count: 9 }));
+      ok(runs.every((r) => !r.bad && r.events.length === 20), 'nine planets at full voice, with a flare every three seconds, stay inside the frame on all three pages');
+    }
+    // Speed.
+    {
+      const lap = TURN / 9;
+      const silent = orbit([{ secs: 20 }]), loud = orbit([{ secs: 20, loud: 1 }]), steady = orbit([{ secs: 30, loud: 0.5 }]);
+      const ps = here(steady);
+      ok(near(here(silent)[0].turned, 20 * lap * 0.4, 0.01 * 20 * lap * 0.4) && near(silent.sys.speed, 0.4, 1e-6),
+        `silent, the innermost planet laps in ${(TURN / (here(silent)[0].turned / 20)).toFixed(1)} s`);
+      ok(near(loud.sys.speed, 3.7, 0.01) && here(loud)[0].turned > 8.5 * here(silent)[0].turned, `at full voice it goes ${(here(loud)[0].turned / here(silent)[0].turned).toFixed(1)} times as fast`);
+      ok(ps.every((p, i) => i === 0 || p.turned < ps[i - 1].turned) && near(ps[0].turned / ps[5].turned, Math.pow(steady.sys.aMax / steady.sys.aMin, 0.8), 0.05 * ps[0].turned / ps[5].turned),
+        `inner planets lap faster: the innermost turns ${(ps[0].turned / ps[5].turned).toFixed(2)} times as far as the outermost`);
+      // Syllables of 0.2 s every 0.6 s. Their edges fall on frame boundaries at all three rates (the
+      // sound a frame hears is the sound of the stretch it covers), so each rate hears the same thing.
+      const syllables = (fps) => (t) => ((Math.round(t * 120) - 120 / fps + 72000) % 72 < 24 ? 0.9 : 0);
+      const [a30, a60, a120] = [30, 60, 120].map((fps) => here(orbit([{ secs: 10.2, loud: syllables(fps) }], { fps }))[0].turned);
+      ok(near(a30, a60, 0.01 * a60) && near(a120, a60, 0.01 * a60), `the same at 30, 60 and 120 fps (${a30.toFixed(3)}, ${a60.toFixed(3)}, ${a120.toFixed(3)} rad in ten seconds of speech)`);
+      const slow = orbit([{ secs: 5, loud: 1 }, { secs: 0.5, loud: 1, peak: 0.95 }], { fps: 10, count: 9 });
+      ok(!slow.bad && slow.mostStep < 0.5 * TURN && slow.events.length === 1, `at ten frames a second, at full voice and flaring, no planet turns more than ${(slow.mostStep / TURN).toFixed(2)} of a lap in a frame`);
+      const p = here(orbit([{ secs: 40, loud: 1 }]))[0];
+      const sizes = []; const sys = P.createSystem({ random: HX.rng(1) });
+      for (let i = 0; i < 2400; i++) { sys.step({ dt: 1 / 60, live: true, loud: 1, peak: 0, threshold: 0.9, count: 6, W: 1728, H: 624, scale: 4.8 }); sizes.push([sys.planets[0].r, sys.planets[0].z]); }
+      const big = sizes.reduce((m, s) => (s[0] > m[0] ? s : m)), small = sizes.reduce((m, s) => (s[0] < m[0] ? s : m));
+      ok(p.turned > 4 * TURN && near(big[0] / small[0], 1.5, 0.02) && big[1] > 0.98 && small[1] < -0.98, 'a planet is drawn largest at its nearest and smallest at its farthest');
+    }
+    // The flare.
+    {
+      const one = orbit([{ secs: 1.5, loud: 0.5 }, { secs: 0.1, loud: 0.5, peak: 0.95 }]);
+      const before = orbit([{ secs: 1.5, loud: 0.5 }]).sys.speed, surge = one.sys.speed;   // the same system carries on below
+      const after = orbit([{ secs: 3, loud: 0.5 }], { sys: one.sys });
+      ok(one.events.length === 1 && one.events[0].e === 'flare' && near(one.events[0].t, 1.5, 2 / 60) && one.sys.flares === 1 && surge > before + 1.8
+        && near(after.sys.speed, before, 0.05) && after.sys.flare < 0.01, 'a peak flares the sun and the planets surge, then settle');
+      const held = orbit([{ secs: 1.5, loud: 0.5 }, { secs: 2.5, loud: 0.5, peak: 0.95 }]);
+      ok(held.events.length === 3 && near(held.events[1].t - held.events[0].t, 1, 2 / 60), 'a held yell flares again only once a second');
+      const opened = orbit([{ secs: 2, peak: 0.95, live: false }, { secs: 0.3, loud: 0.5, peak: 0.95 }]);
+      const off = orbit([{ secs: 5, loud: 0.5, peak: 1 }], { threshold: Infinity });
+      const talk = orbit([{ secs: 30, loud: 1, peak: 0.7 }]);
+      ok(opened.events.length === 0 && off.events.length === 0 && talk.events.length === 0, 'no flare when the mic opens on a peak, at sensitivity 0, or from talking');
+      const micOff = orbit([{ secs: 2, loud: 1 }, { secs: 3, loud: 1, live: false }]);
+      ok(near(micOff.sys.speed, 0.4, 0.01) && micOff.sys.loud < 0.01, 'mic off, the planets drift at their slowest whatever the sound arrays hold');
+    }
+    // The box changes size: every planet is inside the new frame at once, and none jumps round its orbit.
+    {
+      const r = orbit([{ secs: 5, loud: 0.6 }], { count: 9 });
+      const before = r.sys.planets.map((p) => p.th), wideMax = r.sys.aMax;   // the same system carries on, so each stage is noted as it ends
+      const shrunk = orbit([{ secs: 1 / 60, loud: 0.6, W: 1248, H: 480 }], { sys: r.sys, count: 9 });
+      const moved = shrunk.sys.planets.map((p, i) => { const d = Math.abs(p.th - before[i]); return Math.min(d, TURN - d); });   // the short way round: an angle may wrap past 2π
+      const later = orbit([{ secs: 3, loud: 0.6, W: 1248, H: 480 }], { sys: r.sys, count: 9 });
+      const smallMax = later.sys.aMax, smallOuter = here(later)[8].a;
+      const grown = orbit([{ secs: 3, loud: 0.6, W: 1728, H: 816 }], { sys: r.sys, count: 9 });
+      ok(!shrunk.bad && moved.every((d) => d < 0.2) && !later.bad && near(smallOuter, smallMax, 0.01 * smallMax) && smallMax < wideMax
+        && !grown.bad && near(here(grown)[8].a, grown.sys.aMax, 0.01 * grown.sys.aMax) && grown.sys.aMax > smallMax, 'a size change keeps every planet inside the new frame and on its way round');
+    }
+    {
+      const a = orbit([{ secs: 5, loud: 0.7 }], { seed: 7 }), b = orbit([{ secs: 5, loud: 0.7 }], { seed: 7 }), c = orbit([{ secs: 5, loud: 0.7 }], { seed: 8 });
+      const where = (r) => r.sys.planets.map((p) => [p.x.toFixed(6), p.y.toFixed(6)]).join();
+      ok(where(a) === where(b) && where(a) !== where(c), 'a seeded system repeats');
     }
   }
 
