@@ -104,7 +104,15 @@
 //           Bounce 100 keeps it inside the frame; mic off it is still, and with the idle animation
 //           it sways; a config push and a size change keep it; the canvas state is left as found
 //           and the picture does not depend on the line settings it is handed; and a draw stays
-//           inside its time budget.
+//           inside its time budget •
+//           television: a whole set inside the frame on all three pages; a voice makes its mouth
+//           the waveform, lights its speaker and makes it happy; the face is on the canvas with
+//           the mic on and asleep in static with it off; a syllable bounces it and springs its
+//           antennae; it blinks; it tilts and its dials turn with the low and the high end;
+//           Bounce 0 stills it and Bounce 100 keeps it inside the frame; with the idle animation
+//           it hovers in its sleep; a config push and a size change keep it; a seeded run repeats;
+//           the canvas state is left as found and the picture does not depend on the line settings
+//           it is handed; a draw stays inside its time budget; and the control panel lists it.
 
 import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
@@ -279,7 +287,7 @@ const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1, odd = fal
 }, { name, seedKey, steps, fps, seed, odd, still });
 const dnaRun = effectRun('dna', '__dnaSeed'), cometRun = effectRun('comet', '__cometSeed'), fliesRun = effectRun('fireflies', '__firefliesSeed');
 const ringsRun = effectRun('pulse-rings', '__pulseRingsSeed'), orbitRun = effectRun('orbit', '__orbitSeed'), holeRun = effectRun('black-hole', '__blackHoleSeed');
-const blobRun = effectRun('blob', '__blobSeed'), owlRun = effectRun('owl', '__owlSeed');
+const blobRun = effectRun('blob', '__blobSeed'), owlRun = effectRun('owl', '__owlSeed'), tvRun = effectRun('television', '__televisionSeed');
 const talk = { wave: 0.5, low: 0.5, high: 0.3, peak: 0.5 }, silence = { wave: 0, low: 0, high: 0, peak: 0 };
 
 // The five checks every afterglow effect must pass. slack: live pixels that legitimately
@@ -1888,6 +1896,115 @@ async function main() {
     check('owl: no page errors from the Owl checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
       [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
 
+    // ── Television: a new vector character (16:9 page unless noted) ──────────
+    const tvf = (...rs) => JSON.stringify(rs.map((r) => r && ({ loud: r.loud, fast: r.fast, lean: r.lean, happy: r.happy, open: r.open, blink: r.blink, clock: r.clock, lift: r.lift, shrink: r.shrink,
+      tilt: r.tilt, wag: r.wag, dialLow: r.dialLow, dialHigh: r.dialHigh, speaker: r.speaker, asleep: r.asleep, mouth: r.mouth, flecks: r.flecks, eyes: r.eyes, ink: r.ink, top: r.top, bottom: r.bottom, emptyCols: r.emptyCols })));
+    await charOn('television', [page, p43, wide], false);
+    for (const pg of [page, p43, wide]) {
+      const [size, h] = await pg.evaluate(() => [`${W}×${H}`, H]);
+      const [r] = await tvRun(pg, [{ secs: 3, ...talk }]);
+      check(`television: a whole set inside the frame at ${size}`, r.ink > 0 && r.top > 0 && r.bottom < h - 1 && r.emptyCols > 0 && r.shrink === 1 && r.asleep === false && r.eyes === 2 && r.mouth > 2, tvf(r));
+    }
+    const [tQuiet, tLoud] = await tvRun(wide, [{ secs: 3, ...silence }, { secs: 3, ...loudTalk }]);
+    check('television: silent, its face is on the screen with a flat smile; a voice makes its mouth the waveform, lights its speaker and makes it happy',
+      tQuiet.asleep === false && tQuiet.eyes === 2 && tQuiet.mouth === 0 && tQuiet.open === 0 && tQuiet.happy === false && tQuiet.speaker === 0 && tQuiet.flecks === 0 && tQuiet.tilt === 0
+      && tLoud.mouth > 3 && tLoud.open === 1 && tLoud.happy === true && tLoud.speaker > 0.85 && tLoud.alpha > tQuiet.alpha, tvf(tQuiet, tLoud));
+    const tStateSteps = [{ secs: 1, ...silence }, { secs: 0.05, ...loudTalk }, { secs: 0.25, ...loudTalk }, { secs: 2, ...loudTalk }, { secs: 1, ...off }];
+    const tStates = await tvRun(wide, tStateSteps, { odd: true }), tUsual = await tvRun(wide, tStateSteps);
+    check('television: leaves the canvas state as it found it, awake or asleep', tStates[4].asleep === true && [tQuiet, tLoud, ...tStates].every(stateKept), stateOf([tQuiet, tLoud, ...tStates]));
+    check('television: draws the same whatever line settings it is handed', tStates.every((r, i) => r.ink === tUsual[i].ink && r.alpha === tUsual[i].alpha),
+      JSON.stringify(tStates.map((r, i) => [r.ink, tUsual[i].ink, r.alpha, tUsual[i].alpha])));
+    // The face is on the canvas: bright lines in the middle of the screen with the mic on, and far
+    // fewer bright pixels there when it is asleep (the sleeping face is dim, and static is grey).
+    // The colours follow the wall clock, so the clock is held while this draws and reads, and put back.
+    const screenLight = (steps, seed = 3) => wide.evaluate(({ steps, seed }) => {
+      const saved = { frequencies, waveform, micActive, micPeak, seed: window.__televisionSeed, now: Date.now };
+      try {
+        Date.now = () => 1700000000000;
+        window.__televisionSeed = seed;
+        currentViz = VIZ_FACTORIES['television']();
+        const f = new Uint8Array(32), w = new Uint8Array(64);
+        let now = performance.now();
+        for (const s of steps) {
+          f.fill(0); f.fill(Math.round(s.low * 255), 0, 2); f.fill(Math.round(s.high * 255), 2, 11);
+          for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * s.wave * 127);
+          const on = s.mic !== false;
+          frequencies = on ? f : null; waveform = on ? w : null; micActive = on; micPeak = null;
+          for (let k = 0, n = Math.round(s.secs * 60); k < n; k++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+        }
+        // A box round the middle of the screen: 30 by 30 of the set's own units, where the eyes and the mouth are.
+        const p = currentViz.probe(), unit = 0.92 * SCALE, cx = W / 2 - 7.5 * unit, cy = H / 2 + 5 * SCALE - p.lift, half = Math.round(15 * unit);
+        const d = ctx.getImageData(Math.round(cx) - half, Math.round(cy) - half, 2 * half, 2 * half).data;
+        let bright = 0, light = 0;
+        for (let i = 0; i < d.length; i += 4) { const v = d[i] + d[i + 1] + d[i + 2]; light += v; if (v > 420) bright++; }
+        return { bright, light, asleep: p.asleep, tilt: p.tilt };
+      } finally {
+        Date.now = saved.now;
+        frequencies = saved.frequencies; waveform = saved.waveform; micActive = saved.micActive; micPeak = saved.micPeak;
+        window.__televisionSeed = saved.seed;
+      }
+    }, { steps, seed });
+    const tFace = await screenLight([{ secs: 4, wave: 0.3, low: 0.4, high: 0.4 }]), tSleep = await screenLight([{ secs: 4, wave: 0.3, low: 0.4, high: 0.4, mic: false }]);
+    check('television: the face is on the canvas with the mic on, and gone to sleep with it off',
+      tFace.asleep === false && tSleep.asleep === true && tFace.bright > 1500 && tSleep.bright < 0.25 * tFace.bright, JSON.stringify([tFace, tSleep]));
+    const [tRest, tHop, tLanded] = await tvRun(wide, [{ secs: 1.5, ...silence }, { secs: 0.15, ...loudTalk }, { secs: 6, ...loudTalk }]);
+    check('television: a syllable bounces it and springs its antennae, and both settle',
+      Math.abs(tRest.lift) < 0.01 && tRest.wag === 0 && tHop.lift > 2 * 4.8 && Math.abs(tHop.wag) > 0.1 && Math.abs(tLanded.lift) < 0.5 * 4.8 && Math.abs(tLanded.wag) < 0.03, tvf(tRest, tHop, tLanded));
+    const tBlinks = (await tvRun(wide, Array.from({ length: 130 }, () => ({ secs: 0.04, ...silence })))).map((r) => r.blink);   // 4.3 s: a blink comes once in 4.1
+    const tShut = tBlinks.filter((v) => v > 0).length;
+    check('television: it blinks', Math.max(...tBlinks) > 0.7 && Math.min(...tBlinks) === 0 && tShut >= 2 && tShut <= 9, JSON.stringify({ most: Math.max(...tBlinks), framesShut: tShut }));
+    const [tLowOnly] = await tvRun(wide, [{ secs: 3, wave: 0.3, low: 0.9, high: 0, peak: 0.3 }]);
+    const [tHighOnly] = await tvRun(wide, [{ secs: 3, wave: 0.3, low: 0, high: 0.9, peak: 0.3 }]);
+    check('television: it tilts toward the end of the sound that is winning, and its dials turn with the low and the high end',
+      tLowOnly.tilt < -0.08 && tHighOnly.tilt > 0.08 && tLowOnly.dialLow > 0.9 && tLowOnly.dialHigh < 0.05 && tHighOnly.dialHigh > 0.9 && tHighOnly.dialLow < 0.05 && tLowOnly.wag < 0 && tHighOnly.wag > 0, tvf(tLowOnly, tHighOnly));
+
+    // The Bounce setting.
+    const [, tStill, tStillLoud] = await tvRun(wide, [{ secs: 1.5, ...silence, config: { bounce: 0 } }, { secs: 0.15, ...loudTalk }, { secs: 3, wave: 0.6, low: 0.1, high: 0.9, peak: 0.6 }]);
+    check('television: Bounce 0 stills it: no bounce, no tilt, no spring in its antennae, though its face still answers',
+      tStill.lift === 0 && tStill.wag === 0 && tStillLoud.tilt === 0 && tStillLoud.wag === 0 && tStillLoud.open === 1 && tStillLoud.mouth > 3, tvf(tStill, tStillLoud));
+    const tSyll = Array.from({ length: 24 }, (_, i) => (i % 2 ? { secs: 0.3, ...silence } : { secs: 0.2, wave: 0.67, low: 0.1, high: 1, peak: 0.6 }));
+    const tHard = await tvRun(wide, [{ secs: 0, ...silence, config: { bounce: 100 } }, ...tSyll]);
+    const tHardSmall = await tvRun(page, tSyll);
+    await wide.evaluate(() => applyConfig({ bounce: 50 }));
+    check('television: at Bounce 100 and full voice it bounces higher and stays inside the frame, on the wide and the small page',
+      tHard.slice(1).every((r) => r.top > 0 && r.bottom < 623 && Math.abs(r.tilt) <= 0.3) && Math.max(...tHard.map((r) => r.lift)) > 6 * 4.8 && tHardSmall.every((r) => r.top > 0 && r.bottom < 129),
+      JSON.stringify({ lift: Math.max(...tHard.map((r) => r.lift)), tilt: Math.max(...tHard.map((r) => Math.abs(r.tilt))), top: Math.min(...tHard.slice(1).map((r) => r.top)), bottom: Math.max(...tHard.map((r) => r.bottom)), smallTop: Math.min(...tHardSmall.map((r) => r.top)), smallBottom: Math.max(...tHardSmall.map((r) => r.bottom)) }));
+
+    // Mic off.
+    const tOff = await tvRun(wide, [{ secs: 2, ...loudTalk }, ...Array.from({ length: 16 }, () => ({ secs: 0.25, ...off }))]);
+    const tOffTop = tOff.slice(9).map((r) => r.top);
+    check('television: mic off it is asleep and still, its screen static',
+      tOff.slice(9).every((r) => r.asleep === true && r.flecks === 90 && r.eyes === 0 && r.mouth === 0 && Math.abs(r.tilt) < 1e-3 && Math.abs(r.lift) < 0.05) && Math.max(...tOffTop) - Math.min(...tOffTop) <= 1, tvf(tOff[16]));
+    await charOn('television', [wide], true);
+    // Where its middle is: it rises and falls 2.2 px × scale either side of where it floats.
+    const tIdleY = (await tvRun(wide, Array.from({ length: 20 }, () => ({ secs: 0.25, ...off })))).map((r) => r.y);
+    check('television: mic off with idle animation: it hovers in its sleep', Math.abs(Math.max(...tIdleY) - Math.min(...tIdleY) - 2 * 2.2 * 4.8) < 1.5 && tOff.slice(9).every((r) => Math.abs(r.y - 5 * 4.8) < 0.05),   // and with the idle animation off, it did not
+      JSON.stringify([Math.min(...tIdleY), Math.max(...tIdleY)]));
+    await charOn('television', [wide], false);
+
+    // The box.
+    const [, tPushFrom, tPushTo] = await tvRun(wide, [{ secs: 2, ...talk }, { secs: 1 / 60, ...talk }, { secs: 1 / 60, ...talk, config: { colorHue: 30 } }]);
+    await wide.evaluate(() => applyConfig({ colorHue: 0 }));
+    check('television: a config push keeps it as it is', tPushTo.clock > tPushFrom.clock && tPushTo.clock > 2 && Math.abs(tPushTo.lift - tPushFrom.lift) < 3, tvf(tPushFrom, tPushTo));
+    const [, tSizeFrom, tSized, tSizeLater] = await tvRun(wide, [{ secs: 2, ...off }, { secs: 1 / 60, ...off }, { secs: 1 / 60, ...off, config: { showLabels: false } }, { secs: 2, ...off }]);
+    await wide.evaluate(() => applyConfig({ showLabels: true }));
+    check('television: a real size change keeps it, in the middle of the new frame',
+      tSized.clock > tSizeFrom.clock && Math.abs((tSized.top + tSized.bottom) / 2 - (816 / 2 + 5 * 4.8)) < 8 && Math.abs((tSizeFrom.top + tSizeFrom.bottom) / 2 - (624 / 2 + 5 * 4.8)) < 8
+      && tSizeLater.top > 0 && tSizeLater.ink > 0, tvf(tSizeFrom, tSized, tSizeLater));
+    // The static is the only thing here that is random. The screen is solid glass, so static changes
+    // the screen's colours, not how much of the canvas is inked: this reads the light on the screen.
+    // (The size change just above gave the page a fresh canvas, which the browser draws a little
+    // differently until its pixels have been read back twice, so three reads are thrown away first.)
+    const tAsleep = [{ secs: 1, wave: 0, low: 0, high: 0, mic: false }];
+    for (let i = 0; i < 3; i++) await screenLight(tAsleep, 1);
+    const tSeedA = await screenLight(tAsleep, 7), tSeedB = await screenLight(tAsleep, 7), tSeedC = await screenLight(tAsleep, 8);
+    check('television: a seeded run repeats, static and all', tSeedA.asleep === true && tSeedA.light === tSeedB.light && tSeedA.light !== tSeedC.light, JSON.stringify([tSeedA.light, tSeedB.light, tSeedC.light]));
+
+    const tvCost = await charCost('television');
+    check('television: draws in under 1.5 ms', tvCost < 1.5, `${tvCost.toFixed(3)} ms a frame`);
+    check('television: no page errors from the Television checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
+      [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
+
     await pushConfig((c) => { c.activeViz = 'visualizer'; });
     check('dna: no page errors from the DNA checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
       [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
@@ -1905,7 +2022,7 @@ async function main() {
 
     const ctlPage = await ctxt.newPage();
     await ctlPage.goto(controlUrl, { waitUntil: 'load' });
-    await ctlPage.waitForFunction(() => document.querySelectorAll('#activeViz option').length >= 50, { timeout: 5000 });
+    await ctlPage.waitForFunction(() => document.querySelectorAll('#activeViz option').length >= 51, { timeout: 5000 });
     // sync-on-connect should have populated the picker with the pushed state
     check('control panel syncs current activeViz on connect', await ctlPage.waitForFunction(
       () => document.getElementById('activeViz').value === 'visualizer', { timeout: 5000 }).then(() => true).catch(() => false));
@@ -1981,9 +2098,15 @@ async function main() {
     await ctlPage.selectOption('#activeViz', 'black-hole');
     check('Black Hole is in the list after Pulse Rings and shows its two sliders', await ctlPage.evaluate(() => {
       const names = [...document.querySelectorAll('#activeViz option')].map((o) => o.value);
-      return names.indexOf('black-hole') === names.indexOf('pulse-rings') + 1 && names.length === 50
+      return names.indexOf('black-hole') === names.indexOf('pulse-rings') + 1 && names.length === 51
         && ['Density', 'Gulp Sensitivity'].every((t) => [...document.querySelectorAll('#perVizKnobs label')].some((l) => l.textContent === t))
         && !!document.getElementById('pv-black-hole-gulpSensitivity') && document.querySelectorAll('#perVizKnobs .row').length === 2;
+    }));
+    await ctlPage.selectOption('#activeViz', 'television');
+    check('Television is in the list after Blob and Owl, with no sliders of its own', await ctlPage.evaluate(() => {
+      const names = [...document.querySelectorAll('#activeViz option')].map((o) => o.value);
+      return names.indexOf('television') === names.indexOf('owl') + 1 && names.indexOf('owl') === names.indexOf('blob') + 1
+        && document.querySelectorAll('#perVizKnobs .row').length === 0 && !!document.getElementById('g-bounce');
     }));
     // Put afterglow back to its default so the shared mock state stays clean.
     const glowMark = observed.length;

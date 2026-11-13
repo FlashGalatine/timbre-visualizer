@@ -94,7 +94,10 @@ console.log('\n[1] table consistency');
   ok(missing.length === 0, `every viz name has a factory file${missing.length ? ' — MISSING: ' + missing.join(',') : ''}`);
   const orphan = [...factories].filter((f) => !T.ACTIVE_VIZ_NAMES.includes(f));
   ok(orphan.length === 0, `no orphan factory files${orphan.length ? ' — ORPHANS: ' + orphan.join(',') : ''}`);
-  ok(T.ACTIVE_VIZ_NAMES.length === 50, `50 visualizers (${T.ACTIVE_VIZ_NAMES.length})`);
+  ok(T.ACTIVE_VIZ_NAMES.length === 51, `51 visualizers (${T.ACTIVE_VIZ_NAMES.length})`);
+  ok(T.ACTIVE_VIZ_NAMES.indexOf('television') === T.ACTIVE_VIZ_NAMES.indexOf('owl') + 1 && T.ACTIVE_VIZ_NAMES.indexOf('owl') === T.ACTIVE_VIZ_NAMES.indexOf('blob') + 1
+    && !T.VIZ_USES_3D.includes('television') && JSON.stringify(T.DEFAULT_PER_VIZ.television) === '{}' && T.sanitizeConfig({ activeViz: 'television' }).activeViz === 'television',
+    'television is listed after blob and owl, as a 2D effect with no settings of its own');
   ok(T.ACTIVE_VIZ_NAMES.indexOf('black-hole') === T.ACTIVE_VIZ_NAMES.indexOf('pulse-rings') + 1 && !T.VIZ_USES_3D.includes('black-hole'), 'black-hole is listed after pulse-rings, as a 2D effect');
   const badPerViz = Object.keys(T.DEFAULT_PER_VIZ).filter((n) => !T.ACTIVE_VIZ_NAMES.includes(n));
   ok(badPerViz.length === 0, 'DEFAULT_PER_VIZ keys are all known vizes');
@@ -1642,6 +1645,56 @@ await import('./overlay/characters.js');
     const [f30, f60, f120] = [30, 60, 120].map((fps) => owl([{ secs: 6.6, loud: syllables(fps) }], { fps }));
     ok(near(f30.mostLift, f60.mostLift, 0.06 * f60.mostLift) && near(f120.mostLift, f60.mostLift, 0.06 * f60.mostLift) && near(f30.w.flap, f120.w.flap, 0.02),
       `it bobs as high at 30, 60 and 120 fps (${(f30.mostLift / scale).toFixed(2)}, ${(f60.mostLift / scale).toFixed(2)}, ${(f120.mostLift / scale).toFixed(2)} px × scale)`);
+  }
+
+  // The Television's pose. script: [{ secs, loud, low, high, bounce, idle, live = true, W, H }]
+  const tv = (script, o = {}) => {
+    const [W0, H0, scale] = o.size ?? WIDE, fps = o.fps ?? 60;
+    const v = o.tv ?? C.createTelevision();
+    let t = 0, outside = false, bad = false, mostLift = -Infinity, mostWag = 0, mostTilt = 0, leastTilt = 0, highest = Infinity, lowest = -Infinity;
+    const rolls = [];
+    for (const s of script) for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) {
+      t += 1 / fps;
+      const W = s.W ?? W0, H = s.H ?? H0, loud = typeof s.loud === 'function' ? s.loud(t) : (s.loud ?? 0);
+      v.step({ dt: 1 / fps, live: s.live !== false, level: { loud, low: s.low ?? 0, high: s.high ?? 0 }, bounce: s.bounce ?? o.bounce ?? 50, idle: !!s.idle, W, H, scale });
+      if (![v.lift, v.cy, v.tilt, v.wag, v.open, v.k, v.roll, v.speaker, v.dials[0], v.dials[1]].every(Number.isFinite)) bad = true;
+      if (v.cy - C.TV_UP * v.k < -H / 2 || v.cy + C.TV_BELOW * v.k > H / 2) outside = true;   // its antennae tips and its feet
+      if (Math.abs(v.tilt) > 0.3 + 1e-9) bad = true;   // the tilt its reach above and below allows for
+      mostLift = Math.max(mostLift, v.lift); mostWag = Math.max(mostWag, Math.abs(v.wag)); mostTilt = Math.max(mostTilt, v.tilt); leastTilt = Math.min(leastTilt, v.tilt);
+      highest = Math.min(highest, v.cy); lowest = Math.max(lowest, v.cy);
+      rolls.push(v.roll);
+    }
+    return { v, outside, bad, mostLift, mostWag, mostTilt, leastTilt, highest, lowest, rolls };
+  };
+  {
+    const scale = WIDE[2];
+    const silent = tv([{ secs: 8 }]);
+    ok(silent.mostLift === 0 && silent.v.tilt === 0 && silent.mostWag === 0 && silent.v.asleep === false && silent.v.open === 0 && near(silent.v.smile, 1) && near(silent.v.k, 0.92 * scale) && silent.v.shrink === 1
+      && near(silent.lowest - silent.highest, 2 * 2.2 * scale, 0.05 * scale) && near((silent.lowest + silent.highest) / 2, 5 * scale, 0.05 * scale),
+      'the television, mic on and silent: awake, level, and hovering a little below the middle of the frame');
+    const off = tv([{ secs: 8, live: false }]), idling = tv([{ secs: 8, live: false, idle: true }]);
+    ok(off.v.asleep === true && off.lowest === off.highest && near(off.v.cy, 5 * scale) && idling.v.asleep === true && near(idling.lowest - idling.highest, 2 * 2.2 * scale, 0.05 * scale),
+      'mic off it is asleep and still; with the idle animation it hovers in its sleep');
+    const voiced = tv([{ secs: 3, loud: 0.5, low: 0.6, high: 0.3 }]).v, loud = tv([{ secs: 3, loud: 0.9 }]).v;
+    ok(near(voiced.open, 0.7, 1e-3) && near(voiced.speaker, 0.5, 1e-3) && near(voiced.dials[0], 0.6, 1e-3) && near(voiced.dials[1], 0.3, 1e-3) && near(voiced.smile, 0, 1e-6) && loud.open === 1 && loud.ears.happy === true,
+      'a voice opens its mouth, lights its speaker and turns its dials: one with the low end, one with the high');
+    const hop = tv([{ secs: 1 }, { secs: 0.3, loud: 0.9 }]), landed = tv([{ secs: 1 }, { secs: 6, loud: 0.9 }]);
+    ok(hop.mostLift > 3 * scale && hop.mostWag > 0.2 && hop.mostWag < 1 && Math.abs(landed.v.lift) < 0.3 * scale && Math.abs(landed.v.wag) < 0.02,
+      `a syllable bounces it (${(hop.mostLift / scale).toFixed(1)} px × scale up) and springs its antennae, and both settle`);
+    const lowish = tv([{ secs: 3, loud: 0.5, low: 0.8, high: 0.1 }]).v, highish = tv([{ secs: 3, loud: 0.5, low: 0.1, high: 0.8 }]).v;
+    const stillOne = tv([{ secs: 1 }, { secs: 3, loud: 0.9, low: 0.1, high: 0.8 }], { bounce: 0 });
+    ok(near(lowish.tilt, -0.1, 0.01) && near(highish.tilt, 0.1, 0.01) && lowish.wag < -0.01 && highish.wag > 0.01 && stillOne.mostLift === 0 && stillOne.mostTilt === 0 && stillOne.leastTilt === 0 && stillOne.mostWag === 0
+      && near(stillOne.lowest - stillOne.highest, 2 * 2.2 * scale, 0.05 * scale) && stillOne.v.open === 1,
+      'it tilts, and its antennae lean, toward the end of the sound that is winning; at Bounce 0 it only hovers and talks');
+    const r = silent.rolls, wraps = r.filter((x, i) => i > 0 && x < r[i - 1]).length;
+    ok(r.every((x) => x >= 0 && x < 1) && wraps >= 2 && wraps <= 3, 'the band on its screen rolls down once in about three seconds');
+    const hard = SIZES.map((size) => tv([{ secs: 20, loud: (t) => (t % 0.5 < 0.2 ? 1 : 0), low: 0.1, high: 0.9 }], { size, bounce: 100 }));
+    ok(hard.every((x) => !x.outside && !x.bad && x.mostLift > 0), 'at Bounce 100 and full voice no part of it leaves the frame, on all three pages');
+    const short = tv([{ secs: 2, loud: 0.6 }, { secs: 2, loud: 0.6, W: 260, H: 60 }]);
+    ok(!short.outside && !short.bad && short.v.shrink < 1 && short.v.k < 0.92 * scale, 'a frame too short for it draws it smaller, not cut off');
+    const [f30, f60, f120] = [30, 60, 120].map((fps) => tv([{ secs: 6.6, loud: syllables(fps) }], { fps }));
+    ok(near(f30.mostLift, f60.mostLift, 0.06 * f60.mostLift) && near(f120.mostLift, f60.mostLift, 0.06 * f60.mostLift) && near(f30.mostWag, f120.mostWag, 0.08 * f120.mostWag),
+      `it bounces as high at 30, 60 and 120 fps (${(f30.mostLift / scale).toFixed(2)}, ${(f60.mostLift / scale).toFixed(2)}, ${(f120.mostLift / scale).toFixed(2)} px × scale)`);
   }
 
   const order = [];
