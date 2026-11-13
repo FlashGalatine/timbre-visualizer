@@ -20,10 +20,9 @@ VIZ_FACTORIES['pulse-rings'] = function () {
   const SPIN_MIN = 0.25, SPIN_LOUD = 1.6;              // the storm's turning, rad/s: silent, and added at full loudness
   const SPECKS = 64, SPECK_RATE = 1.1, SPECK_LOUD = 2.2; // the ice: how many, its turning at one planet radius, and how much loudness adds
   const GLITTER_RATE = 31;                             // rad/s
-  const REFILL_AT = 0.78;                              // share of the return after which the rings start to fill (the snap)
   const SHOCK_S = 0.8, SHOCK_REACH = 5;                // the blast's ring of light: how long it lasts and how many planet radii it grows
   const FLASH_S = 0.16;
-  const AIM_SPREAD = 1.1;                              // rad: how far a chunk's push may turn from straight out
+  const AIM_SPREAD = 1.1;                              // rad: a chunk's push turns up to half this, either way, from straight out
   const STRIPES = [[0.62, 0.14, true], [0.3, 0.1, false], [0.02, 0.16, true], [-0.3, 0.09, false], [-0.6, 0.15, true]];
   const STORM_LAT = -0.33;                             // the storm's latitude, as a sine
   const HOT = [255, 220, 175], WHITE = [255, 255, 255];
@@ -42,14 +41,26 @@ VIZ_FACTORIES['pulse-rings'] = function () {
 
   let clock = 0, loud = 0, fast = 0, low = 0, high = 0, spin = 0, flash = 0;
   let cutR = R0 * SCALE;                   // the planet's radius when it was last cut
-  let sinceReturn = -1;                    // seconds into the return, or -1
-  let sinceBlast = Infinity;               // seconds since the last blast, for its ring of light
+  let carry = 1;                           // the planet is drawn this much larger than the sound says: it comes back together at the size it was cut, then relaxes
+  let sinceReturn = -1;                    // seconds into the return (the machine's own progress), or -1
+  let refilled = true;                     // whether the rings have been told to fill back in since the last blast
+  let sinceBlast = Infinity, blastBefore = Infinity;   // seconds since the last blast and the one before, for their rings of light
   let blasts = 0, jostles = 0;
   const drawn = { ringAlpha: 0, sparkle: 0, halo: 0, core: 0, lift: 0, planetR: R0 * SCALE };   // what the last draw drew, for probe()
 
+  // Each chunk notes which cloud bands cross it, and its own reach across and along the planet's
+  // lean, so the bands and the storm are only painted into the chunks they touch.
   const cut = () => {
-    const cx = W / 2, cy = H / 2;
-    return P.crack(cutR, P.PIECES, random).map((p) => ({ pts: p.pts, lx: p.cx, ly: p.cy, cx: cx + p.cx, cy: cy + p.cy }));
+    const cx = W / 2, cy = H / 2, c = Math.cos(P.ROLL), s = Math.sin(P.ROLL), up = Math.sqrt(1 - P.TILT * P.TILT);
+    return P.crack(cutR, P.PIECES, random).map((p) => {
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+      for (const v of p.pts) { const x = v[0] * c + v[1] * s, y = -v[0] * s + v[1] * c; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+      const stripes = STRIPES.filter(([lat, wide]) => {
+        const rx = cutR * Math.sqrt(1 - lat * lat), top = -cutR * lat * up - cutR * wide / 2, bottom = -cutR * lat * up + rx * P.TILT + cutR * wide / 2;
+        return bottom >= y0 && top <= y1;
+      });
+      return { pts: p.pts, lx: p.cx, ly: p.cy, cx: cx + p.cx, cy: cy + p.cy, stripes, x0, x1, y0, y1 };
+    });
   };
 
   // One half of the rings and of the ice in them: the far half is drawn before the planet, the
@@ -88,18 +99,22 @@ VIZ_FACTORIES['pulse-rings'] = function () {
     ctx.restore();
   }
 
-  // The cloud bands and the storm, on the whole planet or on one chunk of it. The centre is the
-  // origin and the caller has clipped to what is being painted.
-  function surface(R, c) {
+  // The cloud bands and the storm, on the whole planet or on one chunk of it (`piece`). The
+  // centre is the origin and the caller has clipped to what is being painted.
+  function surface(R, c, piece) {
     ctx.save();
     ctx.rotate(P.ROLL);
-    P.paintBands(ctx, R, c, P.TILT, STRIPES, 1);
+    P.paintBands(ctx, R, c, P.TILT, piece ? piece.stripes : STRIPES, 1);
     const k = Math.sqrt(1 - STORM_LAT * STORM_LAT), facing = Math.cos(spin);
     if (facing > 0.05) {                   // the storm is on the side turned toward the viewer
-      ctx.fillStyle = rgba(whiten(c, 0.75), 0.55 * facing);
-      ctx.beginPath();
-      ctx.ellipse(R * k * Math.sin(spin), -R * STORM_LAT * Math.sqrt(1 - P.TILT * P.TILT) + R * k * P.TILT * facing, R * 0.2 * (0.35 + 0.65 * facing), R * 0.085, 0, 0, TURN);
-      ctx.fill();
+      const sx = R * k * Math.sin(spin), sy = -R * STORM_LAT * Math.sqrt(1 - P.TILT * P.TILT) + R * k * P.TILT * facing;
+      const rx = R * 0.2 * (0.35 + 0.65 * facing), ry = R * 0.085;
+      if (!piece || (sx + rx >= piece.x0 && sx - rx <= piece.x1 && sy + ry >= piece.y0 && sy - ry <= piece.y1)) {
+        ctx.fillStyle = rgba(whiten(c, 0.75), 0.55 * facing);
+        ctx.beginPath();
+        ctx.ellipse(sx, sy, rx, ry, 0, 0, TURN);
+        ctx.fill();
+      }
     }
     ctx.restore();
   }
@@ -132,12 +147,15 @@ VIZ_FACTORIES['pulse-rings'] = function () {
       spin += dt * (SPIN_MIN + SPIN_LOUD * loud);
       flash *= Math.exp(-dt / FLASH_S);
       sinceBlast += dt;
-      const Rlive = R0 * SCALE * (1 + SWELL * low);
+      blastBefore += dt;
+      carry = HX.follow(carry, 1, dt, LOW_CLOSE_S);
+      const Rsound = R0 * SCALE * (1 + SWELL * low);
 
       // The explosion machine. The peak is the raw input level, before Gain: the mic's loudest
       // moment across at least the last two intervals when the capture code gives it, else the
       // peak of the waveform.
-      if (machine.state === 'whole') cutR = Rlive;
+      if (machine.state === 'whole') cutR = Rsound * carry;
+      const returning = machine.state === 'returning';
       const event = machine.step({
         now, dt, live,
         peak: typeof micPeak === 'number' ? micPeak : HX.peakOf(waveform),
@@ -145,23 +163,30 @@ VIZ_FACTORIES['pulse-rings'] = function () {
         reconnectS: knobs.reconnectSeconds,
         W, H, scale: SCALE, cut,
       });
-      if (event === 'shatter') { rings.blast(); flash = 1; sinceBlast = 0; sinceReturn = -1; blasts++; }
+      // What the rings are told this frame: a blast (the chunks start to move on the next frame, so
+      // it counts from this frame's end), or a refill, from the moment the return reached its snap.
+      let blastAgo, refillAgo;
+      const blast = () => { blastAgo = 0; blastBefore = sinceBlast; sinceBlast = 0; refilled = false; };
+      if (returning && !event) sinceReturn += dt;           // in step with the machine's own progress through the return
+      if (event === 'shatter') { blast(); flash = 1; sinceReturn = -1; blasts++; }
       else if (event === 'jostle') {
         jostles++;
         flash = Math.max(flash, 0.3);
-        if (sinceReturn >= 0) { rings.blast(); sinceBlast = 0; flash = Math.max(flash, 0.6); }   // a peak during the return blows it out again
+        if (returning) { blast(); flash = Math.max(flash, 0.6); }   // a peak during the return blows it out again
         sinceReturn = -1;
       } else if (event === 'return') sinceReturn = 0;
-      else if (event === 'whole') { rings.refill(); flash = Math.max(flash, 0.55); sinceReturn = -1; }
-      else if (event === 'reset') { rings.reset(); flash = 0; sinceReturn = -1; sinceBlast = Infinity; }
-      if (sinceReturn >= 0) {
-        sinceReturn += dt;
-        if (sinceReturn >= REFILL_AT * HX.RETURN_S) rings.refill();
-      }
-      rings.step({ dt, level: idle ? sound : clamp01(fast * P.gain(knobs.sensitivity)), flow: knobs.flow });
+      else if (event === 'whole') {
+        // The planet is the size it was cut at, and relaxes from there.
+        carry = cutR / Rsound;
+        flash = Math.max(flash, 0.55);
+        if (!refilled) { refillAgo = Math.max(0, sinceReturn + dt - HX.HANDOVER_U * HX.RETURN_S); refilled = true; }
+        sinceReturn = -1;
+      } else if (event === 'reset') { rings.reset(); flash = 0; carry = 1; sinceReturn = -1; refilled = true; sinceBlast = Infinity; blastBefore = Infinity; }
+      if (!refilled && sinceReturn >= HX.HANDOVER_U * HX.RETURN_S) { refillAgo = sinceReturn - HX.HANDOVER_U * HX.RETURN_S; refilled = true; }
+      rings.step({ dt, level: idle ? sound : clamp01(fast * P.gain(knobs.sensitivity)), flow: knobs.flow, blastAgo, refillAgo });
 
       const pieces = machine.pieces, whole = !pieces;
-      const R = whole ? Rlive : cutR;
+      const R = whole ? Rsound * carry : cutR;
       const colorT = ((Date.now() * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
       const c = getColor(colorT + 0.5);
       for (const b of rings.bands) {
@@ -230,7 +255,7 @@ VIZ_FACTORIES['pulse-rings'] = function () {
           ctx.fill();
           ctx.save();
           ctx.clip();
-          surface(R, c);
+          surface(R, c, p);
           ctx.restore();
           if (p.heat > 0.02) {             // freshly broken, or just fused, edges glow
             ctx.globalCompositeOperation = 'lighter';
@@ -247,9 +272,11 @@ VIZ_FACTORIES['pulse-rings'] = function () {
       ctx.globalCompositeOperation = 'lighter';
       ringHalf(true, CX, CY, colorT);
 
-      // The blast: a ring of light sweeping out in the plane of the rings, and a flash.
-      const sp = sinceBlast / SHOCK_S;
-      if (sp < 1) {
+      // The blast: a ring of light sweeping out in the plane of the rings (and the one before it,
+      // if that has not faded yet), and a flash.
+      for (const since of [sinceBlast, blastBefore]) {
+        const sp = since / SHOCK_S;
+        if (!(sp < 1)) continue;
         ctx.save();
         ctx.translate(CX, CY);
         ctx.rotate(P.ROLL);

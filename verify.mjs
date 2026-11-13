@@ -934,6 +934,9 @@ await import('./overlay/planets.js');
     };
     const r30 = run(30), r60 = run(60), r144 = run(144);
     ok([r30, r60, r144].every((r) => r.worst < 1e-9 && near(r.now, r.t)), 'echo: what was heard a moment ago, exactly, at 30, 60 and 144 fps');
+    const still = P.createEcho(1);
+    for (let i = 0; i < 5000; i++) still.note(2, i);
+    ok(still.size === 1 && still.heard(2, 0) === 4999, 'echo: a moment noted again and again is kept once, with its last level');
     ok(r30.most <= 30 * 1.2 + 3 && r144.most <= 144 * 1.2 + 3 && r60.old > r60.t - 1.3 && r60.old <= r60.t - 1 && P.createEcho(1).heard(5, 0.2) === 0,
       `echo: its memory is bounded (${r30.most}, ${r60.most}, ${r144.most} notes), older than that gives the oldest, and none gives silence`);
   }
@@ -943,11 +946,12 @@ await import('./overlay/planets.js');
     const rings = o.rings ?? P.createRings();
     let t = 0; const log = [];
     for (const s of script) {
-      if (s.blast) rings.blast();
-      if (s.refill) rings.refill();
       for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) {
         t += 1 / fps;
-        rings.step({ dt: 1 / fps, level: s.level ?? 0, flow: s.flow ?? 0 });
+        // A blast or a refill named on a stage happens at the start of its first frame, unless the stage says how long before that frame's end (blastAgo, refillAgo).
+        const first = k === 0;
+        rings.step({ dt: 1 / fps, level: s.level ?? 0, flow: s.flow ?? 0,
+          blastAgo: first && s.blast ? (s.blastAgo ?? 1 / fps) : undefined, refillAgo: first && s.refill ? (s.refillAgo ?? 1 / fps) : undefined });
         log.push({ t, level: rings.bands.map((b) => b.level), show: rings.bands.map((b) => b.show), radius: rings.bands.map((b) => b.radius) });
       }
     }
@@ -996,12 +1000,36 @@ await import('./overlay/planets.js');
     const filling = ring(60, [{ secs: 0.3, refill: true }], { rings: blown.rings }).last;
     const full = ring(60, [{ secs: 2.5 }], { rings: blown.rings }).last;
     ok(filling.show[0] > filling.show[29] + 0.2 && full.show.every((v) => v > 0.99), 'a refill fills the rings back in, the inner ones first');
-    const at = (fps) => ring(fps, [...steps, { secs: 0.4 }]).last.show;
-    const s30 = at(30), s144 = at(144);
-    ok(s30.every((v, i) => near(v, s144[i], 0.03)), 'the same at 30 and 144 fps');
+    // Read a fifth of a second after the blast, while the outer bands are still falling: a band
+    // that started thinning a frame late or early would show here.
+    const at = (fps) => ring(fps, [{ secs: 1 }, { secs: 0.2, blast: true }]).last.show;
+    const s10 = at(10), s30 = at(30), s150 = at(150);   // rates at which a fifth of a second is a whole number of frames
+    ok(s30.every((v, i) => near(v, s150[i], 1e-6)) && s10.every((v, i) => near(v, s150[i], 1e-6)) && s30[0] < 0.7 && s30[29] === 1, 'exactly the same at 10, 30 and 150 fps');
+    // A blast or a refill that happened part of the way through a frame counts from that moment.
+    // At ten frames a second, a blast 0.04 s before the end of its frame, read 0.3 s after that frame:
+    // the same as a blast 0.34 s ago at two hundred frames a second.
+    const lateA = ring(10, [{ secs: 1 }, { secs: 0.1, blast: true, blastAgo: 0.04 }, { secs: 0.3 }]).last.show;
+    const lateB = ring(200, [{ secs: 1 }, { secs: 0.34, blast: true }]).last.show;
+    ok(lateA.every((v, i) => near(v, lateB[i], 1e-6)) && lateA[0] < 0.6, 'a blast part of the way through a long frame thins the rings from that moment');
+    // The same for a refill, 0.1 s and 0.03 s before the end of its frame, read 0.3 s after that frame.
+    const thinned = () => ring(200, [{ secs: 1 }, { secs: 2, blast: true }]).rings;
+    const fillOf = (fps, ago, more) => ring(fps, [{ secs: 1 / fps, refill: true, refillAgo: ago }, { secs: more }], { rings: thinned() }).last.show;
+    const fillA = fillOf(10, 0.1, 0.3), fillB = fillOf(10, 0.03, 0.3), refA = fillOf(200, 1 / 200, 0.4 - 1 / 200), refB = fillOf(200, 1 / 200, 0.33 - 1 / 200);
+    ok(fillA.every((v, i) => near(v, refA[i], 1e-6)) && fillB.every((v, i) => near(v, refB[i], 1e-6)) && fillB[0] < fillA[0] - 0.02 && fillA[0] > 0.8,
+      'a refill counts from the moment it began, however long the frame');
+    // A second blast while the rings are still swollen from the first (a very short reconnect
+    // wait): no band may spring back to its resting radius in one frame.
+    {
+      const rings = P.createRings();
+      const radius = () => rings.bands.map((b) => b.radius);
+      let most = 0, last = null;
+      const go = (secs, blast) => { for (let k = 0, n = Math.round(secs * 144); k < n; k++) { rings.step({ dt: 1 / 144, level: 0, flow: 0, blastAgo: blast && k === 0 ? 0 : undefined }); const r = radius(); if (last) for (let i = 0; i < r.length; i++) most = Math.max(most, Math.abs(r[i] - last[i])); last = r; } };
+      go(0.5); go(0.45, true); go(1.5, true);
+      ok(most < 0.05 && rings.bands.every((b) => near(b.radius, 1.34 + b.u * 1.76, 1e-6)), `a second blast while the rings are still swollen moves no band more than ${most.toFixed(3)} planet radii in a frame`);
+    }
     const voiced = ring(60, [...steps, { secs: 1 }, { secs: 0.1, level: 1 }, { secs: 0.3 }]).last;
     ok(Math.max(...voiced.level) > 0.9, 'thinned rings still carry the voice');
-    const again = ring(60, [{ secs: 0.5 }], { rings: (() => { const r = P.createRings(); r.blast(); r.step({ dt: 0.5, level: 0, flow: 0 }); r.reset(); return r; })() }).last;
+    const again = ring(60, [{ secs: 0.5 }], { rings: (() => { const r = P.createRings(); r.step({ dt: 0.5, level: 0, flow: 0, blastAgo: 0.5 }); r.reset(); return r; })() }).last;
     ok(again.show.every((v) => v === 1), 'a reset puts every band back whole');
   }
 

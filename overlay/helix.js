@@ -326,7 +326,7 @@
   }
 
   globalThis.TimbreHelix = {
-    RETURN_S, MIN_CALM_S, REARM_S, JOSTLE_GAP_S, GAP_MS,
+    RETURN_S, HANDOVER_U, MIN_CALM_S, REARM_S, JOSTLE_GAP_S, GAP_MS,
     threshold, peakOf, levels, twist, radius, follow, returnShare, rng, createShatter,
   };
 })();

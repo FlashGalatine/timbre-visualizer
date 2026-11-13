@@ -78,11 +78,17 @@ give or take half a radian.
 - The planet's disc is cut into 22 chunks along random straight cracks, always splitting the
   largest chunk left, across its longest reach.
 - A flash, and a shock ring that sweeps out in the plane of the rings over 0.8 s.
-- The rings are blown thin: each band falls to 42% as the shock reaches it (inner bands first) and
-  swells outward by up to 35% as it passes. They keep rippling with the voice.
+- The rings are blown thin. As the shock reaches each band (inner bands first) the band flares to
+  full brightness, whitened and lifted like a full ripple, and swells outward by up to 35%; the
+  flare and the swell die away over 0.7 s while the band falls to 42%. They keep rippling with
+  the voice. A second blast while a band is still swollen from the first (only possible with a
+  very short Reconnect Seconds) leaves it the larger of the two swells, so no band springs back.
 - A glowing core stays where the planet was and beats with the voice.
 - After `Reconnect Seconds` without a peak, the chunks drift back and snap together (DNA's return
-  curve, 1.5 s). The rings fill back in from the inside out, starting when the snap starts.
+  curve, 1.5 s). The rings fill back in from the inside out, starting at the moment the snap
+  starts (78% of the way through the return), whatever the frame rate.
+- The planet was cut at the size the sound had swollen it to. It comes back together at that
+  size and only then relaxes (over 0.25 s) to what the sound says now.
 - A peak while in pieces jostles the chunks; a peak during the return blows them out again. Both
   are DNA's rules.
 
@@ -107,10 +113,13 @@ The control panel builds all four sliders from the settings table; no control-pa
 
 - `overlay/planets.js`, `globalThis.TimbrePlanets`: what Pulse Rings and Orbit share. The tilted
   projection (`place`, `reach`, `fit`), the loudness memory (`createEcho`), the ring disc
-  (`ringRest`, `createRings`), the cracks (`crack`), colour helpers, and two painting helpers that
-  take the canvas context as an argument (`paintBody`, `paintBands`). Loadable under Node. Loaded
-  by all three overlay pages after `fireflies-swarm.js`.
+  (`ringRest`, `createRings`), the cracks (`crack`), colour helpers, and two helpers that take the
+  canvas context as an argument: `bodyFill` (a lit sphere's fill) and `paintBands` (its cloud
+  bands). Loadable under Node. Loaded by all three overlay pages after `fireflies-swarm.js`.
+- The ring disc is told about a blast or a refill through `step()`, with how long before the end
+  of that step it happened, so both count from the moment itself.
 - `overlay/helix.js`: `createShatter({ random, aim })`. Without `aim` it behaves exactly as before.
+  It also exports `HANDOVER_U`, the share of the return after which the snap starts.
 - `overlay/factories/pulse-rings.js`: the effect. Random choices come from
   `TimbreHelix.rng(window.__pulseRingsSeed)`. `probe()` for the tests.
 - A size change while in pieces puts the planet back whole (the machine's own rule).
@@ -125,6 +134,13 @@ The control panel builds all four sliders from the settings table; no control-pa
   the return, the rings while in pieces, quiet states, the four settings, config push and size
   change, a seeded run, canvas state, cost, the four sliders).
 - Whether it looks like a ringed planet is judged by eye; no test measures it.
+
+## Known and left alone
+
+- The calm wait before the return ends on a whole frame (DNA's machine): at some frame rates the
+  return starts one frame later than at others. At 60 fps that is 0.017 s.
+- Each chunk paints only the cloud bands that cross it, worked out when it is cut. A chunk still
+  paints the storm only when the storm is over it.
 
 ## Not checked by any test
 
