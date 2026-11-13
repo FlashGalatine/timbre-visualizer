@@ -1159,6 +1159,47 @@ await import('./overlay/planets.js');
       const micOff = orbit([{ secs: 2, loud: 1 }, { secs: 3, loud: 1, live: false }]);
       ok(near(micOff.sys.speed, 0.4, 0.01) && micOff.sys.loud < 0.01, 'mic off, the planets drift at their slowest whatever the sound arrays hold');
     }
+    // What the review found untested.
+    {
+      // A flare's push on the planets, at any frame rate: how far the innermost planet gets in five seconds with one flare in them.
+      const run = (fps) => here(orbit([{ secs: 2, loud: 0.5 }, { secs: 0.1, loud: 0.5, peak: 0.95 }, { secs: 2.9, loud: 0.5 }], { fps }))[0].turned;
+      const t10 = run(10), t30 = run(30), t144 = run(144);
+      ok(near(t10, t144, 0.004 * t144) && near(t30, t144, 0.004 * t144), `a flare pushes the planets as far at 10, 30 and 144 fps (${t10.toFixed(3)}, ${t30.toFixed(3)}, ${t144.toFixed(3)} rad)`);
+      const gap = (fps) => { const r = orbit([{ secs: 1.5, loud: 0.5 }, { secs: 2.6, loud: 0.5, peak: 0.95 }], { fps }); return r.events[1].t - r.events[0].t; };
+      ok(near(gap(10), 1, 1e-6) && near(gap(30), 1, 1e-6) && near(gap(60), 1, 1e-6), 'a held yell flares again after exactly one second, at 10, 30 and 60 fps');
+      const reopened = orbit([{ secs: 3, loud: 0.5 }, { secs: 2, loud: 0.5, live: false }, { secs: 0.3, loud: 0.5, peak: 0.95 }]);
+      ok(reopened.events.length === 0, 'talk, mute, then unmute on a yell: no flare (the wait starts again when the mic opens)');
+      // A frame too small to hold any orbit, then the usual one: nothing is left broken.
+      const tiny = orbit([{ secs: 1, loud: 0.5 }, { secs: 1 / 60, loud: 0.5, H: 80 }, { secs: 2, loud: 0.5 }]);
+      ok(!tiny.bad && tiny.sys.planets.length === 6 && tiny.sys.planets.every((p) => Number.isFinite(p.th) && Number.isFinite(p.x) && Number.isFinite(p.turned) && p.a > 0), 'a frame too small for any orbit breaks nothing: the planets carry on when it grows back');
+      // Dragging the Planets slider: a planet on its way out is brought back before a new one is made.
+      const drag = orbit([{ secs: 2 }, { secs: 1 / 60, count: 3 }, { secs: 1 / 60, count: 6 }]);
+      let most = 0; const sys = P.createSystem({ random: HX.rng(1) });
+      for (let i = 0; i < 600; i++) { sys.step({ dt: 1 / 60, live: true, loud: 0.5, peak: 0, threshold: 0.9, count: [9, 2, 7, 1, 9, 4][Math.floor(i / 3) % 6], W: 1728, H: 624, scale: 4.8 }); most = Math.max(most, sys.planets.length); }
+      ok(drag.sys.planets.length === 6 && drag.sys.planets.every((p) => !p.leaving) && most <= 9, `a quick drag of Planets never leaves more than nine planets (${most} at most), and brings back the ones on their way out`);
+      // Depth: how near a planet really is, which is what decides which of two overlapping planets is in front.
+      const deep = orbit([{ secs: 3, loud: 0.5 }]).sys.planets;
+      ok(deep.every((p) => near(p.depth, p.a * p.z * Math.sqrt(1 - p.k * p.k), 1e-9)) && deep.some((p, i) => deep.some((q, j) => i !== j && (p.z - q.z) * (p.depth - q.depth) < 0)),
+        'each planet reports how near it really is, which is not the same order as how far round its own orbit it is');
+      // The ringed planet's rings, when it is the outermost, stay inside the frame too.
+      const ringed = SIZES.every(([W, H, scale]) => {
+        const s = P.createSystem({ random: HX.rng(2) }); let okAll = true;
+        for (let i = 0; i < 3600; i++) { s.step({ dt: 1 / 60, live: true, loud: 1, peak: 0, threshold: 0.9, count: 4, W, H, scale }); const p = s.planets[3]; if (!(Math.abs(p.x) + 1.9 * p.r <= W / 2 && Math.abs(p.y) + 1.9 * p.r <= H / 2)) okAll = false; }
+        return okAll && s.planets[3].ringed;
+      });
+      ok(ringed, 'with four planets the ringed one is outermost, and its rings stay inside the frame on all three pages');
+    }
+    // The box shrinks: a planet that is still inside the new frame carries on from where it is
+    // (its orbit tightens over the next second), and only one left outside is brought in at once.
+    {
+      const r = orbit([{ secs: 5, loud: 0.6 }], { count: 9 });
+      const was = r.sys.planets.map((p) => ({ x: p.x, y: p.y, r: p.r }));
+      orbit([{ secs: 1 / 60, loud: 0.6, W: 1248, H: 360 }], { sys: r.sys, count: 9 });   // a frame not much more than half as tall
+      const edge = 9 * 4.8;
+      const stayed = [], brought = [];
+      r.sys.planets.forEach((p, i) => { const d = Math.hypot(p.x - was[i].x, p.y - was[i].y); (Math.abs(was[i].x) <= 624 - edge && Math.abs(was[i].y) <= 180 - edge ? stayed : brought).push(d); });
+      ok(stayed.length >= 3 && brought.length >= 1 && Math.max(...stayed) < 15, `when the frame shrinks, a planet still inside it moves no more than ${Math.max(...stayed).toFixed(1)} px that frame (${brought.length} left outside were brought in)`);
+    }
     // The box changes size: every planet is inside the new frame at once, and none jumps round its orbit.
     {
       const r = orbit([{ secs: 5, loud: 0.6 }], { count: 9 });

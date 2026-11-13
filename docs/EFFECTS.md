@@ -316,7 +316,8 @@ as `globalThis.TimbrePlanets`. The effects in `factories/` read the sound and dr
 - `createSystem({ random })`: the sun-and-planets system behind Orbit, driven by
   `step({ dt, live, loud, peak, threshold, count, W, H, scale })`, which returns `'flare'` on the
   frame a peak flares the sun. It exposes `planets` (each with its orbit `a`, `k`, `roll`, its
-  angle `th`, its place `x`, `y` as an offset from the sun, depth `z`, drawn radius `r`, turning
+  angle `th`, its place `x`, `y` as an offset from the sun, `z` and `depth` (which half of its orbit
+  it is on, and how near it really is), drawn radius `r`, turning
   `w`, fade `born`, `leaving`, and its looks), `speed`, `loud`, `fast`, `flare`, `flares`,
   `sinceFlare`, `aMax` and `aMin`. `planetCount(setting)` is how many a Planets setting gives.
 - `rgba`, `whiten`, `shade`: colour helpers.

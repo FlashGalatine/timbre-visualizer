@@ -40,6 +40,21 @@ changes at the end. Stacked on `feat/pulse-rings-planet`.
 
 - `docs/EFFECTS.md` ("Planets"), `CHANGELOG.md` (Unreleased), the two test files' headers.
 
+## After the review
+
+The review of this branch found two important things and several small ones. Fixed in one wave,
+each with a check written first: of two overlapping planets the wrong one could be in front
+(they were ordered by where they were on their own orbits, not by how near they really were);
+when the frame shrank the outer orbits snapped inward in one frame; a frame too small for any
+orbit left every planet's angle broken for good; a flare pushed the planets farther at low frame
+rates; the corona, the rays and the outer planets' glow were cut off flat at the frame's edge;
+dragging Planets could pile up more than nine planets; each streak was worked out twice a frame.
+Checks were added for what the review found untested: the draw order on every frame of a run,
+fading in and out on the canvas, a real shrink on a page, the canvas state on flare frames with
+unusual line settings, a mute and unmute before a yell, and the ringed planet's rings staying
+inside the frame. Left alone and listed in the spec: the tiny frame's parked planets, and orbit
+lines reaching past a shrinking frame.
+
 ## Review focus
 
 1. The number of planets moved while they fly: none popping, none left behind, none drawn twice.

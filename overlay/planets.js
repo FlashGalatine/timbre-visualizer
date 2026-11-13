@@ -47,6 +47,7 @@
   const ORBIT_ROLL = -0.2, ORBIT_ROLL_SPREAD = 0.32; // how far an orbit leans, rad, and how much orbits differ
   const AXIS_SPREAD = 1.2;                           // rad: how much planets' own leans differ
   const ORBIT_EDGE = 9;                              // × scale: room kept between the outermost orbit and the frame
+  const RING_ROOM = 7;                               // × scale: more room for the planet with rings, which reach farther than its body
   const ORBIT_INNER = 2.7;                           // the innermost orbit, in sun radii
   const SPACING = 0.9;                               // below 1 packs the inner orbits a little closer
   const LAP_S = 9;                                   // the innermost planet's lap at speed 1
@@ -207,9 +208,10 @@
   // The sun-and-planets system. step() moves it on by dt and returns 'flare' on the frame the sun
   // flares. `planets` then holds, for each planet: a (its orbit's radius, px), th (where it is on
   // it, 0 to 2π) and turned (how far it has gone in all, rad), k and roll (its orbit's tilt and
-  // lean), axis (its own lean), x, y (its place, as an offset from the sun), z (+1 nearest, -1
-  // farthest), r (its radius as drawn, px), w (its turning, rad/s), born (0 to 1, fading in or
-  // out), leaving, col (a palette offset), striped and ringed.
+  // lean), axis (its own lean), x, y (its place, as an offset from the sun), z (+1 nearest on its
+  // own orbit, -1 farthest), depth (how near it really is, px: what decides which of two
+  // overlapping planets is in front), r (its radius as drawn, px), w (its turning, rad/s), born
+  // (0 to 1, fading in or out), leaving, col (a palette offset), striped and ringed.
   function createSystem({ random = Math.random } = {}) {
     let planets = [];
     let loud = 0, fast = 0, flare = 0, flares = 0, armed = 0, sinceFlare = Infinity;
@@ -223,7 +225,7 @@
       col: 0.9 + slot * 0.62 + random() * 0.25,
       axis: (random() - 0.5) * AXIS_SPREAD,
       striped: slot % 3 !== 0, ringed: slot === 3,
-      born: 0, leaving: false, x: 0, y: 0, z: 0, r: 0, size: 0, w: 0,
+      born: 0, leaving: false, x: 0, y: 0, z: 0, depth: 0, r: 0, size: 0, w: 0,
     });
 
     function step({ dt, live, loud: heard, peak, threshold, count, W, H, scale }) {
@@ -232,21 +234,30 @@
       loud = follow(loud, sound, dt, SYS_LOUD_S);
       fast = follow(fast, sound, dt, SYS_FAST_S);
       flare *= Math.exp(-dt / FLARE_S);
+      const flareWas = flare;
       sinceFlare += dt;
       // Only time with the mic on counts toward the next flare, so the mic opening on a loud
-      // moment cannot set one off.
+      // moment cannot set one off. (Frames add up to a hair under the wait, hence the allowance.)
       let event = null;
       armed = live ? armed + dt : 0;
-      if (live && peak >= threshold && armed >= FLARE_REARM_S) { armed = 0; flare = 1; flares++; sinceFlare = 0; event = 'flare'; }
+      if (live && peak >= threshold && armed >= FLARE_REARM_S - 1e-9) { armed = 0; flare = 1; flares++; sinceFlare = 0; event = 'flare'; }
       const speedWas = speed;
       speed = SPEED_MIN + SPEED_LOUD * loud + SPEED_FAST * fast + SPEED_FLARE * flare;
-      const pace = event ? speed : (speedWas + speed) / 2;   // the speed over this frame: the mean of its two ends (a flare jumps at once)
+      // The speed over this frame is the mean of its two ends. A flare begins at the frame's end,
+      // so its jump is left out of this frame and pushes the planets from the next one on: the
+      // push is then the same however long the frame.
+      const pace = (speedWas + speed - (event ? SPEED_FLARE * (1 - flareWas) : 0)) / 2;
 
       // How many there are: new ones are added outermost and fade in, extra ones (the outermost)
-      // fade out where they are.
+      // fade out where they are. A planet still on its way out is brought back before a new one
+      // is made, so dragging the setting back and forth never piles planets up.
       const want = planetCount(count);
       const staying = planets.filter((p) => !p.leaving);
-      while (staying.length < want) { const p = make(staying.length); planets.push(p); staying.push(p); }
+      while (staying.length < want) {
+        let p = planets.find((q) => q.leaving);
+        if (p) p.leaving = false; else { p = make(staying.length); planets.push(p); }
+        staying.push(p);
+      }
       while (staying.length > want) staying.pop().leaving = true;
 
       // The outermost orbit is as wide as the frame allows for the most tilted orbit there is;
@@ -256,22 +267,26 @@
       for (const p of planets) aMax = Math.min(aMax, fit(W, H, edge, p.k, p.roll));
       aMin = Math.min(aMax * 0.5, ORBIT_INNER * SUN_R * scale);
       staying.forEach((p, j) => {
-        const target = aMin + (aMax - aMin) * (staying.length === 1 ? 0.45 : Math.pow(j / (staying.length - 1), SPACING));
+        let target = aMin + (aMax - aMin) * (staying.length === 1 ? 0.45 : Math.pow(j / (staying.length - 1), SPACING));
+        // The planet with rings keeps a little farther from the frame, so its rings stay inside too.
+        if (p.ringed) target = Math.min(target, fit(W, H, edge + RING_ROOM * scale, p.k, p.roll));
         p.a = p.a ? follow(p.a, target, dt, EASE_S) : target;
       });
 
       for (const p of planets) {
-        // An orbit eases to a new radius, but one too wide for a frame that has just shrunk is
-        // brought inside it at once.
-        p.a = Math.min(p.a, fit(W, H, edge, p.k, p.roll));
         p.born = clamp01(p.born + (p.leaving ? -dt / GONE_S : dt / BORN_S));
-        const rate = (TURN / LAP_S) * Math.pow(aMin / p.a, FALL);     // inner planets lap faster
+        const rate = p.a > 0 ? (TURN / LAP_S) * Math.pow(aMin / p.a, FALL) : 0;   // inner planets lap faster
         p.w = rate * speed;
         const turn = rate * pace * dt;
         p.th = (p.th + turn) % TURN;
         p.turned += turn;
-        const at = place(p.a, p.th, p.k, p.roll);
-        p.x = at.x; p.y = at.y; p.z = at.z;
+        // An orbit eases to a new radius. If the frame has just shrunk it may still be too wide:
+        // the planet is then held inside the frame where it is on its orbit, so only a planet
+        // the shrink left outside moves at once, and the rest tighten as they come round.
+        const way = place(1, p.th, p.k, p.roll);
+        p.a = Math.max(0, Math.min(p.a, (W / 2 - edge) / Math.abs(way.x), (H / 2 - edge) / Math.abs(way.y)));
+        p.x = p.a * way.x; p.y = p.a * way.y; p.z = way.z;
+        p.depth = p.a * p.z * Math.sqrt(1 - p.k * p.k);
         p.size = p.size0 * scale;
         p.r = p.size * (1 + NEAR * p.z);
       }

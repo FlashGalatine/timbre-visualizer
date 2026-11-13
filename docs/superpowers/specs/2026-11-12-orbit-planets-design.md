@@ -47,13 +47,21 @@ contract." The old effect was short-lived square dots circling a square core.
 ## The system
 
 **How many.** The `planets` setting, 0 to 9 (default 6). 0 leaves the sun alone. A new planet
-fades in over 0.8 s; a removed one fades out over 0.5 s.
+fades in over 0.8 s; a removed one fades out over 0.5 s. A planet still fading out is brought
+back before a new one is made, so dragging the setting never shows more than nine.
 
 **Orbits.** Each planet has its own orbit: a circle seen tilted (flattened to `0.35 ± 0.06` of its
-width) and leaning (`-0.2 ± 0.16` rad). The innermost orbit has a radius of 2.7 sun radii; the
-outermost is the largest that keeps the most tilted orbit 9 px × scale inside the frame; the rest
-are spaced between them (`(j / (n − 1))^0.9`). When the number of planets or the frame changes,
-each orbit's radius eases to its new value over about half a second; angles are kept.
+width) and leaning (`-0.2 ± 0.16` rad). The innermost orbit has a radius of 2.7 sun radii (or half
+the outermost, if that is less); the outermost is the largest that keeps the most tilted orbit
+there is, fading ones included, 9 px × scale inside the frame; the rest are spaced between them
+(`(j / (n − 1))^0.9`). A single planet sits 45% of the way out. The planet with rings keeps
+7 px × scale farther from the frame, so its rings stay inside too.
+
+When the number of planets or the frame changes, each orbit's radius eases to its new value
+(time constant 0.5 s, so it has settled after about a second and a half); angles are kept. A new
+planet starts on its final orbit. When the frame shrinks, an orbit that is now too wide tightens
+the same way, and meanwhile each planet is held inside the frame where it is on its orbit: only a
+planet the shrink left outside the frame moves at once.
 
 **Motion.** All planets go the same way round. Planet `j` turns at
 `(2π / 9) × (innermost radius / its radius)^0.8 × speed` rad/s, so inner planets lap faster.
@@ -63,9 +71,13 @@ each orbit's radius eases to its new value over about half a second; angles are 
 
 **Depth.** The lower half of an orbit is nearer the viewer. A planet is drawn 20% larger at its
 nearest and 20% smaller at its farthest. The far half of every orbit, with whatever is on it, is
-drawn before the sun and the near half after, so the sun hides what passes behind it.
+drawn before the sun and the near half after, so the sun hides what passes behind it. Within each
+half the planets are drawn from the farthest to the nearest by how near they really are (their
+orbit's radius × how far round it they are × the orbit's tilt), each with its streak, so of two
+that overlap the nearer one is in front.
 
-**Planets.** Radii from 3.2 to 6.6 px × scale. Each takes a palette colour of its own, is lit
+**Planets.** Radii from about 3 to 6.9 px × scale (nine sizes, each give or take a quarter). Each
+has a soft glow, which is smaller near the frame's edge so it is not cut off. Each takes a palette colour of its own, is lit
 from the sun's side (the side facing the sun is bright; a planet on the near side of its orbit
 shows mostly its dark side), and leans on its own axis (up to 0.6 rad either way). Two in three
 have cloud bands; the fourth has rings, which lean with it.
@@ -76,15 +88,17 @@ line.
 
 **The sun.** Radius `12 × scale × (1 + 0.42 × low)`, where `low` is the low end of the sound
 (opens over 0.05 s, closes over 0.22 s). A white-hot disc in the first palette colour, a corona
-that swells with it, and 16 rays that flicker with the high end.
+that swells with it, and 16 rays that flicker with the high end. The corona and the rays fade out
+short of the frame's edge, however much a flare swells them.
 
 ## The flare (the builder's addition)
 
 When the raw input peak (`micPeak`, else the waveform's peak; never scaled by Gain) reaches
 `TimbreHelix.threshold(Flare Sensitivity)`, the sun flares: it swells by a quarter, its rays
 lengthen, a ring of light sweeps out across the orbits over 0.9 s, and the planets surge forward
-(`2.5 × flare` added to the speed, `flare` falling from 1 with a 0.45 s time constant). At most
-one flare a second, counted only while the mic is on. The owner did not ask for a peak reaction
+(`2.5 × flare` added to the speed, `flare` falling from 1 with a 0.45 s time constant; the push
+starts on the frame after the peak, so it is the same at any frame rate). At most one flare a
+second, counted only while the mic is on. The owner did not ask for a peak reaction
 here and was told it can be removed; `flareSensitivity` 0 turns it off.
 
 ## Quiet and muted
@@ -121,6 +135,13 @@ sliders from the settings table; no control-panel change.
   guards, quiet states, the Planets setting, config push and size change, a seeded run, canvas
   state, cost, the two sliders).
 - Whether it looks like a sun and planets is judged by eye; no test measures it.
+
+## Known and left alone
+
+- A frame too short to hold any orbit (under 18 px × scale) parks every planet on the sun until
+  the frame grows back. No shipped page is that short.
+- While the frame is shrinking, an orbit's faint line and a streak can reach past the frame for
+  up to a second and a half; the planets themselves do not.
 
 ## Not checked by any test
 
