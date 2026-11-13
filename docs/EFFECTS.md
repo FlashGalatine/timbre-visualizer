@@ -343,7 +343,8 @@ It offers:
   `step({ dt, live, loud, peak, threshold, density, W, H, scale })`, which returns `'gulp'` on the
   frame a peak makes the hole gulp. It exposes `things` (each with its `kind`, its distance `r`
   and angle `th`, its place `x`, `y` as an offset from the hole, depth `z`, `near`, fade `born`,
-  `size`, palette offset `col` and the recent places `hist` its trail is drawn from), `eaten`,
+  `size`, palette offset `col` and the recent places `hist` its trail is drawn from; a swallowed
+  thing stays listed with `sunk` set while its trail drains, `fade` falling to 0), `eaten`,
   `gulps`, `pull`, `feed`, `gulp`, `jet`, `spin`, `sinceGulp`, `loud`, `fast` and `clock`.
 - `HOLE_R`, `END`, `TRAIL`, `NOTE_S`: its sizes and constants.
 

@@ -1255,8 +1255,8 @@ await import('./overlay/infall.js');
     const [W0, H0, scale] = o.size ?? WIDE, fps = o.fps ?? 60;
     const inf = o.inf ?? I.createInfall({ random: HX.rng(o.seed ?? 1) });
     const seen = o.seen ?? new Map();   // thing -> { born, r0, r, turned }
-    let t = o.t ?? 0, bad = false, most = 0, longHist = 0, mostTurn = 0;
-    const events = [], pop = [], lives = [], far = [], close = [];
+    let t = o.t ?? 0, bad = false, most = 0, longHist = 0, mostTurn = 0, inside = 0, mostSunk = 0;
+    const events = [], pop = [], lives = [], far = [], close = [], sunkAt = new Map(), sunkFor = [];
     for (const s of script) {
       for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) {
         t += 1 / fps;
@@ -1264,10 +1264,20 @@ await import('./overlay/infall.js');
         const e = inf.step({ dt: 1 / fps, live: s.live !== false, loud: typeof s.loud === 'function' ? s.loud(t) : (s.loud ?? 0), peak: s.peak ?? 0,
           threshold: o.threshold ?? 0.9, density: s.density ?? o.density ?? 50, W, H, scale });
         if (e) events.push({ e, t });
-        const here = new Set(inf.things);
+        const falling = inf.things.filter((th) => !th.sunk), here = new Set(falling);
         for (const [thing, was] of seen) if (!here.has(thing)) { lives.push(t - was.born); seen.delete(thing); }
+        // A swallowed thing stays listed, sunk, only while its trail drains into the hole.
+        const listed = new Set(inf.things);
+        for (const [th, first] of sunkAt) if (!listed.has(th)) { sunkFor.push(t - first); sunkAt.delete(th); }
         for (const th of inf.things) {
-          if (![th.r, th.th, th.x, th.y, th.z, th.born].every(Number.isFinite) || !(th.r > 0) || !(th.born >= 0 && th.born <= 1)) bad = true;
+          if (!th.sunk) continue;
+          const first = sunkAt.get(th) ?? t; sunkAt.set(th, first);
+          mostSunk = Math.max(mostSunk, inf.things.length - falling.length);
+          if (t - first > I.TRAIL[th.kind] + 2 / fps + 1e-9 || !(th.fade >= 0 && th.fade <= 1) || ![th.x, th.y].every(Number.isFinite)) bad = true;
+        }
+        for (const th of falling) {
+          if (![th.r, th.th, th.x, th.y, th.z, th.born].every(Number.isFinite) || !(th.r > 0) || !(th.born >= 0 && th.born <= 1) || th.fade !== 1) bad = true;
+          if (!seen.has(th) && !(Math.abs(th.x) >= W / 2 + 5 * scale || Math.abs(th.y) >= H / 2 + 5 * scale)) inside++;   // first seen: it must be beyond the frame
           const was = seen.get(th);
           if (!was) seen.set(th, { born: t, r0: th.r, r: th.r, turned: th.turned });
           else {
@@ -1279,11 +1289,11 @@ await import('./overlay/infall.js');
           }
           longHist = Math.max(longHist, th.hist.length);
         }
-        most = Math.max(most, inf.things.length);
-        pop.push(inf.things.length);
+        most = Math.max(most, falling.length);
+        pop.push(falling.length);
       }
     }
-    return { inf, events, bad, most, longHist, mostTurn, pop, lives, far, close, seen, t, secs: t - (o.t ?? 0) };
+    return { inf, events, bad, most, longHist, mostTurn, pop, lives, far, close, seen, inside, mostSunk, sunkFor, t, secs: t - (o.t ?? 0), falling: () => inf.things.filter((th) => !th.sunk) };
   }
 
   ok(I.most(0) === 30 && I.most(50) === 65 && I.most(100) === 100 && I.most(250) === 100 && I.most(NaN) === 65
@@ -1294,16 +1304,12 @@ await import('./overlay/infall.js');
     const settled = mean(silent.pop.slice(-20 * 60)), life = mean(silent.lives);
     ok(fresh.things.length === 0 && !silent.bad && silent.inf.eaten > 20 && settled > 10 && settled < 40,
       `silent, a trickle keeps falling in: about ${settled.toFixed(0)} things at a time, ${silent.inf.eaten} swallowed in a minute`);
-    const outside = [...silent.seen.values()].every((s) => s.r0 > 0) && (() => {
-      const inf = I.createInfall({ random: HX.rng(2) }); let okAll = true, n = 0;
-      const [W, H, scale] = WIDE, known = new Set();
-      for (let i = 0; i < 3600; i++) {
-        inf.step({ dt: 1 / 60, live: true, loud: 0.5, peak: 0, threshold: 0.9, density: 50, W, H, scale });
-        for (const th of inf.things) if (!known.has(th)) { known.add(th); n++; if (!(th.r >= 0.99 * (W / 2 + 10 * scale) / P.reach(th.k, th.roll).x) || !(th.born < 0.1)) okAll = false; }
-      }
-      return okAll && n > 50;
-    })();
-    ok(outside, 'each thing starts on a circle that reaches beyond the sides of the frame, and fades in');
+    const starts = SIZES.map((size) => fall([{ secs: 60, loud: 0.5 }], { size, seed: 2 }));
+    ok(starts.every((r) => r.inside === 0 && r.inf.eaten > 50 && !r.bad), 'every thing starts beyond the frame itself (past a side, or past the top or bottom), on all three pages');
+    // It is kept for as long as its kind's trail holds (0.16 s for a firefly, 0.6 s for a comet), no less and no more.
+    const kept = starts[2].sunkFor;
+    ok(silent.mostSunk >= 1 && silent.mostSunk < 15 && starts.every((r) => r.mostSunk < 20) && kept.length > 50 && Math.min(...kept) > 0.12 && Math.max(...kept) < 0.66 && mean(kept) > 0.3,
+      `a swallowed thing is kept while its trail drains into the hole, ${Math.min(...kept).toFixed(2)} to ${Math.max(...kept).toFixed(2)} s, and no longer (at most ${Math.max(silent.mostSunk, ...starts.map((r) => r.mostSunk))} at once)`);
     ok(mean(silent.close) > 5 * mean(silent.far) && silent.far.length > 100 && silent.close.length > 100 && life > 8 && life < 16,
       `they spiral faster close in (${mean(silent.far).toFixed(2)} rad/s far out, ${mean(silent.close).toFixed(2)} near the hole) and take about ${life.toFixed(0)} s to fall when it is silent`);
     const kinds = {}; { const inf = I.createInfall({ random: HX.rng(3) }); const all = new Set();
@@ -1323,26 +1329,39 @@ await import('./overlay/infall.js');
     ok(near(micOff.inf.pull, 0.45, 1e-6) && micOff.inf.loud === 0, 'mic off, the hole pulls at its gentlest whatever the sound arrays hold');
     // A syllable starting throws in a handful at once.
     const base = fall([{ secs: 3 }]);
-    const before = base.inf.things.length;
+    const before = base.falling().length;
     const burst = fall([{ secs: 0.1, loud: 0.9 }], { inf: base.inf, seen: base.seen, t: base.t });
-    ok(burst.inf.things.length - before >= 3, `a syllable starting throws in a handful at once (${burst.inf.things.length - before} more within a tenth of a second)`);
+    ok(burst.falling().length - before >= 3, `a syllable starting throws in a handful at once (${burst.falling().length - before} more within a tenth of a second)`);
   }
   // The gulp.
   {
     const lead = fall([{ secs: 4, loud: 0.5 }]);
-    const there = new Set(lead.inf.things);
+    const there = new Set(lead.falling());
     const hit = fall([{ secs: 0.1, loud: 0.5, peak: 0.95 }], { inf: lead.inf, seen: lead.seen, t: lead.t });
     const jetEarly = hit.inf.jet, gulpNow = hit.inf.gulp;
     const soon = fall([{ secs: 0.25, loud: 0.5 }], { inf: lead.inf, seen: lead.seen, t: hit.t });
     const jetUp = soon.inf.jet;
     const later = fall([{ secs: 0.9, loud: 0.5 }], { inf: lead.inf, seen: lead.seen, t: soon.t });
-    const left = lead.inf.things.filter((th) => there.has(th)).length, fed = lead.inf.eaten;
+    const left = lead.falling().filter((th) => there.has(th)).length, fed = lead.inf.eaten;
     const after = fall([{ secs: 3, loud: 0.5 }], { inf: lead.inf, seen: lead.seen, t: later.t });
-    ok(hit.events.length === 1 && hit.events[0].e === 'gulp' && there.size > 10 && left <= 0.1 * there.size && gulpNow > 0.6 && jetEarly === 0 && jetUp > 0.7
+    ok(hit.events.length === 1 && hit.events[0].e === 'gulp' && there.size > 10 && left <= 0.1 * there.size && gulpNow > 0.6 && jetEarly === 0 && jetUp > 0.55
       && after.inf.jet < 0.01 && after.inf.gulp < 0.01 && after.inf.gulps === 1 && !hit.bad && !later.bad && fed >= there.size - left,
       `a peak makes the hole gulp: ${there.size - left} of the ${there.size} things in sight are swallowed within a second and a quarter, and the jets fire a fifth of a second in`);
     const held = fall([{ secs: 2, loud: 0.5 }, { secs: 3.5, loud: 0.5, peak: 0.95 }]);
     ok(held.events.length === 3 && near(held.events[1].t - held.events[0].t, 1.5, 2 / 60), 'a held yell gulps again only every second and a half');
+    const gap = (fps) => { const r = fall([{ secs: 2, loud: 0.5 }, { secs: 3.6, loud: 0.5, peak: 0.95 }], { fps }); return r.events[1].t - r.events[0].t; };
+    ok(near(gap(10), 1.5, 1e-6) && near(gap(30), 1.5, 1e-6) && near(gap(60), 1.5, 1e-6), 'after exactly a second and a half, at 10, 30 and 60 fps');
+    // A gulp is as strong, and its jets as punctual, at any frame rate: what is left in sight 0.4 s
+    // after it, and how far the jets have faded half a second after it.
+    const gulpAt = (fps) => {
+      const a = fall([{ secs: 4, loud: 0.5 }], { fps }), there = new Set(a.falling());
+      // The peak lasts one frame, at whose end the gulp begins; the reading is 0.4 s after that.
+      const b = fall([{ secs: 1 / fps, loud: 0.5, peak: 0.95 }, { secs: 0.4, loud: 0.5 }], { fps, inf: a.inf, seen: a.seen, t: a.t });
+      return { left: b.falling().filter((th) => there.has(th)).length / there.size, jet: b.inf.jet, n: there.size };
+    };
+    const g10 = gulpAt(10), g60 = gulpAt(60), g150 = gulpAt(150);
+    ok(g60.n > 10 && Math.abs(g10.left - g150.left) < 0.12 && Math.abs(g60.left - g150.left) < 0.12 && near(g10.jet, g150.jet, 0.04) && near(g60.jet, g150.jet, 0.04) && near(g150.jet, Math.exp(-(0.4 - 0.22) / 0.3), 0.02),
+      `a gulp is as strong and its jets as punctual at 10, 60 and 150 fps (${(g10.left * 100).toFixed(0)}%, ${(g60.left * 100).toFixed(0)}%, ${(g150.left * 100).toFixed(0)}% left in sight after 0.4 s; jets at ${g10.jet.toFixed(2)}, ${g60.jet.toFixed(2)}, ${g150.jet.toFixed(2)})`);
     const opened = fall([{ secs: 2, peak: 0.95, live: false }, { secs: 0.3, loud: 0.5, peak: 0.95 }]);
     const off = fall([{ secs: 5, loud: 0.5, peak: 1 }], { threshold: Infinity });
     const talk = fall([{ secs: 30, loud: 1, peak: 0.7 }]);
@@ -1352,6 +1371,10 @@ await import('./overlay/infall.js');
   {
     const [e30, e60, e144] = [30, 60, 144].map((fps) => fall([{ secs: 40 }], { fps }).inf.eaten);
     ok(Math.abs(e30 - e60) <= 2 && Math.abs(e144 - e60) <= 2 && e60 > 10, `the same at 30, 60 and 144 fps (${e30}, ${e60}, ${e144} swallowed in forty silent seconds)`);
+    // And in speech: syllables of 0.2 s every 0.6 s, their edges on frame boundaries at all three rates.
+    const syllables = (fps) => (t) => ((Math.round(t * 120) - 120 / fps + 72000) % 72 < 24 ? 0.9 : 0);
+    const [v30, v60, v120] = [30, 60, 120].map((fps) => fall([{ secs: 30, loud: syllables(fps) }], { fps }).inf.eaten);
+    ok(Math.abs(v30 - v60) <= 0.03 * v60 && Math.abs(v120 - v60) <= 0.03 * v60 && v60 > 100, `and in speech (${v30}, ${v60}, ${v120} swallowed in thirty seconds at 30, 60 and 120 fps)`);
     const yells = Array.from({ length: 6 }, () => [{ secs: 2.8, loud: 1 }, { secs: 0.2, loud: 1, peak: 0.95 }]).flat();
     const slow = fall(yells, { fps: 10, density: 100 });
     ok(!slow.bad && slow.events.length === 6 && slow.inf.eaten > 100 && slow.mostTurn <= 1.4 + 1e-9, `at ten frames a second, at full voice and gulping, nothing goes astray (${slow.inf.eaten} swallowed, at most ${slow.mostTurn.toFixed(2)} rad a frame)`);
@@ -1359,7 +1382,7 @@ await import('./overlay/infall.js');
     ok(h30 <= Math.ceil(0.6 * 30) + 2 && h144 <= Math.ceil(0.6 * 30) + 2 && h144 >= 15 && slow.longHist <= 8, `a trail is a handful of remembered places, whatever the frame rate (${h30}, ${h144}; ${slow.longHist} at ten frames a second)`);
     const sized = fall([{ secs: 5, loud: 0.6 }, { secs: 5, loud: 0.6, W: 1248, H: 480 }, { secs: 5, loud: 0.6, W: 1728, H: 816 }]);
     ok(!sized.bad && sized.inf.eaten > 5, 'a size change leaves everything falling');
-    const where = (r) => r.inf.things.map((th) => [th.x.toFixed(6), th.y.toFixed(6)]).join();
+    const where = (r) => r.inf.things.map((th) => [th.x.toFixed(6), th.y.toFixed(6), th.hist.length, th.hist.every((h) => Number.isFinite(h.z))]).join();
     const a = fall([{ secs: 6, loud: 0.7 }], { seed: 7 }), b = fall([{ secs: 6, loud: 0.7 }], { seed: 7 }), c = fall([{ secs: 6, loud: 0.7 }], { seed: 8 });
     ok(where(a) === where(b) && where(a) !== where(c) && a.inf.things.length > 5, 'a seeded infall repeats');
     const small = SIZES.map((size) => fall([{ secs: 20, loud: 0.8 }, { secs: 0.1, loud: 0.8, peak: 0.95 }, { secs: 3, loud: 0.8 }], { size }));
