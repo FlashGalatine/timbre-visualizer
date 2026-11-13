@@ -201,6 +201,9 @@ VIZ_FACTORIES['pulse-rings'] = function () {
       drawn.lift = rings.bands.reduce((m, b) => Math.max(m, b.lift), 0) * LIFT * SCALE;
 
       ctx.save();
+      // Every line here ends square and joins plainly, whatever the last effect left the canvas with.
+      ctx.lineCap = 'butt';
+      ctx.lineJoin = 'miter';
       // The glow around the planet, swelling with the low end.
       ctx.globalCompositeOperation = 'lighter';
       const haloR = R * (1.6 + 0.7 * low), haloA = whole ? 0.2 + 0.2 * loud + 0.3 * fast : 0.1;
