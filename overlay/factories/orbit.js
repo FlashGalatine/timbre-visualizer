@@ -34,11 +34,13 @@ VIZ_FACTORIES['orbit'] = function () {
   for (let i = 0; i < RAYS; i++) rays.push({ a: (i + random() * 0.7) / RAYS * TURN, rate: 0.6 + 1.4 * random(), phase: random() * TURN, wide: 0.13 + 0.12 * random(), len: 0.45 + 0.6 * random() });
 
   let clock = 0, low = 0, high = 0, fast = 0;
-  const drawn = { bodies: 0, streak: 0, rays: 0, sunR: P.SUN_R * SCALE };   // what the last draw drew, for probe()
+  // What the last draw drew, for probe(). order is every body in the order it was drawn, with the sun between the halves.
+  const drawn = { bodies: 0, streak: 0, rays: 0, sunR: P.SUN_R * SCALE, order: [] };
 
   // A planet's streak: a tapering ribbon along its orbit behind it, in pieces that meet edge to
-  // edge, so the part on the far half of the orbit can be drawn behind the sun.
-  function streak(p, c, front, CX, CY) {
+  // edge, so the part on the far half of the orbit can be drawn behind the sun. It is worked out
+  // once a frame; each half of the frame then fills the pieces that are its own.
+  function streakOf(p, c, CX, CY) {
     const len = Math.max(TRAIL_MIN, Math.min(TRAIL_MAX, p.w * TRAIL_S)), from = p.th - len;
     const edge = (th) => {
       const at = P.place(p.a, th, p.k, p.roll), along = P.place(1, th + Math.PI / 2, p.k, p.roll);
@@ -51,22 +53,28 @@ VIZ_FACTORIES['orbit'] = function () {
     for (let m = Math.ceil(from / Math.PI); m * Math.PI < p.th; m++) if (m * Math.PI > from) angs.push(m * Math.PI);
     angs.sort((a, b) => b - a);
     const head = edge(p.th), tail = edge(from);
-    const g = ctx.createLinearGradient(head[4], head[5], tail[4], tail[5]);
-    g.addColorStop(0, rgba(whiten(c, 0.3), 0.6 * p.born));
-    g.addColorStop(1, rgba(c, 0));
-    ctx.fillStyle = g;
+    const fill = ctx.createLinearGradient(head[4], head[5], tail[4], tail[5]);
+    fill.addColorStop(0, rgba(whiten(c, 0.3), 0.6 * p.born));
+    fill.addColorStop(1, rgba(c, 0));
+    const pieces = [];
     let a = head;
     for (let j = 1; j < angs.length; j++) {
       const b = edge(angs[j]);
-      if ((Math.sin((angs[j - 1] + angs[j]) / 2) >= 0) === front) {
-        ctx.beginPath();
-        ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(b[2], b[3]); ctx.lineTo(a[2], a[3]);
-        ctx.closePath();
-        ctx.fill();
-      }
+      pieces.push([Math.sin((angs[j - 1] + angs[j]) / 2) >= 0, a, b]);
       a = b;
     }
-    if (front) drawn.streak = Math.max(drawn.streak, len);
+    drawn.streak = Math.max(drawn.streak, len);
+    return { fill, pieces };
+  }
+  function streak(s, front) {
+    ctx.fillStyle = s.fill;
+    ctx.beginPath();
+    for (const [near, a, b] of s.pieces) {
+      if (near !== front) continue;
+      ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(b[2], b[3]); ctx.lineTo(a[2], a[3]);
+      ctx.closePath();
+    }
+    ctx.fill();
   }
 
   function planet(p, c, CX, CY, colorT) {
@@ -77,12 +85,14 @@ VIZ_FACTORIES['orbit'] = function () {
     ctx.translate(x, y);
     ctx.globalAlpha = p.born;
     ctx.globalCompositeOperation = 'lighter';
-    const glow = ctx.createRadialGradient(0, 0, r * 0.6, 0, 0, r * 2.6);
+    // Its glow, kept inside the frame: a planet near the edge has a smaller one.
+    const glowR = Math.max(r * 1.05, Math.min(r * 2.6, W / 2 - Math.abs(p.x), H / 2 - Math.abs(p.y)));
+    const glow = ctx.createRadialGradient(0, 0, Math.min(r * 0.6, glowR * 0.5), 0, 0, glowR);
     glow.addColorStop(0, rgba(c, 0.3 * (0.5 + 0.7 * fast)));
     glow.addColorStop(1, rgba(c, 0));
     ctx.fillStyle = glow;
     ctx.beginPath();
-    ctx.arc(0, 0, r * 2.6, 0, TURN);
+    ctx.arc(0, 0, glowR, 0, TURN);
     ctx.fill();
     ctx.globalCompositeOperation = 'source-over';
     const ringCol = p.ringed ? rgba(whiten(getColor(colorT + p.col + 0.8), 0.35), 0.8) : null;
@@ -113,27 +123,32 @@ VIZ_FACTORIES['orbit'] = function () {
     }
     ctx.restore();
     drawn.bodies++;
+    drawn.order.push({ depth: p.depth, z: p.z });
   }
 
-  // One half of everything that orbits: the far half is drawn before the sun, the near half after.
-  function half(front, order, CX, CY, colorT) {
+  // One half of everything that orbits: the far half is drawn before the sun, the near half
+  // after. `order` is the planets from the farthest to the nearest by how near they really are,
+  // so of two that overlap the nearer is drawn over the other, and over the other's streak.
+  function half(front, order, streaks, CX, CY, colorT) {
     ctx.globalCompositeOperation = 'lighter';
     for (const p of order) {
-      const c = getColor(colorT + p.col);
       // The orbit itself, faint.
       ctx.save();
       ctx.translate(CX, CY);
       ctx.rotate(p.roll);
       ctx.scale(1, p.k);
-      ctx.strokeStyle = rgba(c, (0.1 + 0.08 * system.loud) * p.born);
+      ctx.strokeStyle = rgba(getColor(colorT + p.col), (0.1 + 0.08 * system.loud) * p.born);
       ctx.lineWidth = 0.9 * SCALE;
       ctx.beginPath();
       ctx.arc(0, 0, p.a, front ? 0 : Math.PI, front ? Math.PI : TURN);
       ctx.stroke();
       ctx.restore();
-      streak(p, c, front, CX, CY);
     }
-    for (const p of order) if ((p.z >= 0) === front) planet(p, getColor(colorT + p.col), CX, CY, colorT);
+    for (const p of order) {
+      ctx.globalCompositeOperation = 'lighter';
+      streak(streaks.get(p), front);
+      if ((p.z >= 0) === front) planet(p, getColor(colorT + p.col), CX, CY, colorT);
+    }
   }
 
   return {
@@ -166,13 +181,20 @@ VIZ_FACTORIES['orbit'] = function () {
       const colorT = ((Date.now() * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
       const sc = getColor(colorT);
       const Rs = P.SUN_R * SCALE * (1 + SUN_SWELL * low) * (1 + FLARE_SWELL * flare);
-      const order = system.planets.slice().sort((p, q) => p.z - q.z);
-      drawn.bodies = 0; drawn.streak = 0; drawn.rays = 0; drawn.sunR = Rs;
+      const order = system.planets.slice().sort((p, q) => p.depth - q.depth);
+      drawn.bodies = 0; drawn.streak = 0; drawn.rays = 0; drawn.sunR = Rs; drawn.order = [];
+      const streaks = new Map();
+      for (const p of order) streaks.set(p, streakOf(p, getColor(colorT + p.col), CX, CY));
 
       ctx.save();
+      // Every line here ends square and joins plainly, whatever the last effect left the canvas with.
+      ctx.lineCap = 'butt';
+      ctx.lineJoin = 'miter';
       // The sun's corona and rays: the low end swells them, the high end makes the rays flicker.
+      // Neither reaches the frame's edge, where it would be cut off flat: they fade out short of it.
       ctx.globalCompositeOperation = 'lighter';
-      const coronaR = Rs * (2.6 + 0.8 * low + 1.2 * flare);
+      const room = Math.min(W, H) / 2 - 2 * SCALE;
+      const coronaR = Math.min(room, Rs * (2.6 + 0.8 * low + 1.2 * flare));
       const corona = ctx.createRadialGradient(CX, CY, Rs * 0.7, CX, CY, coronaR);
       corona.addColorStop(0, rgba(whiten(sc, 0.5), 0.55));
       corona.addColorStop(0.35, rgba(sc, 0.17));
@@ -184,7 +206,7 @@ VIZ_FACTORIES['orbit'] = function () {
       for (const ray of rays) {
         const ang = ray.a + clock * 0.05, ca = Math.cos(ang), sa = Math.sin(ang);
         const len = Rs * (0.35 + ray.len * (0.5 + 0.5 * Math.sin(clock * ray.rate + ray.phase)) * (0.5 + 1.3 * high + 0.6 * fast + 2.2 * flare));
-        const base = Rs * 0.85, tip = Rs + len, wd = Rs * ray.wide;
+        const base = Rs * 0.85, tip = Math.min(room, Rs + len), wd = Rs * ray.wide;
         const g = ctx.createLinearGradient(CX + ca * base, CY + sa * base, CX + ca * tip, CY + sa * tip);
         g.addColorStop(0, rgba(whiten(sc, 0.6), 0.3));
         g.addColorStop(1, rgba(sc, 0));
@@ -198,7 +220,7 @@ VIZ_FACTORIES['orbit'] = function () {
         drawn.rays += len / RAYS;
       }
 
-      half(false, order, CX, CY, colorT);
+      half(false, order, streaks, CX, CY, colorT);
 
       // The sun itself: a solid disc, so it hides what passes behind it.
       ctx.globalCompositeOperation = 'source-over';
@@ -210,6 +232,7 @@ VIZ_FACTORIES['orbit'] = function () {
       ctx.beginPath();
       ctx.arc(CX, CY, Rs, 0, TURN);
       ctx.fill();
+      drawn.order.push({ sun: true });
       ctx.globalCompositeOperation = 'lighter';
       const limb = ctx.createRadialGradient(CX, CY, Rs * 0.8, CX, CY, Rs * 1.3);
       limb.addColorStop(0, rgba(whiten(sc, 0.5), 0.45 + 0.4 * flare));
@@ -219,7 +242,7 @@ VIZ_FACTORIES['orbit'] = function () {
       ctx.arc(CX, CY, Rs * 1.3, 0, TURN);
       ctx.fill();
 
-      half(true, order, CX, CY, colorT);
+      half(true, order, streaks, CX, CY, colorT);
 
       // The flare's ring of light, sweeping out across the orbits.
       const ft = system.sinceFlare / FLARE_RING_S;
@@ -243,7 +266,9 @@ VIZ_FACTORIES['orbit'] = function () {
     // and how many the last draw drew; whether every planet is wholly inside the canvas; the
     // system's speed and slow loudness; the smoothed low and high ends; the sun's radius as
     // drawn; the flares so far and how strong the last still is; how far the innermost planet
-    // has turned in all; and from the last draw, the longest streak (rad) and the mean ray (px).
+    // has turned in all; and from the last draw, the longest streak (rad), the mean ray (px), and
+    // every body in the order it was drawn (how near it is, and its place on its own orbit),
+    // with the sun between the two halves.
     probe() {
       const ps = system.planets, staying = ps.filter((p) => !p.leaving);
       return {
@@ -252,7 +277,7 @@ VIZ_FACTORIES['orbit'] = function () {
         speed: system.speed, loud: system.loud, low, high, sunR: drawn.sunR,
         flares: system.flares, flare: system.flare,
         turned: staying.length ? staying[0].turned : 0,
-        streak: drawn.streak, rays: drawn.rays,
+        streak: drawn.streak, rays: drawn.rays, order: drawn.order,
       };
     },
   };

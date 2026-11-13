@@ -1276,9 +1276,49 @@ async function main() {
     check('orbit: silent, the planets drift; a voice makes them orbit faster and streak farther',
       oQuiet.turned > 0.5 && oLoud.turned - oQuiet.turned > 5 * oQuiet.turned && oLoud.speed > 3 && Math.abs(oQuiet.speed - 0.4) < 0.01 && oLoud.streak > 3 * oQuiet.streak
       && oQuiet.inside === true && oLoud.inside === true, ob(oQuiet, oLoud));
-    check('orbit: leaves the canvas state as it found it',
-      [oQuiet, oLoud].every((r) => r.op === 'source-over' && r.blur === 0 && r.globalAlpha === 1 && r.offsetX === 0 && r.transformKept === true),
-      JSON.stringify([oQuiet, oLoud].map((r) => [r.op, r.blur, r.globalAlpha, r.offsetX, r.transformKept])));
+    // Talking, the frame of a flare, and the flare's ring sweeping out; the canvas is handed over
+    // with unusual line settings, which must come back untouched.
+    const oStateSteps = [{ secs: 1.5, ...talk }, { secs: 1 / 60, ...talk, peak: 0.95 }, { secs: 0.3, ...talk }, { secs: 2, ...talk }];
+    const oStates = await orbitRun(wide, oStateSteps, { odd: true });
+    const oUsual = await orbitRun(wide, oStateSteps);
+    check('orbit: leaves the canvas state as it found it, flaring or not',
+      oStates[1].flares === 1 && [oQuiet, oLoud, ...oStates].every((r) => r.op === 'source-over' && r.blur === 0 && r.globalAlpha === 1 && r.offsetX === 0 && r.transformKept === true && r.linesKept === true && r.unclipped === true),
+      JSON.stringify([oQuiet, oLoud, ...oStates].map((r) => [r.flares, r.op, r.blur, r.globalAlpha, r.offsetX, r.transformKept, r.linesKept, r.unclipped])));
+    check('orbit: draws the same whatever line settings it is handed',
+      oStates.every((r, i) => r.ink === oUsual[i].ink && r.alpha === oUsual[i].alpha), JSON.stringify(oStates.map((r, i) => [r.ink, oUsual[i].ink, r.alpha, oUsual[i].alpha])));
+    // What is drawn over what, on every frame of ten seconds of loud talk with nine planets: the
+    // far half of each orbit before the sun and the near half after, and within each half the
+    // planets from the farthest to the nearest by how near they really are.
+    const oOrder = await wide.evaluate(() => {
+      const saved = { frequencies, waveform, micActive, micPeak, seed: window.__orbitSeed };
+      try {
+        applyConfig({ perViz: { orbit: { planets: 9 } } });
+        window.__orbitSeed = 3;
+        currentViz = VIZ_FACTORIES['orbit']();
+        const f = new Uint8Array(32), w = new Uint8Array(64);
+        f.fill(204, 0, 2); f.fill(204, 2, 11);
+        for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * 0.6 * 127);
+        frequencies = f; waveform = w; micActive = true; micPeak = 0.6;
+        let now = performance.now(), wrong = 0, frames = 0, bodies = 0, swapsByAngle = 0;
+        for (let k = 0; k < 600; k++) {
+          now += 1000 / 60; currentViz.draw(now, 1 / 60);
+          const order = currentViz.probe().order;
+          const sun = order.findIndex((o) => o.sun), far = order.slice(0, sun), near = order.slice(sun + 1);
+          const rising = (xs) => xs.every((o, i) => i === 0 || o.depth >= xs[i - 1].depth);
+          if (sun < 0 || !far.every((o) => o.depth < 0) || !near.every((o) => o.depth >= 0) || !rising(far) || !rising(near)) wrong++;
+          // How often ordering by the angle on its own orbit would have put two planets the other way round.
+          for (const half of [far, near]) for (let i = 1; i < half.length; i++) if (half[i].z < half[i - 1].z) swapsByAngle++;
+          frames++; bodies += far.length + near.length;
+        }
+        return { wrong, frames, bodies, swapsByAngle };
+      } finally {
+        frequencies = saved.frequencies; waveform = saved.waveform; micActive = saved.micActive; micPeak = saved.micPeak;
+        window.__orbitSeed = saved.seed;
+        applyConfig({ perViz: { orbit: { planets: 6 } } });
+      }
+    });
+    check('orbit: far planets are drawn before the sun and near ones after, each half from the farthest to the nearest',
+      oOrder.wrong === 0 && oOrder.frames === 600 && oOrder.bodies === 5400 && oOrder.swapsByAngle > 20, JSON.stringify(oOrder));
     const [oLowOnly] = await orbitRun(wide, [{ secs: 2, wave: 0.3, low: 0.9, high: 0, peak: 0.3 }]);
     const [oHighOnly] = await orbitRun(wide, [{ secs: 2, wave: 0.3, low: 0, high: 0.9, peak: 0.3 }]);
     check('orbit: the low end swells the sun, and the high end lengthens its rays',
@@ -1304,7 +1344,14 @@ async function main() {
     const [, oWave] = await orbitRun(wide, [{ secs: 1.5, ...talk }, { secs: 0.1, wave: 0.95, low: 0.5, high: 0.3, peak: null }]);
     check('orbit: falls back to the waveform peak', oWave.flares === 1, ob(oWave));
     const [, oOpen] = await orbitRun(wide, [{ secs: 1.5, ...off }, { secs: 0.3, ...talk, peak: 0.95 }]);
-    check('orbit: the mic opening on a loud moment does not flare', oOpen.flares === 0, ob(oOpen));
+    const [, , oReopen] = await orbitRun(wide, [{ secs: 3, ...talk }, { secs: 2, ...off }, { secs: 0.3, ...talk, peak: 0.95 }]);
+    check('orbit: the mic opening on a loud moment does not flare, the first time or after a mute', oOpen.flares === 0 && oReopen.flares === 0, ob(oOpen, oReopen));
+    // Nine planets and a flare: the sun's corona and rays, and the outer planets' glow, fade out before the frame's edge.
+    const [, oEdge, oEdgeLater] = await orbitRun(wide, [{ secs: 2, ...loudTalk, config: obKnobs({ planets: 9 }) }, { secs: 0.05, ...loudTalk, peak: 0.95 }, { secs: 0.2, ...loudTalk }]);
+    const [, oEdgeSmall] = await orbitRun(page, [{ secs: 2, ...loudTalk }, { secs: 0.05, ...loudTalk, peak: 0.95 }]);
+    await wide.evaluate(() => applyConfig({ perViz: { orbit: { planets: 6 } } }));
+    check('orbit: a flare with nine planets stays clear of the frame\'s top and bottom',
+      oEdge.flares === 1 && oEdge.top > 0 && oEdge.bottom < 623 && oEdgeLater.top > 0 && oEdgeLater.bottom < 623 && oEdgeSmall.flares === 1 && oEdgeSmall.top > 0 && oEdgeSmall.bottom < 129, ob(oEdge, oEdgeLater, oEdgeSmall));
 
     // Mic off.
     const [oBefore, oOff] = await orbitRun(wide, [{ secs: 2, ...loudTalk }, { secs: 3, ...off }]);
@@ -1328,6 +1375,15 @@ async function main() {
     await wide.evaluate(() => applyConfig({ perViz: { orbit: { planets: 6 } } }));
     check('orbit: Planets moved mid-flight adds and removes planets, and all of them are drawn',
       oGrowFrom.n === 6 && oGrowFrom.drawn === 6 && oGrown.n === 9 && oGrown.drawn === 9 && oShrunk.n === 2 && oShrunk.listed === 2 && oShrunk.drawn === 2 && oShrunk.inside === true, ob(oGrowFrom, oGrown, oShrunk));
+    // The moment planets are added they are faint, and the moment they are removed they are still
+    // there: the picture a frame after the change is close to the one before it.
+    const [oSunOnly, oJustAdded, oAddedLater, oJustRemoved, oRemovedLater] = await orbitRun(wide, [{ secs: 2, ...talk, config: obKnobs({ planets: 0 }) },
+      { secs: 1 / 60, ...talk, config: obKnobs({ planets: 9 }) }, { secs: 2, ...talk }, { secs: 1 / 60, ...talk, config: obKnobs({ planets: 0 }) }, { secs: 1, ...talk }]);
+    await wide.evaluate(() => applyConfig({ perViz: { orbit: { planets: 6 } } }));
+    check('orbit: planets fade in and fade out, on the canvas',
+      oJustAdded.listed === 9 && oJustAdded.drawn === 9 && oJustAdded.alpha - oSunOnly.alpha < 0.25 * (oAddedLater.alpha - oSunOnly.alpha) && oAddedLater.alpha > 1.2 * oSunOnly.alpha
+      && oJustRemoved.n === 0 && oJustRemoved.listed === 9 && oJustRemoved.drawn === 9 && oJustRemoved.alpha - oSunOnly.alpha > 0.7 * (oAddedLater.alpha - oSunOnly.alpha)
+      && oRemovedLater.listed === 0 && oRemovedLater.drawn === 0, JSON.stringify([oSunOnly, oJustAdded, oAddedLater, oJustRemoved, oRemovedLater].map((r) => [r.n, r.listed, r.drawn, r.alpha])));
     const [, oPushFrom, oPushTo] = await orbitRun(wide, [{ secs: 2, ...talk }, { secs: 1 / 60, ...talk }, { secs: 1 / 60, ...talk, config: { bounce: 70 } }]);
     await wide.evaluate(() => applyConfig({ bounce: 50 }));
     check('orbit: a config push keeps the planets on their way', oPushTo.n === 6 && oPushTo.turned > oPushFrom.turned && oPushTo.turned - oPushFrom.turned < 0.2, ob(oPushFrom, oPushTo));
@@ -1336,6 +1392,13 @@ async function main() {
     await wide.evaluate(() => applyConfig({ showLabels: true }));
     check('orbit: a real size change keeps the planets, inside the new frame',
       oSized.n === 6 && oSized.inside === true && oSized.turned > oSizeFrom.turned && oSized.turned - oSizeFrom.turned < 0.2 && oSizeLater.inside === true && oSizeLater.drawn === 6, ob(oSizeFrom, oSized, oSizeLater));
+    // That was the frame growing (the labels gone). Now it shrinks back, with nine planets spread
+    // over the taller frame: every one is inside the shorter frame on the very next draw.
+    const [oTall, oShort, oShortLater] = await orbitRun(wide, [{ secs: 3, ...talk, config: { showLabels: false, perViz: { orbit: { planets: 9 } } } },
+      { secs: 1 / 60, ...talk, config: { showLabels: true } }, { secs: 2, ...talk }]);
+    await wide.evaluate(() => applyConfig({ showLabels: true, perViz: { orbit: { planets: 6 } } }));
+    check('orbit: when the frame shrinks, every planet is inside it on the next draw',
+      oTall.n === 9 && oTall.inside === true && oShort.n === 9 && oShort.inside === true && oShort.drawn === 9 && oShort.turned - oTall.turned < 0.2 && oShortLater.inside === true, ob(oTall, oShort, oShortLater));
     const oSeeded = async (seed) => (await orbitRun(wide, [...oYell, { secs: 0.3, ...talk }], { seed }))[2];
     const oSeedA = await oSeeded(7), oSeedB = await oSeeded(7), oSeedC = await oSeeded(8);
     check('orbit: a seeded run repeats', oSeedA.flares === 1 && oSeedA.ink === oSeedB.ink && oSeedA.turned === oSeedB.turned && oSeedA.ink !== oSeedC.ink, ob(oSeedA, oSeedB, oSeedC));
