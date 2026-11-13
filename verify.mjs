@@ -51,6 +51,12 @@
 //      independence, long frames, the trail memory, and that all three overlay
 //      pages load it after planets.js and before the factories. (Also runs
 //      before section 4.)
+//  12. Characters — overlay/characters.js under Node: what Blob, Owl and
+//      Television share (the hearing, the bounce spring solved exactly at any
+//      frame rate, the blink, the Bounce setting) and each character's pose
+//      (size and bounce with the voice, staying in the frame on three pages,
+//      quiet states), and that all three overlay pages load it after infall.js
+//      and before the factories. (Also runs before section 4.)
 //   4. Live transport seam — spawns mock-sb-server.mjs on side ports, loads the
 //      REAL shared/panel-client-sb.js under a browser shim, and asserts:
 //      Subscribe (lowercase), sync-on-connect DoAction, control push →
@@ -1396,6 +1402,127 @@ await import('./overlay/infall.js');
     order.push(pos > html.indexOf('src="planets.js"') && pos < html.indexOf('src="factories/'));
   }
   ok(order.every(Boolean), 'all three overlay pages load infall.js after planets.js and before the factories');
+}
+
+// ── 12. Characters (pure; no browser) ────────────────────────────────────────
+console.log('\n[12] characters');
+await import('./overlay/characters.js');
+{
+  const C = globalThis.TimbreCharacters;
+  const near = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol;
+  const SIZES = [[260, 130, 1], [1248, 624, 4.8], [1728, 624, 4.8]];
+  const WIDE = SIZES[2];
+  const TURN = 2 * Math.PI;
+  // Syllables of 0.2 s every 0.6 s, their edges on frame boundaries at 30, 60 and 120 fps.
+  const syllables = (fps, level = 0.9) => (t) => ((Math.round(t * 120) - 120 / fps + 72000) % 72 < 24 ? level : 0);
+
+  // The spring: solved exactly, so a push that lasts whole frames moves it the same at any frame rate.
+  {
+    const run = (fps, secs, force) => { const s = C.createSpring(2.6, 0.22); let t = 0, most = 0; for (let k = 0, n = Math.round(secs * fps); k < n; k++) { s.step(1 / fps, force(t)); t += 1 / fps; most = Math.max(most, Math.abs(s.x)); } return { s, most }; };
+    const kick = (t) => (t < 0.2 - 1e-9 ? 100 : 0);
+    const a = run(10, 1, kick).s, b = run(50, 1, kick).s, c = run(200, 1, kick).s;
+    ok(near(a.x, c.x, 1e-9) && near(b.x, c.x, 1e-9) && near(a.v, c.v, 1e-7) && near(b.v, c.v, 1e-7) && Math.abs(c.x) > 1e-3,
+      `the spring is where it should be at 10, 50 and 200 fps alike (${a.x.toFixed(6)}, ${b.x.toFixed(6)}, ${c.x.toFixed(6)})`);
+    const held = run(60, 6, () => 100).s, w = TURN * 2.6;
+    const rung = run(60, 6, kick), settled = run(60, 6, kick).s;
+    ok(near(held.x, 100 / (w * w), 1e-4) && Math.abs(held.v) < 1e-2 && Math.abs(settled.x) < 1e-3 && rung.most > 100 / (w * w),
+      'a steady push holds it at push / stiffness; let go, it rings and comes to rest');
+    const s = C.createSpring(2.6, 0.22);
+    s.step(0.1, 5000); s.step(0, 5000); const x0 = s.x; s.step(0.1, 0); s.step(0.1, 0);
+    ok([s.x, s.v].every(Number.isFinite) && Math.abs(s.x) < 40 && Number.isFinite(x0), 'very long frames and frames of no length leave it sane');
+    s.reset();
+    ok(s.x === 0 && s.v === 0, 'and a reset puts it at rest');
+  }
+
+  ok(C.bounce(0) === 0 && C.bounce(50) === 1 && C.bounce(100) === 2 && C.bounce(250) === 2 && C.bounce(-5) === 0 && C.bounce(NaN) === 1, 'Bounce: 0 stills a character, 50 is the usual bounce, 100 is double');
+  {
+    let shut = 0, most = 0, n = 0;
+    for (let t = 0; t < 35; t += 0.001) { const b = C.blink(t, 3.5, 0); if (b > 0) shut++; most = Math.max(most, b); n++; if (!(b >= 0 && b <= 1)) most = 9; }
+    ok(near(shut / n, 0.16 / 3.5, 0.002) && near(most, 1, 0.02) && C.blink(1, 3.5, 0) === 0 && near(C.blink(0.08, 3.5, 0), 1, 1e-9) && near(C.blink(3.58, 3.5, 0), 1, 1e-9) && near(C.blink(0.08, 3.5, 1), C.blink(1.08, 3.5, 0)),
+      'a blink: shut for 0.16 s every few seconds, open the rest of the time');
+  }
+
+  // The hearing.
+  const hear = (fps, script) => {
+    const e = C.createEars(); let t = 0; const log = [];
+    for (const s of script) for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) {
+      t += 1 / fps;
+      e.step({ dt: 1 / fps, live: s.live !== false, loud: typeof s.loud === 'function' ? s.loud(t) : (s.loud ?? 0), low: s.low ?? 0, high: s.high ?? 0 });
+      log.push({ t, rise: e.rise, loud: e.loud, happy: e.happy });
+    }
+    return { e, log };
+  };
+  {
+    const start = hear(60, [{ secs: 1 }, { secs: 0.1, loud: 1 }]).e, steady = hear(60, [{ secs: 4, loud: 1 }]).e;
+    ok(start.rise > 0.5 && start.fast > start.loud && steady.rise < 0.01 && near(steady.loud, 1, 1e-3) && near(steady.fast, 1, 1e-6) && hear(60, [{ secs: 2 }]).e.rise === 0,
+      'a syllable starting is heard as a rise; a steady voice and silence are not');
+    const lowish = hear(60, [{ secs: 2, loud: 0.5, low: 0.8, high: 0.1 }]).e, highish = hear(60, [{ secs: 2, loud: 0.5, low: 0.1, high: 0.8 }]).e, faint = hear(60, [{ secs: 2, loud: 0.5, low: 0.1, high: 0.8 }, { secs: 3, loud: 0.01, low: 0.1, high: 0.8 }]).e;
+    ok(lowish.lean < -0.8 && highish.lean > 0.8 && Math.abs(faint.lean) < 0.01 && lowish.lean >= -1 && highish.lean <= 1, 'it leans toward whichever end of the sound is winning, and not at all when the voice is faint');
+    const mood = hear(60, [{ secs: 3, loud: 0.5 }, { secs: 3, loud: 0.4 }, { secs: 3, loud: 0.3 }, { secs: 3, loud: 0.4 }]).log;
+    const at = (t) => mood.find((m) => m.t >= t);
+    ok(at(2.9).happy === true && at(5.9).happy === true && at(8.9).happy === false && at(11.9).happy === false && hear(60, [{ secs: 3, loud: 0.44 }]).e.happy === false,
+      'happy once the voice passes 0.45, and until it falls below 0.35');
+    const off = hear(60, [{ secs: 2, loud: 1, low: 1, high: 1 }, { secs: 3, loud: 1, low: 1, high: 1, live: false }]).e;
+    ok(off.live === false && off.loud < 1e-4 && off.low < 1e-4 && off.rise === 0 && off.happy === false, 'mic off, it hears silence whatever the sound arrays hold');
+    const [a, b, c] = [30, 60, 120].map((fps) => hear(fps, [{ secs: 6.6, loud: syllables(fps) }]).e);
+    ok(near(a.loud, b.loud, 1e-9) && near(c.loud, b.loud, 1e-9) && near(a.fast, c.fast, 1e-9) && near(a.clock, 6.6, 1e-6), 'the same at 30, 60 and 120 fps');
+  }
+
+  // The Blob's pose. script: [{ secs, loud, low, high, bins, bounce, idle, live = true, W, H }]
+  const blob = (script, o = {}) => {
+    const [W0, H0, scale] = o.size ?? WIDE, fps = o.fps ?? 60;
+    const b = o.blob ?? C.createBlob();
+    let t = 0, outside = false, bad = false, mostStretch = 0, leastStretch = 0, mostLift = -Infinity, leastRadius = Infinity, mostRadius = 0;
+    const lifts = [];
+    for (const s of script) for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) {
+      t += 1 / fps;
+      const W = s.W ?? W0, H = s.H ?? H0, loud = typeof s.loud === 'function' ? s.loud(t) : (s.loud ?? 0);
+      b.step({ dt: 1 / fps, live: s.live !== false, level: { loud, low: s.low ?? loud, high: s.high ?? 0 }, bins: s.bins ?? null, gain: 1, bounce: s.bounce ?? o.bounce ?? 50, idle: !!s.idle, W, H, scale });
+      for (let i = 0; i < b.px.length; i++) { if (!Number.isFinite(b.px[i]) || !Number.isFinite(b.py[i])) bad = true; if (Math.abs(b.px[i]) > W / 2 || Math.abs(b.py[i]) > H / 2) outside = true; }
+      mostStretch = Math.max(mostStretch, b.stretch); leastStretch = Math.min(leastStretch, b.stretch);
+      mostLift = Math.max(mostLift, b.lift); leastRadius = Math.min(leastRadius, b.radius); mostRadius = Math.max(mostRadius, b.radius);
+      lifts.push(b.lift);
+    }
+    return { b, outside, bad, mostStretch, leastStretch, mostLift, leastRadius, mostRadius, lifts };
+  };
+  {
+    const scale = WIDE[2];
+    const rest = blob([{ secs: 2 }]).b;
+    const reach = Array.from(rest.px, (x, i) => Math.hypot(x, rest.py[i] - rest.cy));
+    ok(rest.px.length === 32 && near(rest.radius, 25 * scale, 1e-6) && rest.lift === 0 && rest.stretch === 0 && rest.shrink === 1 && reach.every((r) => r > 0.9 * 25 * scale && r < 1.1 * 25 * scale) && near(rest.cy, 4 * scale),
+      'at rest: 32 points round a body of 25 px × scale, a little below the middle of the frame, with a slight wobble');
+    const loud = blob([{ secs: 4, loud: 1 }]).b, loudHigh = blob([{ secs: 4, loud: 1 }], { bounce: 100 }).b, loudNone = blob([{ secs: 4, loud: 1 }], { bounce: 0 });
+    ok(near(loud.radius, 38 * scale, 0.05 * scale) && loudHigh.radius > 45 * scale && near(loudNone.b.radius, 25 * scale, 1e-6) && loudNone.mostLift === 0 && loudNone.lifts.every((v) => v === 0) && loudNone.mostStretch === 0,
+      'it swells with the voice, more at a higher Bounce; at Bounce 0 it neither swells nor bounces');
+    const hop = blob([{ secs: 1 }, { secs: 0.3, loud: 0.9 }]), landed = blob([{ secs: 1 }, { secs: 4, loud: 0.9 }]);
+    ok(hop.mostLift > 3 * scale && hop.mostStretch > 0.03 && landed.leastStretch < -0.01 && Math.abs(landed.b.lift) < 0.3 * scale && Math.abs(landed.b.stretch) < 0.005 && landed.mostStretch <= 0.13 && landed.leastStretch >= -0.13,
+      `a syllable bounces it (${(hop.mostLift / scale).toFixed(1)} px × scale up), stretching on the way up and squashing as it lands, and it settles`);
+    // The sound shapes it: the low end at the top, the high end at the bottom, the same on both sides.
+    const bins = (from, to) => { const f = new Uint8Array(32); for (let i = from; i <= to; i++) f[i] = 255; return f; };
+    const top = blob([{ secs: 1, loud: 0.5, bins: bins(0, 1) }]).b, bottom = blob([{ secs: 1, loud: 0.5, bins: bins(7, 10) }]).b;
+    const sym = (b) => Array.from(b.bulge).every((v, i) => i === 0 || near(v, b.bulge[32 - i]));
+    ok(top.bulge[0] > 0.9 && top.bulge[16] < 0.01 && bottom.bulge[16] > 0.9 && bottom.bulge[0] < 0.01 && sym(top) && sym(bottom) && blob([{ secs: 1, loud: 0.5, bins: bins(0, 31), bounce: 0 }]).b.shrink === 1,
+      'the low end pushes out its top and the high end its bottom, the same on both sides');
+    const still = blob([{ secs: 3, live: false }]), breathing = blob([{ secs: 6, live: false, idle: true }]);
+    ok(still.mostRadius === still.leastRadius && breathing.mostRadius - breathing.leastRadius > 2 * scale && breathing.mostRadius - breathing.leastRadius < 2.6 * scale && breathing.mostLift === 0,
+      'mic off it is still; with the idle animation on it breathes');
+    // Bounce at its highest, a full voice in syllables, on every page: no part of it leaves the frame.
+    const hard = SIZES.map((size) => blob([{ secs: 20, loud: (t) => (t % 0.5 < 0.2 ? 1 : 0), bins: bins(0, 31) }], { size, bounce: 100 }));
+    ok(hard.every((r) => !r.outside && !r.bad && r.mostLift > 0) && hard.some((r) => r.b.shrink < 1 || r.leastRadius < r.mostRadius), 'at Bounce 100 and full voice no part of it leaves the frame, on all three pages');
+    const [f30, f60, f120] = [30, 60, 120].map((fps) => blob([{ secs: 6.6, loud: syllables(fps) }], { fps }));
+    ok(near(f30.mostLift, f60.mostLift, 0.06 * f60.mostLift) && near(f120.mostLift, f60.mostLift, 0.06 * f60.mostLift) && near(f30.b.radius, f120.b.radius, 1e-6),
+      `it bounces as high at 30, 60 and 120 fps (${(f30.mostLift / scale).toFixed(2)}, ${(f60.mostLift / scale).toFixed(2)}, ${(f120.mostLift / scale).toFixed(2)} px × scale)`);
+    const resized = blob([{ secs: 2, loud: 0.6 }, { secs: 2, loud: 0.6, W: 1248, H: 480 }, { secs: 2, loud: 0.6, W: 260, H: 60 }]);
+    ok(!resized.outside && !resized.bad && resized.b.shrink < 1, 'a frame too short for it draws it smaller, not cut off');
+  }
+
+  const order = [];
+  for (const p of ['300x220', '1440x1080', '1920x1080']) {
+    const html = await readFile(resolve(__dirname, `overlay/mic-visualizers-${p}.html`), 'utf8');
+    const pos = html.indexOf('src="characters.js"');
+    order.push(pos > html.indexOf('src="infall.js"') && pos < html.indexOf('src="factories/'));
+  }
+  ok(order.every(Boolean), 'all three overlay pages load characters.js after infall.js and before the factories');
 }
 
 // ── 4. Live transport seam (mock SB + real panel-client-sb.js) ───────────────
