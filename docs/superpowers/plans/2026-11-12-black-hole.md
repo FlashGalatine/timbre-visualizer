@@ -44,6 +44,22 @@ changes at the end. Stacked on `feat/orbit-planets`.
 - `docs/EFFECTS.md` ("Infall"), `CHANGELOG.md` (Unreleased), README and `package.json` (50
   effects), the two test files' headers.
 
+## After the review
+
+The review of this branch found two important things and several small ones. Fixed in one wave,
+each with a check written first: a quarter to nearly half of the things appeared inside the frame
+(only their circles reached beyond it); a swallowed thing vanished in one frame with its whole
+trail at full brightness (it now stops and its trail drains in); the jets lasted two seconds
+where the spec said about one; the far half of the gulp's ring was drawn in front of the hole; a
+trail was drawn wholly on its head's side of the hole; a gulp pulled harder, and its jets fired
+later, at low frame rates. The effect also draws less: the gas's three gradients are made once a
+frame, nothing is sorted, the bent light no longer paints under the hole, and distant trails use
+half their points. Checks were added for what the review found untested: where each thing starts,
+the hole black across its upper half, the trails and the jets on the canvas, the canvas state on
+gulp frames with unusual line settings, speech at three frame rates, and a gulp at three frame
+rates. Left alone and listed in the spec: a lasting syllable's extra handfuls, and things
+crossing in front of the hole.
+
 ## Review focus
 
 1. Things that never reach the hole, or a population that only grows.

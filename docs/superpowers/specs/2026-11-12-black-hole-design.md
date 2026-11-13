@@ -59,29 +59,39 @@ syllable is a ripple running into the hole: the reverse of Pulse Rings.
 Three kinds of thing: streaks of light (half of them), small comets with a glowing head and a
 tail (about a fifth), and fireflies that blink and flicker with the high end (the rest).
 
-- **Where they start.** Beyond the sides of the frame: each on its own tilted circle (flattened
-  to 0.28 to 0.52, leaning −0.2 ± 0.25 rad) of a radius that puts it at least 10 px × scale
-  outside the frame's sides. They fade in over half a second.
+- **Where they start.** Beyond the frame: each on its own tilted circle (flattened to 0.28 to
+  0.52, leaning −0.2 ± 0.25 rad), wide enough to reach 10 px × scale beyond the frame's sides,
+  and far enough out that the thing itself, wherever on that circle it starts, is that far
+  beyond the frame (past a side, or past the top or the bottom), or up to a fifth farther. They
+  fade in over half a second.
 - **How they fall.** All go the same way round. A thing at radius `r` turns at
   `1.6 × (4 hole radii / r)^1.5 × whirl` rad/s (at most 14) and its radius shrinks at
   `r × (0.26 × pull + 2.2 × min(1, 2 hole radii / r)³ × (0.5 + 0.5 × min(pull, 4)))` a second:
   slowly far out, a plunge close in. `pull = 0.45 + 1.9 × loud + 0.8 × fast + 25 × gulp` and
   `whirl = 0.6 + 0.5 × min(pull, 4)`.
 - **Trails.** Each leaves a ribbon along where it has just been (0.45 s for a streak, 0.6 s for a
-  comet, 0.16 s for a firefly), from places remembered every thirtieth of a second.
-- **The end.** Inside 1.12 hole radii it is gone, and the hole's rim flares (`feed`, which falls
-  away over 0.3 s).
+  comet, 0.16 s for a firefly), from places remembered every thirtieth of a second. The part of
+  a trail on the far half of its circle is drawn before the hole and the part on the near half
+  after, so a trail that has gone round behind the hole is hidden by it. Far from the hole,
+  where a trail is nearly straight, it is drawn from every other remembered place.
+- **The end.** Inside 1.12 hole radii the hole has it, and the rim flares (`feed`, which falls
+  away over 0.3 s). The thing stops there and its head goes out; its trail drains in after it
+  over the time the trail holds, fading as it goes. Until then it stays listed as sunk, and does
+  not count toward how many there may be.
 - **How many.** New things arrive at `(1.3 + 10 × loud) × rate` a second, plus a handful
   (`(3 + 5 × fast) × rate`) when a syllable starts. `rate` is 0.4 to 1.6 by Density (1 at 50).
-  There are never more than 30 to 100 by Density (65 at 50).
+  No new thing arrives while 30 to 100 are falling, by Density (65 at 50). Lowering Density does
+  not remove the ones already falling.
 
 ## The gulp (the builder's addition)
 
 When the raw input peak (`micPeak`, else the waveform's peak; never scaled by Gain) reaches
 `TimbreHelix.threshold(Gulp Sensitivity)`, the hole gulps: `gulp` jumps to 1 and falls away over
-0.3 s, which pulls everything in sight into the hole within about a second. A fifth of a second
-later a jet of light fires from each pole (along the gas disc's axis) and a ring of light sweeps
-out through the gas; both fade within about a second. At most one gulp every 1.5 s, counted only
+0.3 s, which pulls everything in sight into the hole within about a second (the pull starts on
+the frame after the peak and is averaged over each frame, so it is as strong at any frame rate).
+A fifth of a second later a jet of light fires from each pole (along the gas disc's axis) and a
+ring of light sweeps out through the gas, its far half behind the hole; both fade within about a
+second. At most one gulp every 1.5 s, counted only
 while the mic is on. `gulpSensitivity` 0 turns it off.
 
 ## Quiet and muted
@@ -122,6 +132,15 @@ from the settings table; no control-panel change.
   hole, the gulp and its guards, quiet states, Density, config push and size change, a seeded
   run, canvas state, cost, the two sliders and the list entry).
 - Whether it looks like a black hole is judged by eye; no test measures it.
+
+## Known and left alone
+
+- A syllable that lasts throws in more than one handful: the fast loudness stays above the slow
+  one for about 0.4 s after a rise, so a second and a third handful follow 0.15 s apart. The
+  version the owner saw behaved this way.
+- A thing on the near half of its circle passes in front of the hole before it is swallowed, so
+  about a third of them cross the black disc as a bright streak in their last moments.
+- The turning lumps in the gas need `createConicGradient`; without it the gas is evenly lit.
 
 ## Not checked by any test
 
