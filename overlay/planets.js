@@ -2,8 +2,10 @@
 // holds the tilted projection that makes a flat circle look like an orbit or a ring seen from
 // above, the largest such circle that fits a frame, a memory of how loud the sound was a moment
 // ago, the ring disc (its bands, the ripple that crosses them, what a blast does to them and how
-// they fill back in), the cracks that cut a planet into chunks, and the colours and shading of a
-// lit sphere. The effects in factories/ read the sound, decide what happens and draw.
+// they fill back in), the cracks that cut a planet into chunks, the sun-and-planets system (how
+// many planets there are, their orbits, how fast they go and when the sun flares), and the
+// colours and shading of a lit sphere. The effects in factories/ read the sound, decide what
+// happens and draw.
 //
 // All timing comes from the caller (dt in seconds), never from counting frames or reading the
 // clock, so the same sound gives the same picture at any frame rate. Radii of rings and bands are
@@ -38,6 +40,25 @@
   const RIM = 56;                    // corners of the many-sided shape that stands for the planet's disc when it is cut
   const CRACK_JITTER = 0.22;         // a crack passes within half this share of the chunk's size of the chunk's middle
   const CRACK_SWING = 1.1;           // rad: a crack turns up to half this, either way, from straight across the chunk's longest reach
+
+  // The sun-and-planets system.
+  const SUN_R = 12;                                  // × scale: the sun's radius at rest
+  const ORBIT_K = 0.35, ORBIT_K_SPREAD = 0.12;       // how flat an orbit looks, and how much orbits differ
+  const ORBIT_ROLL = -0.2, ORBIT_ROLL_SPREAD = 0.32; // how far an orbit leans, rad, and how much orbits differ
+  const AXIS_SPREAD = 1.2;                           // rad: how much planets' own leans differ
+  const ORBIT_EDGE = 9;                              // × scale: room kept between the outermost orbit and the frame
+  const ORBIT_INNER = 2.7;                           // the innermost orbit, in sun radii
+  const SPACING = 0.9;                               // below 1 packs the inner orbits a little closer
+  const LAP_S = 9;                                   // the innermost planet's lap at speed 1
+  const FALL = 0.8;                                  // how quickly the turning falls off with an orbit's radius
+  const SPEED_MIN = 0.4, SPEED_LOUD = 2.3, SPEED_FAST = 1.0, SPEED_FLARE = 2.5;
+  const SYS_LOUD_S = 0.25, SYS_FAST_S = 0.05;        // the slow loudness and the fast one
+  const FLARE_S = 0.45, FLARE_REARM_S = 1.0;         // a flare's fading, and the shortest time between two, counted with the mic on
+  const BORN_S = 0.8, GONE_S = 0.5;                  // a planet fading in, and out
+  const EASE_S = 0.5;                                // an orbit moving to a new radius, time constant
+  const NEAR = 0.2;                                  // how much larger a planet is drawn at its nearest, and smaller at its farthest
+  const MAX_PLANETS = 9, DEFAULT_PLANETS = 6;
+  const PLANET_SIZES = [3.4, 4.6, 4.2, 6.6, 5.8, 3.8, 5.0, 3.2, 4.4];   // × scale, give or take a quarter; the fourth has rings
 
   const clamp01 = (v) => (v > 1 ? 1 : v > 0 ? v : 0);
   const follow = (current, target, dt, tau) => current + (target - current) * (1 - Math.exp(-dt / tau));
@@ -180,6 +201,98 @@
     return polys.map((pts) => { const c = middle(pts); return { pts, cx: c[0], cy: c[1], rm: Math.hypot(c[0], c[1]) }; });
   }
 
+  // How many planets a Planets setting gives.
+  const planetCount = (setting) => (Number.isFinite(setting) ? Math.max(0, Math.min(MAX_PLANETS, Math.round(setting))) : DEFAULT_PLANETS);
+
+  // The sun-and-planets system. step() moves it on by dt and returns 'flare' on the frame the sun
+  // flares. `planets` then holds, for each planet: a (its orbit's radius, px), th (where it is on
+  // it, 0 to 2π) and turned (how far it has gone in all, rad), k and roll (its orbit's tilt and
+  // lean), axis (its own lean), x, y (its place, as an offset from the sun), z (+1 nearest, -1
+  // farthest), r (its radius as drawn, px), w (its turning, rad/s), born (0 to 1, fading in or
+  // out), leaving, col (a palette offset), striped and ringed.
+  function createSystem({ random = Math.random } = {}) {
+    let planets = [];
+    let loud = 0, fast = 0, flare = 0, flares = 0, armed = 0, sinceFlare = Infinity;
+    let speed = SPEED_MIN, aMax = 0, aMin = 0;
+
+    const make = (slot) => ({
+      a: 0, th: random() * TURN, turned: 0,
+      k: ORBIT_K + (random() - 0.5) * ORBIT_K_SPREAD,
+      roll: ORBIT_ROLL + (random() - 0.5) * ORBIT_ROLL_SPREAD,
+      size0: PLANET_SIZES[slot % PLANET_SIZES.length] + (random() - 0.5) * 0.5,
+      col: 0.9 + slot * 0.62 + random() * 0.25,
+      axis: (random() - 0.5) * AXIS_SPREAD,
+      striped: slot % 3 !== 0, ringed: slot === 3,
+      born: 0, leaving: false, x: 0, y: 0, z: 0, r: 0, size: 0, w: 0,
+    });
+
+    function step({ dt, live, loud: heard, peak, threshold, count, W, H, scale }) {
+      // Mic off, the sound arrays may hold anything: the planets hear silence.
+      const sound = live ? heard : 0;
+      loud = follow(loud, sound, dt, SYS_LOUD_S);
+      fast = follow(fast, sound, dt, SYS_FAST_S);
+      flare *= Math.exp(-dt / FLARE_S);
+      sinceFlare += dt;
+      // Only time with the mic on counts toward the next flare, so the mic opening on a loud
+      // moment cannot set one off.
+      let event = null;
+      armed = live ? armed + dt : 0;
+      if (live && peak >= threshold && armed >= FLARE_REARM_S) { armed = 0; flare = 1; flares++; sinceFlare = 0; event = 'flare'; }
+      const speedWas = speed;
+      speed = SPEED_MIN + SPEED_LOUD * loud + SPEED_FAST * fast + SPEED_FLARE * flare;
+      const pace = event ? speed : (speedWas + speed) / 2;   // the speed over this frame: the mean of its two ends (a flare jumps at once)
+
+      // How many there are: new ones are added outermost and fade in, extra ones (the outermost)
+      // fade out where they are.
+      const want = planetCount(count);
+      const staying = planets.filter((p) => !p.leaving);
+      while (staying.length < want) { const p = make(staying.length); planets.push(p); staying.push(p); }
+      while (staying.length > want) staying.pop().leaving = true;
+
+      // The outermost orbit is as wide as the frame allows for the most tilted orbit there is;
+      // the planets that are staying are spaced from the innermost orbit out to it.
+      const edge = ORBIT_EDGE * scale;
+      aMax = planets.length ? Infinity : fit(W, H, edge, ORBIT_K, ORBIT_ROLL);
+      for (const p of planets) aMax = Math.min(aMax, fit(W, H, edge, p.k, p.roll));
+      aMin = Math.min(aMax * 0.5, ORBIT_INNER * SUN_R * scale);
+      staying.forEach((p, j) => {
+        const target = aMin + (aMax - aMin) * (staying.length === 1 ? 0.45 : Math.pow(j / (staying.length - 1), SPACING));
+        p.a = p.a ? follow(p.a, target, dt, EASE_S) : target;
+      });
+
+      for (const p of planets) {
+        // An orbit eases to a new radius, but one too wide for a frame that has just shrunk is
+        // brought inside it at once.
+        p.a = Math.min(p.a, fit(W, H, edge, p.k, p.roll));
+        p.born = clamp01(p.born + (p.leaving ? -dt / GONE_S : dt / BORN_S));
+        const rate = (TURN / LAP_S) * Math.pow(aMin / p.a, FALL);     // inner planets lap faster
+        p.w = rate * speed;
+        const turn = rate * pace * dt;
+        p.th = (p.th + turn) % TURN;
+        p.turned += turn;
+        const at = place(p.a, p.th, p.k, p.roll);
+        p.x = at.x; p.y = at.y; p.z = at.z;
+        p.size = p.size0 * scale;
+        p.r = p.size * (1 + NEAR * p.z);
+      }
+      planets = planets.filter((p) => !(p.leaving && p.born <= 0));
+      return event;
+    }
+
+    return {
+      get planets() { return planets; },
+      get loud() { return loud; },
+      get fast() { return fast; },
+      get flare() { return flare; },
+      get flares() { return flares; },
+      get sinceFlare() { return sinceFlare; },
+      get speed() { return speed; },
+      get aMax() { return aMax; },
+      get aMin() { return aMin; },
+      step,
+    };
+  }
+
   // Colours: [r, g, b] in, a CSS colour out.
   const rgba = (c, a) => 'rgba(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ',' + (a <= 0 ? 0 : a >= 1 ? 1 : Math.round(a * 1000) / 1000) + ')';
   const whiten = (c, k) => [c[0] + (255 - c[0]) * k, c[1] + (255 - c[1]) * k, c[2] + (255 - c[2]) * k];
@@ -214,7 +327,9 @@
 
   globalThis.TimbrePlanets = {
     TILT, ROLL, INNER, OUTER, BANDS, TRAVEL_S, GHOST, PIECES,
+    SUN_R, ORBIT_K, ORBIT_ROLL,
     place, reach, fit, createEcho, ringRest, outer, gain, createRings, crack,
+    planetCount, createSystem,
     rgba, whiten, shade, bodyFill, paintBands,
   };
 })();
