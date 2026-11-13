@@ -250,7 +250,7 @@ the effect in `factories/dna.js` cuts and draws, nothing in `helix.js` draws. It
   optional: `aim(x, y, W, H, scale, random)` returns the angle a blast pushes the piece at
   `(x, y)`. Without it a blast pushes away from the frame's long axis, as the helix needs; Pulse
   Rings aims every chunk away from the middle of the frame. A jostle is random either way.
-- `RETURN_S`, `MIN_CALM_S`, `REARM_S`, `JOSTLE_GAP_S`, `GAP_MS`: its timing constants.
+- `RETURN_S`, `HANDOVER_U`, `MIN_CALM_S`, `REARM_S`, `JOSTLE_GAP_S`, `GAP_MS`: its timing constants.
 
 It must stay loadable under Node (a classic script that only assigns `globalThis.TimbreHelix`; no
 `document`, `window`, `ctx` or core.js globals), because `npm run verify` imports it.
@@ -306,14 +306,17 @@ as `globalThis.TimbrePlanets`. The effects in `factories/` read the sound and dr
   nearer; how far such a circle reaches; and the largest one that fits a frame.
 - `createEcho(span)`: a memory of a level; `note(t, v)` records it and `heard(t, delay)` is what
   it was `delay` seconds ago.
-- `createRings()`: the ring disc, driven by `step({ dt, level, flow })`. Its `bands` each give
-  `u` (0 inner edge to 1 outer), `radius` (in planet radii), `level`, `lift`, `show` and `shock`.
-  `blast()` thins the rings from the inside out, `refill()` fills them back in, `reset()` puts
-  them back whole at once. `ringRest(u)`, `outer(flow)` and `gain(sensitivity)` are its rules.
+- `createRings()`: the ring disc, driven by `step({ dt, level, flow, blastAgo, refillAgo })`. Its
+  `bands` each give `u` (0 inner edge to 1 outer), `radius` (in planet radii), `level`, `lift`,
+  `show` and `shock`. `blastAgo` starts a blast that thins the rings from the inside out and
+  `refillAgo` starts them filling back in; each is how long before the end of that step it
+  happened. `reset()` puts the rings back whole at once. `ringRest(u)`, `outer(flow)` and
+  `gain(sensitivity)` are its rules.
 - `crack(R, pieces, random)`: cuts a planet's disc into convex chunks that tile it exactly.
 - `rgba`, `whiten`, `shade`: colour helpers.
-- `bodyFill(ctx, R, c, lx, ly, lit)` and `paintBands(ctx, R, c, k, list, lit)`: the shading of a
-  lit sphere and its cloud bands. These two draw, on the context they are handed.
+- `bodyFill(ctx, R, c, lx, ly, lit)` returns the fill of a lit sphere, and
+  `paintBands(ctx, R, c, k, list, lit)` paints its cloud bands. Both work on the context they are
+  handed.
 - `TILT`, `ROLL`, `INNER`, `OUTER`, `BANDS`, `TRAVEL_S`, `GHOST`, `PIECES`: its constants.
 
 All its timing comes from `dt` and all its randomness from the `random` it is given;

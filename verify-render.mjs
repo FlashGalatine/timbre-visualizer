@@ -187,6 +187,8 @@ const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1 } = {}) =>
     const f = new Uint8Array(32), w = new Uint8Array(64), out = [];
     const matrix = () => { const m = ctx.getTransform(); return [m.a, m.b, m.c, m.d, m.e, m.f].join(); };
     const matrix0 = matrix();
+    const lines = () => [ctx.lineWidth, ctx.lineCap, ctx.lineJoin].join();
+    const lines0 = lines();
     for (const s of steps) {
       if (s.config) applyConfig(s.config);
       if (s.jump) now += s.jump * 1000;
@@ -206,8 +208,12 @@ const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1 } = {}) =>
       }
       let emptyCols = 0;
       for (let x = 0; x < W; x++) if (!inked[x]) emptyCols++;
+      // A clip left behind would stop this dot in the far corner from being drawn. It is wiped again.
+      ctx.fillStyle = '#fff'; ctx.fillRect(W - 1, H - 1, 1, 1);
+      const unclipped = ctx.getImageData(W - 1, H - 1, 1, 1).data[3] === 255;
+      ctx.clearRect(W - 1, H - 1, 1, 1);
       out.push({ ...currentViz.probe(), ink, alpha, top, bottom, emptyCols, op: ctx.globalCompositeOperation, blur: ctx.shadowBlur, globalAlpha: ctx.globalAlpha,
-        offsetX: ctx.shadowOffsetX, transformKept: matrix() === matrix0 });
+        offsetX: ctx.shadowOffsetX, transformKept: matrix() === matrix0, linesKept: lines() === lines0, unclipped });
     }
     return out;
   } finally {
@@ -1103,9 +1109,12 @@ async function main() {
     check('pulse rings: silent, the rings rest dim; a voice lights them and the planet\'s glow',
       rQuiet.ringAlpha > 0 && rLoud.ringAlpha > 3 * rQuiet.ringAlpha && rLoud.halo > 1.5 * rQuiet.halo && rLoud.alpha > 1.5 * rQuiet.alpha && rLoud.spin - rQuiet.spin > 3 * rQuiet.spin
       && rQuiet.state === 'whole' && rLoud.state === 'whole', pr(rQuiet, rLoud));
-    check('pulse rings: leaves the canvas state as it found it',
-      [rQuiet, rLoud].every((r) => r.op === 'source-over' && r.blur === 0 && r.globalAlpha === 1 && r.offsetX === 0 && r.transformKept === true),
-      JSON.stringify([rQuiet, rLoud].map((r) => [r.op, r.blur, r.globalAlpha, r.offsetX, r.transformKept])));
+    // Whole, the frame of the blast, in pieces, on the way back, and whole again.
+    const rStates = await ringsRun(wide, [{ secs: 1.5, ...talk }, { secs: 1 / 60, ...talk, peak: 0.95 }, { secs: 1, ...talk }, { secs: 2.6, ...talk }, { secs: 2, ...talk }]);
+    check('pulse rings: leaves the canvas state as it found it, whole, in pieces and on the way back',
+      rStates.map((r) => r.state).join() === 'whole,pieces,pieces,returning,whole'
+      && [rQuiet, rLoud, ...rStates].every((r) => r.op === 'source-over' && r.blur === 0 && r.globalAlpha === 1 && r.offsetX === 0 && r.transformKept === true && r.linesKept === true && r.unclipped === true),
+      JSON.stringify([rQuiet, rLoud, ...rStates].map((r) => [r.state, r.op, r.blur, r.globalAlpha, r.offsetX, r.transformKept, r.linesKept, r.unclipped])));
     const [rLowOnly] = await ringsRun(wide, [{ secs: 2, wave: 0.3, low: 0.9, high: 0, peak: 0.3 }]);
     const [rHighOnly] = await ringsRun(wide, [{ secs: 2, wave: 0.3, low: 0, high: 0.9, peak: 0.3 }]);
     check('pulse rings: the low end swells the planet, and the high end makes the ice glitter',
@@ -1123,6 +1132,24 @@ async function main() {
     check('pulse rings: after three calm seconds the chunks return and the rings fill back in',
       rWait.state === 'pieces' && rBack.state === 'returning' && rWhole.state === 'whole' && rWhole.pieces === 0 && rWhole.core === 0 && rWhole.show > rWait.show + 0.1
       && rFull.show > 0.97 && rFull.blasts === 1, pr(rWait, rBack, rWhole, rFull));
+    // The refill starts with the snap, at any frame rate: half a second after the planet is whole
+    // again the inner rings are full and the outer ones are not, so a refill that started a frame
+    // or two early shows in how whole the rings are (before it was tied to the snap, ten frames a
+    // second read 0.09 fuller than sixty). What is left is the machine's own calm wait, which
+    // ends on a whole frame: at 60 fps it ends one frame later than at 10 or 144, worth 0.012 here.
+    const rRefill = async (fps) => (await ringsRun(wide, [{ secs: 1.5, ...talk }, { secs: 0.1, ...talk, peak: 0.95 }, { secs: 4.9, ...talk }], { fps }))[2];
+    const rFill10 = await rRefill(10), rFill60 = await rRefill(60), rFill144 = await rRefill(144);
+    check('pulse rings: the rings fill back in from the snap, the same at 10, 60 and 144 fps',
+      [rFill10, rFill60, rFill144].every((r) => r.state === 'whole' && r.show > 0.5 && r.show < 0.95) && Math.abs(rFill144.show - rFill60.show) < 0.02 && Math.abs(rFill10.show - rFill60.show) < 0.02,
+      JSON.stringify([rFill10.show, rFill60.show, rFill144.show]));
+    // The planet was cut while a thump had swollen it. When the chunks are back it is that size,
+    // and only then relaxes: frame by frame across the moment it becomes whole, it never jumps.
+    const rJoin = await ringsRun(wide, [{ secs: 1.5, wave: 0.5, low: 1, high: 0.3, peak: 0.5 }, { secs: 0.1, wave: 0.5, low: 1, high: 0.3, peak: 0.95 }, { secs: 4.3, ...silence },
+      ...Array.from({ length: 30 }, () => ({ secs: 1 / 60, ...silence }))]);
+    const rJoinR = rJoin.slice(2).map((r) => r.planetR), rJoinStep = Math.max(...rJoinR.slice(1).map((v, i) => Math.abs(v - rJoinR[i])));
+    check('pulse rings: the planet does not change size in one frame when it comes back together',
+      rJoin[2].state === 'returning' && rJoin[rJoin.length - 1].state === 'whole' && rJoinR[0] > 24 * 4.8 * 1.05 && rJoinStep < 1.5 && rJoinR[rJoinR.length - 1] < rJoinR[0],
+      JSON.stringify({ from: rJoinR[0], to: rJoinR[rJoinR.length - 1], mostInOneFrame: rJoinStep }));
     const [, , rSoon] = await ringsRun(wide, [{ secs: 1.5, ...talk, config: prKnobs({ reconnectSeconds: 1 }) }, { secs: 0.1, ...talk, peak: 0.95 }, { secs: 2.7, ...talk }]);
     await wide.evaluate(() => applyConfig({ perViz: { 'pulse-rings': { reconnectSeconds: 3 } } }));
     check('pulse rings: Reconnect Seconds sets the wait', rSoon.state === 'whole', pr(rSoon));
@@ -1166,8 +1193,12 @@ async function main() {
       Math.abs(rWide.reach / rNarrow.reach - 4.1 / 3.1) < 0.02 && rWide.emptyCols < rNarrow.emptyCols - 100 && rWide.emptyCols > 0 && rWide.top > 0, pr(rNarrow, rWide));
     const [, , rPushFrom, rPushTo] = await ringsRun(wide, [...rYell, { secs: 0.5, ...talk }, { secs: 1 / 60, ...talk, config: { bounce: 70 } }]);
     await wide.evaluate(() => applyConfig({ bounce: 50 }));
+    const [, rWholeFrom, rWholeTo] = await ringsRun(wide, [{ secs: 2, ...talk }, { secs: 1 / 60, ...talk }, { secs: 1 / 60, ...talk, config: { bounce: 70 } }]);
+    await wide.evaluate(() => applyConfig({ bounce: 50 }));
+    // The storm's angle starts from nothing when the effect is made again, so it going on from where it was shows the effect was kept.
     check('pulse rings: a config push keeps the planet as it is, in pieces or whole',
-      rPushFrom.state === 'pieces' && rPushTo.state === 'pieces' && rPushTo.pieces === 22 && rPushTo.blasts === 1 && rPushTo.spin > rPushFrom.spin, pr(rPushFrom, rPushTo));
+      rPushFrom.state === 'pieces' && rPushTo.state === 'pieces' && rPushTo.pieces === 22 && rPushTo.blasts === 1 && rPushTo.spin > rPushFrom.spin
+      && rWholeTo.state === 'whole' && rWholeTo.show === 1 && rWholeTo.spin > rWholeFrom.spin && rWholeFrom.spin > 1, pr(rPushFrom, rPushTo, rWholeFrom, rWholeTo));
     const [, , rSizeFrom, rSized, rSizeLater] = await ringsRun(wide, [...rYell, { secs: 0.5, ...talk }, { secs: 1 / 60, ...talk, config: { showLabels: false } }, { secs: 2, ...talk }]);
     await wide.evaluate(() => applyConfig({ showLabels: true }));
     check('pulse rings: a real size change in pieces puts the planet back whole, in the new frame',

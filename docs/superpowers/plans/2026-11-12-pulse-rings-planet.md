@@ -59,6 +59,19 @@ The owner's look in OBS with the real mic comes last and decides the merge.
 - `docs/EFFECTS.md`: a `TimbrePlanets` section and the `aim` option. `CHANGELOG.md`: Unreleased.
 - `verify.mjs` and `verify-render.mjs` header comments.
 
+## After the review
+
+The whole-branch review found nothing critical or important. Fixed in one wave, each with a check
+written first: the rings started to refill one or two frames before the snap, more at low frame
+rates (the ring disc is now told the moment itself); a second blast while the rings were still
+swollen sprang them back in one frame; the planet changed size in one frame when it came back
+together; each chunk painted every cloud band whether it crossed the chunk or not. Checks were
+added or tightened for what the review found untested: the rings at three frame rates to a
+millionth, a blast and a refill part of the way through a long frame, the canvas state in pieces
+and on the way back (with line settings and a clip check), the refill on real pages at three
+frame rates, and a config push while whole. Left alone and listed in the spec: the calm wait
+ending on a whole frame.
+
 ## Review focus
 
 1. DNA after the `aim` change: any difference at all in how it shatters.

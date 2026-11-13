@@ -36,8 +36,8 @@
 
   const PIECES = 22;                 // chunks a planet breaks into
   const RIM = 56;                    // corners of the many-sided shape that stands for the planet's disc when it is cut
-  const CRACK_JITTER = 0.22;         // how far off a chunk's middle a crack may pass, as a share of the chunk's size
-  const CRACK_SWING = 1.1;           // how far a crack may turn from straight across the chunk's longest reach, rad
+  const CRACK_JITTER = 0.22;         // a crack passes within half this share of the chunk's size of the chunk's middle
+  const CRACK_SWING = 1.1;           // rad: a crack turns up to half this, either way, from straight across the chunk's longest reach
 
   const clamp01 = (v) => (v > 1 ? 1 : v > 0 ? v : 0);
   const follow = (current, target, dt, tau) => current + (target - current) * (1 - Math.exp(-dt / tau));
@@ -69,6 +69,8 @@
     return {
       get size() { return notes.length; },
       note(t, v) {
+        // A moment noted twice (a frame of no length) keeps its last level, and no second note.
+        if (notes.length && notes[notes.length - 1].t === t) { notes[notes.length - 1].v = v; return; }
         notes.push({ t, v });
         while (notes.length > 2 && notes[1].t < t - span - ECHO_SLACK_S) notes.shift();
       },
@@ -98,38 +100,46 @@
   // `bands` then says, for each band: u (0 inner to 1 outer), radius (planet radii, with the
   // blast's swell), level (what it is replaying, 0 to 1), lift (how far it is raised off the
   // disc, 0 to 1), show (how much of it is there) and shock (the blast passing, 1 to 0).
+  //
+  // A blast and a refill are told to step() with how long before the end of this step they
+  // happened: blastAgo starts a blast at the inner edge, which lights each band up as it reaches
+  // it and then thins it; refillAgo starts the rings filling back in from the inner edge (it
+  // does nothing unless a blast has thinned them). Counting from the moment itself, not from the
+  // frame it was noticed in, keeps the rings the same at any frame rate.
   function createRings() {
     const bands = Array.from({ length: BANDS }, (_, i) => ({ u: (i + 0.5) / BANDS, radius: 0, level: 0, lift: 0, show: 1, shock: 0 }));
     const echo = createEcho(TRAVEL_S);
-    let clock = 0, blastAt = -Infinity, refillAt = -Infinity, thin = false;
+    let clock = 0, blastAt = -Infinity, blastBefore = -Infinity, refillAt = -Infinity, thin = false;
 
-    function step({ dt, level, flow }) {
+    // How far through its swell a band is, 0 to 1, for a blast that began at `from`.
+    const swellOf = (from, u) => clamp01((clock - from - SHOCK_S * u) / SWELL_S);
+
+    function step({ dt, level, flow, blastAgo, refillAgo }) {
       clock += dt;
+      if (blastAgo !== undefined) { blastBefore = blastAt; blastAt = clock - blastAgo; thin = true; }
+      if (refillAgo !== undefined && thin) { thin = false; refillAt = clock - refillAgo; }
       echo.note(clock, clamp01(level));
       const out = outer(flow);
       for (const b of bands) {
         // Thinning or filling starts for each band when the front reaches it; only the part of
-        // this frame after that moment counts, so the result is the same at any frame rate.
-        const since = clock - blastAt - SHOCK_S * b.u;
-        const part = Math.max(0, Math.min(dt, thin ? since : clock - refillAt - FILL_S * b.u));
+        // this frame after that moment counts.
+        const part = Math.max(0, Math.min(dt, thin ? clock - blastAt - SHOCK_S * b.u : clock - refillAt - FILL_S * b.u));
         if (part > 0) b.show = follow(b.show, thin ? GHOST : 1, part, thin ? THIN_S : FILL_UP_S);
-        const sw = clamp01(since / SWELL_S);
-        b.shock = sw > 0 && sw < 1 ? 1 - sw : 0;
+        // The swell and the flare of the blast passing. A band still swollen from the blast
+        // before keeps the larger of the two, so a second blast cannot spring it back at once.
+        const sw = swellOf(blastAt, b.u), was = swellOf(blastBefore, b.u);
+        b.shock = Math.max(sw > 0 && sw < 1 ? 1 - sw : 0, was > 0 && was < 1 ? 1 - was : 0);
         b.level = clamp01(echo.heard(clock, b.u * TRAVEL_S) + b.shock);
         b.lift = b.level * (0.4 + 0.6 * b.u);
-        b.radius = (INNER + b.u * (out - INNER)) * (1 + SWELL * Math.sin(Math.PI * sw));
+        b.radius = (INNER + b.u * (out - INNER)) * (1 + SWELL * Math.max(Math.sin(Math.PI * sw), Math.sin(Math.PI * was)));
       }
     }
 
     return {
       bands,
       step,
-      // A blast starts at the inner edge now: it thins each band as it reaches it.
-      blast() { blastAt = clock; thin = true; },
-      // The rings start filling back in from the inner edge now.
-      refill() { if (thin) { thin = false; refillAt = clock; } },
       // Whole again at once, as when the effect starts over.
-      reset() { blastAt = -Infinity; refillAt = -Infinity; thin = false; for (const b of bands) { b.show = 1; b.shock = 0; } },
+      reset() { blastAt = -Infinity; blastBefore = -Infinity; refillAt = -Infinity; thin = false; for (const b of bands) { b.show = 1; b.shock = 0; } },
     };
   }
 
