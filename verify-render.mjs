@@ -216,8 +216,9 @@ const glowRun = (pg, name, steps, fps = 60) => pg.evaluate(({ name, steps, fps }
 // Each step's result is the effect's probe() plus what the canvas holds: ink (pixels that are not
 // clear), alpha (their alpha, summed), top and bottom (the first and last rows with ink), emptyCols,
 // light (red + green + blue, summed), and for the solid (fully opaque) pixels their count and the
-// box round them (solidTop, solidBottom, solidLeft, solidRight) and dark (how many are exactly the
-// characters' ink colour). odd hands the canvas over with unusual line settings; still holds the
+// box round them (solidTop, solidBottom, solidLeft, solidRight), solidTopX (the middle of the
+// topmost solid row), dark (how many are exactly the characters' ink colour) and pink (how many
+// are exactly their pink). odd hands the canvas over with unusual line settings; still holds the
 // wall clock, so the colours are the same from one run to the next.
 const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1, odd = false, still = false } = {}) => pg.evaluate(({ name, seedKey, steps, fps, seed, odd, still }) => {
   const saved = { frequencies, waveform, micActive, micPeak, seed: window[seedKey], line: [ctx.lineWidth, ctx.lineCap, ctx.lineJoin], clock: Date.now };
@@ -243,7 +244,7 @@ const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1, odd = fal
       frequencies = on ? f : null; waveform = on ? w : null; micActive = on; micPeak = on ? (s.peak ?? null) : null;
       for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) { now += 1000 / fps; currentViz.draw(now, 1 / fps); }
       const d = ctx.getImageData(0, 0, W, H).data, inked = new Uint8Array(W);
-      let ink = 0, alpha = 0, top = -1, bottom = -1, light = 0, solid = 0, dark = 0, solidTop = -1, solidBottom = -1, solidLeft = -1, solidRight = -1;
+      let ink = 0, alpha = 0, top = -1, bottom = -1, light = 0, solid = 0, dark = 0, pink = 0, solidTop = -1, solidBottom = -1, solidLeft = -1, solidRight = -1, topSum = 0, topCount = 0;
       for (let p = 0; p < d.length / 4; p++) {
         const a = d[p * 4 + 3];
         if (a === 0) continue;
@@ -253,6 +254,8 @@ const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1, odd = fal
         if (a !== 255) continue;
         const x = p % W;
         solid++; solidBottom = bottom; if (solidTop < 0) solidTop = bottom;
+        if (bottom === solidTop) { topSum += x; topCount++; }
+        if (d[p * 4] === 255 && d[p * 4 + 1] === 110 && d[p * 4 + 2] === 160) pink++;
         if (solidLeft < 0 || x < solidLeft) solidLeft = x;
         if (x > solidRight) solidRight = x;
         if (d[p * 4] === 16 && d[p * 4 + 1] === 14 && d[p * 4 + 2] === 34) dark++;
@@ -263,7 +266,7 @@ const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1, odd = fal
       ctx.fillStyle = '#fff'; ctx.fillRect(W - 1, H - 1, 1, 1);
       const unclipped = ctx.getImageData(W - 1, H - 1, 1, 1).data[3] === 255;
       ctx.clearRect(W - 1, H - 1, 1, 1);
-      out.push({ ...currentViz.probe(), ink, alpha, top, bottom, emptyCols, light, solid, dark, solidTop, solidBottom, solidLeft, solidRight, op: ctx.globalCompositeOperation, blur: ctx.shadowBlur, globalAlpha: ctx.globalAlpha,
+      out.push({ ...currentViz.probe(), ink, alpha, top, bottom, emptyCols, light, solid, dark, pink, solidTop, solidBottom, solidLeft, solidRight, solidTopX: topCount ? topSum / topCount : -1, op: ctx.globalCompositeOperation, blur: ctx.shadowBlur, globalAlpha: ctx.globalAlpha,
         offsetX: ctx.shadowOffsetX, transformKept: matrix() === matrix0, linesKept: lines() === lines0, unclipped });
     }
     return out;
@@ -1802,7 +1805,9 @@ async function main() {
 
     // ── Owl: a vector character (16:9 page unless noted) ─────────────────────
     const ow = (...rs) => JSON.stringify(rs.map((r) => r && ({ loud: r.loud, fast: r.fast, lean: r.lean, happy: r.happy, open: r.open, blink: r.blink, clock: r.clock, lift: r.lift, shrink: r.shrink,
-      tilt: r.tilt, wing: r.wing, flap: r.flap, sing: r.sing, notes: r.notes, ink: r.ink, top: r.top, bottom: r.bottom, emptyCols: r.emptyCols })));
+      tilt: r.tilt, wing: r.wing, flap: r.flap, sing: r.sing, notes: r.notes, held: r.held, ink: r.ink, top: r.top, bottom: r.bottom, emptyCols: r.emptyCols,
+      solid: r.solid, dark: r.dark, pink: r.pink, solidTop: r.solidTop, solidBottom: r.solidBottom, solidLeft: r.solidLeft, solidRight: r.solidRight, solidTopX: r.solidTopX })));
+    const owWidth = (r) => r.solidRight - r.solidLeft;
     await charOn('owl', [page, p43, wide], false);
     for (const pg of [page, p43, wide]) {
       const [size, h] = await pg.evaluate(() => [`${W}×${H}`, H]);
@@ -1813,39 +1818,59 @@ async function main() {
     check('owl: silent it rests with folded wings; a voice lifts its wings, opens its beak, makes it happy and sets it singing',
       Math.abs(oQuiet2.wing - 0.12) < 1e-6 && oQuiet2.open === 0 && oQuiet2.happy === false && oQuiet2.sing === 0 && oQuiet2.notes === 0 && Math.abs(oQuiet2.lift) < 0.01 && oQuiet2.tilt === 0
       && oLoud2.wing > 1.1 && oLoud2.open === 1 && oLoud2.happy === true && oLoud2.sing === 1 && oLoud2.notes >= 1 && oLoud2.alpha > 1.03 * oQuiet2.alpha, ow(oQuiet2, oLoud2));
+    check('owl: the wings that are drawn spread with the voice, and the open beak shows its pink inside',
+      owWidth(oLoud2) > 1.25 * owWidth(oQuiet2) && oQuiet2.pink === 0 && oLoud2.pink > 60, ow(oQuiet2, oLoud2));
     const owStateSteps = [{ secs: 1, ...silence }, { secs: 0.05, ...loudTalk }, { secs: 0.25, ...loudTalk }, { secs: 2, ...loudTalk }];
-    const owStates = await owlRun(wide, owStateSteps, { odd: true }), owUsual = await owlRun(wide, owStateSteps);
+    const owStates = await owlRun(wide, owStateSteps, { odd: true, still: true }), owUsual = await owlRun(wide, owStateSteps, { still: true });
     check('owl: leaves the canvas state as it found it', [oQuiet2, oLoud2, ...owStates].every(stateKept), stateOf([oQuiet2, oLoud2, ...owStates]));
-    check('owl: draws the same whatever line settings it is handed', owStates.every((r, i) => r.ink === owUsual[i].ink && r.alpha === owUsual[i].alpha),
-      JSON.stringify(owStates.map((r, i) => [r.ink, owUsual[i].ink, r.alpha, owUsual[i].alpha])));
+    check('owl: draws the same, body, eyes and notes, whatever line settings it is handed',
+      owStates.every((r, i) => r.ink === owUsual[i].ink && r.alpha === owUsual[i].alpha && r.light === owUsual[i].light && r.dark === owUsual[i].dark && r.dark > 200) && owStates[3].notes >= 1,
+      JSON.stringify(owStates.map((r, i) => [r.ink, owUsual[i].ink, r.alpha, owUsual[i].alpha, r.light, owUsual[i].light, r.dark, owUsual[i].dark])));
     const [owRest, owHop, owLanded] = await owlRun(wide, [{ secs: 1.5, ...silence }, { secs: 0.15, ...loudTalk }, { secs: 4, ...loudTalk }]);
     check('owl: a syllable bobs it, and it settles', Math.abs(owRest.lift) < 0.01 && owHop.lift > 2 * 4.8 && Math.abs(owLanded.lift) < 0.5 * 4.8, ow(owRest, owHop, owLanded));
-    const owBlinks = (await owlRun(wide, Array.from({ length: 96 }, () => ({ secs: 0.04, ...silence })))).map((r) => r.blink);
-    const owShut = owBlinks.filter((v) => v > 0).length;
-    check('owl: it blinks', Math.max(...owBlinks) > 0.7 && Math.min(...owBlinks) === 0 && owShut >= 2 && owShut <= 9, JSON.stringify({ most: Math.max(...owBlinks), framesShut: owShut }));
+    check('owl: the owl that is drawn rises with the bob', Math.abs(bodyMid(owRest) - bodyMid(owHop) - owHop.lift) < 3 && Math.abs(bodyMid(owRest) - bodyMid(owLanded) - owLanded.lift) < 3,
+      JSON.stringify([owRest, owHop, owLanded].map((r) => [bodyMid(r), r.lift])));
+    // It blinks every 3.8 seconds, first at 2.5 s, and its eyes are seen to shut.
+    const owBlinkRun = await owlRun(wide, Array.from({ length: 64 }, () => ({ secs: 0.05, ...silence })));
+    const owLate = owBlinkRun.filter((r) => r.clock > 2.45), owShutAt = owLate.reduce((m, r) => (r.blink > m.blink ? r : m)), owOpenAt = owBlinkRun[20];
+    check('owl: it blinks, and its eyes are seen to shut',
+      owBlinkRun.filter((r) => r.clock < 2.45).every((r) => r.blink === 0) && owOpenAt.dark > 200 && owShutAt.blink > 0.5 && owShutAt.dark < 0.7 * owOpenAt.dark
+      && owLate.filter((r) => r.blink > 0).length >= 2 && owLate.filter((r) => r.blink > 0).length <= 4,
+      JSON.stringify({ open: [owOpenAt.blink, owOpenAt.dark], shut: [owShutAt.clock, owShutAt.blink, owShutAt.dark], late: owLate.map((r) => +r.blink.toFixed(2)) }));
     const [owLowOnly] = await owlRun(wide, [{ secs: 2, wave: 0.3, low: 0.9, high: 0, peak: 0.3 }]);
     const [owHighOnly] = await owlRun(wide, [{ secs: 2, wave: 0.3, low: 0, high: 0.9, peak: 0.3 }]);
     check('owl: it leans toward the end of the sound that is winning', owLowOnly.tilt < -0.12 && owHighOnly.tilt > 0.12 && Math.abs(owLowOnly.tilt + owHighOnly.tilt) < 0.01, ow(owLowOnly, owHighOnly));
+    // Leaning to the low side, its right ear tuft is the higher one; to the high side, its left.
+    check('owl: the owl that is drawn leans', owLowOnly.solidTopX - 864 > 10 * 4.8 && owHighOnly.solidTopX - 864 < -10 * 4.8, ow(owLowOnly, owHighOnly));
 
     // The Bounce setting.
-    const [, owStill, owStillLoud] = await owlRun(wide, [{ secs: 1.5, ...silence, config: { bounce: 0 } }, { secs: 0.15, ...loudTalk }, { secs: 3, ...loudTalk }]);
+    // A sound that would make it lean (the high end winning), so that standing upright means something.
+    const owOneSided = { wave: 0.6, low: 0.1, high: 0.9, peak: 0.6 };
+    const [owStillQuiet, owStill, owStillLoud] = await owlRun(wide, [{ secs: 1.5, ...silence, config: { bounce: 0 } }, { secs: 0.15, ...owOneSided }, { secs: 3, ...owOneSided }]);
     check('owl: Bounce 0 stills it: no bob, no lean, no flap, though its beak and eyes still answer',
-      owStill.lift === 0 && Math.abs(owStillLoud.wing - 0.12) < 1e-6 && owStillLoud.tilt === 0 && owStillLoud.open === 1 && owStillLoud.happy === true, ow(owStill, owStillLoud));
-    const owSyll = Array.from({ length: 24 }, (_, i) => (i % 2 ? { secs: 0.3, ...silence } : { secs: 0.2, wave: 0.67, low: 0.2, high: 1, peak: 0.6 }));
-    const owHard = await owlRun(wide, [{ secs: 0, ...silence, config: { bounce: 100 } }, ...owSyll]);
-    const owHardSmall = await owlRun(page, owSyll);
+      owStill.lift === 0 && Math.abs(owStillLoud.wing - 0.12) < 1e-6 && owStillLoud.lean > 0.9 && owStillLoud.tilt === 0 && owStillLoud.open === 1 && owStillLoud.happy === true
+      && Math.abs(bodyMid(owStillLoud) - bodyMid(owStillQuiet)) < 1 && Math.abs(owWidth(owStillLoud) - owWidth(owStillQuiet)) < 2 && owStillLoud.pink > 60, ow(owStillQuiet, owStill, owStillLoud));
+    const owSyll = [{ secs: 0, ...silence, config: { bounce: 100 } }, ...Array.from({ length: 24 }, (_, i) => (i % 2 ? { secs: 0.3, ...silence } : { secs: 0.2, wave: 0.67, low: 0.2, high: 1, peak: 0.6 }))];
+    const owHard = (await owlRun(wide, owSyll)).slice(1), owHardSmall = (await owlRun(page, owSyll)).slice(1);
     await wide.evaluate(() => applyConfig({ bounce: 50 }));
+    await page.evaluate(() => applyConfig({ bounce: 50 }));
     check('owl: at Bounce 100 and full voice it bobs higher and stays inside the frame, on the wide and the small page',
-      owHard.slice(1).every((r) => r.top > 0 && r.bottom < 623) && Math.max(...owHard.map((r) => r.lift)) > 6 * 4.8 && owHardSmall.every((r) => r.top > 0 && r.bottom < 129),
-      JSON.stringify({ lift: Math.max(...owHard.map((r) => r.lift)), top: Math.min(...owHard.slice(1).map((r) => r.top)), bottom: Math.max(...owHard.map((r) => r.bottom)), smallTop: Math.min(...owHardSmall.map((r) => r.top)), smallBottom: Math.max(...owHardSmall.map((r) => r.bottom)) }));
+      owHard.every((r) => r.top > 0 && r.bottom < 623 && r.solidTop >= 10 && r.solidBottom <= 613) && most(owHard, 'lift') > 10 * 4.8
+      && owHardSmall.every((r) => r.top > 0 && r.bottom < 129 && r.solidTop >= 2 && r.solidBottom <= 127) && most(owHardSmall, 'lift') > 10,
+      JSON.stringify({ lift: most(owHard, 'lift'), top: least(owHard, 'top'), bottom: most(owHard, 'bottom'), solidTop: least(owHard, 'solidTop'), solidBottom: most(owHard, 'solidBottom'), held: owHard.filter((r) => r.held).length,
+        small: { lift: most(owHardSmall, 'lift'), top: least(owHardSmall, 'top'), bottom: most(owHardSmall, 'bottom'), solidTop: least(owHardSmall, 'solidTop'), solidBottom: most(owHardSmall, 'solidBottom'), held: owHardSmall.filter((r) => r.held).length } }));
 
     // Mic off.
     const owOff = await owlRun(wide, [{ secs: 2, ...loudTalk }, ...Array.from({ length: 16 }, () => ({ secs: 0.25, ...off }))]);
     check('owl: mic off it is still: upright, wings folded, beak shut, no notes',
       owOff.slice(9).every((r) => Math.abs(r.tilt) < 1e-3 && Math.abs(r.wing - 0.12) < 1e-4 && r.open < 1e-6 && r.notes === 0 && Math.abs(r.lift) < 0.05) && owOff[16].ink > 0, ow(owOff[16]));
     await charOn('owl', [wide], true);
-    const owIdle = (await owlRun(wide, Array.from({ length: 36 }, () => ({ secs: 0.25, ...off })))).map((r) => r.tilt);
+    const owIdleRun = await owlRun(wide, Array.from({ length: 36 }, () => ({ secs: 0.25, ...off }))), owIdle = owIdleRun.map((r) => r.tilt);
     check('owl: mic off with idle animation: it sways', Math.max(...owIdle) > 0.04 && Math.min(...owIdle) < -0.04 && Math.max(...owIdle) < 0.051, JSON.stringify([Math.min(...owIdle), Math.max(...owIdle)]));
+    // The sway is in what is drawn: whichever way it leans, the ear tuft on the other side is the higher one.
+    const owSwayed = owIdleRun.filter((r) => Math.abs(r.tilt) > 0.03);
+    check('owl: the owl that is drawn sways', owSwayed.some((r) => r.tilt > 0) && owSwayed.some((r) => r.tilt < 0) && owSwayed.every((r) => (r.solidTopX - 864) * r.tilt < 0 && Math.abs(r.solidTopX - 864) > 10 * 4.8),
+      JSON.stringify(owSwayed.map((r) => [+r.tilt.toFixed(3), Math.round(r.solidTopX - 864)])));
     await charOn('owl', [wide], false);
 
     // The box.

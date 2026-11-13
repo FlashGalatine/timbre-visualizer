@@ -58,6 +58,15 @@ box and count), the face's ink and the picture's light, and can hold the colour 
 bounce, the blink, the face and the glow are checked on the canvas, not only in the probe; the
 small page's Bounce 100 run now really runs at Bounce 100.
 
+**Owl.** Its reach below its middle now covers its toes when it leans (41.5 units). A note fades
+out before the top of a short frame and fades in where it starts. The flutter follows Bounce.
+The idle sway and breathing ease in and out, and with the mic and the idle animation both off
+it does not blink. The open beak shows its pink inside. Its eyes are never asked to turn
+further than they can. `lift` and `held` are as the Blob's. On the canvas the checks now read
+the bob, the lean and the sway (which ear tuft is higher), the wings (how wide it is), the
+blink (its eyes' ink) and the beak (its pink); the Bounce 0 check uses a sound that would make
+it lean; the small page's Bounce 100 run really runs at Bounce 100.
+
 ## Review focus
 
 1. Any part of a character outside the frame at Bounce 100 and full voice, on the small page too.

@@ -104,7 +104,7 @@ traceability.
   bobs on each syllable, leans toward the low or the high end of the sound, flaps its wings
   with the voice, opens its beak, blinks, turns happy when the voice is loud and lets music
   notes float up. **Bounce** still scales it, and at 0 stills it. It no longer leaves the
-  frame at a high Bounce.
+  frame at a high Bounce. With the mic off and the idle animation off, nothing about it moves.
 - **Blob is now a vector character.** A smooth solid body with a clean outline in place of
   the stepped, see-through one. It still swells with loudness, bulges with the sound, bounces
   on each syllable (now stretching on the way up and squashing on the way down), blinks, turns

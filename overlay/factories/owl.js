@@ -5,13 +5,13 @@
    the voice and flutter when the voice is loud; its beak opens with the voice; and music notes
    float up beside it while the voice is loud. Its eyes blink, and turn happy when the voice is
    loud. The global Bounce setting scales the bob, the lean and the flap, and 0 stills them.
+   With the mic and the idle animation both off nothing about it moves.
    Its pose (hearing, the bob, the wings, the notes) and the shared eyes are TimbreCharacters in
    characters.js; the sound levels are TimbreHelix's and the colours TimbrePlanets'. Everything
    that moves runs on draw(now, dt); only the colour reads the wall clock, as the bar and wave
    effects do. */
 VIZ_FACTORIES['owl'] = function () {
   const C = TimbreCharacters, P = TimbrePlanets, HX = TimbreHelix;
-  const BLINK_EVERY = 3.8, BLINK_OFFSET = 1.3;         // seconds between blinks, and its place in that cycle
   const EYE_UNIT = 2.6;                                // the shared eyes' unit, in units of the owl's drawing
   const BELLY = [[8, 2], [14, 3], [20, 2]];            // rows of feather marks: how far down, and how many
   const QUIET = { loud: 0, low: 0, high: 0 };
@@ -20,6 +20,7 @@ VIZ_FACTORIES['owl'] = function () {
 
   const owl = C.createOwl();
   let notesDrawn = 0;
+  let face = { happy: false, blink: 0, look: 0 };      // its eyes as last painted
 
   return {
     draw(now, dt) {
@@ -101,13 +102,14 @@ VIZ_FACTORIES['owl'] = function () {
       // The pale discs round the eyes.
       ctx.fillStyle = rgba(whiten(c, 0.72), 1);
       for (const side of [-1, 1]) { ctx.beginPath(); ctx.ellipse(side * 10.5, -17, 10.5, 11, 0, 0, TURN); ctx.fill(); }
-      // The beak: the lower half drops as the voice opens it.
-      const open = owl.open;
+      // The beak: the lower half drops as the voice opens it, far enough for the pink inside
+      // to show below the upper half.
+      const open = owl.open, jawTop = -9 + open * 1.5, jawTip = -6 + open * 6;
       ctx.fillStyle = rgba(shade(warm, 0.8), 1);
-      ctx.beginPath(); ctx.moveTo(-3.4, -9 + open * 1.5); ctx.lineTo(3.4, -9 + open * 1.5); ctx.lineTo(0, -6 + open * 4.2); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-3.4, jawTop); ctx.lineTo(3.4, jawTop); ctx.lineTo(0, jawTip); ctx.closePath(); ctx.fill();
       if (open > 0.1) {
-        ctx.fillStyle = rgba(C.PINK, 0.9);
-        ctx.beginPath(); ctx.moveTo(-2.4, -9.5 + open); ctx.lineTo(2.4, -9.5 + open); ctx.lineTo(0, -7.2 + open * 2.6); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = rgba(C.PINK, 1);
+        ctx.beginPath(); ctx.moveTo(-2.5, jawTop + 0.3); ctx.lineTo(2.5, jawTop + 0.3); ctx.lineTo(0, jawTip - 1.4); ctx.closePath(); ctx.fill();
       }
       ctx.fillStyle = rgba(warm, 1);
       ctx.beginPath(); ctx.moveTo(-4.2, -12); ctx.quadraticCurveTo(0, -14, 4.2, -12); ctx.lineTo(0, -5.5); ctx.closePath(); ctx.fill(); ctx.stroke();
@@ -118,7 +120,8 @@ VIZ_FACTORIES['owl'] = function () {
       ctx.translate(cx, cy);
       ctx.rotate(owl.tilt);
       const u = EYE_UNIT * k;
-      C.paintFace(ctx, 0, -17 * k + 1.6 * u, u, { eyesOnly: true, gap: 10.5 / EYE_UNIT, happy: ears.happy, blink: C.blink(ears.clock, BLINK_EVERY, BLINK_OFFSET), look: ears.lean * 1.23 });
+      face = { eyesOnly: true, gap: 10.5 / EYE_UNIT, happy: ears.happy, blink: owl.blink, look: owl.look };
+      C.paintFace(ctx, 0, -17 * k + 1.6 * u, u, face);
       ctx.restore();
 
       // Music notes float up beside it while the voice is loud.
@@ -140,17 +143,18 @@ VIZ_FACTORIES['owl'] = function () {
       ctx.restore();
     },
 
-    // Test surface: what it hears (the slow and fast loudness, the low and high ends, the lean
-    // and whether it is happy), how far its beak is open and its eyes shut, the seconds it has
-    // heard, how far the bob has lifted it, whether it was drawn smaller to fit, how far it is
-    // tilted, its wings' lift and the flap behind it, how strongly it is singing, and how many
-    // notes the last draw drew.
+    // Test surface: what it hears (the slow and fast loudness, the low and high ends, the lean),
+    // its eyes as they were last painted (happy, how far shut, where they are turned), how far
+    // its beak is open, the seconds it has heard, how awake it is and how far into its idle
+    // rest, how far above its resting place it is drawn, whether it was drawn smaller to fit
+    // and whether the frame is holding it back, how far it is tilted, its wings' lift and the
+    // flap behind it, how strongly it is singing, and how many notes the last draw drew.
     probe() {
       const e = owl.ears;
       return {
-        loud: e.loud, fast: e.fast, low: e.low, high: e.high, lean: e.lean, happy: e.happy,
-        open: owl.open, blink: C.blink(e.clock, BLINK_EVERY, BLINK_OFFSET), clock: e.clock,
-        lift: owl.lift, shrink: owl.shrink, tilt: owl.tilt, wing: owl.wing, flap: owl.flap, sing: owl.sing, notes: notesDrawn,
+        loud: e.loud, fast: e.fast, low: e.low, high: e.high, lean: e.lean, happy: face.happy,
+        open: owl.open, blink: face.blink, look: face.look, clock: e.clock, awake: e.awake, rest: e.rest,
+        lift: owl.lift, shrink: owl.shrink, held: owl.held, tilt: owl.tilt, wing: owl.wing, flap: owl.flap, sing: owl.sing, notes: notesDrawn,
       };
     },
   };
