@@ -206,10 +206,17 @@ const glowRun = (pg, name, steps, fps = 60) => pg.evaluate(({ name, steps, fps }
 // page's own sound and micPeak are restored. With `odd: true` the canvas is handed over with
 // unusual line settings (as another effect might leave it): linesKept then says the effect gave
 // them back untouched, and the picture shows whether it leaned on the usual ones.
-const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1, odd = false } = {}) => pg.evaluate(({ name, seedKey, steps, fps, seed, odd }) => {
-  const saved = { frequencies, waveform, micActive, micPeak, seed: window[seedKey], line: [ctx.lineWidth, ctx.lineCap, ctx.lineJoin] };
+// Each step's result is the effect's probe() plus what the canvas holds: ink (pixels that are not
+// clear), alpha (their alpha, summed), top and bottom (the first and last rows with ink), emptyCols,
+// light (red + green + blue, summed), and for the solid (fully opaque) pixels their count and the
+// box round them (solidTop, solidBottom, solidLeft, solidRight) and dark (how many are exactly the
+// characters' ink colour). odd hands the canvas over with unusual line settings; still holds the
+// wall clock, so the colours are the same from one run to the next.
+const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1, odd = false, still = false } = {}) => pg.evaluate(({ name, seedKey, steps, fps, seed, odd, still }) => {
+  const saved = { frequencies, waveform, micActive, micPeak, seed: window[seedKey], line: [ctx.lineWidth, ctx.lineCap, ctx.lineJoin], clock: Date.now };
   try {
     if (odd) { ctx.lineWidth = 7.25; ctx.lineCap = 'round'; ctx.lineJoin = 'bevel'; }
+    if (still) Date.now = () => 1700000000000;
     window[seedKey] = seed;
     currentViz = VIZ_FACTORIES[name]();
     let now = performance.now();
@@ -229,11 +236,19 @@ const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1, odd = fal
       frequencies = on ? f : null; waveform = on ? w : null; micActive = on; micPeak = on ? (s.peak ?? null) : null;
       for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) { now += 1000 / fps; currentViz.draw(now, 1 / fps); }
       const d = ctx.getImageData(0, 0, W, H).data, inked = new Uint8Array(W);
-      let ink = 0, alpha = 0, top = -1, bottom = -1;
+      let ink = 0, alpha = 0, top = -1, bottom = -1, light = 0, solid = 0, dark = 0, solidTop = -1, solidBottom = -1, solidLeft = -1, solidRight = -1;
       for (let p = 0; p < d.length / 4; p++) {
-        if (d[p * 4 + 3] === 0) continue;
-        ink++; alpha += d[p * 4 + 3]; inked[p % W] = 1;
+        const a = d[p * 4 + 3];
+        if (a === 0) continue;
+        ink++; alpha += a; inked[p % W] = 1;
         bottom = Math.floor(p / W); if (top < 0) top = bottom;
+        light += d[p * 4] + d[p * 4 + 1] + d[p * 4 + 2];
+        if (a !== 255) continue;
+        const x = p % W;
+        solid++; solidBottom = bottom; if (solidTop < 0) solidTop = bottom;
+        if (solidLeft < 0 || x < solidLeft) solidLeft = x;
+        if (x > solidRight) solidRight = x;
+        if (d[p * 4] === 16 && d[p * 4 + 1] === 14 && d[p * 4 + 2] === 34) dark++;
       }
       let emptyCols = 0;
       for (let x = 0; x < W; x++) if (!inked[x]) emptyCols++;
@@ -241,7 +256,7 @@ const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1, odd = fal
       ctx.fillStyle = '#fff'; ctx.fillRect(W - 1, H - 1, 1, 1);
       const unclipped = ctx.getImageData(W - 1, H - 1, 1, 1).data[3] === 255;
       ctx.clearRect(W - 1, H - 1, 1, 1);
-      out.push({ ...currentViz.probe(), ink, alpha, top, bottom, emptyCols, op: ctx.globalCompositeOperation, blur: ctx.shadowBlur, globalAlpha: ctx.globalAlpha,
+      out.push({ ...currentViz.probe(), ink, alpha, top, bottom, emptyCols, light, solid, dark, solidTop, solidBottom, solidLeft, solidRight, op: ctx.globalCompositeOperation, blur: ctx.shadowBlur, globalAlpha: ctx.globalAlpha,
         offsetX: ctx.shadowOffsetX, transformKept: matrix() === matrix0, linesKept: lines() === lines0, unclipped });
     }
     return out;
@@ -249,8 +264,9 @@ const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1, odd = fal
     frequencies = saved.frequencies; waveform = saved.waveform; micActive = saved.micActive; micPeak = saved.micPeak;
     window[seedKey] = saved.seed;
     [ctx.lineWidth, ctx.lineCap, ctx.lineJoin] = saved.line;
+    Date.now = saved.clock;
   }
-}, { name, seedKey, steps, fps, seed, odd });
+}, { name, seedKey, steps, fps, seed, odd, still });
 const dnaRun = effectRun('dna', '__dnaSeed'), cometRun = effectRun('comet', '__cometSeed'), fliesRun = effectRun('fireflies', '__firefliesSeed');
 const ringsRun = effectRun('pulse-rings', '__pulseRingsSeed'), orbitRun = effectRun('orbit', '__orbitSeed'), holeRun = effectRun('black-hole', '__blackHoleSeed');
 const blobRun = effectRun('blob', '__blobSeed');
@@ -1665,7 +1681,10 @@ async function main() {
     };
     // What the three characters' probes share.
     const ch = (...rs) => JSON.stringify(rs.map((r) => r && ({ loud: r.loud, fast: r.fast, low: r.low, high: r.high, lean: r.lean, happy: r.happy, open: r.open, blink: r.blink, clock: r.clock,
-      radius: r.radius, lift: r.lift, stretch: r.stretch, shrink: r.shrink, bulgeTop: r.bulgeTop, bulgeBottom: r.bulgeBottom, ink: r.ink, top: r.top, bottom: r.bottom, emptyCols: r.emptyCols })));
+      radius: r.radius, lift: r.lift, stretch: r.stretch, shrink: r.shrink, held: r.held, bulgeTop: r.bulgeTop, bulgeBottom: r.bulgeBottom, ink: r.ink, top: r.top, bottom: r.bottom, emptyCols: r.emptyCols,
+      solid: r.solid, dark: r.dark, solidTop: r.solidTop, solidBottom: r.solidBottom, solidLeft: r.solidLeft, solidRight: r.solidRight })));
+    // The middle of a character's solid pixels, top to bottom: where its body is drawn.
+    const bodyMid = (r) => (r.solidTop + r.solidBottom) / 2;
     const stateKept = (r) => r.op === 'source-over' && r.blur === 0 && r.globalAlpha === 1 && r.offsetX === 0 && r.transformKept === true && r.linesKept === true && r.unclipped === true;
     const stateOf = (rs) => JSON.stringify(rs.map((r) => [r.op, r.blur, r.globalAlpha, r.offsetX, r.transformKept, r.linesKept, r.unclipped]));
     await charOn('blob', [page, p43, wide], false);
@@ -1682,33 +1701,56 @@ async function main() {
     // Resting, the first frames of a bounce, the bounce, and a loud voice; the canvas is handed over
     // with unusual line settings, which must come back untouched.
     const bStateSteps = [{ secs: 1, ...silence }, { secs: 0.05, ...loudTalk }, { secs: 0.25, ...loudTalk }, { secs: 2, ...loudTalk }];
-    const bStates = await blobRun(wide, bStateSteps, { odd: true }), bUsual = await blobRun(wide, bStateSteps);
+    const bStates = await blobRun(wide, bStateSteps, { odd: true, still: true }), bUsual = await blobRun(wide, bStateSteps, { still: true });
     check('blob: leaves the canvas state as it found it', [bQuiet, bLoud, ...bStates].every(stateKept), stateOf([bQuiet, bLoud, ...bStates]));
-    check('blob: draws the same whatever line settings it is handed', bStates.every((r, i) => r.ink === bUsual[i].ink && r.alpha === bUsual[i].alpha),
-      JSON.stringify(bStates.map((r, i) => [r.ink, bUsual[i].ink, r.alpha, bUsual[i].alpha])));
+    check('blob: draws the same, body and face, whatever line settings it is handed',
+      bStates.every((r, i) => r.ink === bUsual[i].ink && r.alpha === bUsual[i].alpha && r.light === bUsual[i].light && r.dark === bUsual[i].dark && r.dark > 200),
+      JSON.stringify(bStates.map((r, i) => [r.ink, bUsual[i].ink, r.alpha, bUsual[i].alpha, r.light, bUsual[i].light, r.dark, bUsual[i].dark])));
     const [bRest, bHop, bLanded] = await blobRun(wide, [{ secs: 1.5, ...silence }, { secs: 0.15, ...loudTalk }, { secs: 4, ...loudTalk }]);
     check('blob: a syllable bounces it, stretching on the way up, and it settles',
       Math.abs(bRest.lift) < 0.01 && bHop.lift > 2 * 4.8 && bHop.stretch > 0.02 && bHop.top < bRest.top && Math.abs(bLanded.lift) < 0.5 * 4.8 && Math.abs(bLanded.stretch) < 0.005, ch(bRest, bHop, bLanded));
-    // It blinks: about once in three and a half seconds, for a sixth of a second.
-    const bBlinks = (await blobRun(wide, Array.from({ length: 90 }, () => ({ secs: 0.04, ...silence })))).map((r) => r.blink);
-    const bShut = bBlinks.filter((v) => v > 0).length;
-    check('blob: it blinks', Math.max(...bBlinks) > 0.7 && Math.min(...bBlinks) === 0 && bShut >= 2 && bShut <= 9, JSON.stringify({ most: Math.max(...bBlinks), framesShut: bShut }));
+    // The body that is drawn is where the pose says: its bodyMid sits 4 px × scale below the frame's, less the lift.
+    const inPlace = (r, h = 624, scale = 4.8) => Math.abs(bodyMid(r) - (h / 2 + 4 * scale - r.lift)) < 0.09 * r.radius + 2;
+    check('blob: the body that is drawn rises with the bounce', [bRest, bHop, bLanded].every((r) => inPlace(r)) && bodyMid(bRest) - bodyMid(bHop) > 1.5 * 4.8,
+      JSON.stringify([bRest, bHop, bLanded].map((r) => [bodyMid(r), r.lift, r.radius])));
+    // It blinks: about once in three and a half seconds, for a sixth of a second. The second blink is
+    // the one that proves it (the first is at the moment it is made), and its eyes are seen to shut.
+    const bBlinkRun = await blobRun(wide, Array.from({ length: 84 }, () => ({ secs: 0.05, ...silence })));
+    const bLate = bBlinkRun.filter((r) => r.clock > 3.4), bShutAt = bLate.reduce((m, r) => (r.blink > m.blink ? r : m)), bOpenAt = bBlinkRun[40];
+    const bBetween = bBlinkRun.filter((r) => r.clock > 0.2 && r.clock < 3.4);
+    check('blob: it blinks every three and a half seconds, and its eyes are seen to shut',
+      bBetween.every((r) => r.blink === 0) && bOpenAt.dark > 200 && bShutAt.blink > 0.5 && bShutAt.dark < 0.7 * bOpenAt.dark && bLate.filter((r) => r.blink > 0).length >= 2 && bLate.filter((r) => r.blink > 0).length <= 4,
+      JSON.stringify({ open: [bOpenAt.blink, bOpenAt.dark], shut: [bShutAt.clock, bShutAt.blink, bShutAt.dark], late: bLate.map((r) => +r.blink.toFixed(2)) }));
     const [bLowOnly] = await blobRun(wide, [{ secs: 2, wave: 0.3, low: 0.9, high: 0, peak: 0.3 }]);
     const [bHighOnly] = await blobRun(wide, [{ secs: 2, wave: 0.3, low: 0, high: 0.9, peak: 0.3 }]);
     check('blob: the low end pushes out its top and the high end its bottom',
       bLowOnly.bulgeTop > 0.8 && bLowOnly.bulgeBottom < 0.05 && bHighOnly.bulgeBottom > 0.8 && bHighOnly.bulgeTop < 0.05 && bLowOnly.lean < -0.9 && bHighOnly.lean > 0.9, ch(bLowOnly, bHighOnly));
 
     // The Bounce setting.
-    const [, bStill, bStillLoud] = await blobRun(wide, [{ secs: 1.5, ...silence, config: { bounce: 0 } }, { secs: 0.15, ...loudTalk }, { secs: 3, ...loudTalk }]);
+    const [bStillQuiet, bStill, bStillLoud] = await blobRun(wide, [{ secs: 1.5, ...silence, config: { bounce: 0 } }, { secs: 0.15, ...loudTalk }, { secs: 3, ...loudTalk }]);
     check('blob: Bounce 0 stills it: no bounce and no swelling, though the face still answers',
-      bStill.lift === 0 && bStill.stretch === 0 && Math.abs(bStillLoud.radius - 25 * 4.8) < 0.01 && bStillLoud.open === 1 && bStillLoud.happy === true, ch(bStill, bStillLoud));
-    const bHard = await blobRun(wide, [{ secs: 0, ...silence, config: { bounce: 100 } }, ...Array.from({ length: 24 }, (_, i) => (i % 2 ? { secs: 0.3, ...silence } : { secs: 0.2, wave: 0.67, low: 1, high: 1, peak: 0.6 }))]);
-    const bHardSmall = await blobRun(page, Array.from({ length: 24 }, (_, i) => (i % 2 ? { secs: 0.3, ...silence } : { secs: 0.2, wave: 0.67, low: 1, high: 1, peak: 0.6 })));
+      bStill.lift === 0 && bStill.stretch === 0 && Math.abs(bStillLoud.radius - 25 * 4.8) < 0.01 && bStillLoud.open === 1 && bStillLoud.happy === true && inPlace(bStill) && inPlace(bStillLoud), ch(bStill, bStillLoud));
+    // With the body held to one size, what a voice adds round it is the glow.
+    const glow = (r) => r.alpha - 255 * r.solid;
+    check('blob: its glow brightens with the voice', Math.abs(bStillLoud.solid - bStillQuiet.solid) < 0.03 * bStillQuiet.solid && glow(bStillLoud) > 1.3 * glow(bStillQuiet),
+      JSON.stringify({ solid: [bStillQuiet.solid, bStillLoud.solid], glow: [glow(bStillQuiet), glow(bStillLoud)] }));
     await wide.evaluate(() => applyConfig({ bounce: 50 }));
-    await page.waitForFunction(() => cfgBounce === 100 || cfgBounce === 50, null, { timeout: 5000 });
-    check('blob: at Bounce 100 and full voice it bounces higher and stays inside the frame, on the wide and the small page',
-      bHard.slice(1).every((r) => r.top > 0 && r.bottom < 623) && Math.max(...bHard.map((r) => r.lift)) > 8 * 4.8 && Math.max(...bHard.map((r) => r.radius)) > 40 * 4.8
-      && bHardSmall.every((r) => r.top > 0 && r.bottom < 129), JSON.stringify({ lift: Math.max(...bHard.map((r) => r.lift)), radius: Math.max(...bHard.map((r) => r.radius)), top: Math.min(...bHard.slice(1).map((r) => r.top)), bottom: Math.max(...bHard.map((r) => r.bottom)), smallTop: Math.min(...bHardSmall.map((r) => r.top)), smallBottom: Math.max(...bHardSmall.map((r) => r.bottom)) }));
+    const [, bMid, bStopped] = await blobRun(wide, [{ secs: 1.5, ...silence }, { secs: 0.15, ...loudTalk }, { secs: 1 / 60, ...loudTalk, config: { bounce: 0 } }]);
+    check('blob: Bounce set to 0 in the middle of a bounce stills it at once', bMid.lift > 2 * 4.8 && bMid.stretch > 0.02 && bStopped.lift === 0 && bStopped.stretch === 0 && inPlace(bStopped) && bodyMid(bStopped) - bodyMid(bMid) > 1.5 * 4.8,
+      ch(bMid, bStopped));
+    const bHardSteps = [{ secs: 0, ...silence, config: { bounce: 100 } }, ...Array.from({ length: 24 }, (_, i) => (i % 2 ? { secs: 0.3, ...silence } : { secs: 0.2, wave: 0.67, low: 1, high: 1, peak: 0.6 }))];
+    const bHard = (await blobRun(wide, bHardSteps)).slice(1), bHardSmall = (await blobRun(page, bHardSteps)).slice(1);
+    await wide.evaluate(() => applyConfig({ bounce: 50 }));
+    await page.evaluate(() => applyConfig({ bounce: 50 }));
+    const most = (rs, key) => Math.max(...rs.map((r) => r[key])), least = (rs, key) => Math.min(...rs.map((r) => r[key]));
+    // Its outline keeps 3 px × scale from the frame's edge; half its stroke (0.75 px × scale) lies outside the outline.
+    check('blob: at Bounce 100 and full voice it bounces higher, the frame holds it back, and it stays inside, on the wide and the small page',
+      bHard.every((r) => r.top > 0 && r.bottom < 623 && r.solidTop >= 10 && r.solidBottom <= 613) && most(bHard, 'lift') > 8 * 4.8 && most(bHard, 'radius') > 40 * 4.8 && bHard.some((r) => r.held)
+      && bHard.filter((r) => !r.held).every((r) => inPlace(r))
+      && bHardSmall.every((r) => r.top > 0 && r.bottom < 129 && r.solidTop >= 2 && r.solidBottom <= 127) && most(bHardSmall, 'lift') > 8 && bHardSmall.some((r) => r.held),
+      JSON.stringify({ lift: most(bHard, 'lift'), radius: most(bHard, 'radius'), top: least(bHard, 'top'), bottom: most(bHard, 'bottom'), solidTop: least(bHard, 'solidTop'), solidBottom: most(bHard, 'solidBottom'), held: bHard.filter((r) => r.held).length,
+        unplaced: bHard.filter((r) => !r.held && !inPlace(r)).map((r) => [bodyMid(r), r.lift, r.radius]),
+        small: { lift: most(bHardSmall, 'lift'), top: least(bHardSmall, 'top'), bottom: most(bHardSmall, 'bottom'), solidTop: least(bHardSmall, 'solidTop'), solidBottom: most(bHardSmall, 'solidBottom'), held: bHardSmall.filter((r) => r.held).length, shrunk: bHardSmall.filter((r) => r.shrink < 1).length } }));
 
     // Mic off.
     const bOff = await blobRun(wide, [{ secs: 2, ...loudTalk }, ...Array.from({ length: 16 }, () => ({ secs: 0.25, ...off }))]);

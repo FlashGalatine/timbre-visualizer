@@ -101,9 +101,10 @@ traceability.
 
 - **Blob is now a vector character.** A smooth solid body with a clean outline in place of
   the stepped, see-through one. It still swells with loudness, bulges with the sound, bounces
-  on each syllable (now stretching on the way up and squashing as it lands), blinks, turns
+  on each syllable (now stretching on the way up and squashing on the way down), blinks, turns
   happy when the voice is loud and opens its mouth with the voice. **Bounce** still scales it,
-  and at 0 stills it. It no longer leaves the frame at a high Bounce.
+  and at 0 stills it. It no longer leaves the frame at a high Bounce. With the mic off and the
+  idle animation off, nothing about it moves.
 - **Orbit is now a sun with planets.** A glowing sun and up to nine planets, each on its own
   slightly different tilted orbit and leaning on its own axis, passing behind the sun and in
   front of it. Louder sound makes every planet orbit faster and leave a longer streak of light;

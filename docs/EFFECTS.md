@@ -359,17 +359,21 @@ because `npm run verify` imports it.
 `globalThis.TimbreCharacters`. The effects in `factories/` read the sound, step a pose and draw.
 It offers:
 
-- `createEars()`: how a character hears, driven by `step({ dt, live, loud, low, high })`. It keeps
-  `loud` (slow) and `fast`, `low` and `high`, `rise` (a syllable starting), `lean` (-1 the low
-  end winning, 1 the high end), `happy` and `clock`.
+- `createEars()`: how a character hears, driven by `step({ dt, live, idle, loud, low, high })`.
+  It keeps `loud` (slow) and `fast`, `low` and `high`, `rise` (a syllable starting), `lean` (-1
+  the low end winning, 1 the high end), `happy` and `clock`, and two weights that ease over
+  0.3 s: `awake` (the mic or the idle animation is on; a character's own small movements are
+  scaled by it) and `rest` (mic off with the idle animation on: its idle breathing).
 - `createSpring(hz, damping)`: the bounce, driven by `step(dt, force)` and solved exactly for
-  each step, so it is in the same place at any frame rate; `x`, `v` and `reset()`.
+  each step, so it is in the same place at any frame rate; `x`, `v` and `reset()`. `hz` must be
+  above 0 and `damping` from 0 to below 1; anything else throws a `RangeError`.
 - `blink(clock, every, offset)`: 0 open to 1 shut. `bounce(setting)`: the Bounce setting as a
   strength (1 at 50). `mouth(fast)`: how far the mouth is open.
 - `createBlob()`: the Blob's pose, driven by
-  `step({ dt, live, level, bins, gain, bounce, idle, W, H, scale })`. It holds `radius`, `lift`,
-  `stretch`, `shrink`, `cy`, its outline `px` / `py` (offsets from the middle of the frame),
-  `bulge` and its `ears`.
+  `step({ dt, live, level, bins, gain, bounce, idle, W, H, scale })`. It holds `radius`, `lift`
+  (how far above its resting place it is drawn), `stretch`, `shrink`, `held` (the frame is
+  holding it back), `cy`, its outline `px` / `py` (offsets from the middle of the frame),
+  `bulge`, `look`, `blink` and its `ears`.
 - `paintFace(ctx, x, y, u, f)` and `glowBehind(ctx, x, y, r, c, a)`: the shared face and the glow
   behind a character. These two draw, on the context they are handed.
 

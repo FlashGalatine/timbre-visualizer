@@ -1432,6 +1432,8 @@ await import('./overlay/characters.js');
     ok([s.x, s.v].every(Number.isFinite) && Math.abs(s.x) < 40 && Number.isFinite(x0), 'very long frames and frames of no length leave it sane');
     s.reset();
     ok(s.x === 0 && s.v === 0, 'and a reset puts it at rest');
+    const refused = [[2.6, 1], [2.6, 1.2], [0, 0.2], [-1, 0.2], [2.6, -0.1], [NaN, 0.2]].every(([hz, d]) => { try { C.createSpring(hz, d); return false; } catch (e) { return e instanceof RangeError; } });
+    ok(refused && Number.isFinite(run(60, 1, kick).s.x), 'a spring that could not ring (damping of 1 or more, or no frequency) is refused when it is made');
   }
 
   ok(C.bounce(0) === 0 && C.bounce(50) === 1 && C.bounce(100) === 2 && C.bounce(250) === 2 && C.bounce(-5) === 0 && C.bounce(NaN) === 1, 'Bounce: 0 stills a character, 50 is the usual bounce, 100 is double');
@@ -1447,8 +1449,8 @@ await import('./overlay/characters.js');
     const e = C.createEars(); let t = 0; const log = [];
     for (const s of script) for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) {
       t += 1 / fps;
-      e.step({ dt: 1 / fps, live: s.live !== false, loud: typeof s.loud === 'function' ? s.loud(t) : (s.loud ?? 0), low: s.low ?? 0, high: s.high ?? 0 });
-      log.push({ t, rise: e.rise, loud: e.loud, happy: e.happy });
+      e.step({ dt: 1 / fps, live: s.live !== false, idle: !!s.idle, loud: typeof s.loud === 'function' ? s.loud(t) : (s.loud ?? 0), low: s.low ?? 0, high: s.high ?? 0 });
+      log.push({ t, rise: e.rise, loud: e.loud, happy: e.happy, awake: e.awake, rest: e.rest });
     }
     return { e, log };
   };
@@ -1464,6 +1466,13 @@ await import('./overlay/characters.js');
       'happy once the voice passes 0.45, and until it falls below 0.35');
     const off = hear(60, [{ secs: 2, loud: 1, low: 1, high: 1 }, { secs: 3, loud: 1, low: 1, high: 1, live: false }]).e;
     ok(off.live === false && off.loud < 1e-4 && off.low < 1e-4 && off.rise === 0 && off.happy === false, 'mic off, it hears silence whatever the sound arrays hold');
+    // Awake while the mic is on or the idle animation is; resting (breathing, swaying) with the mic
+    // off and the idle animation on. Both start where they belong and ease over when things change.
+    const on = hear(60, [{ secs: 1 / 60 }]).e, offNoIdle = hear(60, [{ secs: 1 / 60, live: false }]).e, offIdle = hear(60, [{ secs: 1 / 60, live: false, idle: true }]).e;
+    const waking = hear(60, [{ secs: 2, live: false }, { secs: 0.1 }]).log, dozing = hear(60, [{ secs: 2 }, { secs: 0.1, live: false, idle: true }]).log;
+    ok(on.awake === 1 && on.rest === 0 && offNoIdle.awake === 0 && offNoIdle.rest === 0 && offIdle.awake === 1 && offIdle.rest === 1
+      && waking[120].awake > 0 && waking[120].awake < 0.1 && waking[125].awake > waking[120].awake && dozing[120].rest > 0 && dozing[120].rest < 0.1 && dozing[125].awake === 1,
+      'it is awake while the mic or the idle animation is on, and resting with the mic off and the idle animation on; both ease over');
     const [a, b, c] = [30, 60, 120].map((fps) => hear(fps, [{ secs: 6.6, loud: syllables(fps) }]).e);
     ok(near(a.loud, b.loud, 1e-9) && near(c.loud, b.loud, 1e-9) && near(a.fast, c.fast, 1e-9) && near(a.clock, 6.6, 1e-6), 'the same at 30, 60 and 120 fps');
   }
@@ -1473,17 +1482,25 @@ await import('./overlay/characters.js');
     const [W0, H0, scale] = o.size ?? WIDE, fps = o.fps ?? 60;
     const b = o.blob ?? C.createBlob();
     let t = 0, outside = false, bad = false, mostStretch = 0, leastStretch = 0, mostLift = -Infinity, leastRadius = Infinity, mostRadius = 0;
+    let highest = Infinity, stretchStep = 0, radiusStep = 0, pinned = 0, everHeld = false, liftOff = 0, offCentre = 0, last = null;
     const lifts = [];
     for (const s of script) for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) {
       t += 1 / fps;
       const W = s.W ?? W0, H = s.H ?? H0, loud = typeof s.loud === 'function' ? s.loud(t) : (s.loud ?? 0);
       b.step({ dt: 1 / fps, live: s.live !== false, level: { loud, low: s.low ?? loud, high: s.high ?? 0 }, bins: s.bins ?? null, gain: 1, bounce: s.bounce ?? o.bounce ?? 50, idle: !!s.idle, W, H, scale });
-      for (let i = 0; i < b.px.length; i++) { if (!Number.isFinite(b.px[i]) || !Number.isFinite(b.py[i])) bad = true; if (Math.abs(b.px[i]) > W / 2 || Math.abs(b.py[i]) > H / 2) outside = true; }
+      for (let i = 0; i < b.px.length; i++) { if (!Number.isFinite(b.px[i]) || !Number.isFinite(b.py[i])) bad = true; if (Math.abs(b.px[i]) > W / 2 - 3 * scale + 1e-6 || Math.abs(b.py[i]) > H / 2 - 3 * scale + 1e-6) outside = true; }   // 3 px × scale inside the frame
       mostStretch = Math.max(mostStretch, b.stretch); leastStretch = Math.min(leastStretch, b.stretch);
       mostLift = Math.max(mostLift, b.lift); leastRadius = Math.min(leastRadius, b.radius); mostRadius = Math.max(mostRadius, b.radius);
       lifts.push(b.lift);
+      highest = Math.min(highest, b.cy);
+      if (Math.abs(b.stretch) >= 0.13 - 1e-9) pinned++;
+      if (b.held) everHeld = true;
+      if (!b.held && b.shrink === 1) liftOff = Math.max(liftOff, Math.abs(b.lift - (4 * scale - b.cy)));   // lift is how far above its resting place it is drawn
+      offCentre = Math.max(offCentre, Math.abs(b.py.reduce((a, y) => a + y, 0) / b.py.length - b.cy));      // with no bulge its outline is centred on cy
+      if (last) { stretchStep = Math.max(stretchStep, Math.abs(b.stretch - last.stretch)); radiusStep = Math.max(radiusStep, Math.abs(b.radius - last.radius)); }
+      last = { stretch: b.stretch, radius: b.radius };
     }
-    return { b, outside, bad, mostStretch, leastStretch, mostLift, leastRadius, mostRadius, lifts };
+    return { b, outside, bad, mostStretch, leastStretch, mostLift, leastRadius, mostRadius, lifts, highest, stretchStep, radiusStep, pinned, everHeld, liftOff, offCentre };
   };
   {
     const scale = WIDE[2];
@@ -1496,7 +1513,12 @@ await import('./overlay/characters.js');
       'it swells with the voice, more at a higher Bounce; at Bounce 0 it neither swells nor bounces');
     const hop = blob([{ secs: 1 }, { secs: 0.3, loud: 0.9 }]), landed = blob([{ secs: 1 }, { secs: 4, loud: 0.9 }]);
     ok(hop.mostLift > 3 * scale && hop.mostStretch > 0.03 && landed.leastStretch < -0.01 && Math.abs(landed.b.lift) < 0.3 * scale && Math.abs(landed.b.stretch) < 0.005 && landed.mostStretch <= 0.13 && landed.leastStretch >= -0.13,
-      `a syllable bounces it (${(hop.mostLift / scale).toFixed(1)} px × scale up), stretching on the way up and squashing as it lands, and it settles`);
+      `a syllable bounces it (${(hop.mostLift / scale).toFixed(1)} px × scale up), stretching on the way up and squashing on the way down, and it settles`);
+    ok(4 * scale - hop.highest > 3 * scale && hop.liftOff < 1e-9 && landed.liftOff < 1e-9 && hop.offCentre < 1e-6 && landed.offCentre < 1e-6, 'the bounce is in what is drawn: its middle rises by the lift, and its outline with it');
+    ok(landed.stretchStep < 0.04 && landed.pinned === 0 && landed.mostStretch > 0.05 && landed.leastStretch < -0.03,
+      `the stretch follows the bounce smoothly: at most ${landed.stretchStep.toFixed(3)} in a frame, and never held at its limit`);
+    const stopped = blob([{ secs: 1 }, { secs: 0.15, loud: 0.9 }, { secs: 1 / 60, loud: 0.9, bounce: 0 }]).b;
+    ok(stopped.stretch === 0 && stopped.lift === 0 && near(stopped.cy, 4 * scale), 'Bounce set to 0 in the middle of a bounce stills it at once');
     // The sound shapes it: the low end at the top, the high end at the bottom, the same on both sides.
     const bins = (from, to) => { const f = new Uint8Array(32); for (let i = from; i <= to; i++) f[i] = 255; return f; };
     const top = blob([{ secs: 1, loud: 0.5, bins: bins(0, 1) }]).b, bottom = blob([{ secs: 1, loud: 0.5, bins: bins(7, 10) }]).b;
@@ -1506,9 +1528,25 @@ await import('./overlay/characters.js');
     const still = blob([{ secs: 3, live: false }]), breathing = blob([{ secs: 6, live: false, idle: true }]);
     ok(still.mostRadius === still.leastRadius && breathing.mostRadius - breathing.leastRadius > 2 * scale && breathing.mostRadius - breathing.leastRadius < 2.6 * scale && breathing.mostLift === 0,
       'mic off it is still; with the idle animation on it breathes');
+    // Still means still: with the mic and the idle animation both off, no point of its outline moves, its eyes do not wander and it does not blink.
+    {
+      const b = C.createBlob(), [W, H] = WIDE, go = (secs) => { for (let k = 0; k < secs * 60; k++) b.step({ dt: 1 / 60, live: false, level: { loud: 0, low: 0, high: 0 }, bins: null, gain: 1, bounce: 50, idle: false, W, H, scale }); };
+      go(1); const x0 = Array.from(b.px), y0 = Array.from(b.py); let moved = 0, looked = 0, blinked = 0;
+      for (let k = 0; k < 600; k++) { go(1 / 60); for (let i = 0; i < 32; i++) moved = Math.max(moved, Math.abs(b.px[i] - x0[i]), Math.abs(b.py[i] - y0[i])); looked = Math.max(looked, Math.abs(b.look)); blinked = Math.max(blinked, b.blink); }
+      const silent = blob([{ secs: 10 }]).b;
+      ok(moved < 1e-9 && looked === 0 && blinked === 0 && Math.abs(silent.look) > 0 && Array.from(silent.px).some((x, i) => Math.abs(Math.hypot(x, silent.py[i] - silent.cy) - 25 * scale) > 0.2 * scale),
+        'with the mic and the idle animation both off nothing about it moves; mic on and silent, it still wobbles a little and looks about');
+    }
+    // The idle breathing eases in and out: the mic coming on while it breathes does not make it jump.
+    const woken = blob([{ secs: 3.2, live: false, idle: true }, { secs: 1, idle: true }]);
+    ok(woken.radiusStep < 0.25 * scale && near(woken.b.radius, 25 * scale, 0.05 * scale), `the mic coming on while it breathes does not make it jump (at most ${(woken.radiusStep / scale).toFixed(2)} px × scale in a frame)`);
     // Bounce at its highest, a full voice in syllables, on every page: no part of it leaves the frame.
     const hard = SIZES.map((size) => blob([{ secs: 20, loud: (t) => (t % 0.5 < 0.2 ? 1 : 0), bins: bins(0, 31) }], { size, bounce: 100 }));
-    ok(hard.every((r) => !r.outside && !r.bad && r.mostLift > 0) && hard.some((r) => r.b.shrink < 1 || r.leastRadius < r.mostRadius), 'at Bounce 100 and full voice no part of it leaves the frame, on all three pages');
+    ok(hard.every((r) => !r.outside && !r.bad && r.mostLift > 0 && r.everHeld) && !blob([{ secs: 5, loud: syllables(60) }]).everHeld, 'at Bounce 100 and full voice the frame has to hold it back, and no part of it leaves the frame, on all three pages');
+    const narrow = blob([{ secs: 3, loud: 1, bins: bins(0, 31) }], { size: [200, 624, 4.8], bounce: 100 });
+    ok(!narrow.outside && !narrow.bad && narrow.b.shrink < 1, 'a frame too narrow for it draws it smaller, by its true width');
+    const lone = (fps) => blob([{ secs: 1 }, { secs: 0.2, loud: 0.9 }, { secs: 1 }], { fps }).mostLift;
+    ok(near(lone(10), lone(60), 0.08 * lone(60)) && near(lone(144), lone(60), 0.02 * lone(60)), `one syllable lifts it as high at 10 and 144 fps as at 60 (${(lone(10) / scale).toFixed(2)}, ${(lone(144) / scale).toFixed(2)}, ${(lone(60) / scale).toFixed(2)} px × scale)`);
     const [f30, f60, f120] = [30, 60, 120].map((fps) => blob([{ secs: 6.6, loud: syllables(fps) }], { fps }));
     ok(near(f30.mostLift, f60.mostLift, 0.06 * f60.mostLift) && near(f120.mostLift, f60.mostLift, 0.06 * f60.mostLift) && near(f30.b.radius, f120.b.radius, 1e-6),
       `it bounces as high at 30, 60 and 120 fps (${(f30.mostLift / scale).toFixed(2)}, ${(f60.mostLift / scale).toFixed(2)}, ${(f120.mostLift / scale).toFixed(2)} px × scale)`);

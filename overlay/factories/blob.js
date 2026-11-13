@@ -1,21 +1,22 @@
 /* ── blob (a soft vector character that swells, bulges and bounces with the voice) ──
    A smooth body with a clean outline and a face. It swells with loudness and bulges with the
    sound: the low end pushes out its top, the high end its bottom. Each syllable bounces it; it
-   stretches on the way up and squashes as it lands. Its eyes blink, and turn happy when the
-   voice is loud; its mouth opens with the voice. The global Bounce setting scales the swelling
-   and the bounce, and 0 stills it.
+   stretches on the way up and squashes on the way down. Its eyes blink, and turn happy when
+   the voice is loud; its mouth opens with the voice. The global Bounce setting scales the
+   swelling and the bounce, and 0 stills it. With the mic and the idle animation both off
+   nothing about it moves.
    Its pose (hearing, the bounce, the outline) and the shared face are TimbreCharacters in
    characters.js; the sound levels are TimbreHelix's and the colours TimbrePlanets'. Everything
    that moves runs on draw(now, dt); only the colour reads the wall clock, as the bar and wave
    effects do. */
 VIZ_FACTORIES['blob'] = function () {
   const C = TimbreCharacters, P = TimbrePlanets, HX = TimbreHelix;
-  const BLINK_EVERY = 3.5;                             // seconds between blinks
   const QUIET = { loud: 0, low: 0, high: 0 };
   const TURN = 2 * Math.PI;
   const { rgba, whiten, shade } = P;
 
   const blob = C.createBlob();
+  let face = { open: 0, happy: false, blink: 0, look: 0 };   // the face as last painted
 
   return {
     draw(now, dt) {
@@ -56,19 +57,22 @@ VIZ_FACTORIES['blob'] = function () {
       ctx.fill();
       ctx.restore();
 
-      C.paintFace(ctx, cx, cy - R * 0.05, R / 12.5, { open: C.mouth(ears.fast), happy: ears.happy, blink: C.blink(ears.clock, BLINK_EVERY, 0), look: Math.sin(ears.clock * 0.5) });
+      face = { open: C.mouth(ears.fast), happy: ears.happy, blink: blob.blink, look: blob.look };
+      C.paintFace(ctx, cx, cy - R * 0.05, R / 12.5, face);
     },
 
-    // Test surface: what it hears (the slow and fast loudness, the low and high ends, the lean
-    // and whether it is happy), how far its mouth is open and its eyes shut, the seconds it has
-    // heard, its radius, how far the bounce has lifted it, its stretch, whether it was drawn
-    // smaller to fit, and how far the sound is pushing its top and its bottom points.
+    // Test surface: what it hears (the slow and fast loudness, the low and high ends, the lean),
+    // the face as it was last painted (happy, how far its mouth is open and its eyes shut, where
+    // they are turned), the seconds it has heard, how awake it is and how far into its idle
+    // rest, its radius, how far above its resting place it is drawn, its stretch, whether it
+    // was drawn smaller to fit and whether the frame is holding it back, and how far the sound
+    // is pushing its top and its bottom points.
     probe() {
       const e = blob.ears;
       return {
-        loud: e.loud, fast: e.fast, low: e.low, high: e.high, lean: e.lean, happy: e.happy,
-        open: C.mouth(e.fast), blink: C.blink(e.clock, BLINK_EVERY, 0), clock: e.clock,
-        radius: blob.radius, lift: blob.lift, stretch: blob.stretch, shrink: blob.shrink,
+        loud: e.loud, fast: e.fast, low: e.low, high: e.high, lean: e.lean, happy: face.happy,
+        open: face.open, blink: face.blink, look: face.look, clock: e.clock, awake: e.awake, rest: e.rest,
+        radius: blob.radius, lift: blob.lift, stretch: blob.stretch, shrink: blob.shrink, held: blob.held,
         bulgeTop: blob.bulge[0], bulgeBottom: blob.bulge[blob.bulge.length >> 1],
       };
     },

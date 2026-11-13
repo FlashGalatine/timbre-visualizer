@@ -26,6 +26,7 @@
   const LEAN_S = 0.3, LEAN_GAIN = 1.5;       // which end of the sound is winning: its easing, and how readily it tips
   const FAINT = 0.05;                        // below this loudness a character does not lean
   const HAPPY_ON = 0.45, HAPPY_OFF = 0.35;   // happy once the slow loudness passes the first, until it falls below the second
+  const AWAKE_S = 0.3;                       // how quickly a character wakes or falls still, and its idle breathing comes and goes
 
   // The face.
   const BLINK_S = 0.16;                      // a blink, shut and open again
@@ -37,25 +38,38 @@
   const BLOB_R = 25, BLOB_GROW = 13;         // × scale: its radius at rest, and added at full voice and the usual Bounce
   const BLOB_DOWN = 4;                       // × scale: how far below the middle of the frame it sits
   const BLOB_HZ = 2.6, BLOB_DAMP = 0.22, BLOB_KICK = 2600;   // its spring, and how hard a syllable kicks it
-  const BLOB_STRETCH = 0.007, BLOB_STRETCH_MAX = 0.13;       // stretch per unit of the spring's speed, and the most either way
+  const BLOB_STRETCH = 0.0025, BLOB_STRETCH_MAX = 0.13;      // stretch per unit of the spring's speed while it is small, and what it levels off at
   const BLOB_BULGE = 7;                      // × scale: the most the sound pushes a point out, at the usual Bounce
   const BULGE_UP_S = 0.04, BULGE_DOWN_S = 0.18;
   const BULGE_BANDS = 11, BULGE_HIGH_WEIGHT = 2.2;           // the bands that shape it (0 to 10), and the weight of all but the first two
   const BREATH = 1.2, BREATH_RATE = 1.6;     // × scale and rad/s: breathing when idle
+  const BLOB_BLINK = 3.5;                    // seconds between its blinks
   const EDGE = 3;                            // × scale: room kept between a character and the frame's top and bottom
 
   const clamp01 = (v) => (v > 1 ? 1 : v > 0 ? v : 0);
   const follow = (current, target, dt, tau) => current + (target - current) * (1 - Math.exp(-dt / tau));
+  // The same, for a weight that must arrive: within a thousandth of the target it is the target.
+  const arrive = (current, target, dt, tau) => { const v = follow(current, target, dt, tau); return Math.abs(target - v) < 1e-3 ? target : v; };
 
-  // What a character hears. step({ dt, live, loud, low, high }) takes the sound levels (0 to 1)
-  // and keeps: loud (slow) and fast, low and high, rise (how far the fast loudness stands above
-  // the slow one: a syllable starting), lean (-1 the low end winning, 1 the high end), happy, and
-  // clock (seconds heard). Mic off, it hears silence whatever it is handed.
+  // What a character hears. step({ dt, live, idle, loud, low, high }) takes the sound levels (0
+  // to 1) and keeps: loud (slow) and fast, low and high, rise (how far the fast loudness stands
+  // above the slow one: a syllable starting), lean (-1 the low end winning, 1 the high end; the
+  // difference between the two ends times LEAN_GAIN, so a difference of two thirds is a full
+  // lean), happy, and clock (seconds heard). Mic off, it hears silence whatever it is handed.
+  // It also keeps two weights, 0 to 1, that ease over AWAKE_S: awake (the mic is on, or the idle
+  // animation is: a character's own small movements are scaled by it, so with both off it is
+  // perfectly still) and rest (the mic is off and the idle animation on: its idle breathing).
+  // Both start where they belong, with no easing on the first step.
   function createEars() {
-    const e = { live: false, loud: 0, fast: 0, low: 0, high: 0, rise: 0, lean: 0, happy: false, clock: 0 };
-    e.step = ({ dt, live, loud, low, high }) => {
+    const e = { live: false, loud: 0, fast: 0, low: 0, high: 0, rise: 0, lean: 0, happy: false, clock: 0, awake: 0, rest: 0 };
+    let begun = false;
+    e.step = ({ dt, live, idle, loud, low, high }) => {
       e.clock += dt;
       e.live = !!live;
+      const awake = live || idle ? 1 : 0, rest = !live && idle ? 1 : 0;
+      e.awake = begun ? arrive(e.awake, awake, dt, AWAKE_S) : awake;
+      e.rest = begun ? arrive(e.rest, rest, dt, AWAKE_S) : rest;
+      begun = true;
       const l = live ? loud : 0, lo = live ? low : 0, hi = live ? high : 0;
       e.loud = follow(e.loud, l, dt, LOUD_S);
       e.fast = follow(e.fast, l, dt, FAST_S);
@@ -68,10 +82,12 @@
     return e;
   }
 
-  // A spring of `hz` cycles a second and the given damping (below 1), pushed by a force that is
-  // steady over each step. It is solved exactly for the step, so it is in the same place at any
-  // frame rate. x is how far it is from rest, v its speed.
+  // A spring of `hz` cycles a second (above 0) and the given damping (0 to below 1: one that
+  // rings), pushed by a force that is steady over each step. It is solved exactly for the step,
+  // so it is in the same place at any frame rate. x is how far it is from rest, v its speed.
+  // Anything else is refused here, with a RangeError, rather than giving NaN later.
   function createSpring(hz, damping) {
+    if (!(hz > 0) || !(damping >= 0 && damping < 1)) throw new RangeError(`createSpring: hz must be above 0 and damping from 0 to below 1 (got ${hz}, ${damping})`);
     const w = TURN * hz, wd = w * Math.sqrt(1 - damping * damping), decay = damping * w;
     const s = { x: 0, v: 0 };
     s.step = (dt, force) => {
@@ -100,26 +116,31 @@
 
   // The Blob's pose. step({ dt, live, level, bins, gain, bounce, idle, W, H, scale }) takes the
   // sound levels, the frequency bands (or null) and Gain, the Bounce setting and whether the
-  // idle animation applies. It then holds: radius (px), lift (how far the bounce has raised it,
-  // px), stretch (taller above 0, flatter below), shrink (below 1 when it had to be drawn
-  // smaller to fit the frame), cy (its middle, as an offset from the frame's), px and py (its
-  // outline, as offsets from the middle of the frame), bulge (how far the sound is pushing each
-  // point, 0 to 1), and its ears.
+  // idle animation applies. It then holds: radius (px), lift (how far above its resting place
+  // it is drawn, px: the bounce, less whatever the frame held back), stretch (taller above 0,
+  // flatter below), shrink (below 1 when it had to be drawn smaller to fit the frame), held
+  // (the frame is holding it back: it is drawn smaller, or lower or higher than it would be),
+  // cy (its middle, as an offset from the frame's), px and py (its outline, as offsets from the
+  // middle of the frame), bulge (how far the sound is pushing each point, 0 to 1), look (where
+  // its eyes are turned, -1 to 1), blink (0 open to 1 shut), and its ears.
   function createBlob() {
     const ears = createEars(), spring = createSpring(BLOB_HZ, BLOB_DAMP);
-    const b = { ears, radius: 0, lift: 0, stretch: 0, shrink: 1, cy: 0, px: new Float64Array(BLOB_POINTS), py: new Float64Array(BLOB_POINTS), bulge: new Float64Array(BLOB_POINTS) };
+    const b = { ears, radius: 0, lift: 0, stretch: 0, shrink: 1, held: false, cy: 0, look: 0, blink: 0, px: new Float64Array(BLOB_POINTS), py: new Float64Array(BLOB_POINTS), bulge: new Float64Array(BLOB_POINTS) };
     b.step = ({ dt, live, level, bins, gain, bounce: setting, idle, W, H, scale }) => {
-      ears.step({ dt, live, loud: level.loud, low: level.low, high: level.high });
+      ears.step({ dt, live, idle, loud: level.loud, low: level.low, high: level.high });
       const k = bounce(setting);
       spring.step(dt, ears.rise * BLOB_KICK * k);
       if (k === 0) spring.reset();
-      const breath = !live && idle ? Math.sin(ears.clock * BREATH_RATE) * BREATH : 0;
+      const breath = Math.sin(ears.clock * BREATH_RATE) * BREATH * ears.rest;
       const R = (BLOB_R + BLOB_GROW * ears.loud * k + breath) * scale;
-      const stretch = Math.max(-BLOB_STRETCH_MAX, Math.min(BLOB_STRETCH_MAX, spring.v * BLOB_STRETCH));
+      // It stretches with its speed: in step while the speed is small, levelling off (never held
+      // at a limit, which would snap from tall to flat at the top of a bounce).
+      const stretch = BLOB_STRETCH_MAX * Math.tanh(spring.v * BLOB_STRETCH / BLOB_STRETCH_MAX);
       const lift = spring.x * scale, down = BLOB_DOWN * scale;
       // The outline: each point pushed out by its own part of the sound (the low end at the top,
-      // the high end at the bottom, the same on both sides) and by a slow wobble.
-      let up = 0, below = 0;
+      // the high end at the bottom, the same on both sides) and by a slow wobble, which stops
+      // when the mic and the idle animation are both off.
+      let up = 0, below = 0, side = 0;
       for (let i = 0; i < BLOB_POINTS; i++) {
         const a = (i / BLOB_POINTS) * TURN - Math.PI / 2;
         const fromTop = Math.abs(((i / BLOB_POINTS) * 2 + 1) % 2 - 1);       // 0 at the top, 1 at the bottom
@@ -127,19 +148,23 @@
         const heard = live && bins ? Math.min(1, (bins[band] || 0) / 255 * gain * (band < 2 ? 1 : BULGE_HIGH_WEIGHT)) : 0;
         b.bulge[i] = follow(b.bulge[i], heard, dt, heard > b.bulge[i] ? BULGE_UP_S : BULGE_DOWN_S);
         const wobble = Math.sin(a * 3 + ears.clock * 2.1) * 0.035 + Math.sin(a * 5 - ears.clock * 1.4) * 0.025 + Math.sin(a * 2 + ears.clock * 0.9) * 0.02;
-        const r = R * (1 + wobble) + b.bulge[i] * BLOB_BULGE * scale * k;
+        const r = R * (1 + wobble * ears.awake) + b.bulge[i] * BLOB_BULGE * scale * k;
         b.px[i] = Math.cos(a) * r * (1 - stretch);
         b.py[i] = Math.sin(a) * r * (1 + stretch);
-        up = Math.max(up, -b.py[i]); below = Math.max(below, b.py[i]);
+        up = Math.max(up, -b.py[i]); below = Math.max(below, b.py[i]); side = Math.max(side, Math.abs(b.px[i]));
       }
-      // If it would not fit between the top and the bottom of the frame, it is drawn smaller
-      // about its own middle, and its bounce is limited to the room that leaves.
-      const room = Math.max(1, H / 2 - EDGE * scale);
-      const shrink = Math.min(1, room / Math.max(1e-6, (up + below) / 2 + 1e-9), W / 2 / Math.max(1e-6, R * 1.2));
+      // If it would not fit the frame, top to bottom or side to side, it is drawn smaller about
+      // its own middle, and its bounce is limited to the room that leaves.
+      const room = Math.max(1, H / 2 - EDGE * scale), across = Math.max(1, W / 2 - EDGE * scale);
+      const shrink = Math.min(1, room / Math.max(1e-6, (up + below) / 2 + 1e-9), across / Math.max(1e-6, side + 1e-9));
       const top = up * shrink, bottom = below * shrink;
-      const cy = Math.max(-(room - top), Math.min(room - bottom, down - lift));
+      const wanted = down - lift;
+      const cy = Math.max(-(room - top), Math.min(room - bottom, wanted));
       for (let i = 0; i < BLOB_POINTS; i++) { b.px[i] *= shrink; b.py[i] = b.py[i] * shrink + cy; }
-      b.radius = R * shrink; b.stretch = stretch; b.shrink = shrink; b.cy = cy; b.lift = k === 0 ? 0 : lift;
+      b.radius = R * shrink; b.stretch = stretch; b.shrink = shrink; b.cy = cy; b.lift = down - cy;
+      b.held = shrink < 1 || cy !== wanted;
+      b.look = Math.sin(ears.clock * 0.5) * ears.awake;
+      b.blink = blink(ears.clock, BLOB_BLINK, 0) * ears.awake;
     };
     return b;
   }
