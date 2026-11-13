@@ -12,6 +12,12 @@ traceability.
 
 ### Added
 
+- **Pulse Rings settings**: `explodeSensitivity` (0 to 100, default 50; 0 turns the explosion
+  off) and `reconnectSeconds` (0 to 10, default 3) for the Pulse Rings effect. What the new
+  Pulse Rings shares with the other planet effects is in `overlay/planets.js`
+  (`TimbrePlanets`), loaded by all three overlay pages and by `verify` under Node, and
+  documented in `docs/EFFECTS.md` ("Planets"). `TimbreHelix.createShatter` takes an optional
+  `aim`; without it DNA shatters exactly as before.
 - **Fireflies setting**: `startleSensitivity` (0 to 100, default 50; 0 turns the startle off)
   for the Fireflies effect. The swarm behind the new Fireflies is in
   `overlay/fireflies-swarm.js` (`TimbreSwarm`), loaded by all three overlay pages and by
@@ -77,6 +83,14 @@ traceability.
 
 ### Changed
 
+- **Pulse Rings is now a ringed planet.** A glowing planet with a tilted ring disc. Each
+  syllable is a bright ripple that starts at the inner edge of the rings and travels outward;
+  louder, the planet glows brighter and its storm and the ice in the rings turn faster. A hard
+  peak blows the planet into chunks and thins the rings; after a calm wait the chunks drift back
+  and snap together, and the rings fill back in. The old Pulse Rings threw rings of square dots
+  outward from the centre; nothing is thrown off any more. **Sensitivity** now sets how strongly
+  the rings answer the voice (it was how easily a ring was thrown), and **Flow** how far out the
+  rings reach (it stretched the rings sideways).
 - **Fireflies is now a living swarm.** Soft glowing fireflies wander the whole frame,
   each blinking on its own slow rhythm and leaving a short streak of light. Louder, they
   blink more, glow brighter and fly faster; each syllable sets off a burst of flashes,

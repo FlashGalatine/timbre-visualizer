@@ -58,7 +58,20 @@
 //           calm, and with the idle animation only the glow breathes; the low end swells the glow
 //           and the high end is heard; Density sets how many; a config push and a size change keep
 //           the swarm; a seeded run repeats; the canvas state is left as found; a draw stays inside
-//           its time budget; and the control panel shows its two sliders.
+//           its time budget; and the control panel shows its two sliders •
+//           pulse rings: a whole ringed planet inside the frame on all three pages; a syllable
+//           ripples outward through the rings; a voice lights the rings and the glow; the low end
+//           swells the planet and the high end makes the ice glitter; a peak blows the planet into
+//           chunks and thins the rings (wide and small pages); after the calm wait the chunks
+//           return and the rings fill back in; Reconnect Seconds sets the wait; in pieces the
+//           rings and the core still answer the voice; a held yell blows it apart once and then
+//           jostles; Gain at 200% and Explode Sensitivity 0 never blow it apart; the waveform peak
+//           stands in for a missing micPeak; the mic opening on a loud moment does not blow it
+//           apart; mic off rests, and with the idle animation a slow ripple keeps crossing;
+//           Sensitivity and Flow do what they say; a config push keeps the planet as it is and a
+//           size change in pieces puts it back whole; a seeded run repeats; the canvas state is
+//           left as found; a draw stays inside its time budget; and the control panel shows its
+//           four sliders.
 
 import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
