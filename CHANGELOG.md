@@ -12,6 +12,9 @@ traceability.
 
 ### Added
 
+- **Orbit settings**: `planets` (0 to 9, default 6) and `flareSensitivity` (0 to 100, default
+  50; 0 turns the sun's flare off) for the Orbit effect. The system behind the new Orbit is
+  `TimbrePlanets.createSystem` in `overlay/planets.js`.
 - **Pulse Rings settings**: `explodeSensitivity` (0 to 100, default 50; 0 turns the explosion
   off) and `reconnectSeconds` (0 to 10, default 3) for the Pulse Rings effect. What the new
   Pulse Rings shares with the other planet effects is in `overlay/planets.js`
@@ -83,6 +86,13 @@ traceability.
 
 ### Changed
 
+- **Orbit is now a sun with planets.** A glowing sun and up to nine planets, each on its own
+  slightly different tilted orbit and leaning on its own axis, passing behind the sun and in
+  front of it. Louder sound makes every planet orbit faster and leave a longer streak of light;
+  the low end makes the sun swell and shrink. A hard peak flares the sun and the planets surge
+  for a moment. The old Orbit was short-lived square dots circling a square core. Its
+  **Density** setting is retired (a saved value is dropped); **Planets** sets how many planets
+  there are.
 - **Pulse Rings is now a ringed planet.** A glowing planet with a tilted ring disc. Each
   syllable is a bright ripple that starts at the inner edge of the rings and travels outward;
   louder, the planet glows brighter and its storm and the ice in the rings turn faster. A hard
