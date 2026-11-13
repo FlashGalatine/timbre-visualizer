@@ -381,15 +381,19 @@ It offers:
   reaches above and below its middle however it leans, in those units; it is fitted to the
   frame by them.
 - `createTelevision()`: the Television's pose, driven by the same `step({ ... })` as the Owl's. It
-  holds `k`, `cy` (with its hover in it), `lift`, `shrink`, `tilt`, `wag` (its antennae), `dials`
-  (`[low, high]`), `speaker`, `roll` (the band on its screen), `asleep` (the mic is off), `open`
-  and `smile` (its mouth), and its `ears`. `TV_UP` and `TV_BELOW` are its reach, in its own units.
+  holds `k`, `cy` (with its hover in it), `lift`, `shrink`, `held`, `tilt`, `wag` (its antennae),
+  `dials` (`[low, high]`), `speaker`, `roll` (the band on its screen), `snow` (which picture of
+  static shows: a count that goes up 20 times a second), `asleep` (the mic is off), `open` and
+  `smile` (its mouth), `look`, `blink` and its `ears`. `TV_UP` (56) and `TV_BELOW` (40) are its
+  reach, in its own units. Its hover, band and static stop when the mic and the idle animation
+  are both off.
 - `paintFace(ctx, x, y, u, f)` and `glowBehind(ctx, x, y, r, c, a)`: the shared face (or, with
   `eyesOnly`, just its eyes) and the glow behind a character. These two draw, on the context
   they are handed.
 
-All its timing comes from `dt`; the Television's static is the only randomness, and
-`window.__televisionSeed` seeds it. It uses `TimbrePlanets`' colour helpers when it paints, so
+All its timing comes from `dt`. The only randomness is the Television's static, which
+`factories/television.js` draws: the pose says which picture shows (`snow`), and
+`window.__televisionSeed` seeds the pictures. It uses `TimbrePlanets`' colour helpers when it paints, so
 `planets.js` must be loaded before it. Like `helix.js`, the file must stay loadable under Node,
 because `npm run verify` imports it.
 

@@ -73,7 +73,8 @@ side to side; the Owl and the Television in a frame too short for them.
 **Quiet.** Mic on and silent: at rest, with only its own small movements (the Blob's slow wobble,
 its eyes looking about) and its blinking. Mic off with the idle animation on: the same, and
 breathing (and the Owl sways). Mic off with it off: nothing about it moves, and it does not
-blink. A character eases between these over 0.3 s, so the mic coming on or going off never makes
+blink. The Television is the exception to the first: it hovers whenever it is awake in this
+sense, so with the mic on and silent it floats. A character eases between these over 0.3 s, so the mic coming on or going off never makes
 it jump.
 
 ## Blob
@@ -114,15 +115,22 @@ tufts and pale discs round large eyes, a small beak, two wings, a tail and two t
 A floating retro set: a rounded cabinet on two feet, a screen on the left, and on the right two
 dials and a three-line speaker; two antennae with ball tips on top.
 
-- It hovers (2.2 px × scale, 1.7 rad/s) and the spring (2.1 Hz, damping 0.24, strength 2000)
-  bounces it; it tilts with `lean` and with the bounce.
+- It hovers (2.2 px × scale, 1.7 rad/s) while the mic is on, and in its sleep with the idle
+  animation on; the hover eases in and out over 0.3 s. The spring (2.1 Hz, damping 0.24,
+  strength 2000) bounces it; it tilts with `lean` and with the bounce, by 0.3 rad at most.
 - The antennae are on a spring of their own (3.4 Hz, damping 0.14), kicked by each syllable and
   pulled by `lean`.
 - The dials turn with the low and the high end; the speaker's lines brighten with the fast loudness.
 - **The screen** is dark glass with scan lines, a slow rolling band and a shine. Mic on, it shows
   a face in glowing lines: two upright bars for eyes (which blink and turn happy as the others
-  do) and a mouth that is the live waveform, flat with a slight smile when quiet. Mic off, it
-  shows static and a sleeping face.
+  do) and a mouth that is the live waveform with Gain (as the wave effects draw it), flat with
+  a slight smile when quiet. The mouth is at full swing at `min(1, 1.4 × fast)`, a little
+  sooner than the shared face's, and this face has no blush. Mic off, it shows static and a
+  sleeping face. The static is 90 flecks in six greys, a new picture 20 times a second by the
+  clock (not by the frame); with the mic and the idle animation both off the picture holds
+  and the band stops.
+- It is fitted to the frame by its reach: 56 of its own units above its middle (an antenna
+  straight up reaches 53.4) and 40 below (the corner of a foot at the largest tilt, 38.4).
 - It is listed after Owl as `television`, the 51st effect.
 
 ## Code
@@ -156,8 +164,14 @@ dials and a three-line speaker; two antennae with ball tips on top.
   60 frames a second. Smoothing it further would make it lag the bounce.
 - The Blob is flat while it moves down, not at the moment it lands: the stretch is in step with
   its speed, which is zero at the top and the bottom of a bounce.
+- The Television's draw (like the other 2D effects') does not guard its canvas state against a
+  throw part-way through. Nothing was found that could make it throw: every radius is a
+  constant or guarded, and empty, short and missing waveforms all draw.
 
 ## Not checked by any test
 
+- The Television's mouth with a real voice: the 64 samples it is drawn from are about a
+  millisecond of sound, a fraction of one cycle of a voice, so it may look like a bulge to one
+  side more than a wiggle. The tests feed it four cycles.
 - A real microphone: how lively the bounce feels with real speech.
 - The frame rate in OBS.

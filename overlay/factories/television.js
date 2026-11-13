@@ -3,28 +3,42 @@
    floats; each syllable bounces it and springs its antennae; it tilts toward the low or the
    high end of the sound; its dials turn with the low and the high end and its speaker lights
    with the voice. The screen shows a face in glowing lines: two upright bars for eyes, which
-   blink and turn happy as the other characters' do, and a mouth that is the live waveform. With
-   the mic off the screen is static and the face is asleep. The global Bounce setting scales the
-   bounce, the tilt and the antennae, and 0 stills them.
+   blink and turn happy as the other characters' do, and a mouth that is the live waveform (with
+   Gain, as the wave effects draw it). With the mic off the screen is static and the face is
+   asleep; the static changes 20 times a second, by the clock. The global Bounce setting scales
+   the bounce, the tilt and the antennae, and 0 stills them. With the mic and the idle animation
+   both off nothing about it moves: it does not hover, and its screen holds one picture.
    Its pose (hearing, the bounce, the hover, the antennae) is TimbreCharacters in characters.js;
    the sound levels are TimbreHelix's and the colours TimbrePlanets'. Everything that moves runs
    on draw(now, dt); only the colour reads the wall clock, as the bar and wave effects do. */
 VIZ_FACTORIES['television'] = function () {
   const C = TimbreCharacters, P = TimbrePlanets, HX = TimbreHelix;
-  const BLINK_EVERY = 4.1, BLINK_OFFSET = 0.6;         // seconds between blinks, and its place in that cycle
   const SCREEN = [-32, -21, 49, 42, 8];                // the screen in the set's own units: left, top, width, height, corner
   const FACE_X = -7.5;                                 // the middle of the screen
   const MOUTH_POINTS = 20, MOUTH_SWING = 7;            // the mouth: how many steps it is drawn in, and its full swing
   const STATIC = 90;                                   // flecks of static with the mic off
+  const { rgba, whiten, shade } = P;
+  // The static's greys: a fleck is one of these, so a picture of static is six fills.
+  const SHADES = [[105, 0.14], [130, 0.26], [155, 0.1], [180, 0.22], [205, 0.3], [230, 0.18]].map(([g, a]) => rgba([g, g, g + 12], a));
+  const SCAN = rgba([0, 0, 0], 0.16);
   const QUIET = { loud: 0, low: 0, high: 0 };
   const TURN = 2 * Math.PI;
-  const { rgba, whiten, shade } = P;
 
   // The static's flecks come from one source, seedable through window.__televisionSeed so the
   // render tests repeat.
   const random = HX.rng(window.__televisionSeed);
   const tv = C.createTelevision();
-  const drawn = { mouth: 0, flecks: 0, eyes: 0 };       // what the last draw drew, for probe()
+  const drawn = { mouth: 0, flecks: 0, eyes: 0, blink: 0, happy: false };   // what the last draw drew, for probe()
+
+  // One picture of static: for each shade, its flecks as x, y, width (in the set's own units).
+  // The pose says which picture shows (tv.snow, which the clock moves on, not the frames), so
+  // the static flickers at one rate at any frame rate and holds still when the pose does.
+  let snow = null, snowAt = -1;
+  function snowfall() {
+    const out = SHADES.map(() => []);
+    for (let i = 0; i < STATIC; i++) out[Math.floor(random() * SHADES.length)].push(SCREEN[0] + random() * SCREEN[2], SCREEN[1] + random() * SCREEN[3], 1.5 + random() * 4);
+    return out;
+  }
 
   // A rectangle with rounded corners, as a path.
   function rounded(x, y, w, h, r) {
@@ -48,7 +62,7 @@ VIZ_FACTORIES['television'] = function () {
       const colorT = ((Date.now() * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
       const c = getColor(colorT + 0.3), glowCol = getColor(colorT + 1.4), line = whiten(glowCol, 0.55);
       const dark = rgba(shade(c, 0.42), 1);
-      drawn.mouth = 0; drawn.flecks = 0; drawn.eyes = 0;
+      drawn.mouth = 0; drawn.flecks = 0; drawn.eyes = 0; drawn.blink = 0; drawn.happy = false;
 
       // The glow behind it, kept a little inside the frame so it is never cut off flat.
       C.glowBehind(ctx, cx, cy, Math.max(1, Math.min(64 * k, H / 2 - Math.abs(tv.cy) - 1.5 * SCALE, W / 2)), glowCol, live ? 0.22 + 0.34 * ears.fast : 0.14);
@@ -113,12 +127,18 @@ VIZ_FACTORIES['television'] = function () {
       ctx.save();
       rounded(...SCREEN); ctx.clip();
       if (tv.asleep) {
-        // No signal: static, and a face asleep.
-        for (let i = 0; i < STATIC; i++) {
-          const g = 90 + random() * 150;
-          ctx.fillStyle = rgba([g, g, g + 12], 0.1 + random() * 0.2);
-          ctx.fillRect(SCREEN[0] + random() * SCREEN[2], SCREEN[1] + random() * SCREEN[3], 1.5 + random() * 4, 1);
-          drawn.flecks++;
+        // No signal: static, and a face asleep. A new picture for each step the pose's count
+        // has taken (a long frame can take two; after a long time awake, only the last few).
+        if (snow === null || tv.snow - snowAt > 4) snowAt = tv.snow - 1;
+        while (snowAt < tv.snow) { snow = snowfall(); snowAt++; }
+        for (let j = 0; j < SHADES.length; j++) {
+          const list = snow[j];
+          if (!list.length) continue;
+          ctx.fillStyle = SHADES[j];
+          ctx.beginPath();
+          for (let i = 0; i < list.length; i += 3) ctx.rect(list[i], list[i + 1], list[i + 2], 1);
+          ctx.fill();
+          drawn.flecks += list.length / 3;
         }
         ctx.strokeStyle = rgba(line, 0.55);
         ctx.lineWidth = 1.5;
@@ -127,22 +147,25 @@ VIZ_FACTORIES['television'] = function () {
       } else {
         // The face, in glowing lines: a wide soft pass, then the bright line. The mouth is the waveform itself.
         ctx.globalCompositeOperation = 'lighter';
-        const shut = C.blink(ears.clock, BLINK_EVERY, BLINK_OFFSET);
+        const shut = tv.blink, gain = cfgGain, last = waveform.length - 1;
+        drawn.blink = shut; drawn.happy = ears.happy;
         ctx.strokeStyle = rgba(line, 1);
         for (const [wide, alpha] of [[4.2, 0.22], [1.7, 1]]) {
           ctx.lineWidth = wide;
           ctx.globalAlpha = alpha;
           for (const side of [-1, 1]) {
-            const ex = FACE_X + side * 8.5 + ears.lean * 1.5;
+            const ex = FACE_X + side * 8.5 + tv.look * 1.5;
             ctx.beginPath();
             if (ears.happy) ctx.arc(ex, -3, 4.2, Math.PI * 1.15, Math.PI * 1.85);
             else { const h = 4.8 * (1 - shut) + 0.3; ctx.moveTo(ex, -5 - h); ctx.lineTo(ex, -5 + h); }
             ctx.stroke();
+            if (alpha === 1) drawn.eyes++;
           }
           ctx.beginPath();
           for (let i = 0; i <= MOUTH_POINTS; i++) {
             const t = i / MOUTH_POINTS, arch = Math.sin(t * Math.PI);
-            const wave = ((waveform[Math.floor(t * (waveform.length - 1))] || 128) - 128) / 128;
+            // The waveform with Gain, as the wave effects draw it; a sample of 0 is a real trough.
+            const wave = Math.max(-1, Math.min(1, ((waveform[Math.floor(t * last)] ?? 128) - 128) / 128 * gain));
             const swing = wave * MOUTH_SWING * tv.open * arch;
             const x = FACE_X - 12 + t * 24, y = 8 + arch * 2.6 * tv.smile + swing;
             if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
@@ -150,13 +173,14 @@ VIZ_FACTORIES['television'] = function () {
           }
           ctx.stroke();
         }
-        drawn.eyes = 2;
         ctx.globalAlpha = 1;
         ctx.globalCompositeOperation = 'source-over';
       }
       // Scan lines, a band rolling down, and the shine on the glass.
-      ctx.fillStyle = rgba([0, 0, 0], 0.16);
-      for (let y = SCREEN[1]; y < SCREEN[1] + SCREEN[3]; y += 2.4) ctx.fillRect(SCREEN[0], y, SCREEN[2], 0.9);
+      ctx.fillStyle = SCAN;
+      ctx.beginPath();
+      for (let y = SCREEN[1]; y < SCREEN[1] + SCREEN[3]; y += 2.4) ctx.rect(SCREEN[0], y, SCREEN[2], 0.9);
+      ctx.fill();
       ctx.fillStyle = rgba(C.WHITE, 0.05);
       ctx.fillRect(SCREEN[0], SCREEN[1] + tv.roll * (SCREEN[3] + 8) - 6, SCREEN[2], 6);
       ctx.fillStyle = rgba(C.WHITE, 0.09);
@@ -165,19 +189,21 @@ VIZ_FACTORIES['television'] = function () {
       ctx.restore();
     },
 
-    // Test surface: what it hears (the slow and fast loudness, the low and high ends, the lean
-    // and whether it is happy), how far its mouth swings and its eyes are shut, the seconds it
-    // has heard, how far the bounce has lifted it, where its middle is (an offset from the
-    // frame's, with the hover in it), whether it was drawn smaller to fit, its tilt,
-    // how far its antennae are sprung, its two dials, its speaker, the band on its screen,
-    // whether it is asleep, and from the last draw: the mouth's largest swing (in the set's own
-    // units), the flecks of static and the eyes drawn.
+    // Test surface: what it hears (the slow and fast loudness, the low and high ends, the lean),
+    // how far its mouth swings, the seconds it has heard, how awake it is and how far into its
+    // idle rest, how far above its resting place it is drawn, where its middle is (an offset
+    // from the frame's, with the hover in it), the px in one unit of its drawing, whether it
+    // was drawn smaller to fit and whether the frame is holding it back, its tilt, how far its
+    // antennae are sprung, its two dials, its speaker, the band on its screen and which picture
+    // of static it is on, whether it is asleep, and from the last draw: whether its eyes were
+    // happy and how far shut, the mouth's largest swing (in the set's own units), the flecks of
+    // static and the eyes drawn.
     probe() {
       const e = tv.ears;
       return {
-        loud: e.loud, fast: e.fast, low: e.low, high: e.high, lean: e.lean, happy: e.happy,
-        open: tv.open, blink: C.blink(e.clock, BLINK_EVERY, BLINK_OFFSET), clock: e.clock,
-        lift: tv.lift, y: tv.cy, shrink: tv.shrink, tilt: tv.tilt, wag: tv.wag, dialLow: tv.dials[0], dialHigh: tv.dials[1], speaker: tv.speaker, roll: tv.roll,
+        loud: e.loud, fast: e.fast, low: e.low, high: e.high, lean: e.lean, happy: drawn.happy,
+        open: tv.open, blink: drawn.blink, look: tv.look, clock: e.clock, awake: e.awake, rest: e.rest,
+        lift: tv.lift, y: tv.cy, k: tv.k, shrink: tv.shrink, held: tv.held, tilt: tv.tilt, wag: tv.wag, dialLow: tv.dials[0], dialHigh: tv.dials[1], speaker: tv.speaker, roll: tv.roll, snow: tv.snow,
         asleep: tv.asleep, mouth: drawn.mouth, flecks: drawn.flecks, eyes: drawn.eyes,
       };
     },
