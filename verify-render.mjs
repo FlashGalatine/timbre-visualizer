@@ -203,6 +203,7 @@ const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1 } = {}) =>
   }
 }, { name, seedKey, steps, fps, seed });
 const dnaRun = effectRun('dna', '__dnaSeed'), cometRun = effectRun('comet', '__cometSeed'), fliesRun = effectRun('fireflies', '__firefliesSeed');
+const ringsRun = effectRun('pulse-rings', '__pulseRingsSeed');
 const talk = { wave: 0.5, low: 0.5, high: 0.3, peak: 0.5 }, silence = { wave: 0, low: 0, high: 0, peak: 0 };
 
 // The five checks every afterglow effect must pass. slack: live pixels that legitimately
@@ -1064,6 +1065,136 @@ async function main() {
     check('fireflies: no page errors from the Fireflies checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
       [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
 
+    // ── Pulse Rings: a ringed planet (16:9 page unless noted) ────────────────
+    const ringsOn = async (pages, idle) => {
+      await pushConfig((c) => { c.activeViz = 'pulse-rings'; c.idleAnim = idle; });
+      for (const pg of pages) await pg.waitForFunction((i) => window.__timbre.currentVizName === 'pulse-rings' && cfgIdleAnim === i, idle, { timeout: 5000 });
+    };
+    const pr = (...rs) => JSON.stringify(rs.map((r) => r && ({ state: r.state, pieces: r.pieces, blasts: r.blasts, jostles: r.jostles, inside: r.inside, loud: r.loud, low: r.low, high: r.high,
+      planetR: r.planetR, show: r.show, levelIn: r.levelIn, levelMid: r.levelMid, levelOut: r.levelOut, lift: r.lift, reach: r.reach, ringAlpha: r.ringAlpha, sparkle: r.sparkle,
+      halo: r.halo, core: r.core, spin: r.spin, ink: r.ink, top: r.top, bottom: r.bottom, emptyCols: r.emptyCols })));
+    const prKnobs = (k) => ({ perViz: { 'pulse-rings': k } });
+    await ringsOn([page, p43, wide], false);
+    for (const pg of [page, p43, wide]) {
+      const [size, h] = await pg.evaluate(() => [`${W}×${H}`, H]);
+      const [r] = await ringsRun(pg, [{ secs: 3, ...talk }]);
+      check(`pulse rings: a whole ringed planet inside the frame at ${size}`,
+        r.ink > 0 && r.state === 'whole' && r.pieces === 0 && r.blasts === 0 && r.show > 0.999 && r.top > 0 && r.bottom < h - 1 && r.emptyCols > 0, pr(r));
+    }
+    // One syllable, then quiet: it is at the inner edge first, the middle next, the outer edge last.
+    const [, rIn, rMid, rOut] = await ringsRun(wide, [{ secs: 1.5, ...silence }, { secs: 0.1, ...loudTalk }, { secs: 0.45, ...silence }, { secs: 0.45, ...silence }]);
+    check('pulse rings: a syllable ripples outward through the rings',
+      rIn.levelIn > 0.6 && rIn.levelMid < 0.05 && rIn.levelOut < 0.05 && rMid.levelMid > 0.3 && rMid.levelIn < 0.05 && rMid.levelOut < 0.05
+      && rOut.levelOut > 0.3 && rOut.levelIn < 0.05 && rOut.levelMid < 0.05 && rMid.lift > 2, pr(rIn, rMid, rOut));
+    const [rQuiet, rLoud] = await ringsRun(wide, [{ secs: 3, ...silence }, { secs: 3, ...loudTalk }]);
+    check('pulse rings: silent, the rings rest dim; a voice lights them and the planet\'s glow',
+      rQuiet.ringAlpha > 0 && rLoud.ringAlpha > 3 * rQuiet.ringAlpha && rLoud.halo > 1.5 * rQuiet.halo && rLoud.alpha > 1.5 * rQuiet.alpha && rLoud.spin - rQuiet.spin > 3 * rQuiet.spin
+      && rQuiet.state === 'whole' && rLoud.state === 'whole', pr(rQuiet, rLoud));
+    check('pulse rings: leaves the canvas state as it found it',
+      [rQuiet, rLoud].every((r) => r.op === 'source-over' && r.blur === 0 && r.globalAlpha === 1 && r.offsetX === 0 && r.transformKept === true),
+      JSON.stringify([rQuiet, rLoud].map((r) => [r.op, r.blur, r.globalAlpha, r.offsetX, r.transformKept])));
+    const [rLowOnly] = await ringsRun(wide, [{ secs: 2, wave: 0.3, low: 0.9, high: 0, peak: 0.3 }]);
+    const [rHighOnly] = await ringsRun(wide, [{ secs: 2, wave: 0.3, low: 0, high: 0.9, peak: 0.3 }]);
+    check('pulse rings: the low end swells the planet, and the high end makes the ice glitter',
+      rLowOnly.planetR > rHighOnly.planetR * 1.04 && rHighOnly.high > 0.5 && rLowOnly.high < 0.1 && rHighOnly.sparkle > 1.5 * rLowOnly.sparkle, pr(rLowOnly, rHighOnly));
+
+    // The explosion.
+    const rYell = [{ secs: 1.5, ...talk }, { secs: 0.1, ...talk, peak: 0.95 }];
+    const [rCalm, rBlown, rThin] = await ringsRun(wide, [...rYell, { secs: 0.8, ...talk }]);
+    check('pulse rings: a peak blows the planet into chunks and thins the rings',
+      rCalm.state === 'whole' && rCalm.blasts === 0 && rBlown.state === 'pieces' && rBlown.pieces === 22 && rBlown.blasts === 1 && rBlown.core > 0
+      && rThin.state === 'pieces' && rThin.show > 0.4 && rThin.show < 0.5 && rThin.inside === true, pr(rCalm, rBlown, rThin));
+    const [, rSmall] = await ringsRun(page, rYell);
+    check('pulse rings: the same on the small page', rSmall.state === 'pieces' && rSmall.pieces === 22 && rSmall.inside === true, pr(rSmall));
+    const [, , rWait, rBack, rWhole, rFull] = await ringsRun(wide, [...rYell, { secs: 2.8, ...talk }, { secs: 0.5, ...talk }, { secs: 1.3, ...talk }, { secs: 2.5, ...talk }]);
+    check('pulse rings: after three calm seconds the chunks return and the rings fill back in',
+      rWait.state === 'pieces' && rBack.state === 'returning' && rWhole.state === 'whole' && rWhole.pieces === 0 && rWhole.core === 0 && rWhole.show > rWait.show + 0.1
+      && rFull.show > 0.97 && rFull.blasts === 1, pr(rWait, rBack, rWhole, rFull));
+    const [, , rSoon] = await ringsRun(wide, [{ secs: 1.5, ...talk, config: prKnobs({ reconnectSeconds: 1 }) }, { secs: 0.1, ...talk, peak: 0.95 }, { secs: 2.7, ...talk }]);
+    await wide.evaluate(() => applyConfig({ perViz: { 'pulse-rings': { reconnectSeconds: 3 } } }));
+    check('pulse rings: Reconnect Seconds sets the wait', rSoon.state === 'whole', pr(rSoon));
+    const [, , rApartQuiet, rApartLoud] = await ringsRun(wide, [...rYell, { secs: 1.2, ...silence }, { secs: 0.3, ...loudTalk }]);
+    check('pulse rings: in pieces, the rings and the core still answer the voice',
+      rApartLoud.state === 'pieces' && rApartLoud.levelIn > 0.6 && rApartLoud.ringAlpha > 2 * rApartQuiet.ringAlpha && rApartLoud.core > rApartQuiet.core * 1.1, pr(rApartQuiet, rApartLoud));
+    const [, rHeld] = await ringsRun(wide, [{ secs: 1.5, ...talk }, { secs: 2.5, ...talk, peak: 0.95 }]);
+    check('pulse rings: a held yell blows it apart once, then only jostles the chunks', rHeld.blasts === 1 && rHeld.jostles >= 2 && rHeld.state === 'pieces' && rHeld.inside === true, pr(rHeld));
+    const [rGain] = await ringsRun(wide, [{ secs: 5, wave: 0.6, low: 0.6, high: 0.6, peak: 0.6, config: { gain: 200 } }]);
+    await wide.evaluate(() => applyConfig({ gain: 100 }));
+    check('pulse rings: talking with Gain at 200% does not blow it apart', rGain.blasts === 0 && rGain.state === 'whole', pr(rGain));
+    const [, rSens0] = await ringsRun(wide, [{ secs: 1.5, ...talk, config: prKnobs({ explodeSensitivity: 0 }) }, { secs: 1, ...talk, peak: 1 }]);
+    await wide.evaluate(() => applyConfig({ perViz: { 'pulse-rings': { explodeSensitivity: 50 } } }));
+    check('pulse rings: Explode Sensitivity 0 never blows it apart', rSens0.blasts === 0 && rSens0.state === 'whole', pr(rSens0));
+    const [, rWave] = await ringsRun(wide, [{ secs: 1.5, ...talk }, { secs: 0.1, wave: 0.95, low: 0.5, high: 0.3, peak: null }]);
+    check('pulse rings: falls back to the waveform peak', rWave.blasts === 1, pr(rWave));
+    const [, rOpen] = await ringsRun(wide, [{ secs: 1.5, ...off }, { secs: 0.3, ...talk, peak: 0.95 }]);
+    check('pulse rings: the mic opening on a loud moment does not blow it apart', rOpen.blasts === 0 && rOpen.state === 'whole', pr(rOpen));
+
+    // Mic off.
+    const [, rOff] = await ringsRun(wide, [{ secs: 2, ...loudTalk }, { secs: 3, ...off }]);
+    check('pulse rings: mic off, the rings rest', rOff.loud < 0.01 && rOff.levelIn < 0.01 && rOff.levelOut < 0.01 && rOff.state === 'whole' && rOff.ink > 0, pr(rOff));
+    await ringsOn([wide], true);
+    const rIdle = (await ringsRun(wide, [{ secs: 0, ...off }, ...Array.from({ length: 24 }, () => ({ secs: 0.25, ...off }))])).slice(1);
+    const rIdleIn = rIdle.map((r) => r.levelIn), rIdleR = rIdle.map((r) => r.planetR);
+    check('pulse rings: mic off with idle animation: a slow ripple keeps crossing the rings',
+      Math.max(...rIdleIn) - Math.min(...rIdleIn) > 0.15 && Math.max(...rIdleR) > Math.min(...rIdleR) && rIdle.every((r) => r.blasts === 0 && r.state === 'whole'),
+      JSON.stringify({ levelIn: [Math.min(...rIdleIn), Math.max(...rIdleIn)], planetR: [Math.min(...rIdleR), Math.max(...rIdleR)] }));
+    await ringsOn([wide], false);
+
+    // Settings and the box.
+    const soft = { wave: 0.3, low: 0.3, high: 0.2, peak: 0.3 };   // loudness 0.3 × 1.5 = 0.45
+    const [rDull] = await ringsRun(wide, [{ secs: 2, ...soft, config: prKnobs({ sensitivity: 0 }) }]);
+    const [rKeen] = await ringsRun(wide, [{ secs: 2, ...soft, config: prKnobs({ sensitivity: 100 }) }]);
+    await wide.evaluate(() => applyConfig({ perViz: { 'pulse-rings': { sensitivity: 50 } } }));
+    check('pulse rings: Sensitivity sets how strongly the rings answer', Math.abs(rDull.levelMid - 0.27) < 0.03 && Math.abs(rKeen.levelMid - 0.765) < 0.03, pr(rDull, rKeen));
+    const [rNarrow] = await ringsRun(wide, [{ secs: 2, ...talk }]);
+    const [rWide] = await ringsRun(wide, [{ secs: 2, ...talk, config: prKnobs({ flow: 100 }) }]);
+    await wide.evaluate(() => applyConfig({ perViz: { 'pulse-rings': { flow: 0 } } }));
+    check('pulse rings: Flow spreads the rings farther out',
+      Math.abs(rWide.reach / rNarrow.reach - 4.1 / 3.1) < 0.02 && rWide.emptyCols < rNarrow.emptyCols - 100 && rWide.emptyCols > 0 && rWide.top > 0, pr(rNarrow, rWide));
+    const [, , rPushFrom, rPushTo] = await ringsRun(wide, [...rYell, { secs: 0.5, ...talk }, { secs: 1 / 60, ...talk, config: { bounce: 70 } }]);
+    await wide.evaluate(() => applyConfig({ bounce: 50 }));
+    check('pulse rings: a config push keeps the planet as it is, in pieces or whole',
+      rPushFrom.state === 'pieces' && rPushTo.state === 'pieces' && rPushTo.pieces === 22 && rPushTo.blasts === 1 && rPushTo.spin > rPushFrom.spin, pr(rPushFrom, rPushTo));
+    const [, , rSizeFrom, rSized, rSizeLater] = await ringsRun(wide, [...rYell, { secs: 0.5, ...talk }, { secs: 1 / 60, ...talk, config: { showLabels: false } }, { secs: 2, ...talk }]);
+    await wide.evaluate(() => applyConfig({ showLabels: true }));
+    check('pulse rings: a real size change in pieces puts the planet back whole, in the new frame',
+      rSizeFrom.state === 'pieces' && rSized.state === 'whole' && rSized.pieces === 0 && rSized.show === 1 && rSizeLater.state === 'whole' && rSizeLater.ink > 0 && rSizeLater.top > 0, pr(rSizeFrom, rSized, rSizeLater));
+    const rSeeded = async () => (await ringsRun(wide, [...rYell, { secs: 0.3, ...talk }], { seed: 7 }))[2];
+    const rSeedA = await rSeeded(), rSeedB = await rSeeded();
+    const [, , rSeedOther] = await ringsRun(wide, [...rYell, { secs: 0.3, ...talk }], { seed: 8 });
+    check('pulse rings: a seeded run repeats', rSeedA.pieces === 22 && rSeedA.ink === rSeedB.ink && rSeedA.sparkle === rSeedB.sparkle && rSeedA.ink !== rSeedOther.ink, pr(rSeedA, rSeedB, rSeedOther));
+
+    // Cost: 300 loud frames whole, the one frame of a 0.95 peak, then 120 in pieces.
+    const ringsCost = await wide.evaluate(() => {
+      const saved = { frequencies, waveform, micActive, micPeak, seed: window.__pulseRingsSeed };
+      try {
+        window.__pulseRingsSeed = 1;
+        currentViz = VIZ_FACTORIES['pulse-rings']();
+        const f = new Uint8Array(32), w = new Uint8Array(64);
+        f.fill(204, 0, 2); f.fill(204, 2, 11);
+        for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * 0.6 * 127);
+        frequencies = f; waveform = w; micActive = true;
+        let now = performance.now();
+        const frames = (n, peak) => {
+          micPeak = peak; const t0 = performance.now();
+          for (let k = 0; k < n; k++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+          return (performance.now() - t0) / n;
+        };
+        const whole = frames(300, 0.6);
+        const blast = frames(1, 0.95);
+        const apart = frames(120, 0.6), then = currentViz.probe();
+        return { whole, blast, apart, state: then.state, pieces: then.pieces };
+      } finally {
+        frequencies = saved.frequencies; waveform = saved.waveform; micActive = saved.micActive; micPeak = saved.micPeak;
+        window.__pulseRingsSeed = saved.seed;
+      }
+    });
+    check('pulse rings: draws in under 1.5 ms whole and in pieces, and its blast frame in under 4',
+      ringsCost.state === 'pieces' && ringsCost.pieces === 22 && ringsCost.whole < 1.5 && ringsCost.apart < 1.5 && ringsCost.blast < 4,
+      `whole ${ringsCost.whole.toFixed(3)}, blast frame ${ringsCost.blast.toFixed(2)}, in pieces ${ringsCost.apart.toFixed(3)} (${ringsCost.state}, ${ringsCost.pieces} chunks)`);
+    check('pulse rings: no page errors from the Pulse Rings checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
+      [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
+
     await pushConfig((c) => { c.activeViz = 'visualizer'; });
     check('dna: no page errors from the DNA checks', pageErrors.length === 0 && p43Errors.length === 0 && wideErrors.length === 0,
       [...pageErrors, ...p43Errors, ...wideErrors].join(' | '));
@@ -1146,6 +1277,10 @@ async function main() {
     check('Fireflies shows its two sliders', await ctlPage.evaluate(() =>
       ['Density', 'Startle Sensitivity'].every((t) => [...document.querySelectorAll('#perVizKnobs label')].some((l) => l.textContent === t))
       && !!document.getElementById('pv-fireflies-startleSensitivity')));
+    await ctlPage.selectOption('#activeViz', 'pulse-rings');
+    check('Pulse Rings shows its four sliders', await ctlPage.evaluate(() =>
+      ['Sensitivity', 'Flow', 'Explode Sensitivity', 'Reconnect Seconds'].every((t) => [...document.querySelectorAll('#perVizKnobs label')].some((l) => l.textContent === t))
+      && document.getElementById('pv-pulse-rings-reconnectSeconds').max === '10' && document.getElementById('pv-pulse-rings-explodeSensitivity').max === '100'));
     // Put afterglow back to its default so the shared mock state stays clean.
     const glowMark = observed.length;
     await ctlPage.evaluate(() => { const e = document.getElementById('afterglow'); e.value = '1.6'; e.dispatchEvent(new Event('input', { bubbles: true })); });
