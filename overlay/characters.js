@@ -1,8 +1,8 @@
 // Timbre — characters, what the Blob, the Owl and the Television share, and each one's pose. It
 // holds how a character hears (slow and fast loudness, the low and high ends, a syllable
 // starting, which end of the sound is winning, and when it is happy), the spring that bounces
-// it, the blink, the rule that turns the Bounce setting into a strength, and for each character
-// the numbers its drawing needs from one frame to the next. The effects in factories/ read the
+// it, the blink, the rule that turns the Bounce setting into a strength, how a character is kept
+// inside the frame, and for each character the numbers its drawing needs from one frame to the next. The effects in factories/ read the
 // sound, step a pose and draw it.
 //
 // All timing comes from the caller (dt in seconds), never from counting frames or reading the
@@ -45,6 +45,21 @@
   const BREATH = 1.2, BREATH_RATE = 1.6;     // × scale and rad/s: breathing when idle
   const BLOB_BLINK = 3.5;                    // seconds between its blinks
   const EDGE = 3;                            // × scale: room kept between a character and the frame's top and bottom
+
+  // The Owl. Its drawing is in units of its own; OWL_K turns one into px × scale.
+  const OWL_K = 1.05;
+  const OWL_DOWN = 4;                        // × scale: how far below the middle of the frame it sits
+  const OWL_UP = 48, OWL_BELOW = 40.5;       // drawing units: how far it reaches above its middle (ear tufts, leaning) and below (feet)
+  const OWL_HZ = 2.3, OWL_DAMP = 0.25, OWL_KICK = 2200;      // its spring, and how hard a syllable kicks it
+  const OWL_LEAN = 0.16;                     // rad it leans at a full lean and the usual Bounce
+  const OWL_SWAY = 0.05, OWL_SWAY_RATE = 0.8;                // rad and rad/s: swaying when idle
+  const WING_REST = 0.12, WING_LIFT = 1.15;  // rad: a wing folded, and added at a full flap
+  const FLAP_GAIN = 1.7, FLAP_S = 0.07;      // the flap follows this × the fast loudness, over this long
+  const FLUTTER_AT = 0.3, FLUTTER = 0.12, FLUTTER_RATE = 22; // above this loudness the wings flutter: by this × loudness rad, at this rad/s
+  const BEAK = 1.4;                          // the beak is fully open at a fast loudness of 1 / this
+  const SING_AT = 0.22, SING_GAIN = 4;       // notes show above this loudness, and are at full strength a quarter above it
+  const NOTES = [{ dx: 30, phase: 0, period: 1.8 }, { dx: -32, phase: 0.45, period: 2.2 }, { dx: 36, phase: 0.8, period: 2.0 }];   // × scale beside it, and seconds to float up
+  const NOTE_FROM = 22, NOTE_RISE = 30, NOTE_DRIFT = 5;      // × scale: where a note starts above the owl's middle, how far it floats, and how far it drifts sideways
 
   const clamp01 = (v) => (v > 1 ? 1 : v > 0 ? v : 0);
   const follow = (current, target, dt, tau) => current + (target - current) * (1 - Math.exp(-dt / tau));
@@ -169,9 +184,57 @@
     return b;
   }
 
+  // Where a character of a given reach sits in a frame H tall: `wanted` is where its middle
+  // would like to be (an offset from the frame's middle, with the bounce in it), up and below
+  // how far it reaches from there. If it is too tall for the frame it is drawn smaller (shrink
+  // below 1); its middle is then held where the whole of it stays EDGE inside the frame.
+  function settle(H, scale, up, below, wanted) {
+    const room = Math.max(1, H / 2 - EDGE * scale);
+    const shrink = Math.min(1, room / Math.max(1e-6, (up + below) / 2));
+    const cy = Math.max(-(room - up * shrink), Math.min(room - below * shrink, wanted));
+    return { shrink, cy };
+  }
+
+  // The Owl's pose. step({ dt, live, level, bounce, idle, W, H, scale }) takes the sound levels,
+  // the Bounce setting and whether the idle animation applies. It then holds: k (px for one unit
+  // of its drawing), cy (its middle, as an offset from the frame's), lift (how far the bounce has
+  // raised it, px), shrink, tilt (rad it leans), flap (0 to 1) and wing (rad each wing is lifted,
+  // with the flutter), open (its beak, 0 to 1), sing (0 to 1), notes (each { x, y, a, hue }: an
+  // offset from the middle of the frame, how strongly it shows, and a palette offset), and its ears.
+  function createOwl() {
+    const ears = createEars(), spring = createSpring(OWL_HZ, OWL_DAMP);
+    const o = { ears, k: 0, cy: 0, lift: 0, shrink: 1, tilt: 0, flap: 0, wing: WING_REST, open: 0, sing: 0, notes: NOTES.map((n) => ({ x: 0, y: 0, a: 0, hue: 1 + n.phase * 2 })) };
+    o.step = ({ dt, live, level, bounce: setting, idle, W, H, scale }) => {
+      ears.step({ dt, live, loud: level.loud, low: level.low, high: level.high });
+      const k = bounce(setting), resting = !live && idle;
+      spring.step(dt, ears.rise * OWL_KICK * k);
+      if (k === 0) spring.reset();
+      o.flap = follow(o.flap, clamp01(ears.fast * FLAP_GAIN * k), dt, FLAP_S);
+      o.wing = WING_REST + WING_LIFT * o.flap + (k > 0 && ears.loud > FLUTTER_AT ? Math.sin(ears.clock * FLUTTER_RATE) * FLUTTER * ears.loud : 0);
+      o.tilt = ears.lean * OWL_LEAN * k + (resting ? Math.sin(ears.clock * OWL_SWAY_RATE) * OWL_SWAY : 0);
+      o.open = clamp01(ears.fast * BEAK);
+      const breath = resting ? Math.sin(ears.clock * BREATH_RATE) * BREATH : 0;
+      o.lift = k === 0 ? 0 : spring.x * scale;
+      const unit = OWL_K * scale;
+      const at = settle(H, scale, OWL_UP * unit, OWL_BELOW * unit, (OWL_DOWN + breath) * scale - o.lift);
+      o.shrink = at.shrink; o.cy = at.cy; o.k = unit * at.shrink;
+      // The notes float up from beside where the owl rests, not from where the bounce has it.
+      o.sing = clamp01((ears.loud - SING_AT) * SING_GAIN);
+      const rest = settle(H, scale, OWL_UP * unit, OWL_BELOW * unit, OWL_DOWN * scale).cy;
+      NOTES.forEach((n, i) => {
+        const t = (ears.clock / n.period + n.phase) % 1, note = o.notes[i];
+        note.x = (n.dx + Math.sin(t * TURN) * NOTE_DRIFT) * scale * at.shrink;
+        note.y = rest - (NOTE_FROM + t * NOTE_RISE) * scale * at.shrink;
+        note.a = o.sing * (1 - t) * 0.9;
+      });
+    };
+    return o;
+  }
+
   // The shared face, painted on `ctx` at (x, y). u is its unit, px. f gives: open (the mouth, 0
-  // to 1), happy, blink (0 to 1), look (-1 to 1, where the eyes are turned) and gap (half the
-  // distance between the eyes, in units; 4.2 if not given).
+  // to 1), happy, blink (0 to 1), look (-1 to 1, where the eyes are turned), gap (half the
+  // distance between the eyes, in units; 4.2 if not given) and eyesOnly (no mouth and no blush,
+  // for a character with a beak).
   function paintFace(ctx, x, y, u, f) {
     const { rgba } = globalThis.TimbrePlanets;
     const gap = f.gap || 4.2, shut = f.blink || 0;
@@ -207,12 +270,14 @@
         ctx.ellipse(ex + 0.7 * u, ey + 0.9 * u * open, 0.35 * u, 0.35 * u * open, 0, 0, TURN);
         ctx.fill();
       }
+      if (f.eyesOnly) continue;
       ctx.fillStyle = rgba(PINK, 0.38);       // blush
       ctx.beginPath();
       ctx.ellipse(x + side * (gap + 2.6) * u, y + 1.4 * u, 1.7 * u, 0.95 * u, 0, 0, TURN);
       ctx.fill();
     }
     const my = y + 3.2 * u;
+    if (f.eyesOnly) { ctx.restore(); return; }
     if (f.open > 0.08) {                       // an open mouth, with a tongue
       const rx = (1.5 + 0.9 * f.open) * u, ry = (0.5 + 2.3 * f.open) * u;
       ctx.fillStyle = rgba(INK, 1);
@@ -253,7 +318,7 @@
   }
 
   globalThis.TimbreCharacters = {
-    HAPPY_ON, HAPPY_OFF, BLINK_S, INK, WHITE, PINK, EDGE,
-    createEars, createSpring, blink, bounce, mouth, createBlob, paintFace, glowBehind,
+    HAPPY_ON, HAPPY_OFF, BLINK_S, INK, WHITE, PINK, EDGE, OWL_UP, OWL_BELOW,
+    createEars, createSpring, blink, bounce, mouth, createBlob, createOwl, paintFace, glowBehind,
   };
 })();

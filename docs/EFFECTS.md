@@ -374,8 +374,13 @@ It offers:
   (how far above its resting place it is drawn), `stretch`, `shrink`, `held` (the frame is
   holding it back), `cy`, its outline `px` / `py` (offsets from the middle of the frame),
   `bulge`, `look`, `blink` and its `ears`.
-- `paintFace(ctx, x, y, u, f)` and `glowBehind(ctx, x, y, r, c, a)`: the shared face and the glow
-  behind a character. These two draw, on the context they are handed.
+- `createOwl()`: the Owl's pose, driven by `step({ dt, live, level, bounce, idle, W, H, scale })`.
+  It holds `k` (px for one unit of the owl's drawing), `cy`, `lift`, `shrink`, `tilt`, `flap`
+  and `wing`, `open` (its beak), `sing`, its `notes` (each `{ x, y, a, hue }`) and its `ears`.
+  `OWL_UP` and `OWL_BELOW` are how far it reaches above and below its middle, in those units.
+- `paintFace(ctx, x, y, u, f)` and `glowBehind(ctx, x, y, r, c, a)`: the shared face (or, with
+  `eyesOnly`, just its eyes) and the glow behind a character. These two draw, on the context
+  they are handed.
 
 All its timing comes from `dt`. It uses `TimbrePlanets`' colour helpers when it paints, so
 `planets.js` must be loaded before it. Like `helix.js`, the file must stay loadable under Node,

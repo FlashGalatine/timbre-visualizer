@@ -1,185 +1,157 @@
-/* ── owl (pixel-art owl with bobbing/wing-flap physics) ── */
+/* ── owl (a vector owl that bobs, leans, flaps and sings with the voice) ──
+   An owl drawn as smooth shapes: an egg-shaped body with a paler belly, a wide head with ear
+   tufts and pale discs round large eyes, a small beak, two wings, a tail and two feet. Each
+   syllable bobs it; it leans toward the low or the high end of the sound; its wings lift with
+   the voice and flutter when the voice is loud; its beak opens with the voice; and music notes
+   float up beside it while the voice is loud. Its eyes blink, and turn happy when the voice is
+   loud. The global Bounce setting scales the bob, the lean and the flap, and 0 stills them.
+   Its pose (hearing, the bob, the wings, the notes) and the shared eyes are TimbreCharacters in
+   characters.js; the sound levels are TimbreHelix's and the colours TimbrePlanets'. Everything
+   that moves runs on draw(now, dt); only the colour reads the wall clock, as the bar and wave
+   effects do. */
 VIZ_FACTORIES['owl'] = function () {
-  const P = Math.max(2, Math.round(4 * SCALE));
-  let smoothVol = 0;
-  let bobY = 0, bobVel = 0;
-  let swayX = 0, swayVel = 0;
-  let wingAngle = 0;
+  const C = TimbreCharacters, P = TimbrePlanets, HX = TimbreHelix;
+  const BLINK_EVERY = 3.8, BLINK_OFFSET = 1.3;         // seconds between blinks, and its place in that cycle
+  const EYE_UNIT = 2.6;                                // the shared eyes' unit, in units of the owl's drawing
+  const BELLY = [[8, 2], [14, 3], [20, 2]];            // rows of feather marks: how far down, and how many
+  const QUIET = { loud: 0, low: 0, high: 0 };
+  const TURN = 2 * Math.PI;
+  const { rgba, whiten, shade } = P;
 
-  function getVolume() {
-    if (!micActive || !frequencies) return 0;
-    let sum = 0;
-    for (let i = 0; i < frequencies.length; i++) sum += frequencies[i];
-    return (sum / (frequencies.length * 255)) * cfgGain;
-  }
-  function getBalance() {
-    if (!micActive || !frequencies || frequencies.length < 4) return 0;
-    const mid = Math.floor(frequencies.length / 2);
-    let lo = 0, hi = 0;
-    for (let i = 0; i < mid; i++) lo += frequencies[i];
-    for (let i = mid; i < frequencies.length; i++) hi += frequencies[i];
-    const total = lo + hi;
-    if (total < 10) return 0;
-    return (hi - lo) / total;
-  }
-  function px(x, y, w, h) {
-    ctx.fillRect(Math.round(x) * P, Math.round(y) * P, (w || 1) * P, (h || 1) * P);
-  }
-  function drawOneEye(ex, ey, blink, happy, now, isRight) {
-    if (blink) { ctx.fillStyle = '#0A0A1A'; px(ex, ey + 1, 3, 1); return; }
-    if (happy) {
-      ctx.fillStyle = '#0A0A1A';
-      px(ex, ey + 1, 1, 1); px(ex + 1, ey, 1, 1); px(ex + 2, ey + 1, 1, 1);
-      return;
-    }
-    ctx.fillStyle = '#0A0A1A'; px(ex, ey, 3, 3);
-    ctx.fillStyle = '#1a1a3a'; px(ex, ey, 3, 3);
-    ctx.fillStyle = '#0A0A1A';
-    const lookX = isRight ? 1 : 0;
-    px(ex + lookX, ey + 1, 2, 2);
-    ctx.fillStyle = '#FFFFFF';
-    px(ex, ey, 1, 1); px(ex + 1, ey, 1, 1); px(ex, ey + 1, 1, 1);
-    px(ex + 2, ey + 2, 1, 1);
-  }
-  function drawEyes(ox, oy, vol, now, bounceSens) {
-    const blink = (now % 3800) > 3650;
-    const happy = vol > 0.35 * bounceSens * 2;
-    drawOneEye(ox - 3, oy - 3, blink, happy, now, false);
-    drawOneEye(ox + 2, oy - 3, blink, happy, now, true);
-  }
-  function drawNotes(ox, oy, now, colorT) {
-    const notes = [
-      { dx: 9, phase: 0, speed: 1800 },
-      { dx: -9, phase: 1.5, speed: 2200 },
-      { dx: 10, phase: 3.0, speed: 2000 },
-    ];
-    for (const n of notes) {
-      const t = ((now / n.speed) + n.phase) % 1;
-      const ny = oy - 6 - t * 12;
-      const nx = ox + n.dx + Math.sin(t * Math.PI * 2) * 2;
-      const alpha = 1 - t;
-      if (alpha < 0.1) continue;
-      const rgb = getColor(colorT + n.phase);
-      ctx.fillStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha * 0.7})`;
-      px(Math.round(nx), Math.round(ny), 2, 1);
-      px(Math.round(nx) + 1, Math.round(ny) - 2, 1, 2);
-      px(Math.round(nx) + 2, Math.round(ny) - 2, 1, 1);
-    }
-  }
+  const owl = C.createOwl();
+  let notesDrawn = 0;
 
   return {
-    draw() {
+    draw(now, dt) {
+      dt = dt > 0 ? dt : 0;
       ctx.clearRect(0, 0, W, H);
-      const CX = W / 2;
-      const CY = H / 2;
-      const now = Date.now();
-      const bounceSens = cfgBounce / 100;
-      const colorT = ((now * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
-      const bScale = bounceSens * 2;
-      const rawVol = getVolume();
-      smoothVol += (rawVol - smoothVol) * 0.25;
-      const balance = getBalance();
-      bobVel += (rawVol - smoothVol) * 6 * bScale;
-      bobVel -= bobY * 0.14;
-      bobVel *= 0.85;
-      bobY += bobVel;
-      const swayTarget = balance * 12 * bScale;
-      swayVel += (swayTarget - swayX) * 0.08;
-      swayVel *= 0.88;
-      swayX += swayVel;
-      const wingTarget = Math.min(1, rawVol * 3 * bScale);
-      wingAngle += (wingTarget - wingAngle) * 0.3;
-      wingAngle *= 0.92;
-      const breath = (micActive || !cfgIdleAnim) ? 0 : Math.sin(now / 900) * 2;
-      const idleSway = (micActive || !cfgIdleAnim) ? 0 : Math.sin(now / 1200) * 1.5;
-      const ox = Math.round(CX / P + swayX + idleSway);
-      const oy = Math.round(CY / P - bobY * 4 * bScale + breath + 2);
-      const rgb = getColor(colorT);
-      const rgbStr = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
-      const rgbGlow = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.15)`;
-      const rgbDim = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.4)`;
-      const tipRgb = [Math.min(255, rgb[0] + 80), Math.min(255, rgb[1] + 80), Math.min(255, rgb[2] + 80)];
-      const tipStr = `rgb(${tipRgb[0]},${tipRgb[1]},${tipRgb[2]})`;
-      const rgb2 = getColor(colorT + 2);
-      const rgb2Str = `rgb(${rgb2[0]},${rgb2[1]},${rgb2[2]})`;
-      const rgb2Dim = `rgba(${rgb2[0]},${rgb2[1]},${rgb2[2]},0.3)`;
-      ctx.fillStyle = rgbGlow;
-      const glowW = 14 + smoothVol * 6 * bScale;
-      px(ox - glowW / 2, oy + 14, glowW, 2);
-      px(ox - glowW / 2 + 1, oy + 15, glowW - 2, 1);
-      ctx.fillStyle = rgbDim;
-      px(ox - 4, oy + 5, 8, 1); px(ox - 5, oy + 6, 10, 1); px(ox - 5, oy + 7, 10, 1);
-      px(ox - 5, oy + 8, 10, 1); px(ox - 5, oy + 9, 10, 1); px(ox - 4, oy + 10, 8, 1);
-      px(ox - 3, oy + 11, 6, 1);
-      ctx.fillStyle = rgb2Dim;
-      px(ox - 2, oy + 7, 4, 1); px(ox - 1, oy + 8, 2, 1);
-      px(ox - 3, oy + 9, 6, 1); px(ox - 2, oy + 10, 4, 1);
-      ctx.fillStyle = rgbStr;
-      px(ox - 4, oy + 5, 1, 1); px(ox + 3, oy + 5, 1, 1);
-      for (let r = 6; r <= 9; r++) { px(ox - 5, oy + r, 1, 1); px(ox + 4, oy + r, 1, 1); }
-      px(ox - 4, oy + 10, 1, 1); px(ox + 3, oy + 10, 1, 1);
-      px(ox - 3, oy + 11, 1, 1); px(ox + 2, oy + 11, 1, 1);
-      ctx.fillStyle = rgb2Str;
-      px(ox - 3, oy + 12, 2, 1); px(ox + 1, oy + 12, 2, 1);
-      ctx.fillStyle = tipStr;
-      px(ox - 4, oy + 13, 1, 1); px(ox - 2, oy + 13, 1, 1);
-      px(ox + 1, oy + 13, 1, 1); px(ox + 3, oy + 13, 1, 1);
-      const wingLift = Math.round(wingAngle * 5);
-      ctx.fillStyle = rgbDim;
-      px(ox - 7, oy + 5 - wingLift, 2, 4);
-      px(ox - 8, oy + 6 - wingLift, 1, 3);
-      ctx.fillStyle = rgbStr;
-      px(ox - 8, oy + 5 - wingLift, 1, 1);
-      px(ox - 7, oy + 4 - wingLift, 1, 1);
-      px(ox - 8, oy + 9 - wingLift, 1, 1);
-      px(ox - 7, oy + 9 - wingLift, 2, 1);
-      ctx.fillStyle = tipStr;
-      px(ox - 9, oy + 6 - wingLift, 1, 2);
-      ctx.fillStyle = rgbDim;
-      px(ox + 5, oy + 5 - wingLift, 2, 4);
-      px(ox + 7, oy + 6 - wingLift, 1, 3);
-      ctx.fillStyle = rgbStr;
-      px(ox + 7, oy + 5 - wingLift, 1, 1);
-      px(ox + 6, oy + 4 - wingLift, 1, 1);
-      px(ox + 7, oy + 9 - wingLift, 1, 1);
-      px(ox + 5, oy + 9 - wingLift, 2, 1);
-      ctx.fillStyle = tipStr;
-      px(ox + 8, oy + 6 - wingLift, 1, 2);
-      ctx.fillStyle = rgbDim;
-      px(ox - 4, oy - 5, 8, 1); px(ox - 5, oy - 4, 10, 1);
-      px(ox - 6, oy - 3, 12, 1); px(ox - 6, oy - 2, 12, 1);
-      px(ox - 6, oy - 1, 12, 1); px(ox - 6, oy, 12, 1);
-      px(ox - 6, oy + 1, 12, 1); px(ox - 5, oy + 2, 10, 1);
-      px(ox - 5, oy + 3, 10, 1); px(ox - 4, oy + 4, 8, 1);
-      ctx.fillStyle = rgbStr;
-      px(ox - 4, oy - 6, 8, 1);
-      px(ox - 5, oy - 5, 1, 1); px(ox + 4, oy - 5, 1, 1);
-      px(ox - 6, oy - 4, 1, 1); px(ox + 5, oy - 4, 1, 1);
-      for (let r = -3; r <= 1; r++) { px(ox - 7, oy + r, 1, 1); px(ox + 6, oy + r, 1, 1); }
-      px(ox - 6, oy + 2, 1, 1); px(ox + 5, oy + 2, 1, 1);
-      px(ox - 6, oy + 3, 1, 1); px(ox + 5, oy + 3, 1, 1);
-      px(ox - 5, oy + 4, 1, 1); px(ox + 4, oy + 4, 1, 1);
-      px(ox - 4, oy + 5, 8, 1);
-      ctx.fillStyle = tipStr;
-      px(ox - 6, oy - 6, 1, 1); px(ox - 7, oy - 7, 1, 1);
-      px(ox - 5, oy - 7, 1, 1); px(ox - 6, oy - 8, 1, 1);
-      px(ox + 5, oy - 6, 1, 1); px(ox + 6, oy - 7, 1, 1);
-      px(ox + 4, oy - 7, 1, 1); px(ox + 5, oy - 8, 1, 1);
-      ctx.fillStyle = rgb2Dim;
-      px(ox - 4, oy - 4, 3, 1); px(ox + 1, oy - 4, 3, 1);
-      px(ox - 5, oy - 3, 1, 2); px(ox + 4, oy - 3, 1, 2);
-      px(ox - 4, oy - 1, 3, 1); px(ox + 1, oy - 1, 3, 1);
-      drawEyes(ox, oy, smoothVol, now, bounceSens);
-      ctx.fillStyle = rgb2Str;
-      px(ox - 1, oy + 1, 2, 1);
-      ctx.fillStyle = tipStr;
-      px(ox, oy + 2, 1, 1);
-      if (smoothVol > 0.15 * bounceSens * 2 || (!micActive && Math.sin(now / 900) > 0.8)) {
-        ctx.fillStyle = 'rgba(255, 100, 150, 0.6)';
-        px(ox - 1, oy + 2, 1, 1); px(ox, oy + 2, 1, 1); px(ox + 1, oy + 2, 1, 1);
-        if (smoothVol > 0.3 * bounceSens * 2) px(ox - 1, oy + 3, 3, 1);
+      const live = micActive && !!waveform;
+      const level = live ? HX.levels(frequencies, waveform, cfgGain) : QUIET;
+      owl.step({ dt, live, level, bounce: cfgBounce, idle: cfgIdleAnim, W, H, scale: SCALE });
+      const ears = owl.ears, k = owl.k;
+      const cx = W / 2, cy = H / 2 + owl.cy;
+      const colorT = ((Date.now() * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
+      const c = getColor(colorT), warm = getColor(colorT + 2);
+      const dark = rgba(shade(c, 0.42), 1);
+
+      // The glow behind it, kept a little inside the frame so it is never cut off flat.
+      C.glowBehind(ctx, cx, cy, Math.max(1, Math.min(59 * k, H / 2 - Math.abs(owl.cy) - 1.5 * SCALE, W / 2)), c, 0.26 + 0.3 * ears.fast);
+
+      // The owl, in units of its own drawing: about 48 wide and 85 tall, its middle at the origin.
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(owl.tilt);
+      ctx.scale(k, k);
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 1.3;
+      ctx.strokeStyle = dark;
+      // Tail.
+      ctx.fillStyle = rgba(shade(c, 0.7), 1);
+      ctx.beginPath();
+      ctx.moveTo(-7, 28); ctx.quadraticCurveTo(0, 44, 7, 28);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      // Wings, lifting with the voice.
+      for (const side of [-1, 1]) {
+        ctx.save();
+        ctx.translate(side * 16, -2);
+        ctx.rotate(-side * owl.wing);
+        ctx.fillStyle = rgba(shade(c, 0.72), 1);
+        ctx.beginPath();
+        ctx.moveTo(0, -4); ctx.quadraticCurveTo(side * 17, 2, side * 9, 30); ctx.quadraticCurveTo(side * 1, 24, 0, -4);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.strokeStyle = rgba(shade(c, 0.5), 0.8);   // feather lines
+        ctx.lineWidth = 0.9;
+        for (const t of [0.45, 0.7]) { ctx.beginPath(); ctx.moveTo(side * 3 * t, 6 * t); ctx.quadraticCurveTo(side * 10 * t, 14 * t + 4, side * 8.5 * t, 30 * t); ctx.stroke(); }
+        ctx.restore();
       }
-      if (smoothVol > 0.25) drawNotes(ox, oy, now, colorT);
+      // Feet.
+      ctx.strokeStyle = rgba(warm, 1);
+      ctx.lineWidth = 2.2;
+      for (const side of [-1, 1]) for (const toe of [-3.2, 0, 3.2]) { ctx.beginPath(); ctx.moveTo(side * 8, 33); ctx.lineTo(side * 8 + toe, 38.5); ctx.stroke(); }
+      ctx.strokeStyle = dark;
+      ctx.lineWidth = 1.3;
+      // Body and belly.
+      const bodyFill = ctx.createRadialGradient(-8, -4, 2, 0, 8, 34);
+      bodyFill.addColorStop(0, rgba(whiten(c, 0.35), 1));
+      bodyFill.addColorStop(0.6, rgba(c, 1));
+      bodyFill.addColorStop(1, rgba(shade(c, 0.68), 1));
+      ctx.fillStyle = bodyFill;
+      ctx.beginPath(); ctx.ellipse(0, 9, 20, 26, 0, 0, TURN); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = rgba(whiten(c, 0.62), 1);
+      ctx.beginPath(); ctx.ellipse(0, 15, 12.5, 17, 0, 0, TURN); ctx.fill();
+      ctx.strokeStyle = rgba(shade(c, 0.6), 0.75);
+      ctx.lineWidth = 1;
+      for (const [y, n] of BELLY) for (let i = 0; i < n; i++) { ctx.beginPath(); ctx.arc((i - (n - 1) / 2) * 7, y, 2.6, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke(); }
+      ctx.strokeStyle = dark;
+      ctx.lineWidth = 1.3;
+      // Ear tufts, then the head over them.
+      ctx.fillStyle = rgba(shade(c, 0.78), 1);
+      for (const side of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(side * 9, -30); ctx.quadraticCurveTo(side * 19, -44, side * 23, -41); ctx.quadraticCurveTo(side * 24, -30, side * 20, -22);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+      }
+      const headFill = ctx.createRadialGradient(-9, -26, 2, 0, -17, 28);
+      headFill.addColorStop(0, rgba(whiten(c, 0.4), 1));
+      headFill.addColorStop(0.6, rgba(c, 1));
+      headFill.addColorStop(1, rgba(shade(c, 0.7), 1));
+      ctx.fillStyle = headFill;
+      ctx.beginPath(); ctx.ellipse(0, -17, 24, 18.5, 0, 0, TURN); ctx.fill(); ctx.stroke();
+      // The pale discs round the eyes.
+      ctx.fillStyle = rgba(whiten(c, 0.72), 1);
+      for (const side of [-1, 1]) { ctx.beginPath(); ctx.ellipse(side * 10.5, -17, 10.5, 11, 0, 0, TURN); ctx.fill(); }
+      // The beak: the lower half drops as the voice opens it.
+      const open = owl.open;
+      ctx.fillStyle = rgba(shade(warm, 0.8), 1);
+      ctx.beginPath(); ctx.moveTo(-3.4, -9 + open * 1.5); ctx.lineTo(3.4, -9 + open * 1.5); ctx.lineTo(0, -6 + open * 4.2); ctx.closePath(); ctx.fill();
+      if (open > 0.1) {
+        ctx.fillStyle = rgba(C.PINK, 0.9);
+        ctx.beginPath(); ctx.moveTo(-2.4, -9.5 + open); ctx.lineTo(2.4, -9.5 + open); ctx.lineTo(0, -7.2 + open * 2.6); ctx.closePath(); ctx.fill();
+      }
+      ctx.fillStyle = rgba(warm, 1);
+      ctx.beginPath(); ctx.moveTo(-4.2, -12); ctx.quadraticCurveTo(0, -14, 4.2, -12); ctx.lineTo(0, -5.5); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.restore();
+
+      // Its eyes: the shared eyes, large, in the discs, turned the way it leans.
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(owl.tilt);
+      const u = EYE_UNIT * k;
+      C.paintFace(ctx, 0, -17 * k + 1.6 * u, u, { eyesOnly: true, gap: 10.5 / EYE_UNIT, happy: ears.happy, blink: C.blink(ears.clock, BLINK_EVERY, BLINK_OFFSET), look: ears.lean * 1.23 });
+      ctx.restore();
+
+      // Music notes float up beside it while the voice is loud.
+      notesDrawn = 0;
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      const s = SCALE * 1.1 * owl.shrink;
+      for (const note of owl.notes) {
+        if (note.a < 0.05) continue;
+        const nx = cx + note.x, ny = H / 2 + note.y, col = rgba(whiten(getColor(colorT + note.hue), 0.3), note.a);
+        ctx.fillStyle = col;
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 1.1 * s;
+        ctx.beginPath(); ctx.ellipse(nx, ny, 2.6 * s, 1.9 * s, -0.35, 0, TURN); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(nx + 2.3 * s, ny - 0.4 * s); ctx.lineTo(nx + 2.3 * s, ny - 9 * s); ctx.quadraticCurveTo(nx + 6 * s, ny - 8 * s, nx + 6.2 * s, ny - 4.6 * s); ctx.stroke();
+        notesDrawn++;
+      }
+      ctx.restore();
+    },
+
+    // Test surface: what it hears (the slow and fast loudness, the low and high ends, the lean
+    // and whether it is happy), how far its beak is open and its eyes shut, the seconds it has
+    // heard, how far the bob has lifted it, whether it was drawn smaller to fit, how far it is
+    // tilted, its wings' lift and the flap behind it, how strongly it is singing, and how many
+    // notes the last draw drew.
+    probe() {
+      const e = owl.ears;
+      return {
+        loud: e.loud, fast: e.fast, low: e.low, high: e.high, lean: e.lean, happy: e.happy,
+        open: owl.open, blink: C.blink(e.clock, BLINK_EVERY, BLINK_OFFSET), clock: e.clock,
+        lift: owl.lift, shrink: owl.shrink, tilt: owl.tilt, wing: owl.wing, flap: owl.flap, sing: owl.sing, notes: notesDrawn,
+      };
     },
   };
 };
