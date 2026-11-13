@@ -66,8 +66,9 @@ slow loudness passes 0.45, until it falls below 0.35; a mouth that opens with th
 **Colour and glow.** Each body is a palette colour with a lit side and a darker outline, and a
 soft glow of light behind it that brightens with the voice.
 
-**Staying in the frame.** A character's bounce is limited to the room there is above it, and the
-Blob, which also grows, is drawn smaller when it would not fit, top to bottom or side to side.
+**Staying in the frame.** A character's bounce is limited to the room there is above it, and a
+character is drawn smaller when it would not fit: the Blob, which also grows, top to bottom or
+side to side; the Owl and the Television in a frame too short for them.
 
 **Quiet.** Mic on and silent: at rest, with only its own small movements (the Blob's slow wobble,
 its eyes looking about) and its blinking. Mic off with the idle animation on: the same, and
@@ -98,10 +99,15 @@ tufts and pale discs round large eyes, a small beak, two wings, a tail and two t
 - The spring (2.3 Hz, damping 0.25, strength 2200) bobs it; it leans by `0.16 × lean × Bounce / 50`
   rad, and sways by 0.05 rad when idle.
 - The wings lift by `0.12 + 1.15 × flap` rad, where `flap` follows `1.7 × fast × Bounce / 50` over
-  0.07 s, and flutter (22 rad/s) while the slow loudness is above 0.3.
-- The lower beak drops with the voice (`min(1, 1.4 × fast)`).
-- Three music notes float up beside it while the slow loudness is above 0.22, fading as they rise.
-- Its eyes are the shared eyes, larger, and look the way it leans.
+  0.07 s, and flutter (22 rad/s) while the slow loudness is above 0.3; the flutter is weaker
+  below the usual Bounce and gone at 0.
+- The lower beak drops with the voice (`min(1, 1.4 × fast)`), far enough to show the pink inside.
+- Three music notes float up beside it while the slow loudness is above 0.22. Each fades in
+  over the first tenth of its climb and fades as it rises; in a frame too short for the whole
+  climb it fades out before the top edge.
+- Its eyes are the shared eyes, larger, and look the way it leans (fully at a lean of about 0.8).
+- It is fitted to the frame by its reach: 48 of its own units above its middle (the ear tufts,
+  however it leans) and 41.5 below (the toes, however it leans).
 
 ## Television (new)
 

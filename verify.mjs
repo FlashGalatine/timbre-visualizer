@@ -1559,20 +1559,32 @@ await import('./overlay/characters.js');
     const [W0, H0, scale] = o.size ?? WIDE, fps = o.fps ?? 60;
     const w = o.owl ?? C.createOwl();
     let t = 0, outside = false, bad = false, mostLift = -Infinity, mostWing = 0, leastWing = 9, mostTilt = 0, leastTilt = 0;
+    let tiltStep = 0, cyStep = 0, noteStep = 0, everHeld = false, liftOff = 0, last = null;
     const noteY = [];
+    // The ends of its drawing, in its own units, with half the stroke round each: the tops of its
+    // ear tufts, the top of its head, the ends of its outer toes and its tail.
+    const ENDS = [[21.4, -41.5, 0.65], [-21.4, -41.5, 0.65], [23, -41, 0.65], [-23, -41, 0.65], [0, -35.5, 0.65], [11.2, 38.5, 1.1], [-11.2, 38.5, 1.1], [0, 36, 0.65]];
     for (const s of script) for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) {
       t += 1 / fps;
       const W = s.W ?? W0, H = s.H ?? H0, loud = typeof s.loud === 'function' ? s.loud(t) : (s.loud ?? 0);
       w.step({ dt: 1 / fps, live: s.live !== false, level: { loud, low: s.low ?? 0, high: s.high ?? 0 }, bounce: s.bounce ?? o.bounce ?? 50, idle: !!s.idle, W, H, scale });
-      if (![w.lift, w.cy, w.tilt, w.wing, w.open, w.sing, w.k].every(Number.isFinite)) bad = true;
-      // Its tallest and lowest reach (ear tufts and feet), and every note that shows.
-      if (w.cy - C.OWL_UP * w.k < -H / 2 || w.cy + C.OWL_BELOW * w.k > H / 2) outside = true;
-      for (const note of w.notes) if (note.a > 0 && (Math.abs(note.x) > W / 2 || note.y - 12 * scale * w.shrink < -H / 2 || note.y > H / 2)) outside = true;   // a note's stem stands 12 px × scale above it
+      if (![w.lift, w.cy, w.tilt, w.wing, w.open, w.sing, w.k, w.blink, w.look].every(Number.isFinite)) bad = true;
+      // The ends of its drawing, leaning as it leans, and every note that shows, stay 3 px × scale inside the frame's top and bottom.
+      const room = H / 2 - 3 * scale + 1e-6, cos = Math.cos(w.tilt), sin = Math.sin(w.tilt);
+      for (const [x, y, r] of ENDS) { const at = w.cy + (x * sin + y * cos) * w.k; if (at - r * w.k < -room || at + r * w.k > room) outside = true; }
+      for (const note of w.notes) if (note.a > 0 && (Math.abs(note.x) > W / 2 || note.y - 11 * scale * w.shrink < -room || note.y > H / 2)) outside = true;   // a note's stem stands 11 px × scale above it
+      if (w.held) everHeld = true;
+      if (!w.held && !s.idle) liftOff = Math.max(liftOff, Math.abs(w.lift - (4 * scale - w.cy)));   // lift is how far above its resting place it is drawn
+      if (last) {
+        tiltStep = Math.max(tiltStep, Math.abs(w.tilt - last.tilt)); cyStep = Math.max(cyStep, Math.abs(w.cy - last.cy));
+        w.notes.forEach((note, i) => { noteStep = Math.max(noteStep, note.a - last.notes[i]); });
+      }
+      last = { tilt: w.tilt, cy: w.cy, notes: w.notes.map((note) => note.a) };
       mostLift = Math.max(mostLift, w.lift); mostWing = Math.max(mostWing, w.wing); leastWing = Math.min(leastWing, w.wing);
       mostTilt = Math.max(mostTilt, w.tilt); leastTilt = Math.min(leastTilt, w.tilt);
       noteY.push(w.notes[0].y);
     }
-    return { w, outside, bad, mostLift, mostWing, leastWing, mostTilt, leastTilt, noteY };
+    return { w, outside, bad, mostLift, mostWing, leastWing, mostTilt, leastTilt, noteY, tiltStep, cyStep, noteStep, everHeld, liftOff };
   };
   {
     const scale = WIDE[2];
@@ -1587,20 +1599,46 @@ await import('./overlay/characters.js');
     ok(quietWing.mostWing - quietWing.leastWing < 0.4 && (() => { const r = owl([{ secs: 2, loud: 0.5 }]); const tail = owl([{ secs: 1, loud: 0.5 }], { owl: r.w }); return tail.mostWing - tail.leastWing > 0.1; })()
       && (() => { const r = owl([{ secs: 2, loud: 0.2 }]); const tail = owl([{ secs: 1, loud: 0.2 }], { owl: r.w }); return tail.mostWing - tail.leastWing < 1e-3; })() && loudWing.mostWing > quietWing.mostWing,
       'its wings flutter while the voice is loud, and hold still when it is soft');
+    // The flutter is scaled by Bounce up to its usual strength: a fifth of it at Bounce 10, no more at Bounce 100.
+    const flutter = (bounce) => { const r = owl([{ secs: 2, loud: 0.5 }], { bounce }); const tail = owl([{ secs: 1, loud: 0.5 }], { owl: r.w, bounce }); return tail.mostWing - tail.leastWing; };
+    ok(near(flutter(50), 0.12, 0.01) && near(flutter(10), 0.2 * flutter(50), 0.005) && near(flutter(100), flutter(50), 0.005),
+      `the flutter follows Bounce up to its usual strength (${flutter(10).toFixed(3)}, ${flutter(50).toFixed(3)}, ${flutter(100).toFixed(3)} rad at Bounce 10, 50, 100)`);
     const lowish = owl([{ secs: 2, loud: 0.5, low: 0.8, high: 0.1 }]).w, highish = owl([{ secs: 2, loud: 0.5, low: 0.1, high: 0.8 }]).w;
+    ok(Math.abs(lowish.look) <= 1 && Math.abs(highish.look) <= 1 && lowish.look < -0.9 && highish.look > 0.9, 'its eyes turn the way it leans, and no further than they can');
+    // The idle sway and breathing ease in and out: the mic coming on does not make it jump.
+    const woken = owl([{ secs: 2.2, live: false, idle: true }, { secs: 1.5, idle: true }]);
+    ok(woken.tiltStep < 0.004 && woken.cyStep < 0.25 * scale && Math.abs(woken.w.tilt) < 1e-3 && near(woken.w.cy, 4 * scale, 0.02 * scale),
+      `the mic coming on while it sways does not make it jump (at most ${woken.tiltStep.toFixed(4)} rad and ${(woken.cyStep / scale).toFixed(2)} px × scale in a frame)`);
+    // With the mic and the idle animation both off it does not blink either.
+    const asleep = owl([{ secs: 1, live: false }]).w; let blinked = 0;
+    for (let k = 0; k < 600; k++) { asleep.step({ dt: 1 / 60, live: false, level: { loud: 0, low: 0, high: 0 }, bounce: 50, idle: false, W: WIDE[0], H: WIDE[1], scale }); blinked = Math.max(blinked, asleep.blink); }
+    const awake = owl([{ secs: 1 }]).w; let blinkedAwake = 0;
+    for (let k = 0; k < 600; k++) { awake.step({ dt: 1 / 60, live: true, level: { loud: 0, low: 0, high: 0 }, bounce: 50, idle: false, W: WIDE[0], H: WIDE[1], scale }); blinkedAwake = Math.max(blinkedAwake, awake.blink); }
+    ok(blinked === 0 && blinkedAwake > 0.8, 'it blinks while the mic is on, and not with the mic and the idle animation both off');
     const idleSway = owl([{ secs: 10, live: false, idle: true }]), idleOff = owl([{ secs: 10, live: false }]);
     ok(near(lowish.tilt, -0.16, 0.01) && near(highish.tilt, 0.16, 0.01) && idleSway.mostTilt > 0.045 && idleSway.leastTilt < -0.045 && idleSway.mostTilt < 0.051 && idleOff.mostTilt === 0 && idleOff.leastTilt === 0
       && idleSway.mostLift === 0, 'it leans toward the end of the sound that is winning; mic off it is still, and with the idle animation it sways');
     const hop = owl([{ secs: 1 }, { secs: 0.3, loud: 0.9 }]), landed = owl([{ secs: 1 }, { secs: 4, loud: 0.9 }]);
     ok(hop.mostLift > 3 * scale && Math.abs(landed.w.lift) < 0.3 * scale, `a syllable bobs it (${(hop.mostLift / scale).toFixed(1)} px × scale up), and it settles`);
+    ok(hop.liftOff < 1e-9 && landed.liftOff < 1e-9 && !hop.everHeld, 'the bob is in what is drawn: its middle rises by the lift');
+    const stopped = owl([{ secs: 1 }, { secs: 0.15, loud: 0.9, low: 0.1, high: 0.9 }, { secs: 1 / 60, loud: 0.9, low: 0.1, high: 0.9, bounce: 0 }]).w;
+    ok(stopped.lift === 0 && stopped.tilt === 0 && near(stopped.cy, 4 * scale) && stopped.ears.lean > 0.05, 'Bounce set to 0 in the middle of a bob stops the bob and the lean at once');
     const soft = owl([{ secs: 3, loud: 0.2 }]).w, singing = owl([{ secs: 6, loud: 0.6 }]);
     const rising = singing.noteY.slice(-200), drops = rising.filter((y, i) => i > 0 && y > rising[i - 1] + 5 * scale).length, climbs = rising.filter((y, i) => i > 0 && y < rising[i - 1]).length;
     ok(soft.sing === 0 && soft.notes.every((n) => n.a === 0) && near(singing.w.sing, 1, 1e-3) && singing.w.notes.some((n) => n.a > 0.3) && singing.w.notes.every((n) => n.a >= 0 && n.a <= 1)
       && climbs > 190 && drops >= 1 && drops <= 3, 'music notes float up beside it while the voice is loud, each starting again from below');
+    const sung = owl([{ secs: 3, loud: 0.6 }]), later = owl([{ secs: 5, loud: 0.6 }], { owl: sung.w });
+    ok(later.noteStep < 0.15 && later.w.notes.some((n) => n.a > 0.3), `a note fades in where it starts, it does not pop in (at most ${later.noteStep.toFixed(3)} in a frame)`);
+    ok(Math.hypot(11.2, 38.5) + 1.1 <= C.OWL_BELOW && Math.hypot(23, 41) + 0.65 <= C.OWL_UP, 'the reach it is fitted by covers its toes and its ear tufts however it leans');
     const hard = SIZES.map((size) => owl([{ secs: 20, loud: (t) => (t % 0.5 < 0.2 ? 1 : 0), low: 0.2, high: 0.9 }], { size, bounce: 100 }));
-    ok(hard.every((r) => !r.outside && !r.bad && r.mostLift > 0), 'at Bounce 100 and full voice no part of it, and no note, leaves the frame, on all three pages');
+    const hardLow = SIZES.map((size) => owl([{ secs: 20, loud: (t) => (t % 0.5 < 0.2 ? 1 : 0), low: 0.9, high: 0.1 }], { size, bounce: 100 }));
+    ok([...hard, ...hardLow].every((r) => !r.outside && !r.bad && r.mostLift > 12 * r.w.k / 1.05), 'at Bounce 100 and full voice, leaning either way, no part of it, and no note, leaves the frame, on all three pages');
     const short = owl([{ secs: 2, loud: 0.6 }, { secs: 2, loud: 0.6, W: 260, H: 60 }]);
     ok(!short.outside && !short.bad && short.w.shrink < 1 && short.w.k < 1.05 * scale, 'a frame too short for it draws it smaller, not cut off');
+    // Short frames at the small page's scale, leaning either way, singing, at Bounce 100: nothing is cut off, and no note leaves the top.
+    const shorts = [[260, 60, 1], [260, 100, 1], [1728, 300, 4.8]].flatMap((size) => [[0.9, 0.1], [0.1, 0.9]].map(([low, high]) => owl([{ secs: 12, loud: (t) => (t % 0.5 < 0.3 ? 1 : 0.5), low, high }], { size, bounce: 100 })));
+    ok(shorts.every((r) => !r.outside && !r.bad && r.everHeld) && shorts[0].w.shrink < 1 && shorts[4].w.shrink < 1 && shorts.every((r) => r.w.sing > 0.5),
+      'in a short frame, leaning and singing at Bounce 100, the frame holds it back, it is drawn smaller, and neither it nor a note is cut off');
     const [f30, f60, f120] = [30, 60, 120].map((fps) => owl([{ secs: 6.6, loud: syllables(fps) }], { fps }));
     ok(near(f30.mostLift, f60.mostLift, 0.06 * f60.mostLift) && near(f120.mostLift, f60.mostLift, 0.06 * f60.mostLift) && near(f30.w.flap, f120.w.flap, 0.02),
       `it bobs as high at 30, 60 and 120 fps (${(f30.mostLift / scale).toFixed(2)}, ${(f60.mostLift / scale).toFixed(2)}, ${(f120.mostLift / scale).toFixed(2)} px × scale)`);

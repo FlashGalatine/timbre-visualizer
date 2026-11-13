@@ -49,17 +49,21 @@
   // The Owl. Its drawing is in units of its own; OWL_K turns one into px × scale.
   const OWL_K = 1.05;
   const OWL_DOWN = 4;                        // × scale: how far below the middle of the frame it sits
-  const OWL_UP = 48, OWL_BELOW = 40.5;       // drawing units: how far it reaches above its middle (ear tufts, leaning) and below (feet)
+  const OWL_UP = 48, OWL_BELOW = 41.5;       // drawing units: how far it reaches above its middle (ear tufts, leaning) and below (toes, leaning)
   const OWL_HZ = 2.3, OWL_DAMP = 0.25, OWL_KICK = 2200;      // its spring, and how hard a syllable kicks it
   const OWL_LEAN = 0.16;                     // rad it leans at a full lean and the usual Bounce
   const OWL_SWAY = 0.05, OWL_SWAY_RATE = 0.8;                // rad and rad/s: swaying when idle
   const WING_REST = 0.12, WING_LIFT = 1.15;  // rad: a wing folded, and added at a full flap
   const FLAP_GAIN = 1.7, FLAP_S = 0.07;      // the flap follows this × the fast loudness, over this long
-  const FLUTTER_AT = 0.3, FLUTTER = 0.12, FLUTTER_RATE = 22; // above this loudness the wings flutter: by this × loudness rad, at this rad/s
+  const FLUTTER_AT = 0.3, FLUTTER = 0.12, FLUTTER_RATE = 22; // above this loudness the wings flutter: by this × loudness rad (less below the usual Bounce), at this rad/s
   const BEAK = 1.4;                          // the beak is fully open at a fast loudness of 1 / this
   const SING_AT = 0.22, SING_GAIN = 4;       // notes show above this loudness, and are at full strength a quarter above it
   const NOTES = [{ dx: 30, phase: 0, period: 1.8 }, { dx: -32, phase: 0.45, period: 2.2 }, { dx: 36, phase: 0.8, period: 2.0 }];   // × scale beside it, and seconds to float up
   const NOTE_FROM = 22, NOTE_RISE = 30, NOTE_DRIFT = 5;      // × scale: where a note starts above the owl's middle, how far it floats, and how far it drifts sideways
+  const NOTE_IN = 0.1;                       // a note fades in over this share of its climb
+  const NOTE_TOP = 11, NOTE_FADE = 6;        // × scale: how far a note's stem stands above it, and the room under the frame's top edge over which it fades out
+  const OWL_BLINK = 3.8, OWL_BLINK_AT = 1.3; // seconds between its blinks, and its place in that cycle
+  const OWL_LOOK = 1.23;                     // its eyes are turned fully at a lean of 1 / this
 
   const clamp01 = (v) => (v > 1 ? 1 : v > 0 ? v : 0);
   const follow = (current, target, dt, tau) => current + (target - current) * (1 - Math.exp(-dt / tau));
@@ -197,35 +201,46 @@
 
   // The Owl's pose. step({ dt, live, level, bounce, idle, W, H, scale }) takes the sound levels,
   // the Bounce setting and whether the idle animation applies. It then holds: k (px for one unit
-  // of its drawing), cy (its middle, as an offset from the frame's), lift (how far the bounce has
-  // raised it, px), shrink, tilt (rad it leans), flap (0 to 1) and wing (rad each wing is lifted,
-  // with the flutter), open (its beak, 0 to 1), sing (0 to 1), notes (each { x, y, a, hue }: an
-  // offset from the middle of the frame, how strongly it shows, and a palette offset), and its ears.
+  // of its drawing), cy (its middle, as an offset from the frame's), lift (how far above its
+  // resting place it is drawn, px: the bob, less whatever the frame held back), shrink (below 1
+  // when it had to be drawn smaller to fit the frame), held (the frame is holding it back),
+  // tilt (rad it leans), flap (0 to 1) and wing (rad each wing is lifted, with the flutter),
+  // open (its beak, 0 to 1), look (where its eyes are turned, -1 to 1), blink (0 open to 1
+  // shut), sing (0 to 1), notes (each { x, y, a, hue }: an offset from the middle of the frame,
+  // how strongly it shows, and a palette offset), and its ears.
   function createOwl() {
     const ears = createEars(), spring = createSpring(OWL_HZ, OWL_DAMP);
-    const o = { ears, k: 0, cy: 0, lift: 0, shrink: 1, tilt: 0, flap: 0, wing: WING_REST, open: 0, sing: 0, notes: NOTES.map((n) => ({ x: 0, y: 0, a: 0, hue: 1 + n.phase * 2 })) };
+    const o = { ears, k: 0, cy: 0, lift: 0, shrink: 1, held: false, tilt: 0, flap: 0, wing: WING_REST, open: 0, look: 0, blink: 0, sing: 0, notes: NOTES.map((n) => ({ x: 0, y: 0, a: 0, hue: 1 + n.phase * 2 })) };
     o.step = ({ dt, live, level, bounce: setting, idle, W, H, scale }) => {
-      ears.step({ dt, live, loud: level.loud, low: level.low, high: level.high });
-      const k = bounce(setting), resting = !live && idle;
+      ears.step({ dt, live, idle, loud: level.loud, low: level.low, high: level.high });
+      const k = bounce(setting);
       spring.step(dt, ears.rise * OWL_KICK * k);
       if (k === 0) spring.reset();
       o.flap = follow(o.flap, clamp01(ears.fast * FLAP_GAIN * k), dt, FLAP_S);
-      o.wing = WING_REST + WING_LIFT * o.flap + (k > 0 && ears.loud > FLUTTER_AT ? Math.sin(ears.clock * FLUTTER_RATE) * FLUTTER * ears.loud : 0);
-      o.tilt = ears.lean * OWL_LEAN * k + (resting ? Math.sin(ears.clock * OWL_SWAY_RATE) * OWL_SWAY : 0);
+      o.wing = WING_REST + WING_LIFT * o.flap + (ears.loud > FLUTTER_AT ? Math.sin(ears.clock * FLUTTER_RATE) * FLUTTER * ears.loud * Math.min(1, k) : 0);
+      // The idle sway and breathing come and go with the hearing's rest, so they never jump.
+      o.tilt = ears.lean * OWL_LEAN * k + Math.sin(ears.clock * OWL_SWAY_RATE) * OWL_SWAY * ears.rest;
       o.open = clamp01(ears.fast * BEAK);
-      const breath = resting ? Math.sin(ears.clock * BREATH_RATE) * BREATH : 0;
-      o.lift = k === 0 ? 0 : spring.x * scale;
-      const unit = OWL_K * scale;
-      const at = settle(H, scale, OWL_UP * unit, OWL_BELOW * unit, (OWL_DOWN + breath) * scale - o.lift);
+      o.look = Math.max(-1, Math.min(1, ears.lean * OWL_LOOK));
+      o.blink = blink(ears.clock, OWL_BLINK, OWL_BLINK_AT) * ears.awake;
+      const breath = Math.sin(ears.clock * BREATH_RATE) * BREATH * ears.rest;
+      const unit = OWL_K * scale, resting = (OWL_DOWN + breath) * scale, wanted = resting - spring.x * scale;
+      const at = settle(H, scale, OWL_UP * unit, OWL_BELOW * unit, wanted);
       o.shrink = at.shrink; o.cy = at.cy; o.k = unit * at.shrink;
+      o.lift = resting - at.cy;
+      o.held = at.shrink < 1 || at.cy !== wanted;
       // The notes float up from beside where the owl rests, not from where the bounce has it.
+      // Each fades in where it starts, and fades out before the top of a frame too short for
+      // its whole climb.
       o.sing = clamp01((ears.loud - SING_AT) * SING_GAIN);
       const rest = settle(H, scale, OWL_UP * unit, OWL_BELOW * unit, OWL_DOWN * scale).cy;
+      const room = Math.max(1, H / 2 - EDGE * scale), s = scale * at.shrink;
       NOTES.forEach((n, i) => {
         const t = (ears.clock / n.period + n.phase) % 1, note = o.notes[i];
-        note.x = (n.dx + Math.sin(t * TURN) * NOTE_DRIFT) * scale * at.shrink;
-        note.y = rest - (NOTE_FROM + t * NOTE_RISE) * scale * at.shrink;
-        note.a = o.sing * (1 - t) * 0.9;
+        note.x = (n.dx + Math.sin(t * TURN) * NOTE_DRIFT) * s;
+        note.y = rest - (NOTE_FROM + t * NOTE_RISE) * s;
+        const head = note.y - NOTE_TOP * s + room;     // the room left above its stem
+        note.a = o.sing * Math.min(1, t / NOTE_IN) * (1 - t) * 0.9 * clamp01(head / (NOTE_FADE * s));
       });
     };
     return o;

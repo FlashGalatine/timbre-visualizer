@@ -375,9 +375,11 @@ It offers:
   holding it back), `cy`, its outline `px` / `py` (offsets from the middle of the frame),
   `bulge`, `look`, `blink` and its `ears`.
 - `createOwl()`: the Owl's pose, driven by `step({ dt, live, level, bounce, idle, W, H, scale })`.
-  It holds `k` (px for one unit of the owl's drawing), `cy`, `lift`, `shrink`, `tilt`, `flap`
-  and `wing`, `open` (its beak), `sing`, its `notes` (each `{ x, y, a, hue }`) and its `ears`.
-  `OWL_UP` and `OWL_BELOW` are how far it reaches above and below its middle, in those units.
+  It holds `k` (px for one unit of the owl's drawing), `cy`, `lift`, `shrink`, `held`, `tilt`,
+  `flap` and `wing`, `open` (its beak), `look`, `blink`, `sing`, its `notes` (each
+  `{ x, y, a, hue }`) and its `ears`. `OWL_UP` (48) and `OWL_BELOW` (41.5) are how far it
+  reaches above and below its middle however it leans, in those units; it is fitted to the
+  frame by them.
 - `paintFace(ctx, x, y, u, f)` and `glowBehind(ctx, x, y, r, c, a)`: the shared face (or, with
   `eyesOnly`, just its eyes) and the glow behind a character. These two draw, on the context
   they are handed.
