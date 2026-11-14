@@ -74,6 +74,17 @@ one factory file written against the kit, like `thanksgiving-harvest.js`.
 
 - `docs/EFFECTS.md` (kit section), `CHANGELOG.md`.
 
+### Found during the build
+
+Re-selecting the scene left one GL texture behind each time. The cause is in three.js, not
+the scene (spec, kit change 7), and it crossed scenes: Winter Aurora followed by Thanksgiving
+lost one too. The render suite now counts GL textures made and deleted for every ordered pair
+of scenes.
+
+The first version of the "first scene after an older WebGL effect" check passed before any
+fix: a page applies the pushed config when it connects, and the config named a scene, so the
+kit's renderer already existed. The check now pushes a 2D effect first and waits for it.
+
 ### Task 7: review
 
 - Both suites; stills; one independent review of the branch; fixes with a check first, each
