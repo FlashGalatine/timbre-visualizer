@@ -911,9 +911,10 @@ async function main() {
     check('flag: hearts take the flag\'s heart colours', (hDefault.state.heartColors || []).length > 8
       && hDefault.state.heartColors.every((c) => palette.some((p) => Math.abs(p[0] - c[0]) <= 1 && Math.abs(p[1] - c[1]) <= 1 && Math.abs(p[2] - c[2]) <= 1))
       && new Set(hDefault.state.heartColors.map(String)).size >= 3, JSON.stringify((hDefault.state.heartColors || []).slice(0, 6)));
-    // When the voice stops, hearts in the air finish their flight (none is 2.4 s old yet).
-    const [hLoud, hHush] = await flagRun(RAINBOW, [{ level: 0.8, secs: 2 }, { level: 0, secs: 0.3 }]);
-    check('flag: when the voice stops, the hearts in the air keep flying', hLoud.state.hearts > 8 && hHush.state.hearts >= hLoud.state.hearts, JSON.stringify([hLoud.state.hearts, hHush.state.hearts]));
+    // When the voice stops, hearts in the air finish their flight: none is 2.4 s old yet, and
+    // after 1.3 s of silence nothing is left of the voice.
+    const [hLoud, hHush] = await flagRun(RAINBOW, [{ level: 0.8, secs: 1 }, { level: 0, secs: 1.3 }]);
+    check('flag: when the voice stops, the hearts in the air keep flying', hLoud.state.hearts > 4 && hHush.state.hearts >= hLoud.state.hearts, JSON.stringify([hLoud.state.hearts, hHush.state.hearts]));
     const [hLong] = await flagRun(RAINBOW, [{ level: 0.8, secs: 9 }], { knobs: { heartRate: 100 } });
     check('flag: never more than 56 hearts at once, and old ones make room', hLong.state.hearts <= 56 && hLong.state.hearts > 30 && hLong.state.heartsMade > 80, JSON.stringify([hLong.state.hearts, hLong.state.heartsMade]));
     const [julyTalk] = await flagRun(JULY, talk);
@@ -929,6 +930,9 @@ async function main() {
       try { for (const v of [0, 100, 0, 100, 0]) step(v); } finally { perViz['pride-ribbon'].stripeStyle = 0; }
       return out;
     });
+    const repaint = await flagRun(RAINBOW, [{ level: 0.8, secs: 1 }, { level: 0.8, secs: 0.5, knobs: { stripeStyle: 100 } }, { level: 0.8, secs: 0.5, knobs: { stripeStyle: 0 } }]);
+    check('rainbow flag: a change of Stripe style shows on the cloth at once, both ways', repaint[1].tones.dark.n > repaint[0].tones.dark.n + DARK_STRIPE
+      && repaint[2].tones.dark.n < repaint[0].tones.dark.n + 500, JSON.stringify(repaint.map((r) => r.tones.dark.n)));
     check('rainbow flag: switching Stripe style back and forth repaints the one texture', JSON.stringify(toggled.map((t) => t[0])) === '[6,8,6,8,6]' && toggled.every((t) => t[1] === toggled[0][1] && t[2] === toggled[0][2]), JSON.stringify(toggled));
 
     // Fourth of July: fireworks and stars.
