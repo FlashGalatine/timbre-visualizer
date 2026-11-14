@@ -207,12 +207,26 @@
   // there (and in their cached uniforms) after the scene is gone. The next scene's shadow
   // pass then uploads that disposed texture again, and nothing ever frees it. A map only
   // matters to a shadow when it cuts holes (alphaTest above 0, where three.js uses a
-  // material of the caster's own), so otherwise the shadow is drawn without it.
+  // material of the caster's own), so otherwise the shadow is drawn without it. The same
+  // goes for a displacement map that displaces nothing.
   function plainShadow(r, object, camera, shadowCamera, geometry, depthMaterial) {
     if (depthMaterial.alphaTest === 0) { depthMaterial.map = null; depthMaterial.alphaMap = null; }
+    if (depthMaterial.displacementScale === 0) depthMaterial.displacementMap = null;
   }
+  plainShadow.timbreGuard = true;
+  // Put the guard on a shadow caster, in front of any onBeforeShadow of its own (a scene's,
+  // or the one three.js gives a BatchedMesh), which still runs after it.
   function guardShadow(o) {
-    if (o.onBeforeShadow !== plainShadow && (o.isMesh || o.isLine || o.isPoints)) o.onBeforeShadow = plainShadow;
+    if (!(o.isMesh || o.isLine || o.isPoints)) return;
+    const own = o.onBeforeShadow;
+    if (own && own.timbreGuard) return;
+    if (!own || own === THREE.Object3D.prototype.onBeforeShadow) { o.onBeforeShadow = plainShadow; return; }
+    const guarded = function (r, object, camera, shadowCamera, geometry, depthMaterial, group) {
+      plainShadow(r, object, camera, shadowCamera, geometry, depthMaterial);
+      own.call(this, r, object, camera, shadowCamera, geometry, depthMaterial, group);
+    };
+    guarded.timbreGuard = true;
+    o.onBeforeShadow = guarded;
   }
 
   function quadMaterial(fragmentShader, uniforms, toneMapped) {

@@ -642,22 +642,30 @@ async function main() {
         for (const st of steps) {
           TimbreScene.testLevel = st.level;
           if (st.low !== undefined) { f.fill(Math.round(st.low * 255), 0, 4); f.fill(0, 4, 8); f.fill(Math.round(st.high * 255), 8, 32); frequencies = f; micActive = true; }
-          for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) { now += 1000 / fps; currentViz.draw(now, 1 / fps); }
+          let jump = 0, before = null;
+          for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) {
+            now += 1000 / fps; currentViz.draw(now, 1 / fps);
+            if (st.trace) {   // from the third sample on: the first two follow the live level
+              const hh = window.__timbre.scene.state.hist;
+              if (before) for (let j = 2; j < hh.length; j++) jump = Math.max(jump, Math.abs(hh[j] - before[j]));
+              before = hh;
+            }
+          }
           const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
           gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);   // row 0 is the bottom of the canvas
-          let solid = 0, light = 0, lightSum = 0, red = 0, edge = 0, empty = 0, upG = 0, upB = 0;
+          let solid = 0, light = 0, lightSum = 0, red = 0, edge = 0, empty = 0, upG = 0, upB = 0, skySum = 0;
           for (let i = 0; i < px.length; i += 4) {
             const x = (i / 4) % w, y = Math.floor(i / 4 / w), r = px[i], g = px[i + 1], b = px[i + 2], a = px[i + 3], rgb = r + g + b;
             if (a > 250) solid++;
             else if (a < 5 && rgb > 12) {
               light++; lightSum += rgb;
               if (x < 4 || y < 4 || x >= w - 4 || y >= h - 4) edge++;
-              if (y > h / 2) { upG += g; upB += b; if (r > 30 && r > g * 1.3 && r > b * 1.3) red++; }
+              if (y > h / 2) { upG += g; upB += b; skySum += rgb; if (r > 30 && r > g * 1.3 && r > b * 1.3) red++; }
             }
             if (a === 0 && rgb === 0) empty++;
           }
           const s = window.__timbre.scene;
-          out.push({ state: (s && s.state) || {}, solid, light, lightSum, red, edge, empty: empty / (w * h), cornerAlpha: px[3], violet: upG ? upB / upG : 0 });
+          out.push({ state: (s && s.state) || {}, solid, light, lightSum, red, edge, empty: empty / (w * h), cornerAlpha: px[3], violet: upG ? upB / upG : 0, jump, skySum });
         }
         return out;
       } finally {
@@ -666,26 +674,43 @@ async function main() {
       }
     }, { steps, fps, knobs });
     const histOf = (r) => (r.state.hist || []);
-    const peakAt = (r) => { const hh = histOf(r); let at = -1, top = 0; hh.forEach((v, i) => { if (v > top) { top = v; at = i; } }); return { at, top }; };
+    const peakOf = (hh) => { let at = -1, top = 0; (hh || []).forEach((v, i) => { if (v > top) { top = v; at = i; } }); return { at, top }; };
+    const peakAt = (r) => peakOf(histOf(r));
+    const curtainOf = (r, c) => ((r.state.curtains || [])[c] || []);
 
+    const SKY_QUIET = 7500000;
     await activate('winter-aurora');
     const wa0 = await sceneState();
     check('winter aurora is a kit scene on the WebGL canvas', !!wa0 && wa0.active === true && wa0.targetSize[0] === 1728 && wa0.targetSize[1] === 624, JSON.stringify(wa0 && wa0.targetSize));
     const [waQuiet, waLoud] = await auroraRun([{ level: 0, secs: 1.5 }, { level: 0.8, secs: 2.5 }]);
     check('winter aurora draws solid land, added light and a transparent corner', waLoud.solid > 15000 && waLoud.light > 150000 && waLoud.cornerAlpha === 0, JSON.stringify({ solid: waLoud.solid, light: waLoud.light, corner: waLoud.cornerAlpha }));
     check('winter aurora: no light in the outer 4 px of the canvas, and a quarter of it stays empty', waLoud.edge === 0 && waQuiet.edge === 0 && waLoud.empty > 0.25, JSON.stringify({ edge: waLoud.edge, empty: waLoud.empty }));
-    check('winter aurora: the aurora never goes dark', waQuiet.light > 60000 && waQuiet.state.glow < 0.02, JSON.stringify({ light: waQuiet.light, glow: waQuiet.state.glow }));
+    // The light in the upper half of the canvas, in silence. SKY_QUIET is 60% of what the scene gives (12.6 million).
+    check('winter aurora: the aurora never goes dark', waQuiet.skySum > SKY_QUIET && waQuiet.state.glow < 0.02, JSON.stringify({ sky: waQuiet.skySum, glow: waQuiet.state.glow }));
     check('winter aurora: louder is brighter, in the sky and on the snow',
       waLoud.lightSum > waQuiet.lightSum * 1.8 && waLoud.state.glow > 0.7 && waLoud.state.light > waQuiet.state.light * 3, JSON.stringify({ quiet: [waQuiet.lightSum, waQuiet.state.light], loud: [waLoud.lightSum, waLoud.state.light] }));
 
     // A burst of voice travels along the curtains: 12 history samples a second.
-    const [, , waHalf, waLater] = await auroraRun([{ level: 0, secs: 0.5 }, { level: 0.9, secs: 0.25 }, { level: 0, secs: 0.5 }, { level: 0, secs: 1 }]);
+    const [, , waHalf, waLater] = await auroraRun([{ level: 0, secs: 0.5 }, { level: 0.9, secs: 0.25 }, { level: 0, secs: 0.5, trace: true }, { level: 0, secs: 1, trace: true }]);
     check('winter aurora: a burst of voice travels along the curtain at 12 samples a second',
       histOf(waHalf).length === 32 && Math.abs(peakAt(waHalf).at - 6) <= 1 && Math.abs(peakAt(waLater).at - 18) <= 1 && peakAt(waHalf).top > 0.15 && peakAt(waLater).top > 0.15,
       JSON.stringify([peakAt(waHalf), peakAt(waLater)]));
 
-    // The same at 30 and 60 fps.
-    const fpsSteps = [{ level: 0.8, secs: 1 }, { level: 0, secs: 0.5 }];
+    // Left to right on the front curtain, right to left on the middle one, from the centre outward on the back one.
+    const back = (r) => { const b = curtainOf(r, 2); return { left: peakOf(b.slice(0, 16)).at, right: 16 + peakOf(b.slice(16)).at, even: b.length === 32 && b.every((v, i) => Math.abs(v - b[31 - i]) < 1e-6) }; };
+    check('winter aurora: the burst runs left to right on the front curtain and right to left on the middle one',
+      Math.abs(peakOf(curtainOf(waHalf, 0)).at - 6) <= 1 && Math.abs(peakOf(curtainOf(waLater, 0)).at - 18) <= 1
+      && Math.abs(peakOf(curtainOf(waHalf, 1)).at - 25) <= 1 && Math.abs(peakOf(curtainOf(waLater, 1)).at - 13) <= 1,
+      JSON.stringify([0, 1].map((c) => [peakOf(curtainOf(waHalf, c)).at, peakOf(curtainOf(waLater, c)).at])));
+    check('winter aurora: the burst runs from the centre outward on the back curtain, the same on both sides',
+      back(waHalf).even && back(waLater).even && Math.abs(back(waHalf).left - 12.5) <= 1 && Math.abs(back(waHalf).right - 18.5) <= 1
+      && Math.abs(back(waLater).left - 6.5) <= 1 && Math.abs(back(waLater).right - 24.5) <= 1, JSON.stringify([back(waHalf), back(waLater)]));
+    // The wave glides: no history value steps by a whole sample from one frame to the next.
+    // (A burst this sharp is a step of about 0.8 between two samples; gliding spreads it over five frames.)
+    check('winter aurora: the travelling wave glides between samples', waHalf.jump > 0.02 && waHalf.jump < 0.3 && waLater.jump < 0.3, JSON.stringify([waHalf.jump, waLater.jump]));
+
+    // The same at 30 and 60 fps. The reading falls part-way between two history samples.
+    const fpsSteps = [{ level: 0.8, secs: 1 }, { level: 0, secs: 16 / 30 }];
     const wa30 = (await auroraRun(fpsSteps, { fps: 30 }))[1], wa60 = (await auroraRun(fpsSteps, { fps: 60 }))[1];
     check('winter aurora: the glow and the travelling history agree at 30 and 60 fps',
       wa60.state.glow > 0.2 && Math.abs(wa30.state.glow - wa60.state.glow) < 0.02 && histOf(wa60).length === 32 && histOf(wa60).every((v, i) => Math.abs(v - histOf(wa30)[i]) < 0.04),
@@ -693,6 +718,22 @@ async function main() {
     check('winter aurora: snow falls the same at 30 and 60 fps (count and mean height)',
       wa60.state.falling > 20 && Math.abs(wa30.state.falling - wa60.state.falling) <= 3 && Math.abs(wa30.state.fallingHeight - wa60.state.fallingHeight) < 0.15,
       JSON.stringify({ f30: [wa30.state.falling, wa30.state.fallingHeight], f60: [wa60.state.falling, wa60.state.fallingHeight] }));
+    // A long frame takes more than one history sample; each must still hold the level at its own moment.
+    const slowSteps = [{ level: 0, secs: 0.5 }, { level: 0.9, secs: 0.3 }, { level: 0, secs: 0.5 }];
+    const wa10 = (await auroraRun(slowSteps, { fps: 10 }))[2], waFast = (await auroraRun(slowSteps, { fps: 60 }))[2];
+    const smear = Math.max(...histOf(waFast).map((v, i) => Math.abs(v - (histOf(wa10)[i] || 0))));
+    check('winter aurora: the history at 10 fps matches the one at 60 fps', histOf(wa10).length === 32 && smear < 0.12, smear.toFixed(3));
+
+    // Snow lands. Over 25 s every flake has come down at least once; each switched off at the snow, not above it.
+    const [snowLong] = await auroraRun([{ level: 0.5, secs: 25 }]);
+    check('winter aurora: flakes land on the snow and are replaced',
+      snowLong.state.landed > 60 && snowLong.state.landedHigh < 0.03 && Math.abs(snowLong.state.falling - snowLong.state.snowTarget) <= 2 && snowLong.state.fallingHeight > 1 && snowLong.state.fallingHeight < 4,
+      JSON.stringify({ landed: snowLong.state.landed, high: snowLong.state.landedHigh, falling: snowLong.state.falling, target: snowLong.state.snowTarget, height: snowLong.state.fallingHeight }));
+    // When the voice stops, the flakes already falling keep falling: none vanishes in mid-air.
+    const [snowLoud, snowHush] = await auroraRun([{ level: 0.9, secs: 3 }, { level: 0, secs: 2 }]);
+    check('winter aurora: when the voice stops, the snow in the air keeps falling',
+      snowLoud.state.falling > 60 && snowHush.state.snowTarget < snowLoud.state.falling - 25 && snowHush.state.falling >= snowLoud.state.falling - 2 && snowHush.state.landed === 0,
+      JSON.stringify({ loud: snowLoud.state.falling, hush: [snowHush.state.falling, snowHush.state.snowTarget, snowHush.state.landed] }));
 
     // Each setting.
     const loudSecond = [{ level: 0.8, secs: 1.5 }];
@@ -731,7 +772,7 @@ async function main() {
     check('winter aurora: Scene placement slides it', waP1.centroidX - waP0.centroidX > 150, `${waP0.centroidX.toFixed(0)} → ${waP1.centroidX.toFixed(0)}`);
     await activate('winter-aurora');
     const waCost = await wide.evaluate(() => { let now = performance.now(), acc = 0; for (let i = 0; i < 120; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); acc += performance.now() - t; } return acc / 120; });
-    check(`winter aurora: draw() averages under 4 ms (${waCost.toFixed(2)} ms)`, waCost < 4);
+    check(`winter aurora: draw() averages under 4 ms of script time (${waCost.toFixed(2)} ms)`, waCost < 4);
 
     // Every kit scene, so the next one is covered without a new check.
     const gpuAfterSelect = (name) => wide.evaluate((n) => { setActiveViz('visualizer'); setActiveViz(n); currentViz.draw(performance.now(), 1 / 60); const s = window.__timbre.scene; return [s.memory.geometries, s.memory.textures, s.programs]; }, name);
@@ -765,6 +806,40 @@ async function main() {
     }, T.VIZ_SCENES);
     check('a scene deletes every GL texture it made, whichever scene ran before it',
       Object.values(texturesLeft).every(([made, left]) => made > 5 && left === 0), JSON.stringify(texturesLeft));
+
+    // The guard drops a caster's textures from the shadow only where they do not shape it, and an
+    // object's own onBeforeShadow still runs (after the guard).
+    const shadowSeen = await wide.evaluate(() => {
+      setActiveViz('winter-aurora'); currentViz.stop();   // the WebGL canvas stays showing, with no scene on it
+      const seen = { plain: [], cut: [], flat: [] };
+      const s = TimbreScene.create({
+        frame: { width: 3, height: 2, center: [0, 0.5, 0] }, fov: 30, pitch: 14, update() {},
+        build(k) {
+          const T3 = k.THREE;
+          const tex = () => { const t = k.keep(new T3.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1)); t.needsUpdate = true; return t; };
+          const add = (name, material, x) => {
+            const m = new T3.Mesh(k.keep(new T3.BoxGeometry(0.5, 0.5, 0.5)), k.keep(material));
+            m.position.set(x, 0.25, 0); m.castShadow = true;
+            m.onBeforeShadow = (r, o, c, sc, g, depth) => { seen[name].push([!!depth.map, !!depth.displacementMap]); };
+            k.scene.add(m);
+          };
+          add('plain', new T3.MeshStandardMaterial({ map: tex() }), -0.8);
+          add('cut', new T3.MeshStandardMaterial({ map: tex(), alphaTest: 0.5 }), 0);
+          add('flat', new T3.MeshStandardMaterial({ displacementMap: tex(), displacementScale: 0 }), 0.8);
+          const light = k.practical(new T3.PointLight(0xffffff, 3, 7, 2));
+          light.position.set(0, 2, 2); light.castShadow = true;
+          k.scene.add(light);
+        },
+      });
+      if (!s) return { created: false };
+      s.draw(performance.now(), 1 / 60); s.draw(performance.now() + 16, 1 / 60);
+      s.dispose();
+      setActiveViz('visualizer');
+      return Object.assign({ created: true }, seen);
+    });
+    const all = (list, map, bump) => Array.isArray(list) && list.length >= 2 && list.every(([m, d]) => m === map && d === bump);
+    check('a shadow is drawn without its caster\'s map, unless the map cuts holes in it', shadowSeen.created && all(shadowSeen.plain, false, false) && all(shadowSeen.cut, true, false), JSON.stringify({ plain: (shadowSeen.plain || [])[0], cut: (shadowSeen.cut || [])[0], n: (shadowSeen.plain || []).length }));
+    check('a shadow is drawn without a displacement map that displaces nothing', shadowSeen.created && all(shadowSeen.flat, false, false), JSON.stringify((shadowSeen.flat || [])[0]));
 
     // dispose() and create() are exception-safe: a kept object with no dispose() (a Group) is
     // skipped, and a build() that throws makes create() return null after freeing what it made.
@@ -894,10 +969,10 @@ async function main() {
         setActiveViz('thanksgiving-harvest');
         currentViz.draw(performance.now(), 1 / 60);
         const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), a = gl.getContextAttributes(), s = window.__timbre.scene;
-        return { attrs: [a.alpha, a.antialias, a.depth, a.stencil, a.premultipliedAlpha, a.preserveDrawingBuffer], error: gl.getError(), active: !!s && s.active === true };
+        return { attrs: [a.alpha, a.antialias, a.depth, a.stencil, a.premultipliedAlpha, a.preserveDrawingBuffer, a.powerPreference], error: gl.getError(), active: !!s && s.active === true };
       });
       check('a scene that is the first WebGL effect on a page creates the context as three.js asks for it',
-        JSON.stringify(cold.attrs) === '[true,true,true,true,true,false]' && cold.error === 0 && cold.active, JSON.stringify(cold));
+        JSON.stringify(cold.attrs) === '[true,true,true,true,true,false,"default"]' && cold.error === 0 && cold.active, JSON.stringify(cold));
       await fresh.close();
     }
 

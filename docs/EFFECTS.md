@@ -158,11 +158,14 @@ per second whatever the frame rate. They are what the fields above are made with
   reach from the objects in `k.scene` (a texture is found as a property of a material or as
   the value of one of its uniforms), along with lights and instanced meshes. Anything it
   cannot reach that way goes through `k.keep()`: something not attached to the scene, or a
-  texture held somewhere else. Passing everything through `k.keep()` is still the habit to
-  keep.
+  texture held somewhere else (a `customDepthMaterial`, a uniform holding an array of
+  textures, `scene.background`, a `SpotLight`'s `map`). Passing everything through
+  `k.keep()` is still the habit to keep.
 - **A shadow ignores its caster's texture** unless the material cuts holes with it
   (`alphaTest` above 0). three.js would otherwise leave the texture on its shared shadow
-  materials and upload it again in the next scene, where nothing frees it.
+  materials and upload it again in the next scene, where nothing frees it. The kit does
+  this through each object's `onBeforeShadow`; if an object has one of its own, it still
+  runs, after the kit's.
 - **The afterglow cools the way the scene says.** `cooling` is three extra fade times in
   seconds, for red, green and blue, on top of the afterglow time; `Infinity` adds none. The
   default, `[Infinity, 0.098, 0.035]`, lets green and blue go first, so fading candlelight
