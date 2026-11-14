@@ -203,6 +203,18 @@
     return material;
   }
 
+  // three.js copies a shadow caster's map onto its shared shadow materials and leaves it
+  // there (and in their cached uniforms) after the scene is gone. The next scene's shadow
+  // pass then uploads that disposed texture again, and nothing ever frees it. A map only
+  // matters to a shadow when it cuts holes (alphaTest above 0, where three.js uses a
+  // material of the caster's own), so otherwise the shadow is drawn without it.
+  function plainShadow(r, object, camera, shadowCamera, geometry, depthMaterial) {
+    if (depthMaterial.alphaTest === 0) { depthMaterial.map = null; depthMaterial.alphaMap = null; }
+  }
+  function guardShadow(o) {
+    if (o.onBeforeShadow !== plainShadow && (o.isMesh || o.isLine || o.isPoints)) o.onBeforeShadow = plainShadow;
+  }
+
   function quadMaterial(fragmentShader, uniforms, toneMapped) {
     return new THREE.ShaderMaterial({
       vertexShader: QUAD_VERT, fragmentShader, uniforms, toneMapped,
@@ -342,6 +354,7 @@
         placeCamera(view.w, view.h);
 
         // 1 + 2: solids with every light, then the light-catcher with the practicals.
+        scene.traverse(guardShadow);              // every frame: update() may have added objects
         r.shadowMap.needsUpdate = true;
         r.setRenderTarget(targets.scene);
         // After a WebGL context restore three's clear colour is opaque black until its first

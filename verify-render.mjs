@@ -624,12 +624,147 @@ async function main() {
     const cost = await wide.evaluate(() => { let now = performance.now(), acc = 0; for (let i = 0; i < 120; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); acc += performance.now() - t; } return acc / 120; });
     check(`draw() averages under 4 ms (${cost.toFixed(2)} ms)`, cost < 4);
 
+    // ── Winter Aurora (the second kit scene) ──────────────────────────────────
+    // Build the scene afresh with seeded randomness, drive the level (and, where a step gives
+    // them, the low and high ends of the spectrum) by hand, and read the canvas after each step.
+    // red: light pixels in the upper half that are mostly red (the lit window is in the lower half).
+    const auroraRun = (steps, { fps = 60, knobs = null } = {}) => wide.evaluate(({ steps, fps, knobs }) => {
+      window.frame = function () {};
+      const random = Math.random, saved = { frequencies, micActive }, knobs0 = Object.assign({}, perViz['winter-aurora']);
+      let seed = 20261113;
+      Math.random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+      try {
+        if (knobs) Object.assign(perViz['winter-aurora'], knobs);
+        TimbreScene.testLevel = 0;
+        setActiveViz('visualizer'); setActiveViz('winter-aurora');
+        const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), f = new Uint8Array(32), out = [];
+        let now = 100000 + 1000 / 120;
+        for (const st of steps) {
+          TimbreScene.testLevel = st.level;
+          if (st.low !== undefined) { f.fill(Math.round(st.low * 255), 0, 4); f.fill(0, 4, 8); f.fill(Math.round(st.high * 255), 8, 32); frequencies = f; micActive = true; }
+          for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) { now += 1000 / fps; currentViz.draw(now, 1 / fps); }
+          const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);   // row 0 is the bottom of the canvas
+          let solid = 0, light = 0, lightSum = 0, red = 0, edge = 0, empty = 0, upG = 0, upB = 0;
+          for (let i = 0; i < px.length; i += 4) {
+            const x = (i / 4) % w, y = Math.floor(i / 4 / w), r = px[i], g = px[i + 1], b = px[i + 2], a = px[i + 3], rgb = r + g + b;
+            if (a > 250) solid++;
+            else if (a < 5 && rgb > 12) {
+              light++; lightSum += rgb;
+              if (x < 4 || y < 4 || x >= w - 4 || y >= h - 4) edge++;
+              if (y > h / 2) { upG += g; upB += b; if (r > 30 && r > g * 1.3 && r > b * 1.3) red++; }
+            }
+            if (a === 0 && rgb === 0) empty++;
+          }
+          const s = window.__timbre.scene;
+          out.push({ state: (s && s.state) || {}, solid, light, lightSum, red, edge, empty: empty / (w * h), cornerAlpha: px[3], violet: upG ? upB / upG : 0 });
+        }
+        return out;
+      } finally {
+        Math.random = random; frequencies = saved.frequencies; micActive = saved.micActive;
+        Object.assign(perViz['winter-aurora'], knobs0); TimbreScene.testLevel = null;
+      }
+    }, { steps, fps, knobs });
+    const histOf = (r) => (r.state.hist || []);
+    const peakAt = (r) => { const hh = histOf(r); let at = -1, top = 0; hh.forEach((v, i) => { if (v > top) { top = v; at = i; } }); return { at, top }; };
+
+    await activate('winter-aurora');
+    const wa0 = await sceneState();
+    check('winter aurora is a kit scene on the WebGL canvas', !!wa0 && wa0.active === true && wa0.targetSize[0] === 1728 && wa0.targetSize[1] === 624, JSON.stringify(wa0 && wa0.targetSize));
+    const [waQuiet, waLoud] = await auroraRun([{ level: 0, secs: 1.5 }, { level: 0.8, secs: 2.5 }]);
+    check('winter aurora draws solid land, added light and a transparent corner', waLoud.solid > 15000 && waLoud.light > 150000 && waLoud.cornerAlpha === 0, JSON.stringify({ solid: waLoud.solid, light: waLoud.light, corner: waLoud.cornerAlpha }));
+    check('winter aurora: no light in the outer 4 px of the canvas, and a quarter of it stays empty', waLoud.edge === 0 && waQuiet.edge === 0 && waLoud.empty > 0.25, JSON.stringify({ edge: waLoud.edge, empty: waLoud.empty }));
+    check('winter aurora: the aurora never goes dark', waQuiet.light > 60000 && waQuiet.state.glow < 0.02, JSON.stringify({ light: waQuiet.light, glow: waQuiet.state.glow }));
+    check('winter aurora: louder is brighter, in the sky and on the snow',
+      waLoud.lightSum > waQuiet.lightSum * 1.8 && waLoud.state.glow > 0.7 && waLoud.state.light > waQuiet.state.light * 3, JSON.stringify({ quiet: [waQuiet.lightSum, waQuiet.state.light], loud: [waLoud.lightSum, waLoud.state.light] }));
+
+    // A burst of voice travels along the curtains: 12 history samples a second.
+    const [, , waHalf, waLater] = await auroraRun([{ level: 0, secs: 0.5 }, { level: 0.9, secs: 0.25 }, { level: 0, secs: 0.5 }, { level: 0, secs: 1 }]);
+    check('winter aurora: a burst of voice travels along the curtain at 12 samples a second',
+      histOf(waHalf).length === 32 && Math.abs(peakAt(waHalf).at - 6) <= 1 && Math.abs(peakAt(waLater).at - 18) <= 1 && peakAt(waHalf).top > 0.15 && peakAt(waLater).top > 0.15,
+      JSON.stringify([peakAt(waHalf), peakAt(waLater)]));
+
+    // The same at 30 and 60 fps.
+    const fpsSteps = [{ level: 0.8, secs: 1 }, { level: 0, secs: 0.5 }];
+    const wa30 = (await auroraRun(fpsSteps, { fps: 30 }))[1], wa60 = (await auroraRun(fpsSteps, { fps: 60 }))[1];
+    check('winter aurora: the glow and the travelling history agree at 30 and 60 fps',
+      wa60.state.glow > 0.2 && Math.abs(wa30.state.glow - wa60.state.glow) < 0.02 && histOf(wa60).length === 32 && histOf(wa60).every((v, i) => Math.abs(v - histOf(wa30)[i]) < 0.04),
+      JSON.stringify({ glow: [wa30.state.glow, wa60.state.glow], h30: histOf(wa30).slice(0, 8), h60: histOf(wa60).slice(0, 8) }));
+    check('winter aurora: snow falls the same at 30 and 60 fps (count and mean height)',
+      wa60.state.falling > 20 && Math.abs(wa30.state.falling - wa60.state.falling) <= 3 && Math.abs(wa30.state.fallingHeight - wa60.state.fallingHeight) < 0.15,
+      JSON.stringify({ f30: [wa30.state.falling, wa30.state.fallingHeight], f60: [wa60.state.falling, wa60.state.fallingHeight] }));
+
+    // Each setting.
+    const loudSecond = [{ level: 0.8, secs: 1.5 }];
+    const [kDefault] = await auroraRun(loudSecond);
+    const [kNoSnow] = await auroraRun(loudSecond, { knobs: { snowfall: 0 } }), [kSnow] = await auroraRun(loudSecond, { knobs: { snowfall: 100 } });
+    check('winter aurora: Snowfall 0 stops the snow; 100 doubles it',
+      kNoSnow.state.snowTarget === 0 && kNoSnow.state.falling === 0 && kDefault.state.snowTarget > 50 && Math.abs(kSnow.state.snowTarget - 2 * kDefault.state.snowTarget) <= 2,
+      JSON.stringify([kNoSnow.state.snowTarget, kDefault.state.snowTarget, kSnow.state.snowTarget]));
+    const [kNoStars] = await auroraRun(loudSecond, { knobs: { starDensity: 0 } }), [kStars] = await auroraRun(loudSecond, { knobs: { starDensity: 100 } });
+    check('winter aurora: Star density sets how many stars (0, 60, 120)', kNoStars.state.stars === 0 && kDefault.state.stars === 60 && kStars.state.stars === 120, JSON.stringify([kNoStars.state.stars, kDefault.state.stars, kStars.state.stars]));
+    const [kStill] = await auroraRun(loudSecond, { knobs: { cameraDrift: 0 } }), [kDrift] = await auroraRun(loudSecond, { knobs: { cameraDrift: 100 } });
+    check('winter aurora: Camera drift 0 holds the camera still; 100 doubles the swing',
+      kStill.state.orbit === 0 && Math.abs(kDefault.state.orbit) > 0.01 && Math.abs(kDrift.state.orbit - 2 * kDefault.state.orbit) < 1e-9, JSON.stringify([kStill.state.orbit, kDefault.state.orbit, kDrift.state.orbit]));
+    const [kSteadyQuiet, kSteady] = await auroraRun([{ level: 0, secs: 1 }, { level: 0.8, secs: 1.5 }], { knobs: { auroraGlow: 0 } });
+    const [kWild] = await auroraRun([{ level: 0.3, secs: 1.5 }], { knobs: { auroraGlow: 100 } }), [kMild] = await auroraRun([{ level: 0.3, secs: 1.5 }]);
+    check('winter aurora: Aurora glow 0 gives a steady aurora with no waves',
+      kSteady.state.bright === 0 && kSteady.state.light === kSteadyQuiet.state.light && histOf(kSteady).length === 32 && histOf(kSteady).every((v) => v === 0) && Math.abs(kSteady.lightSum - kSteadyQuiet.lightSum) < kSteadyQuiet.lightSum * 0.12,
+      JSON.stringify({ bright: kSteady.state.bright, light: [kSteadyQuiet.state.light, kSteady.state.light], sums: [kSteadyQuiet.lightSum, kSteady.lightSum] }));
+    check('winter aurora: Aurora glow 100 doubles the swing', kMild.state.bright > 0.2 && Math.abs(kWild.state.bright - 2 * kMild.state.bright) < 0.01, JSON.stringify([kMild.state.bright, kWild.state.bright]));
+
+    // Tone: the high end lifts the violet; the low end keeps the green.
+    const [toneLow] = await auroraRun([{ level: 0.7, secs: 2, low: 0.9, high: 0 }]), [toneHigh] = await auroraRun([{ level: 0.7, secs: 2, low: 0, high: 0.9 }]);
+    check('winter aurora: the high end of the sound lifts the violet in the sky',
+      toneLow.state.low > 0.6 && toneLow.state.high < 0.05 && toneHigh.state.high > 0.6 && toneHigh.violet > toneLow.violet * 1.15, JSON.stringify({ low: [toneLow.state.low, toneLow.violet], high: [toneHigh.state.high, toneHigh.violet] }));
+
+    // A beat flushes the hems pink; once it has passed, trailing light is never red.
+    const [, waBeat, waSettled, waTrail] = await auroraRun([{ level: 0.05, secs: 1 }, { level: 0.9, secs: 0.05 }, { level: 0.9, secs: 2.5 }, { level: 0, secs: 0.15 }]);
+    check('winter aurora: a beat flushes the hems pink', waBeat.state.kick > 0.7 && waBeat.red > 300 && waSettled.state.kick < 0.001, JSON.stringify({ kick: [waBeat.state.kick, waSettled.state.kick], red: waBeat.red }));
+    check('winter aurora: trailing light is never red', waSettled.red === 0 && waTrail.red === 0 && waTrail.light > 100000, JSON.stringify({ settled: waSettled.red, trail: waTrail.red }));
+
+    await activate('winter-aurora');
+    const waP0 = await probe();
+    await pushConfig((c) => { c.activeViz = 'winter-aurora'; c.placement.x = 30; });
+    await wide.waitForTimeout(400);
+    const waP1 = await probe();
+    check('winter aurora: Scene placement slides it', waP1.centroidX - waP0.centroidX > 150, `${waP0.centroidX.toFixed(0)} → ${waP1.centroidX.toFixed(0)}`);
+    await activate('winter-aurora');
+    const waCost = await wide.evaluate(() => { let now = performance.now(), acc = 0; for (let i = 0; i < 120; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); acc += performance.now() - t; } return acc / 120; });
+    check(`winter aurora: draw() averages under 4 ms (${waCost.toFixed(2)} ms)`, waCost < 4);
+
     // Every kit scene, so the next one is covered without a new check.
     const gpuAfterSelect = (name) => wide.evaluate((n) => { setActiveViz('visualizer'); setActiveViz(n); currentViz.draw(performance.now(), 1 / 60); const s = window.__timbre.scene; return [s.memory.geometries, s.memory.textures, s.programs]; }, name);
     for (const name of T.VIZ_SCENES) {
       const leakBefore = await gpuAfterSelect(name), leakAfter = await gpuAfterSelect(name);
       check(`re-selecting ${name} does not grow GPU resources`, JSON.stringify(leakBefore) === JSON.stringify(leakAfter), `${leakBefore} → ${leakAfter}`);
     }
+
+    // three.js copies a shadow caster's texture onto its shared shadow materials and keeps it
+    // there after the scene is gone; the next scene's shadow pass would upload that disposed
+    // texture again and nothing would free it. So: every GL texture made while a scene runs is
+    // deleted when it stops, whichever scene ran before it.
+    const texturesLeft = await wide.evaluate((names) => {
+      const gl = document.getElementById('vizCanvas3D').getContext('webgl2');
+      const create = gl.createTexture, del = gl.deleteTexture, out = {};
+      let live = 0;
+      gl.createTexture = function () { live++; return create.call(gl); };
+      gl.deleteTexture = function (t) { live--; return del.call(gl, t); };
+      try {
+        for (const first of names) for (const second of names) {
+          setActiveViz(first); currentViz.draw(performance.now(), 1 / 60);
+          setActiveViz('visualizer');
+          live = 0;
+          setActiveViz(second); currentViz.draw(performance.now(), 1 / 60); currentViz.draw(performance.now() + 16, 1 / 60);
+          const made = live;
+          setActiveViz('visualizer');
+          out[first + ' then ' + second] = [made, live];
+        }
+      } finally { gl.createTexture = create; gl.deleteTexture = del; }
+      return out;
+    }, T.VIZ_SCENES);
+    check('a scene deletes every GL texture it made, whichever scene ran before it',
+      Object.values(texturesLeft).every(([made, left]) => made > 5 && left === 0), JSON.stringify(texturesLeft));
 
     // dispose() and create() are exception-safe: a kept object with no dispose() (a Group) is
     // skipped, and a build() that throws makes create() return null after freeing what it made.
