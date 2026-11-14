@@ -58,11 +58,20 @@
     return 1.5 * (1 - t) + 0.35 * t;
   }
 
-  // Per-channel survival fraction of the afterglow over dt seconds; green and
-  // blue cool faster than red, so fading light shifts warm.
-  function decay(dt, T) {
-    const r = Math.exp(-dt / T);
-    return [r, r * Math.exp(-dt / 0.098), r * Math.exp(-dt / 0.035)];
+  // How an afterglow cools: an extra fade time in seconds for red, green and
+  // blue, on top of the afterglow time. Infinity adds none. The default lets
+  // green and blue go first, so fading candlelight shifts warm.
+  const WARM = [Infinity, 0.098, 0.035];
+  // A scene's `cooling`, or the default when it is not three positive numbers.
+  function cooling(value) {
+    const good = Array.isArray(value) && value.length === 3 && value.every((v) => typeof v === 'number' && v > 0);
+    return (good ? value : WARM).slice();
+  }
+
+  // Per-channel survival fraction of the afterglow over dt seconds.
+  function decay(dt, T, cool) {
+    const r = Math.exp(-dt / T), c = cool || WARM;
+    return [r * Math.exp(-dt / c[0]), r * Math.exp(-dt / c[1]), r * Math.exp(-dt / c[2])];
   }
 
   // Smallest whole multiplier n >= 1 with canvasHeight * n >= 520.
@@ -89,10 +98,10 @@
   // tone-maps to the canvas. Light is written with alpha 0 throughout.
 
   const api = {
-    createEnvelope, fitDistance, afterglowTime, decay, renderScale, viewOffset,
+    createEnvelope, follow, fall, fitDistance, afterglowTime, decay, cooling, renderScale, viewOffset,
     testLevel: null,          // test hook: a number here replaces the mic level
     outputMode: 'added',      // or 'premultiplied' (an owner's decision, never automatic)
-    readLevel, create, debug,
+    readLevel, create, factory, debug,
   };
 
   const DEFAULT_PLACEMENT = { x: 0, y: 0, size: 100 };
@@ -143,10 +152,32 @@
     return 0;
   }
 
+  // The texture upload flags, back to WebGL's defaults. three.js sets them per upload and
+  // never puts them back; a renderer built while the flip flag is on raises a GL error.
+  function resetUploadFlags(gl) {
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.BROWSER_DEFAULT_WEBGL);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    gl.pixelStorei(gl.PACK_ALIGNMENT, 4);
+  }
+
+  // What three.js r160 asks of a context for { alpha: true, antialias: true }. The first
+  // getContext() on a canvas fixes its attributes, so the kit asks for exactly these.
+  const CONTEXT = {
+    alpha: true, depth: true, stencil: true, antialias: true, premultipliedAlpha: true,
+    preserveDrawingBuffer: false, powerPreference: 'default', failIfMajorPerformanceCaveat: false,
+  };
+
   function getRenderer() {
     if (renderer) return renderer;
     let r;
-    try { r = new THREE.WebGLRenderer({ canvas: canvas3d, alpha: true, antialias: true }); } catch (e) { return null; }
+    try {
+      // An older effect may have left the upload flags set on this canvas's context.
+      const gl = canvas3d.getContext('webgl2', CONTEXT);
+      if (gl) resetUploadFlags(gl);
+      r = new THREE.WebGLRenderer({ canvas: canvas3d, alpha: true, antialias: true });
+    } catch (e) { return null; }
     r.setPixelRatio(1);
     r.setClearColor(0x000000, 0);
     r.autoClear = false;
@@ -198,6 +229,7 @@
     const view = { w: 0, h: 0, scale: 0 };   // canvas client size and internal scale, as last reconciled
     let targets = null;       // { w, h, scene, prev, next }
     let dirty = true, disposed = false, afterglowT = afterglowTime(100);
+    const cool = cooling(def.cooling);
 
     const k = {
       THREE, scene, camera,
@@ -323,8 +355,8 @@
 
         // 3: afterglow, previous output -> next.
         afterglowT = afterglowTime(cfgEffectBgOpacity * 100);
-        const cool = decay(dt, afterglowT);
-        afterglowMat.uniforms.uCool.value.set(cool[0], cool[1], cool[2]);
+        const fade = decay(dt, afterglowT, cool);
+        afterglowMat.uniforms.uCool.value.set(fade[0], fade[1], fade[2]);
         afterglowMat.uniforms.uCur.value = targets.scene.texture;
         afterglowMat.uniforms.uPrev.value = targets.prev.texture;
         quad.material = afterglowMat;
@@ -346,9 +378,21 @@
         disposed = true;
         try {
           // Lights own their shadow maps; instanced meshes own their instance buffers.
+          // Whatever is in the scene is the scene's, kept or not: its geometries, its
+          // materials and the textures they hold (as properties or as uniforms).
           // Something kept with no dispose() (a Group, say) holds nothing to free.
           const owned = new Set(kept);
-          scene.traverse((o) => { if (o.isLight || o.isInstancedMesh) owned.add(o); });
+          const takeMaterial = (m) => {
+            if (!m) return;
+            owned.add(m);
+            for (const key in m) { const v = m[key]; if (v && v.isTexture) owned.add(v); }
+            if (m.uniforms) for (const key in m.uniforms) { const v = m.uniforms[key] && m.uniforms[key].value; if (v && v.isTexture) owned.add(v); }
+          };
+          scene.traverse((o) => {
+            if (o.isLight || o.isInstancedMesh) owned.add(o);
+            if (o.geometry) owned.add(o.geometry);
+            if (Array.isArray(o.material)) o.material.forEach(takeMaterial); else takeMaterial(o.material);
+          });
           for (const o of owned) if (typeof o.dispose === 'function') o.dispose();
           disposeTargets();
         } finally {
@@ -357,12 +401,7 @@
           r.resetState();
           // resetState() leaves the upload flags as the last texture set them; a
           // renderer built next on this canvas then fails texImage3D (FLIP_Y on).
-          const gl = r.getContext();
-          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-          gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-          gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.BROWSER_DEFAULT_WEBGL);
-          gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
-          gl.pixelStorei(gl.PACK_ALIGNMENT, 4);
+          resetUploadFlags(r.getContext());
           if (active === internals) active = null;
         }
       },
@@ -380,6 +419,21 @@
     reconcile();
     active = internals;
     return handle;
+  }
+
+  // The effect factory for a scene: `VIZ_FACTORIES[id] = TimbreScene.factory(definition)`,
+  // where definition() returns a fresh scene definition. Every method is safe
+  // when there is no scene (no three.js, no WebGL, or a build() that threw).
+  function factory(definition) {
+    return function () {
+      let scene = null;
+      return {
+        start() { scene = create(definition()); },
+        stop() { if (scene) scene.dispose(); scene = null; },
+        onResize() { if (scene) scene.resize(); },
+        draw(now, dt) { if (scene) scene.draw(now, dt); },
+      };
+    };
   }
 
   // Test and DevTools view of the live scene, or null when none is running.
