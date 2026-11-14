@@ -100,7 +100,7 @@
       const c = spec.canton.color;
       ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
       ctx.fillRect(0, 0, w * spec.canton.width, h * spec.canton.height);
-      ctx.fillStyle = 'rgb(255,255,255)';
+      ctx.fillStyle = `rgb(${WHITE[0]},${WHITE[1]},${WHITE[2]})`;   // the stars are the white of the stripes
       fillStars(ctx, w, h, spec.canton);
     }
   }
@@ -118,7 +118,8 @@
   // step(level, dt) takes the level now; byAge[i] is the level i samples ago, gliding between
   // samples so that a wave moves smoothly and at the same speed at any frame rate. A sample
   // that falls inside a frame holds the level at its own moment, between the last frame's
-  // level and this one's, so a long frame does not write the same value twice.
+  // level and this one's, so a long frame does not write the same value twice. A frame longer
+  // than the whole history keeps the newest of it.
   function createHistory() {
     const ring = new Float32Array(HIST), byAge = new Float32Array(HIST);
     let ringAt = 0, since = 0, last = 0;
@@ -129,13 +130,14 @@
         level = clamp01(Number.isFinite(level) ? level : 0);
         dt = Number.isFinite(dt) && dt > 0 ? dt : 0;
         since += dt;
-        for (let i = 0; since >= 1 / HIST_HZ && i < HIST; i++) {
+        const beyond = Math.floor(since * HIST_HZ) - HIST;   // whole samples older than the history holds
+        if (beyond > 0) since -= beyond / HIST_HZ;
+        while (since >= 1 / HIST_HZ) {
           since -= 1 / HIST_HZ;
           const w = dt > 0 ? clamp01(1 - since / dt) : 1;
           ringAt = (ringAt + 1) % HIST;
           ring[ringAt] = last + (level - last) * w;
         }
-        if (since >= 1 / HIST_HZ) since = 0;   // a frame longer than the whole history
         last = level;
         const frac = since * HIST_HZ;
         for (let i = 0; i < HIST; i++) {
@@ -185,14 +187,16 @@
   //   p = { length, fly, droop, phase, t, gust, low, high, kick }
   // The cloth keeps its length: each step along a row is the same size, its drop comes from
   // the droop, its depth from the ripple (at most 85% of what is left), and the rest goes
-  // sideways. So a ripple shortens the flag's reach instead of stretching it.
+  // sideways. So a ripple shortens the flag's reach instead of stretching it. Every row droops
+  // alike and the ripples slant only a little from row to row, so the cloth keeps its height
+  // too, to within 2%.
   function shape(out, p) {
     const ds = p.length / NU, fly = clamp01(p.fly);
     const ripple = (i, v) => {
       const u = i / NU, ramp = Math.min(1, u * 3) * (0.35 + 0.65 * u);   // nothing moves at the pole
       const A = (0.07 + 0.32 * p.gust[i] + 0.12 * p.low + 0.2 * p.kick) * ramp * (0.3 + 0.7 * fly);
-      return A * (Math.sin(TURN * 1.35 * u - p.phase + 0.7 * v) + 0.45 * Math.sin(TURN * 3.1 * u - 1.8 * p.phase + 1.3 - 1.1 * v))
-        + 0.05 * p.high * u * u * u * Math.sin(TURN * 7 * u - 3.3 * p.phase + 2 * v)                     // flutter at the free end
+      return A * (Math.sin(TURN * 1.35 * u - p.phase + 0.35 * v) + 0.45 * Math.sin(TURN * 3.1 * u - 1.8 * p.phase + 1.3 - 0.55 * v))
+        + 0.05 * p.high * u * u * u * Math.sin(TURN * 7 * u - 3.3 * p.phase + v)                         // flutter at the free end
         + (1 - fly) * 0.17 * ramp * Math.sin(TURN * 2.6 * u + 0.6 * Math.sin(0.7 * p.t) + 0.5 * v);      // a hanging flag's folds
     };
     for (let j = 0; j <= NV; j++) {
@@ -201,7 +205,7 @@
       for (let i = 0; i <= NU; i++) {
         if (i > 0) {
           const q = Math.min(1, ((i - 0.5) / NU) * 2.2), ease = q * q * (3 - 2 * q);
-          const angle = p.droop * ease * (0.9 + 0.2 * v);   // the lower edge hangs a little further
+          const angle = p.droop * ease;
           const flat = ds * Math.cos(angle), zNow = ripple(i, v);
           const dz = Math.max(-0.85 * flat, Math.min(0.85 * flat, zNow - zWas));
           x += Math.sqrt(flat * flat - dz * dz); y -= ds * Math.sin(angle); z += dz; zWas = zNow;
@@ -214,7 +218,7 @@
   }
 
   // What the checks and the scene read off a cloth: where the free end's top corner is, the
-  // lowest point, and the deepest ripple.
+  // lowest point (y), and the deepest ripple.
   function measure(positions) {
     let lowest = 0, ripple = 0;
     for (let o = 0; o < positions.length; o += 3) {
@@ -222,15 +226,19 @@
       const d = Math.abs(positions[o + 2]);
       if (d > ripple) ripple = d;
     }
-    return { endX: positions[NU * 3], endY: positions[NU * 3 + 1], lowest, ripple };
+    return { endX: positions[NU * 3], endY: positions[NU * 3 + 1], endZ: positions[NU * 3 + 2], lowest, ripple };
   }
 
   // ── The scene ───────────────────────────────────────────────────────────────
   // Everything below runs only when a scene is built: THREE, TimbreScene, document and the
   // core.js audio and config globals are looked up then, never at load.
   const HEARTS = 56;             // at most this many hearts in the air
-  const PER_BURST = 80, BURSTS = 3;
+  const PER_BURST = 80;
   const BURST_GAP_MS = 380;      // a beat sets off a burst no more often than this
+  const SPARK_LIFE = 1.7;        // a spark burns for at most this long, in seconds
+  // Spark slots are used in turn. Enough of them that a slot's last sparks have burned out
+  // before a burst comes round to it again.
+  const BURSTS = Math.ceil((SPARK_LIFE * 1000) / BURST_GAP_MS) + 1;
   const IDLE_BURST_MS = 3200;    // with the mic off, a burst this often
 
   // The scene definition for one of the five flag effects, for TimbreScene.factory().
@@ -245,7 +253,7 @@
     const cloth = { length, fly: 0, droop: 0, phase: 0, t: 0, gust, low: 0, high: 0, kick: 0 };
     const hearts = [], sparks = [];
     const s = { wind: 0, fly: 0, droop: 0, kick: 0, low: 0, high: 0, orbit: 0, phase: 0, stripes: spec.stripes.length,
-      hearts: 0, heartsMade: 0, heartFrom: 1, sparks: 0, bursts: 0, flash: 0, shine: 0 };
+      hearts: 0, heartsMade: 0, heartFrom: 1, sparks: 0, sparksCut: 0, bursts: 0, flash: 0, shine: 0 };
     let THREE = null, flag = null, flagGroup = null, canvas = null, texture = null, painted = false;
     let heartMesh = null, sparkPoints = null, flash = null, dummy = null, point = null, colour = null;
     let yaw = 0.3, heartDue = 0, lastBurst = null, burstAt = 0;
@@ -333,7 +341,7 @@
       }
       if (spec.sparks) {
         const N = PER_BURST * BURSTS;
-        for (let i = 0; i < N; i++) sparks.push({ on: false, vx: 0, vy: 0, vz: 0, age: 0, life: 1, c: spec.sparks[0] });
+        for (let i = 0; i < N; i++) sparks.push({ on: false, vx: 0, vy: 0, vz: 0, age: 0, life: 1, c: [0, 0, 0] });
         const geo = k.keep(new THREE.BufferGeometry());
         geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3));
         geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(N * 3), 3));
@@ -349,7 +357,8 @@
     // Hearts peel off the free half of the cloth and blow away downwind. One in the air
     // always finishes its flight; the setting only says how many set off.
     function updateHearts(audio, t, dt) {
-      heartDue += ((0.6 + 8 * audio.flame) * dt + (audio.beat ? 6 : 0)) * knob('heartRate') / 50;
+      const rate = knob('heartRate') / 50;
+      heartDue = rate > 0 ? heartDue + ((0.6 + 8 * audio.flame) * dt + (audio.beat ? 6 : 0)) * rate : 0;   // at 0, none waiting either
       const positions = flag.geometry.attributes.position;
       let live = 0;
       for (let i = 0; i < HEARTS; i++) {
@@ -402,16 +411,19 @@
         lastBurst = now;
         const cx = -1.4 + 3.6 * Math.random(), cy = 2.7 + 2.0 * Math.random(), cz = -1.5 - 0.9 * Math.random();
         const c = spec.sparks[Math.floor(Math.random() * spec.sparks.length)];
+        colour.setRGB(c[0] / 255, c[1] / 255, c[2] / 255, THREE.SRGBColorSpace);
+        const tintOf = [colour.r, colour.g, colour.b];   // what the colour buffer wants: linear
         for (let n = 0; n < PER_BURST; n++) {
           const i = burstAt * PER_BURST + n, sp = sparks[i];
           const up = 2 * Math.random() - 1, round = TURN * Math.random(), flat = Math.sqrt(1 - up * up), speed = 1.2 + Math.random();
-          sp.on = true; sp.age = 0; sp.life = 1.0 + 0.7 * Math.random(); sp.c = c;
+          if (sp.on) s.sparksCut++;   // never, with enough slots
+          sp.on = true; sp.age = 0; sp.life = 1.0 + (SPARK_LIFE - 1.0) * Math.random(); sp.c = tintOf;
           sp.vx = flat * Math.cos(round) * speed; sp.vy = flat * Math.sin(round) * speed; sp.vz = up * speed * 0.5;
           position.setXYZ(i, cx, cy, cz);
         }
         burstAt = (burstAt + 1) % BURSTS;
         flash.position.set(cx, cy, cz);
-        flash.color.setRGB(c[0] / 255, c[1] / 255, c[2] / 255, THREE.SRGBColorSpace);
+        flash.color.copy(colour);
         s.flash = 1;
         s.bursts++;
       }
@@ -432,7 +444,7 @@
             live++;
           }
         }
-        tint.setXYZ(i, (sp.c[0] / 255) * b, (sp.c[1] / 255) * b, (sp.c[2] / 255) * b);
+        tint.setXYZ(i, sp.c[0] * b, sp.c[1] * b, sp.c[2] * b);
       }
       position.needsUpdate = true; tint.needsUpdate = true;
       s.sparks = live;
@@ -445,7 +457,7 @@
       // The voice is the wind. The setting scales how hard it blows.
       const drive = knob('wind') / 50, blow = Math.min(1, audio.flame * drive);
       s.wind = follow(s.wind, blow, blow > s.wind ? 5 : 0.7, dt);   // the flag lifts quickly and sinks slowly
-      s.kick = audio.kick * Math.min(1, drive);
+      s.kick = audio.kick * Math.min(1, drive);   // at Wind 0 a beat does not snap the cloth
       let low = 0, high = 0;
       if (micActive && frequencies && frequencies.length >= 32) {
         for (let i = 0; i < 4; i++) low += frequencies[i];
@@ -464,7 +476,8 @@
       yaw = 0.3 + 0.2 * Math.sin(0.23 * t) + 0.08 * Math.sin(0.71 * t + 1);
       flagGroup.rotation.y = -yaw;   // the wind blows to the right and a little toward the viewer
       cloth.fly = s.fly; cloth.droop = s.droop; cloth.phase = s.phase; cloth.t = t;
-      cloth.low = s.low; cloth.high = s.high; cloth.kick = s.kick;
+      const calm = Math.min(1, drive);   // below the default, Wind also stills what the tone does to the cloth
+      cloth.low = s.low * calm; cloth.high = s.high * calm; cloth.kick = s.kick;
       const positions = flag.geometry.attributes.position;
       shape(positions.array, cloth);
       positions.needsUpdate = true;
@@ -481,8 +494,8 @@
       s.stripes = stripesOf(spec, eight).length;
 
       if (heartMesh) updateHearts(audio, t, dt);
-      if (sparkPoints) {
-        updateSparks(audio, now, dt);
+      if (sparkPoints) updateSparks(audio, now, dt);
+      if (spec.canton) {
         s.shine = Math.min(2, s.high * knob('starTwinkle') / 50);   // the stars shine with the high end
         flag.material.emissiveIntensity = 1.1 * s.shine;
       }
@@ -506,8 +519,27 @@
             heartColors.push([Math.round(c.r * 255), Math.round(c.g * 255), Math.round(c.b * 255)]);
           });
         }
-        const at = flag ? measure(flag.geometry.attributes.position.array) : { endX: 0, endY: 0, lowest: 0, ripple: 0 };
-        return Object.assign({ hist: Array.from(history.byAge), heartColors }, at, s);
+        // Each live spark's colour as the buffer holds it, with its dimming taken back out.
+        const sparkTints = [];
+        if (sparkPoints) {
+          const tint = sparkPoints.geometry.attributes.color, c = { r: 0, g: 0, b: 0 };
+          sparks.forEach((sp, i) => {
+            if (!sp.on) return;
+            const b = 2.4 * Math.pow(1 - sp.age / sp.life, 1.5);
+            colour.setRGB(tint.getX(i) / b, tint.getY(i) / b, tint.getZ(i) / b).getRGB(c, THREE.SRGBColorSpace);
+            sparkTints.push([Math.round(c.r * 255), Math.round(c.g * 255), Math.round(c.b * 255)]);
+          });
+        }
+        if (!flag) return Object.assign({ hist: Array.from(history.byAge) }, s);
+        const at = measure(flag.geometry.attributes.position.array);
+        flag.localToWorld(point.set(at.endX, at.endY, at.endZ));
+        return Object.assign({
+          hist: Array.from(history.byAge), gust: Array.from(gust), heartColors, sparkTints,
+          cloth: { fly: cloth.fly, droop: cloth.droop, low: cloth.low, high: cloth.high, kick: cloth.kick },   // what the cloth was last handed
+          glow: flag.material.emissiveIntensity,
+          groundClear: flagGroup.position.y + at.lowest,   // the lowest point's height above the ground
+          endWorld: [point.x, point.y, point.z],            // the free end's top corner, in the world
+        }, at, s);
       },
     };
   }

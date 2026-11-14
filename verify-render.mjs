@@ -680,8 +680,9 @@ async function main() {
 
     const SKY_QUIET = 7500000;
     // Flags: thresholds are 60% of what the scenes give: about 109,000 solid pixels (the flag, pole,
-    // base and hearts), 118,000 pixels of light on the ground, and 12,300 dark pixels in the black stripe.
-    const SOLID_FLAG = 65000, LIGHT_POOL = 70000, DARK_STRIPE = 7000;
+    // base and hearts), 118,000 pixels of light on the ground, 12,300 dark pixels in the black stripe,
+    // and 26,800 unlit pixels inside the pool of light (the shadows).
+    const SOLID_FLAG = 65000, LIGHT_POOL = 70000, DARK_STRIPE = 7000, SHADOW_HOLES = 16000;
     await activate('winter-aurora');
     const wa0 = await sceneState();
     check('winter aurora is a kit scene on the WebGL canvas', !!wa0 && wa0.active === true && wa0.targetSize[0] === 1728 && wa0.targetSize[1] === 624, JSON.stringify(wa0 && wa0.targetSize));
@@ -797,12 +798,18 @@ async function main() {
         for (const st of steps) {
           TimbreScene.testLevel = st.level;
           micActive = !st.idle;
+          if (st.knobs) Object.assign(perViz[id], st.knobs);
           if (st.low !== undefined) { f.fill(Math.round(st.low * 255), 0, 4); f.fill(0, 4, 8); f.fill(Math.round(st.high * 255), 8, 32); frequencies = f; }
-          for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) { now += 1000 / fps; currentViz.draw(now, 1 / fps); }
+          const trace = st.trace ? [] : null;
+          for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) {
+            now += 1000 / fps; currentViz.draw(now, 1 / fps);
+            if (trace) { const q = window.__timbre.scene.state; trace.push([q.wind, q.kick, q.phase]); }
+          }
           const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
           gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);   // row 0 is the bottom of the canvas
           const tones = { red: [0, 0, 0], blue: [0, 0, 0], violet: [0, 0, 0], magenta: [0, 0, 0], dark: [0, 0, 0] };
-          let solid = 0, light = 0, lightSum = 0, edge = 0, empty = 0;
+          let solid = 0, light = 0, lightSum = 0, edge = 0, empty = 0, holes = 0;
+          const first = new Int32Array(h).fill(-1), last = new Int32Array(h).fill(-1);
           for (let i = 0; i < px.length; i += 4) {
             const x = (i / 4) % w, y = Math.floor(i / 4 / w), r = px[i], g = px[i + 1], b = px[i + 2], a = px[i + 3], rgb = r + g + b;
             if (a > 250) {
@@ -818,12 +825,19 @@ async function main() {
             } else if (a < 5 && rgb > 12) {
               light++; lightSum += rgb;
               if (x < 4 || y < 4 || x >= w - 4 || y >= h - 4) edge++;
+              if (first[y] < 0) first[y] = x;
+              last[y] = x;
             }
             if (a === 0 && rgb === 0) empty++;
           }
+          // Holes: unlit, see-through pixels with light on both sides of them in their row. Shadows on the ground.
+          for (let i = 0; i < px.length; i += 4) {
+            const x = (i / 4) % w, y = Math.floor(i / 4 / w);
+            if (px[i + 3] < 5 && px[i] + px[i + 1] + px[i + 2] <= 12 && x > first[y] && x < last[y]) holes++;
+          }
           for (const k of Object.keys(tones)) { const t = tones[k]; tones[k] = { n: t[0], x: t[0] ? t[1] / t[0] : 0, y: t[0] ? t[2] / t[0] : 0 }; }
           const s = window.__timbre.scene;
-          out.push({ state: (s && s.state) || {}, textures: s ? s.memory.textures : -1, solid, light, lightSum, edge, empty: empty / (w * h), cornerAlpha: px[3], tones });
+          out.push({ state: (s && s.state) || {}, textures: s ? s.memory.textures : -1, solid, light, lightSum, edge, empty: empty / (w * h), cornerAlpha: px[3], tones, holes, trace });
         }
         return out;
       } finally {
@@ -843,6 +857,7 @@ async function main() {
       check(`${id} is a kit scene: a solid flag, light on the ground, a transparent corner`,
         !!st && st.active === true && st.targetSize[0] === 1728 && r.solid > SOLID_FLAG && r.light > LIGHT_POOL && r.cornerAlpha === 0 && r.edge === 0 && r.empty > 0.5 && r.state.fly > 0.95,
         JSON.stringify({ size: st && st.targetSize, solid: r.solid, light: r.light, corner: r.cornerAlpha, edge: r.edge, empty: r.empty, fly: r.state.fly }));
+      check(`${id} throws a shadow into its pool of light`, r.holes > SHADOW_HOLES, String(r.holes));
     }
 
     // The right way up, and the right way round.
@@ -931,6 +946,80 @@ async function main() {
       shine.state.high > 0.6 && shine.state.shine > 0.5 && dull.state.shine < 0.05 && noShine.state.shine === 0 && Math.abs(bright.state.shine - 2 * shine.state.shine) < 0.02,
       JSON.stringify([dull.state.shine, shine.state.shine, noShine.state.shine, bright.state.shine]));
 
+    // After the review.
+    // The cloth is handed what the sound gives: the beat, the gust where its age puts it, the tone.
+    check('flag: a beat reaches the cloth', beatNow.state.cloth && beatNow.state.cloth.kick === beatNow.state.kick && beatGone.state.cloth.kick === beatGone.state.kick, JSON.stringify(beatNow.state.cloth));
+    const gustPeak = (r) => { let at = -1, top = 0; (r.state.gust || []).forEach((v, i) => { if (v > top) { top = v; at = i; } }); return at; };
+    check('flag: the gust sits on the cloth where its age puts it, a quarter then three quarters of the way along',
+      (gSoon.state.gust || []).length === 57 && Math.abs(gustPeak(gSoon) - 15) <= 3 && Math.abs(gustPeak(gLater) - 45) <= 3, JSON.stringify([gustPeak(gSoon), gustPeak(gLater)]));
+    // The ripples' phase advances by 1.6 + 6.5 x wind + 4 x kick a second, frame by frame.
+    const [, traced] = await flagRun(RAINBOW, [{ level: 0.05, secs: 1 }, { level: 0.9, secs: 1.5, trace: true }]);
+    const rule = (traced.trace || []).slice(1).map((f, i) => Math.abs((f[2] - traced.trace[i][2]) - (1.6 + 6.5 * f[0] + 4 * f[1]) / 60));
+    check('flag: the ripples run faster with the wind and faster still on a beat', rule.length === 89 && Math.max(...rule) < 1e-9 && traced.trace.some((f) => f[1] > 0.7) && traced.trace[89][0] > 0.5,
+      JSON.stringify({ frames: rule.length, worst: rule.length ? Math.max(...rule) : null }));
+    const [slow] = await flagRun(RAINBOW, [{ level: 0, secs: 2 }]), [fast] = await flagRun(RAINBOW, [{ level: 0.8, secs: 2 }]);
+    check('flag: in silence the ripples still run, slowly', slow.state.phase > 3 && slow.state.phase < 3.4 && fast.state.phase > 3 * slow.state.phase, JSON.stringify([slow.state.phase, fast.state.phase]));
+    // It lifts quickly and sinks slowly: half a second into a pause it is still flying.
+    const [, lull] = await flagRun(RAINBOW, [{ level: 0.8, secs: 2 }, { level: 0, secs: 0.5 }]);
+    check('flag: it does not drop between words', lull.state.wind > 0.55 && lull.state.fly > 0.9, JSON.stringify([lull.state.wind, lull.state.fly]));
+    // Where it is in the world: clear of the ground, flying to the right and toward the viewer.
+    check('flag: it stands clear of the ground and flies to the right, toward the viewer', rbQuiet.state.groundClear > 0.3 && rbQuiet.state.groundClear < 1.2 && rbTalk.state.groundClear > 2
+      && rbTalk.state.endWorld[0] > -2.5 + 2.5 && rbTalk.state.endWorld[2] > 0.3 && Math.abs(rbTalk.state.endWorld[1] - (4.75 + rbTalk.state.endY)) < 1e-6,
+      JSON.stringify({ clear: [rbQuiet.state.groundClear, rbTalk.state.groundClear], end: rbTalk.state.endWorld }));
+    const [quiet1, quiet2, quiet3] = await flagRun(RAINBOW, [{ level: 0, secs: 2.5 }, { level: 0, secs: 0.7 }, { level: 0, secs: 0.7 }]);
+    const zs = [quiet1, quiet2, quiet3].map((r) => r.state.endZ);   // in the cloth's own frame: the slow turn about the pole does not count
+    check('flag: in silence its folds keep moving', Math.max(...zs) - Math.min(...zs) > 0.005, JSON.stringify(zs));
+    // Wind 0: the tone of the sound must not move it either.
+    const still0 = [{ level: 0, secs: 2 }], toned0 = [{ level: 0.8, secs: 2, low: 0.9, high: 0.9 }];
+    const [w0] = await flagRun(RAINBOW, still0, { knobs: { wind: 0 } }), [w0Tone] = await flagRun(RAINBOW, toned0, { knobs: { wind: 0 } }), [w50Tone] = await flagRun(RAINBOW, toned0);
+    check('flag: Wind 0 keeps the tone of the sound off the cloth too', w0Tone.state.high > 0.6 && w0Tone.state.cloth.low === 0 && w0Tone.state.cloth.high === 0 && Math.abs(w0Tone.state.ripple - w0.state.ripple) < 1e-9
+      && w50Tone.state.cloth.high === w50Tone.state.high && w50Tone.state.cloth.low === w50Tone.state.low && w50Tone.state.cloth.low > 0.6,
+      JSON.stringify({ wind0: [w0.state.ripple, w0Tone.state.ripple, w0Tone.state.cloth], wind50: w50Tone.state.cloth }));
+    // Heart rate turned to 0 while every heart is in the air: none sets off afterwards.
+    const syllables = (n, extra) => Array.from({ length: n }, (_, i) => Object.assign({ level: i % 2 ? 0.9 : 0.05, secs: 0.2 }, extra));
+    const crowd = await flagRun(RAINBOW, [...syllables(30), { level: 0.9, secs: 0.2, knobs: { heartRate: 0 } }, ...syllables(20)], { knobs: { heartRate: 100 } });
+    check('flag: turning Heart rate to 0 stops hearts at once, even with every heart in the air', crowd[29].state.hearts >= 54 && crowd[30].state.heartsMade === crowd[29].state.heartsMade
+      && crowd[50].state.heartsMade === crowd[29].state.heartsMade && crowd[50].state.hearts < 20, JSON.stringify([crowd[29].state.hearts, crowd[29].state.heartsMade, crowd[30].state.heartsMade, crowd[50].state.heartsMade, crowd[50].state.hearts]));
+    check('rainbow flag: the cloth keeps a little of its own colour in the shade', rbLoud.state.glow === 0.14, String(rbLoud.state.glow));
+
+    // Fireworks: a spark in the air burns out where it is; a new burst never takes it.
+    const volley = await flagRun(JULY, syllables(16), { knobs: { burstChance: 100 } });
+    const last = volley[15].state;
+    check('fourth of july flag: bursts one after another never cut a spark off in mid-air', last.bursts >= 6 && last.sparksCut === 0 && volley.some((r) => r.state.sparks > 160), JSON.stringify({ bursts: last.bursts, cut: last.sparksCut, most: Math.max(...volley.map((r) => r.state.sparks)) }));
+    check('fourth of july flag: a long loud note is two bursts, 0.38 s apart at the least', after.state.bursts === 2, String(after.state.bursts));
+    const sparkPalette = [[255, 70, 84], [255, 255, 255], [96, 150, 255]];
+    check('fourth of july flag: sparks take the flag\'s spark colours', (bang.state.sparkTints || []).length === 80
+      && bang.state.sparkTints.every((c) => sparkPalette.some((p) => Math.abs(p[0] - c[0]) <= 1 && Math.abs(p[1] - c[1]) <= 1 && Math.abs(p[2] - c[2]) <= 1)), JSON.stringify((bang.state.sparkTints || []).slice(0, 3)));
+    check('fourth of july flag: the stars\' shine is the cloth\'s own glow', Math.abs(shine.state.glow - 1.1 * shine.state.shine) < 1e-9 && noShine.state.glow === 0 && dull.state.glow < 0.06, JSON.stringify([dull.state.glow, shine.state.glow, noShine.state.glow]));
+
+    // A flag's parts are separate: stars shine without fireworks, and fireworks do not make a flag glow.
+    const parts = await wide.evaluate(() => {
+      const saved = { frequencies, micActive }, f = new Uint8Array(32).fill(230);
+      const run = (id, spec) => {
+        TimbreFlag.FLAGS[id] = spec;
+        let scene = null;
+        try {
+          scene = TimbreScene.create(TimbreFlag.definition(id));
+          if (!scene) return null;
+          let now = 200000;
+          for (let i = 0; i < 120; i++) { now += 1000 / 60; scene.draw(now, 1 / 60); }
+          const st = TimbreScene.debug().state;
+          return { shine: st.shine, glow: st.glow, sparks: st.sparks, hearts: st.hearts, stripes: st.stripes };
+        } finally { if (scene) scene.dispose(); delete TimbreFlag.FLAGS[id]; }
+      };
+      setActiveViz('pride-ribbon'); currentViz.stop();   // the WebGL canvas stays showing, with no scene on it
+      try {
+        TimbreScene.testLevel = 0.7; frequencies = f; micActive = true;
+        return {
+          union: run('test-union', { aspect: 1.5, stripes: [[10, 20, 30, 1]], canton: { width: 0.4, height: 0.5, color: [0, 0, 90] } }),
+          sparks: run('test-sparks', { aspect: 1.5, stripes: [[200, 20, 30, 1], [20, 20, 200, 1]], sparks: [[255, 255, 255]] }),
+        };
+      } finally { TimbreScene.testLevel = null; frequencies = saved.frequencies; micActive = saved.micActive; setActiveViz('visualizer'); }
+    });
+    check('a flag with a union and no fireworks still has stars that shine; one with fireworks and no union keeps its plain glow',
+      !!parts.union && !!parts.sparks && parts.union.shine > 0.5 && Math.abs(parts.union.glow - 1.1 * parts.union.shine) < 1e-9 && parts.union.sparks === 0 && parts.union.hearts === 0
+      && parts.sparks.glow === 0.14 && parts.sparks.shine === 0 && parts.sparks.stripes === 2, JSON.stringify(parts));
+
     // Camera drift, placement, cost.
     const [still] = await flagRun(RAINBOW, talk, { knobs: { cameraDrift: 0 } }), [drift] = await flagRun(RAINBOW, talk, { knobs: { cameraDrift: 100 } });
     check('flag: Camera drift 0 holds the camera still; 100 doubles the swing', still.state.orbit === 0 && Math.abs(rbLoud.state.orbit) > 0.005 && Math.abs(drift.state.orbit - 2 * rbLoud.state.orbit) < 1e-9, JSON.stringify([still.state.orbit, rbLoud.state.orbit, drift.state.orbit]));
@@ -978,8 +1067,9 @@ async function main() {
       } finally { gl.createTexture = create; gl.deleteTexture = del; }
       return out;
     }, T.VIZ_SCENES);
+    const TEXTURES = { 'thanksgiving-harvest': 9, 'winter-aurora': 8, 'pride-ribbon': 5, 'bi-pride-ribbon': 5, 'ace-pride-ribbon': 5, 'trans-pride-ribbon': 5, 'july-fourth-stripes': 7 };
     check('a scene deletes every GL texture it made, whichever scene ran before it',
-      Object.values(texturesLeft).every(([made, left]) => made > 3 && left === 0), JSON.stringify(texturesLeft));
+      Object.keys(texturesLeft).length === T.VIZ_SCENES.length ** 2 && Object.entries(texturesLeft).every(([pair, [made, left]]) => made >= TEXTURES[pair.split(' then ')[1]] && left === 0), JSON.stringify(texturesLeft));
 
     // The guard drops a caster's textures from the shadow only where they do not shape it, and an
     // object's own onBeforeShadow still runs (after the guard).

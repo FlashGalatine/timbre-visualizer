@@ -79,7 +79,8 @@ its colour, so a moving shadow leaves no warm fringe.
 The cloth keeps its length. Each row is laid out column by column: the step along the
 cloth is fixed, its drop comes from the droop, its depth from the ripple (limited to 85% of
 what is left), and the rest goes sideways. So a ripple shortens the flag's reach instead of
-stretching it.
+stretching it. Every row droops alike and the ripples slant only a little from row to row,
+so the cloth keeps its height too, to within 2%.
 
 ## Each flag
 
@@ -101,13 +102,17 @@ id ("Pride ribbon"); a small table of display names (`VIZ_LABELS` in
   palettes) peel off the free half of the cloth and blow away downwind, rising, turning and
   shrinking away at the end of a flight of 2.4 to 4 seconds. How many: `0.6 + 8 × flame` a
   second, and six more on a beat, all times Heart rate / 50. At most 56 at once. A heart in
-  the air always finishes its flight.
+  the air always finishes its flight. At Heart rate 0 none sets off, at once: hearts that
+  were waiting for a free place are dropped.
 - **Fireworks** (Fourth of July). On a beat, with a chance of `Burst chance / 100 × 1.4`
   (never more often than every 0.38 s), a burst of 80 sparks goes off behind the flag in
   red, white or blue, with a flash that lights the back of the flag and the ground. Sparks
-  are added light; their trails are the kit's afterglow. With the mic off and Idle
-  animation on, a burst goes off every 3.2 s. The stars on the flag shine with the high end
-  of the sound, scaled by Star twinkle / 50.
+  are added light; their trails are the kit's afterglow. A spark burns for at most 1.7 s
+  and always burns out where it is: there are enough spark slots (five bursts' worth) that
+  a new burst never takes one still in the air. With the mic off and Idle animation on, a
+  burst goes off every 3.2 s, unless Burst chance is 0. The stars on the flag shine with the
+  high end of the sound, scaled by Star twinkle / 50; they shine because the flag has a
+  union, not because it has fireworks.
 
 ## Settings
 
@@ -118,7 +123,9 @@ id ("Pride ribbon"); a small table of display names (`VIZ_LABELS` in
 | `july-fourth-stripes` | `wind` 50, `starTwinkle` 50, `burstChance` 50, `cameraDrift` 50 |
 
 - `wind`: how strongly the voice drives the flag. 0: the flag hangs and sways whatever the
-  sound. 100: it lifts at half the loudness.
+  sound (no lift, no gusts, no snap on a beat, and the tone of the sound does not move the
+  cloth either). 100: it lifts at half the loudness. Below 50 it also scales down the snap
+  and what the tone does.
 - `heartRate`, `stripeStyle`, `starTwinkle`, `burstChance` keep their ids, so saved values
   carry over. `ribbonAmplitude` and `stripeAmplitude` are retired; `wind` replaces them.
 - `cameraDrift`: the slow swing of the camera, as in the other scenes. 0 holds it still.
@@ -150,5 +157,9 @@ pinned above, judged from stills.
   over a blue sky.
 - The voice history is a second copy of the scheme Winter Aurora uses. A kit helper is
   owed when the next scene needs it; Winter Aurora is not touched here.
-- The stars shine together, not one by one.
+- The stars shine together, not one by one. They are painted in the white of the stripes
+  (248, 248, 250), where the old effect's pixel stars were a warm white.
+- A frame longer than the whole voice history skips the samples the history could not hold.
+  The skip only saves work, so no check can tell it is there. The page never sends such a
+  frame: core.js caps a frame at 0.1 s.
 - The cloth's normals are recomputed on the CPU every frame (about 1,300 points).

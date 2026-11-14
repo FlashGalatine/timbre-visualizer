@@ -436,15 +436,16 @@ kit scene. Each of the five effect files in `factories/` is one line,
 - **The cloth.** `shape(out, p)` writes the cloth's points for
   `p = { length, fly, droop, phase, t, gust, low, high, kick }`: rows top to bottom, columns
   from the pole to the free end, origin at the top corner by the pole. The cloth keeps its
-  length, so a ripple shortens its reach instead of stretching it, and the edge at the pole
-  never moves. `measure(positions)` reads off the free end's corner, the lowest point and
-  the deepest ripple.
+  length, so a ripple shortens its reach instead of stretching it; it keeps its height to
+  within 2%; and the edge at the pole never moves. `measure(positions)` reads off the free
+  end's corner, the lowest point and the deepest ripple.
 - **The scene.** `definition(id)` returns the kit scene definition: the pole and base, the
   lamp, the cloth, and the hearts or the fireworks.
 
 To add a flag: an entry in `FLAGS`, a one-line factory file, and the usual registration as a
 kit scene. A flag with `hearts` sheds hearts in those colours; one with `sparks` has
-fireworks in those colours; one with a `canton` gets the union and its stars.
+fireworks in those colours; one with a `canton` gets the union and its stars, which shine
+with the high end of the sound. The three are independent.
 
 All its timing comes from `dt`. The arithmetic touches nothing at load, and the file must stay
 loadable under Node, because `npm run verify` imports it; the scene looks up `THREE`,
