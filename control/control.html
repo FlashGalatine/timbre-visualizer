@@ -185,7 +185,7 @@
   for (const name of T.ACTIVE_VIZ_NAMES) {
     const opt = document.createElement('option');
     opt.value = name;
-    opt.textContent = nice(name.replace(/-/g, ' '));
+    opt.textContent = T.VIZ_LABELS[name] || nice(name.replace(/-/g, ' '));
     vizSel.appendChild(opt);
   }
   vizSel.value = cfg.activeViz;

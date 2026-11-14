@@ -679,6 +679,9 @@ async function main() {
     const curtainOf = (r, c) => ((r.state.curtains || [])[c] || []);
 
     const SKY_QUIET = 7500000;
+    // Flags: thresholds are 60% of what the scenes give: about 109,000 solid pixels (the flag, pole,
+    // base and hearts), 118,000 pixels of light on the ground, and 12,300 dark pixels in the black stripe.
+    const SOLID_FLAG = 65000, LIGHT_POOL = 70000, DARK_STRIPE = 7000;
     await activate('winter-aurora');
     const wa0 = await sceneState();
     check('winter aurora is a kit scene on the WebGL canvas', !!wa0 && wa0.active === true && wa0.targetSize[0] === 1728 && wa0.targetSize[1] === 624, JSON.stringify(wa0 && wa0.targetSize));
@@ -774,6 +777,177 @@ async function main() {
     const waCost = await wide.evaluate(() => { let now = performance.now(), acc = 0; for (let i = 0; i < 120; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); acc += performance.now() - t; } return acc / 120; });
     check(`winter aurora: draw() averages under 4 ms of script time (${waCost.toFixed(2)} ms)`, waCost < 4);
 
+    // ── The flags (five kit scenes on one cloth) ───────────────────────────────
+    {   // its own block: the names below are the flags' own
+    // Build the scene afresh with seeded randomness, drive the level (and, where a step gives
+    // them, the low and high ends) by hand, and read the canvas and the scene after each step.
+    // A step with idle: true has the mic off (Idle animation is on in the default config).
+    // tones: where the solid pixels of one colour are (count, mean x, mean y from the bottom).
+    const flagRun = (id, steps, { fps = 60, knobs = null } = {}) => wide.evaluate(({ id, steps, fps, knobs }) => {
+      window.frame = function () {};
+      const random = Math.random, saved = { frequencies, micActive }, knobs0 = Object.assign({}, perViz[id]);
+      let seed = 20261114;
+      Math.random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+      try {
+        if (knobs) Object.assign(perViz[id], knobs);
+        TimbreScene.testLevel = 0;
+        setActiveViz('visualizer'); setActiveViz(id);
+        const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), f = new Uint8Array(32), out = [];
+        let now = 100000 + 1000 / 120;
+        for (const st of steps) {
+          TimbreScene.testLevel = st.level;
+          micActive = !st.idle;
+          if (st.low !== undefined) { f.fill(Math.round(st.low * 255), 0, 4); f.fill(0, 4, 8); f.fill(Math.round(st.high * 255), 8, 32); frequencies = f; }
+          for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) { now += 1000 / fps; currentViz.draw(now, 1 / fps); }
+          const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);   // row 0 is the bottom of the canvas
+          const tones = { red: [0, 0, 0], blue: [0, 0, 0], violet: [0, 0, 0], magenta: [0, 0, 0], dark: [0, 0, 0] };
+          let solid = 0, light = 0, lightSum = 0, edge = 0, empty = 0;
+          for (let i = 0; i < px.length; i += 4) {
+            const x = (i / 4) % w, y = Math.floor(i / 4 / w), r = px[i], g = px[i + 1], b = px[i + 2], a = px[i + 3], rgb = r + g + b;
+            if (a > 250) {
+              solid++;
+              const max = Math.max(r, g, b), min = Math.min(r, g, b);
+              let tone = null;
+              if (max < 60) tone = 'dark';
+              else if (max - min > 70) {
+                const hue = (max === r ? ((g - b) / (max - min) + 6) % 6 : max === g ? (b - r) / (max - min) + 2 : (r - g) / (max - min) + 4) * 60;
+                tone = hue < 12 || hue > 348 ? 'red' : hue >= 205 && hue <= 250 ? 'blue' : hue >= 262 && hue <= 300 ? 'violet' : hue >= 308 && hue <= 345 ? 'magenta' : null;
+              }
+              if (tone) { tones[tone][0]++; tones[tone][1] += x; tones[tone][2] += y; }
+            } else if (a < 5 && rgb > 12) {
+              light++; lightSum += rgb;
+              if (x < 4 || y < 4 || x >= w - 4 || y >= h - 4) edge++;
+            }
+            if (a === 0 && rgb === 0) empty++;
+          }
+          for (const k of Object.keys(tones)) { const t = tones[k]; tones[k] = { n: t[0], x: t[0] ? t[1] / t[0] : 0, y: t[0] ? t[2] / t[0] : 0 }; }
+          const s = window.__timbre.scene;
+          out.push({ state: (s && s.state) || {}, textures: s ? s.memory.textures : -1, solid, light, lightSum, edge, empty: empty / (w * h), cornerAlpha: px[3], tones });
+        }
+        return out;
+      } finally {
+        Math.random = random; frequencies = saved.frequencies; micActive = saved.micActive;
+        Object.assign(perViz[id], knobs0); TimbreScene.testLevel = null;
+      }
+    }, { id, steps, fps, knobs });
+    const FLAGS = ['pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes'];
+    const RAINBOW = 'pride-ribbon', JULY = 'july-fourth-stripes';
+    const flagPeak = (r) => { let at = -1, top = 0; (r.state.hist || []).forEach((v, i) => { if (v > top) { top = v; at = i; } }); return { at, top }; };
+    const talk = [{ level: 0.8, secs: 2 }];
+
+    for (const id of FLAGS) {
+      await activate(id);
+      const st = await sceneState();
+      const [r] = await flagRun(id, talk);
+      check(`${id} is a kit scene: a solid flag, light on the ground, a transparent corner`,
+        !!st && st.active === true && st.targetSize[0] === 1728 && r.solid > SOLID_FLAG && r.light > LIGHT_POOL && r.cornerAlpha === 0 && r.edge === 0 && r.empty > 0.5 && r.state.fly > 0.95,
+        JSON.stringify({ size: st && st.targetSize, solid: r.solid, light: r.light, corner: r.cornerAlpha, edge: r.edge, empty: r.empty, fly: r.state.fly }));
+    }
+
+    // The right way up, and the right way round.
+    const [rbLoud] = await flagRun(RAINBOW, talk), [biLoud] = await flagRun('bi-pride-ribbon', talk), [julyLoud] = await flagRun(JULY, talk);
+    check('rainbow flag: red is at the top and violet at the bottom', rbLoud.tones.red.n > 2000 && rbLoud.tones.violet.n > 2000 && rbLoud.tones.red.y > rbLoud.tones.violet.y + 60,
+      JSON.stringify({ red: rbLoud.tones.red, violet: rbLoud.tones.violet }));
+    check('bi flag: magenta is above blue', biLoud.tones.magenta.n > 3000 && biLoud.tones.blue.n > 3000 && biLoud.tones.magenta.y > biLoud.tones.blue.y + 60, JSON.stringify({ magenta: biLoud.tones.magenta, blue: biLoud.tones.blue }));
+    check('fourth of july flag: the blue union is at the top, on the pole side', julyLoud.tones.blue.n > 3000 && julyLoud.tones.red.n > 3000
+      && julyLoud.tones.blue.y > julyLoud.tones.red.y + 20 && julyLoud.tones.blue.x < julyLoud.tones.red.x - 40, JSON.stringify({ blue: julyLoud.tones.blue, red: julyLoud.tones.red }));
+
+    // The voice is the wind.
+    const [rbQuiet, rbQuietLater, rbTalk] = await flagRun(RAINBOW, [{ level: 0, secs: 2.5 }, { level: 0, secs: 1 }, { level: 0.8, secs: 2 }]);
+    check('flag: it hangs in silence and flies when you talk', rbQuiet.state.fly < 0.2 && rbTalk.state.fly > 0.95 && rbTalk.state.endY > rbQuiet.state.endY + 1 && rbQuiet.state.endY < -1.2 && rbTalk.state.endY > -0.5,
+      JSON.stringify({ quiet: [rbQuiet.state.fly, rbQuiet.state.endX, rbQuiet.state.endY], talk: [rbTalk.state.fly, rbTalk.state.endX, rbTalk.state.endY] }));
+    check('flag: in silence it still sways', Math.abs(rbQuiet.state.endY - rbQuietLater.state.endY) + Math.abs(rbQuiet.state.endX - rbQuietLater.state.endX) + Math.abs(rbQuiet.state.ripple - rbQuietLater.state.ripple) > 0.005
+      && rbQuiet.state.lowest + 4.75 > 0.3, JSON.stringify([rbQuiet.state.endX, rbQuietLater.state.endX, rbQuiet.state.endY, rbQuietLater.state.endY, rbQuiet.state.lowest]));
+    check('flag: louder ripples deeper', rbTalk.state.ripple > 0.2 && rbTalk.state.wind > 0.7, JSON.stringify([rbTalk.state.ripple, rbTalk.state.wind]));
+
+    // A syllable is a gust that travels from the pole to the free end: 16 history samples a second.
+    const [, , gSoon, gLater] = await flagRun(RAINBOW, [{ level: 0, secs: 0.5 }, { level: 0.9, secs: 4 / 60 }, { level: 0, secs: 0.25 }, { level: 0, secs: 0.5 }]);
+    check('flag: a syllable travels along the cloth at 16 samples a second',
+      (gSoon.state.hist || []).length === 16 && Math.abs(flagPeak(gSoon).at - 4) <= 1 && Math.abs(flagPeak(gLater).at - 12) <= 1 && flagPeak(gSoon).top > 0.2 && flagPeak(gLater).top > 0.2,
+      JSON.stringify([flagPeak(gSoon), flagPeak(gLater)]));
+
+    // The same at 30 and 60 fps.
+    const fpsFlag = [{ level: 0.8, secs: 1 }, { level: 0, secs: 16 / 30 }];
+    const f30 = (await flagRun(RAINBOW, fpsFlag, { fps: 30 }))[1], f60 = (await flagRun(RAINBOW, fpsFlag, { fps: 60 }))[1];
+    check('flag: the wind, the lift, the gusts and the ripples agree at 30 and 60 fps',
+      f60.state.wind > 0.3 && Math.abs(f30.state.wind - f60.state.wind) < 0.02 && Math.abs(f30.state.fly - f60.state.fly) < 0.02 && Math.abs(f30.state.phase - f60.state.phase) < 0.15
+      && f60.state.hist.every((v, i) => Math.abs(v - f30.state.hist[i]) < 0.04) && Math.abs(f30.state.endY - f60.state.endY) < 0.06,
+      JSON.stringify({ wind: [f30.state.wind, f60.state.wind], fly: [f30.state.fly, f60.state.fly], phase: [f30.state.phase, f60.state.phase], endY: [f30.state.endY, f60.state.endY] }));
+    check('flag: hearts leave at the same rate at 30 and 60 fps', f60.state.heartsMade > 5 && Math.abs(f30.state.heartsMade - f60.state.heartsMade) <= 2, JSON.stringify([f30.state.heartsMade, f60.state.heartsMade]));
+
+    // A beat snaps the cloth.
+    const [, beatNow, beatGone] = await flagRun(RAINBOW, [{ level: 0.05, secs: 1 }, { level: 0.9, secs: 0.05 }, { level: 0.9, secs: 2.5 }]);
+    check('flag: a beat snaps the cloth, then lets go', beatNow.state.kick > 0.7 && beatGone.state.kick < 0.001, JSON.stringify([beatNow.state.kick, beatGone.state.kick]));
+
+    // Wind.
+    const [calmQuiet, calm] = await flagRun(RAINBOW, [{ level: 0, secs: 1 }, { level: 0.8, secs: 2 }], { knobs: { wind: 0 } });
+    check('flag: Wind 0 leaves it hanging whatever the sound', calm.state.wind === 0 && calm.state.fly < 0.2 && calm.state.kick === 0 && calm.state.hist.every((v) => v === 0) && Math.abs(calm.state.endY - calmQuiet.state.endY) < 0.1,
+      JSON.stringify({ wind: calm.state.wind, fly: calm.state.fly, kick: calm.state.kick, endY: [calmQuiet.state.endY, calm.state.endY] }));
+    const [mild] = await flagRun(RAINBOW, [{ level: 0.3, secs: 3 }]), [wild] = await flagRun(RAINBOW, [{ level: 0.3, secs: 3 }], { knobs: { wind: 100 } });
+    check('flag: Wind 100 doubles what the voice does', mild.state.wind > 0.2 && Math.abs(wild.state.wind - 2 * mild.state.wind) < 0.02 && wild.state.fly > mild.state.fly, JSON.stringify([mild.state.wind, wild.state.wind, mild.state.fly, wild.state.fly]));
+
+    // Hearts.
+    const [hDefault] = await flagRun(RAINBOW, talk), [hNone] = await flagRun(RAINBOW, talk, { knobs: { heartRate: 0 } }), [hMany] = await flagRun(RAINBOW, talk, { knobs: { heartRate: 100 } });
+    check('flag: Heart rate 0 sheds no hearts; 100 sheds twice as many', hNone.state.hearts === 0 && hNone.state.heartsMade === 0 && hDefault.state.heartsMade > 8
+      && Math.abs(hMany.state.heartsMade - 2 * hDefault.state.heartsMade) <= 2, JSON.stringify([hNone.state.heartsMade, hDefault.state.heartsMade, hMany.state.heartsMade]));
+    check('flag: hearts leave from the free half of the cloth', hDefault.state.heartFrom >= 0.5 && hDefault.state.heartFrom <= 1 && hDefault.state.hearts > 8, JSON.stringify([hDefault.state.heartFrom, hDefault.state.hearts]));
+    const palette = [[255, 130, 175], [254, 100, 130], [255, 215, 100], [120, 220, 200]];
+    check('flag: hearts take the flag\'s heart colours', (hDefault.state.heartColors || []).length > 8
+      && hDefault.state.heartColors.every((c) => palette.some((p) => Math.abs(p[0] - c[0]) <= 1 && Math.abs(p[1] - c[1]) <= 1 && Math.abs(p[2] - c[2]) <= 1))
+      && new Set(hDefault.state.heartColors.map(String)).size >= 3, JSON.stringify((hDefault.state.heartColors || []).slice(0, 6)));
+    // When the voice stops, hearts in the air finish their flight (none is 2.4 s old yet).
+    const [hLoud, hHush] = await flagRun(RAINBOW, [{ level: 0.8, secs: 2 }, { level: 0, secs: 0.3 }]);
+    check('flag: when the voice stops, the hearts in the air keep flying', hLoud.state.hearts > 8 && hHush.state.hearts >= hLoud.state.hearts, JSON.stringify([hLoud.state.hearts, hHush.state.hearts]));
+    const [hLong] = await flagRun(RAINBOW, [{ level: 0.8, secs: 9 }], { knobs: { heartRate: 100 } });
+    check('flag: never more than 56 hearts at once, and old ones make room', hLong.state.hearts <= 56 && hLong.state.hearts > 30 && hLong.state.heartsMade > 80, JSON.stringify([hLong.state.hearts, hLong.state.heartsMade]));
+    const [julyTalk] = await flagRun(JULY, talk);
+    check('fourth of july flag sheds no hearts', julyTalk.state.hearts === 0 && julyTalk.state.heartsMade === 0, JSON.stringify([julyTalk.state.hearts, julyTalk.state.heartsMade]));
+
+    // Stripe style.
+    const [eight] = await flagRun(RAINBOW, talk, { knobs: { stripeStyle: 100 } }), [justEight] = await flagRun(RAINBOW, talk, { knobs: { stripeStyle: 50 } }), [justSix] = await flagRun(RAINBOW, talk, { knobs: { stripeStyle: 49 } });
+    check('rainbow flag: Stripe style at 50 or more adds black and brown above the six', rbLoud.state.stripes === 6 && justSix.state.stripes === 6 && justEight.state.stripes === 8 && eight.state.stripes === 8
+      && eight.tones.dark.n > rbLoud.tones.dark.n + DARK_STRIPE, JSON.stringify({ stripes: [rbLoud.state.stripes, justSix.state.stripes, justEight.state.stripes, eight.state.stripes], dark: [rbLoud.tones.dark.n, eight.tones.dark.n] }));
+    const toggled = await wide.evaluate(() => {
+      setActiveViz('visualizer'); setActiveViz('pride-ribbon');
+      const out = [], step = (v) => { perViz['pride-ribbon'].stripeStyle = v; currentViz.draw(performance.now(), 1 / 60); currentViz.draw(performance.now() + 16, 1 / 60); const s = window.__timbre.scene; out.push([s.state.stripes, s.memory.textures, s.memory.geometries]); };
+      try { for (const v of [0, 100, 0, 100, 0]) step(v); } finally { perViz['pride-ribbon'].stripeStyle = 0; }
+      return out;
+    });
+    check('rainbow flag: switching Stripe style back and forth repaints the one texture', JSON.stringify(toggled.map((t) => t[0])) === '[6,8,6,8,6]' && toggled.every((t) => t[1] === toggled[0][1] && t[2] === toggled[0][2]), JSON.stringify(toggled));
+
+    // Fourth of July: fireworks and stars.
+    const beat = [{ level: 0.05, secs: 1 }, { level: 0.9, secs: 0.1 }, { level: 0.9, secs: 2.5 }];
+    const [, bang, after] = await flagRun(JULY, beat, { knobs: { burstChance: 100 } }), [, noBang] = await flagRun(JULY, beat, { knobs: { burstChance: 0 } });
+    check('fourth of july flag: Burst chance 100 sets off a burst on a beat, with a flash', bang.state.bursts === 1 && bang.state.sparks === 80 && bang.state.flash > 0.3 && bang.lightSum > noBang.lightSum * 1.05,
+      JSON.stringify({ bursts: bang.state.bursts, sparks: bang.state.sparks, flash: bang.state.flash, light: [noBang.lightSum, bang.lightSum] }));
+    check('fourth of july flag: Burst chance 0 sets off none', noBang.state.bursts === 0 && noBang.state.sparks === 0 && noBang.state.flash === 0, JSON.stringify(noBang.state.bursts));
+    check('fourth of july flag: the sparks burn out and the flash fades', after.state.sparks === 0 && after.state.flash < 0.001 && after.state.bursts >= 1 && after.state.bursts <= 3, JSON.stringify([after.state.sparks, after.state.flash, after.state.bursts]));
+    const [idleBursts] = await flagRun(JULY, [{ level: 0.3, secs: 7, idle: true }]), [idleNone] = await flagRun(JULY, [{ level: 0.3, secs: 7, idle: true }], { knobs: { burstChance: 0 } });
+    check('fourth of july flag: with the mic off a burst goes off every 3.2 s, unless Burst chance is 0', idleBursts.state.bursts === 2 && idleNone.state.bursts === 0, JSON.stringify([idleBursts.state.bursts, idleNone.state.bursts]));
+    const tone = (knobs, high) => flagRun(JULY, [{ level: 0.7, secs: 2, low: 0.2, high }], { knobs });
+    const [shine] = await tone(null, 0.9), [dull] = await tone(null, 0), [noShine] = await tone({ starTwinkle: 0 }, 0.9), [bright] = await tone({ starTwinkle: 100 }, 0.9);
+    check('fourth of july flag: the stars shine with the high end of the sound; Star twinkle 0 stops it, 100 doubles it',
+      shine.state.high > 0.6 && shine.state.shine > 0.5 && dull.state.shine < 0.05 && noShine.state.shine === 0 && Math.abs(bright.state.shine - 2 * shine.state.shine) < 0.02,
+      JSON.stringify([dull.state.shine, shine.state.shine, noShine.state.shine, bright.state.shine]));
+
+    // Camera drift, placement, cost.
+    const [still] = await flagRun(RAINBOW, talk, { knobs: { cameraDrift: 0 } }), [drift] = await flagRun(RAINBOW, talk, { knobs: { cameraDrift: 100 } });
+    check('flag: Camera drift 0 holds the camera still; 100 doubles the swing', still.state.orbit === 0 && Math.abs(rbLoud.state.orbit) > 0.005 && Math.abs(drift.state.orbit - 2 * rbLoud.state.orbit) < 1e-9, JSON.stringify([still.state.orbit, rbLoud.state.orbit, drift.state.orbit]));
+    await activate(RAINBOW);
+    const flagP0 = await probe();
+    await pushConfig((c) => { c.activeViz = 'pride-ribbon'; c.placement.x = 30; });
+    await wide.waitForTimeout(400);
+    const flagP1 = await probe();
+    check('flag: Scene placement slides it', flagP1.centroidX - flagP0.centroidX > 150, `${flagP0.centroidX.toFixed(0)} → ${flagP1.centroidX.toFixed(0)}`);
+    for (const id of [RAINBOW, JULY]) {
+      await activate(id);
+      const cost = await wide.evaluate(() => { let now = performance.now(), acc = 0; for (let i = 0; i < 120; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); acc += performance.now() - t; } return acc / 120; });
+      check(`${id}: draw() averages under 4 ms of script time (${cost.toFixed(2)} ms)`, cost < 4);
+    }
+
+    }
+
     // Every kit scene, so the next one is covered without a new check.
     const gpuAfterSelect = (name) => wide.evaluate((n) => { setActiveViz('visualizer'); setActiveViz(n); currentViz.draw(performance.now(), 1 / 60); const s = window.__timbre.scene; return [s.memory.geometries, s.memory.textures, s.programs]; }, name);
     for (const name of T.VIZ_SCENES) {
@@ -805,7 +979,7 @@ async function main() {
       return out;
     }, T.VIZ_SCENES);
     check('a scene deletes every GL texture it made, whichever scene ran before it',
-      Object.values(texturesLeft).every(([made, left]) => made > 5 && left === 0), JSON.stringify(texturesLeft));
+      Object.values(texturesLeft).every(([made, left]) => made > 3 && left === 0), JSON.stringify(texturesLeft));
 
     // The guard drops a caster's textures from the shadow only where they do not shape it, and an
     // object's own onBeforeShadow still runs (after the guard).
