@@ -17,6 +17,12 @@ traceability.
   say how its afterglow cools with `cooling` in its definition. See `docs/EFFECTS.md`
   ("Kit scenes").
 
+- **The flag**: what the five flag effects share is in `overlay/flag.js` (`TimbreFlag`),
+  loaded by all three overlay pages and by `verify` under Node, and documented in
+  `docs/EFFECTS.md` ("The flag"). Adding a flag is a table entry and a one-line file.
+- **Display names**: `VIZ_LABELS` in `shared/viz-config.js` gives an effect the name the
+  control panel lists it by, where its id no longer says what it is. Ids do not change.
+
 - **Television**, a new character (the 51st effect), listed after Blob and Owl. A floating
   retro set with two springy antennae, two dials and a speaker. It hovers; like Blob and Owl
   it bounces on each syllable, and like the Owl it tilts toward the low or the high end of
@@ -111,6 +117,25 @@ traceability.
 
 ### Changed
 
+- **The five flag effects are now one 3D cloth flag**, the third to seventh scenes on the
+  scene kit: the rainbow, bi, ace and trans Pride flags and the Fourth of July flag. The
+  stepped stripes that filled the frame are gone. A flag flies from a pole on a small stone
+  base, floating in the box with no backdrop, and the voice is the wind. In silence the flag
+  hangs and sways; talking lifts it until it flies straight out; each syllable is a gust
+  that travels from the pole to the free end in just under a second; a beat snaps the
+  cloth. The cloth folds without stretching, catches the light across its ripples and
+  throws a moving shadow on the ground. The Pride flags shed hearts in their own colours,
+  which blow away downwind. The Fourth of July flag has its fifty stars drawn as
+  five-pointed stars, which shine with the high end of the sound, and fireworks go off
+  behind it on a beat. Every flag keeps its colours and proportions, and the rainbow keeps
+  its eight-stripe choice (`stripeStyle` at 50 or more).
+  The control panel now lists them as Pride flag, Bi pride flag, Ace pride flag, Trans pride
+  flag and Fourth of July flag; their ids are unchanged (`pride-ribbon`, `bi-pride-ribbon`,
+  `ace-pride-ribbon`, `trans-pride-ribbon`, `july-fourth-stripes`).
+  Settings: `wind` (how strongly the voice drives the flag; 0 leaves it hanging) and
+  `cameraDrift` are new; `heartRate`, `stripeStyle`, `starTwinkle` and `burstChance` are
+  kept, with any saved values; `ribbonAmplitude` and `stripeAmplitude` are retired. The
+  **Scene placement** group now appears for all five.
 - **Winter Aurora is now a floating 3D scene**, the second on the scene kit and the first of
   the WebGL effects to be rebuilt. A low rise of snow with six snow-laden pines and a log
   cabin floats in the box with no backdrop; three curtains of aurora hang behind it as added

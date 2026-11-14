@@ -94,6 +94,28 @@ one.
 
 `docs/EFFECTS.md`, `CHANGELOG.md`, `README.md` where it describes these effects.
 
+## Found during the build
+
+- The Node check that compared the voice history at 10 and 60 fps fed it a raw step, which
+  the scene never does (it feeds the kit's envelope). It is now two checks: a steadily
+  rising level at 10 fps gives evenly spaced samples (none written twice), and a syllable
+  shaped by the envelope stays within 0.22 of the 60 fps history (measured 0.18, all of it
+  in the one sample at the attack).
+- Ripples shorten a flying flag's reach, so the render check tells flying from hanging by
+  the free end's height alone.
+- A level that stays loud is two or three beats to the kit, because its running average
+  takes a moment to catch up. So a long loud note sets off up to three bursts, not one.
+- A flag makes five GL textures (three render targets, a shadow map, its picture), so the
+  kit's "a scene deletes every GL texture it made" check now asks for more than three made,
+  where it asked for more than five.
+- Thresholds measured on the 16:9 page (1728 by 624 canvas) and set to 60%: about 109,000
+  solid pixels, 118,000 pixels of light on the ground, 12,300 dark pixels in the black
+  stripe of the eight-stripe rainbow.
+- The first render run was not made before the scene existed: with the five ids listed as
+  kit scenes and still drawn in 2D, the suite's own loops over `VIZ_SCENES` crash. The
+  render checks were first run against the finished scene; what each one catches is shown
+  by breaking the code on purpose after the review.
+
 ## Task 6: review
 
 One independent review of the branch, then fixes, each with a check first.
