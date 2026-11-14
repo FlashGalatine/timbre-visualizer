@@ -105,6 +105,8 @@ console.log('\n[1] table consistency');
   ok(T.VIZ_SCENES.every((n) => T.VIZ_USES_3D.includes(n)), 'VIZ_SCENES ⊆ VIZ_USES_3D');
   ok(T.VIZ_SCENES.includes('thanksgiving-harvest'), 'thanksgiving-harvest is a kit scene');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['thanksgiving-harvest']) === '{"candleGlow":50,"leafDensity":50,"cameraDrift":50}', 'thanksgiving knobs');
+  ok(T.VIZ_SCENES.includes('winter-aurora') && JSON.stringify(T.VIZ_SCENES) === '["thanksgiving-harvest","winter-aurora"]', 'winter-aurora is the second kit scene');
+  ok(JSON.stringify(T.DEFAULT_PER_VIZ['winter-aurora']) === '{"auroraGlow":50,"snowfall":50,"starDensity":50,"cameraDrift":50}', 'winter aurora knobs');
   ok(JSON.stringify(T.defaultConfig().placement) === '{"x":0,"y":0,"size":100}', 'defaultConfig has placement');
   ok(JSON.stringify(T.VIZ_AFTERGLOW) === '["visualizer","peak-hold","ring-bars","sine-bars","waveform","ring-waveform"]', 'the six afterglow effects');
   ok(T.VIZ_AFTERGLOW.every((n) => T.ACTIVE_VIZ_NAMES.includes(n) && !T.VIZ_USES_3D.includes(n)), 'afterglow effects are known 2D effects');
@@ -180,6 +182,8 @@ console.log('\n[2] sanitizeConfig');
   ok(T.sanitizeConfig({ gain: 50 }, T.sanitizeConfig({ afterglow: 2.5 })).afterglow === 2.5, 'afterglow survives a merge');
   const old = T.sanitizeConfig({ perViz: { 'thanksgiving-harvest': { pumpkinPulse: 80, leafDensity: 20, wheatSway: 10 } } });
   ok(JSON.stringify(old.perViz['thanksgiving-harvest']) === '{"candleGlow":50,"leafDensity":20,"cameraDrift":50}', 'a saved pre-redesign config keeps leafDensity and drops the retired knobs');
+  const oldAurora = T.sanitizeConfig({ perViz: { 'winter-aurora': { ribbonCount: 80, starDensity: 20, mountainOpacity: 10, snowfall: 400 } } });
+  ok(JSON.stringify(oldAurora.perViz['winter-aurora']) === '{"auroraGlow":50,"snowfall":100,"starDensity":20,"cameraDrift":50}', 'a saved pre-redesign winter-aurora config keeps starDensity, drops the retired knobs and clamps');
 }
 ok(JSON.stringify(T.defaultConfig().perViz.dna) === JSON.stringify({ helixFreq: 50, shatterSensitivity: 50, reconnectSeconds: 3 }), 'dna defaults: helixFreq 50, shatterSensitivity 50, reconnectSeconds 3');
 {
@@ -283,6 +287,32 @@ await import('./overlay/scene-kit.js');
   ok(K.renderScale(130) === 4 && K.renderScale(170) === 4 && K.renderScale(180) === 3 && K.renderScale(624) === 1 && K.renderScale(1080) === 1, 'internal render scale');
   const v = K.viewOffset({ x: 100, y: -50, size: 200 }, 1728, 624);
   ok(v.x === -864 && v.y === -156 && v.zoom === 2, 'placement to lens shift');
+
+  // The smoothing formulas a scene may use for its own values.
+  ok(typeof K.follow === 'function' && near(K.follow(0, 1, 3, 0.25), 1 - Math.exp(-0.75), 1e-12) && K.follow(0.4, 0.4, 9, 1) === 0.4, 'follow closes the gap by 1 - exp(-rate × dt)');
+  ok(typeof K.follow === 'function' && near(K.follow(K.follow(0.2, 0.9, 5, 1 / 60), 0.9, 5, 1 / 60), K.follow(0.2, 0.9, 5, 1 / 30), 1e-12), 'two 60 fps follows equal one 30 fps follow');
+  ok(typeof K.fall === 'function' && near(K.fall(0.8, 2, 0.5), 0.8 * Math.exp(-1), 1e-12) && near(K.fall(K.fall(0.8, 2, 0.25), 2, 0.25), K.fall(0.8, 2, 0.5), 1e-12), 'fall decays by exp(-rate × dt), the same in one step or two');
+
+  // How an afterglow cools is the scene's choice: three extra fade times, one per channel.
+  const warm = K.decay(1 / 60, 0.35), same = typeof K.cooling === 'function' ? K.decay(1 / 60, 0.35, K.cooling(undefined)) : [];
+  ok([0, 1, 2].every((i) => warm[i] === same[i]), 'the default cooling is the candlelight one');
+  const AURORA = [0.05, Infinity, 0.25];
+  const c60 = K.decay(1 / 60, 0.35, AURORA), c30 = K.decay(1 / 30, 0.35, AURORA), plain = Math.exp(-(1 / 60) / 0.35);
+  ok(near(c60[1], plain, 1e-12) && c60[0] < c60[2] && c60[2] < c60[1] && near(c60[0], plain * Math.exp(-(1 / 60) / 0.05), 1e-12), 'a cooling fades each channel by its own extra time; Infinity adds none');
+  ok([0, 1, 2].every((i) => near(c60[i] * c60[i], c30[i], 1e-12)), 'a cooled decay is the same in one 30 fps step or two 60 fps steps');
+  const isDefault = (t) => Array.isArray(t) && t.length === 3 && t[0] === Infinity && t[1] === 0.098 && t[2] === 0.035;
+  ok(typeof K.cooling === 'function' && [undefined, null, 'warm', 7, [], [1, 2], [1, 2, 3, 4], [0, 1, 1], [-1, 1, 1], [NaN, 1, 1], [1, '2', 3]].every((bad) => isDefault(K.cooling(bad))),
+    'a cooling that is not three positive numbers is ignored for the default');
+  ok(typeof K.cooling === 'function' && JSON.stringify(K.cooling([0.05, Infinity, 0.25]).map(String)) === '["0.05","Infinity","0.25"]' && K.cooling(AURORA) !== AURORA, 'a good cooling is taken as given, as a copy');
+
+  // The factory every scene would otherwise write by hand; with no three.js it draws nothing.
+  let threw = null, made = null, calls = 0;
+  try {
+    made = K.factory(() => { calls++; return { frame: { width: 1, height: 1, center: [0, 0, 0] }, fov: 30, pitch: 0, build() {}, update() {} }; })();
+    made.start(); made.draw(16, 1 / 60); made.onResize(); made.stop(); made.stop(); made.draw(32, 1 / 60);
+  } catch (e) { threw = String(e); }
+  ok(threw === null && made && ['start', 'stop', 'onResize', 'draw'].every((m) => typeof made[m] === 'function') && calls === 1,
+    `factory(definition) gives start/stop/onResize/draw that are safe with no scene${threw ? ' — ' + threw : ''}`);
 }
 
 // ── 6. Afterglow arithmetic (pure; no browser) ───────────────────────────────

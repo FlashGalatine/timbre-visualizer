@@ -667,6 +667,105 @@ async function main() {
     check('a build() that throws: create() logs it, frees what it made, returns null; the next scene starts',
       badBuild.returnedNull && badBuild.threw === null && badBuild.logged === 1 && badBuild.freed && badBuild.next, JSON.stringify(badBuild));
 
+    // dispose() frees what is in the scene even when it never went through keep().
+    const swept = await wide.evaluate(() => {
+      setActiveViz('visualizer');
+      const freed = { geometry: false, material: false, texture: false, uniformTexture: false };
+      const on = (obj, key) => { obj.addEventListener('dispose', () => { freed[key] = true; }); return obj; };
+      const s = TimbreScene.create({
+        frame: { width: 2, height: 2, center: [0, 0.5, 0] }, fov: 30, pitch: 14, update() {},
+        build(k) {
+          const T3 = k.THREE, data = new Uint8Array([255, 255, 255, 255]);
+          const map = on(new T3.DataTexture(data, 1, 1), 'texture'); map.needsUpdate = true;
+          const mesh = new T3.Mesh(on(new T3.BoxGeometry(1, 1, 1), 'geometry'), on(new T3.MeshStandardMaterial({ map }), 'material'));
+          const tex = on(new T3.DataTexture(data, 1, 1), 'uniformTexture'); tex.needsUpdate = true;
+          const lit = new T3.Mesh(mesh.geometry, [new T3.ShaderMaterial({
+            uniforms: { uMap: { value: tex } }, vertexShader: 'void main() { gl_Position = vec4(position, 1.0); }',
+            fragmentShader: 'uniform sampler2D uMap; void main() { gl_FragColor = texture2D(uMap, vec2(0.5)); }',
+          })]);
+          const group = new T3.Group();
+          group.add(mesh, lit);
+          k.scene.add(group);
+        },
+      });
+      if (!s) return { created: false };
+      s.draw(performance.now(), 1 / 60);
+      s.dispose();
+      return Object.assign({ created: true }, freed);
+    });
+    check('dispose() frees geometries, materials and textures in the scene that were never kept',
+      swept.created && swept.geometry && swept.material && swept.texture && swept.uniformTexture, JSON.stringify(swept));
+
+    // The shared parts keep their contract: a fresh geometry per call, complete and finite, at the stated size.
+    const parts = await wide.evaluate(() => {
+      const box = (g) => { g.computeBoundingBox(); const b = g.boundingBox; return [b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z]; };
+      const whole = (g) => !!g && g.isBufferGeometry && ['position', 'normal', 'uv'].every((a) => g.attributes[a] && g.attributes[a].count > 0
+        && Array.prototype.every.call(g.attributes[a].array, Number.isFinite));
+      const out = { names: Object.keys(TimbreScene.parts).sort() };
+      const p1 = TimbreScene.parts.pumpkin(THREE, 0.5, 12), p2 = TimbreScene.parts.pumpkin(THREE, 0.5, 12);
+      const l1 = TimbreScene.parts.leaf(THREE), l2 = TimbreScene.parts.leaf(THREE);
+      out.fresh = p1 !== p2 && l1 !== l2;
+      out.whole = whole(p1) && whole(l1);
+      out.pumpkin = box(p1); out.big = box(TimbreScene.parts.pumpkin(THREE, 1, 8)); out.leaf = box(l1);
+      for (const g of [p1, p2, l1, l2]) g.dispose();
+      return out;
+    });
+    const nearly = (a, b, tol) => Math.abs(a - b) <= tol;
+    check('scene parts: pumpkin and leaf each return a fresh, complete, finite geometry', JSON.stringify(parts.names) === '["leaf","pumpkin"]' && parts.fresh && parts.whole, JSON.stringify(parts));
+    // A pumpkin of radius r rests on y = 0, is about 1.12 r wide each way and under 1.5 r tall.
+    check('scene parts: a pumpkin rests on the ground and scales with its radius',
+      nearly(parts.pumpkin[1], 0, 0.02) && nearly(parts.pumpkin[3], 0.56, 0.03) && nearly(parts.pumpkin[0], -0.56, 0.03) && parts.pumpkin[4] > 0.6 && parts.pumpkin[4] < 0.75
+      && nearly(parts.big[3], 2 * parts.pumpkin[3], 0.03) && nearly(parts.big[4], 2 * parts.pumpkin[4], 0.03), JSON.stringify([parts.pumpkin, parts.big]));
+    // A leaf lies flat in the XZ plane, about 0.23 wide and 0.57 long.
+    check('scene parts: a leaf lies flat, about 0.23 wide and 0.57 long',
+      nearly(parts.leaf[1], 0, 1e-6) && nearly(parts.leaf[4], 0, 1e-6) && nearly(parts.leaf[3] - parts.leaf[0], 0.23, 0.01) && nearly(parts.leaf[5] - parts.leaf[2], 0.57, 0.01), JSON.stringify(parts.leaf));
+
+    // An older WebGL effect can leave the texture upload flags set on the shared context. The
+    // page's first scene (the kit builds its renderer then) must start without a GL error.
+    // (A page applies the pushed config when it connects, so the config must not name a scene.)
+    await pushConfig((c) => { c.activeViz = 'visualizer'; });
+    const freshPage = async () => {
+      const p = await ctxt.newPage();
+      await p.setViewportSize({ width: 1920, height: 1080 });
+      await p.goto(overlayWideUrl, { waitUntil: 'load' });
+      await p.waitForFunction(() => window.__timbre && window.__timbre.micActive === true && window.__timbre.currentVizName === 'visualizer', { timeout: 8000 });
+      return p;
+    };
+    {
+      const fresh = await freshPage();
+      const first = await fresh.evaluate(async () => {
+        window.frame = function () {};
+        setActiveViz('glass-prism');
+        await new Promise((r) => setTimeout(r, 900));
+        currentViz.draw(performance.now(), 1 / 60);
+        const gl = document.getElementById('vizCanvas3D').getContext('webgl2');
+        const before = { flip: gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL), error: gl.getError() };
+        setActiveViz('thanksgiving-harvest');
+        const created = gl.getError();
+        currentViz.draw(performance.now(), 1 / 60);
+        const s = window.__timbre.scene;
+        const attrs = gl.getContextAttributes();
+        return { before, created, drawn: gl.getError(), active: !!s && s.active === true, attrs: [attrs.alpha, attrs.antialias, attrs.depth, attrs.stencil, attrs.premultipliedAlpha] };
+      });
+      check('an older WebGL effect leaves the flip flag set (what the next check guards against)', first.before.flip === true && first.before.error === 0, JSON.stringify(first.before));
+      check('the first scene after an older WebGL effect starts without a GL error', first.created === 0 && first.drawn === 0 && first.active, JSON.stringify(first));
+      await fresh.close();
+    }
+    // With no context yet, the kit must still create it as three.js would have.
+    {
+      const fresh = await freshPage();
+      const cold = await fresh.evaluate(() => {
+        window.frame = function () {};
+        setActiveViz('thanksgiving-harvest');
+        currentViz.draw(performance.now(), 1 / 60);
+        const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), a = gl.getContextAttributes(), s = window.__timbre.scene;
+        return { attrs: [a.alpha, a.antialias, a.depth, a.stencil, a.premultipliedAlpha, a.preserveDrawingBuffer], error: gl.getError(), active: !!s && s.active === true };
+      });
+      check('a scene that is the first WebGL effect on a page creates the context as three.js asks for it',
+        JSON.stringify(cold.attrs) === '[true,true,true,true,true,false]' && cold.error === 0 && cold.active, JSON.stringify(cold));
+      await fresh.close();
+    }
+
     const roseOk = await wide.evaluate(async () => { setActiveViz('rose'); await new Promise((r) => setTimeout(r, 1200)); currentViz.draw(performance.now()); const gl = document.getElementById('vizCanvas3D').getContext('webgl2'); return gl.getError() === 0 && !gl.isContextLost(); });
     check('an existing WebGL effect runs cleanly after a scene', roseOk);
 

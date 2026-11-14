@@ -33,7 +33,7 @@
   ];
 
   // Effects built on the scene kit (overlay/scene-kit.js); all of them are 3D.
-  const VIZ_SCENES = ['thanksgiving-harvest'];
+  const VIZ_SCENES = ['thanksgiving-harvest', 'winter-aurora'];
 
   // Where a scene sits in the frame: offset from centre (percent of the half
   // frame) and size (percent of its natural size).
@@ -90,7 +90,7 @@
     'spring-blossoms': { petalDensity: 50, windStrength: 50 },
     'summer-tide':     { waveAmplitude: 50, sunSize: 50, sparkleRate: 50 },
     'autumn-leaves':   { leafDensity: 50, vortexStrength: 30 },
-    'winter-aurora':   { ribbonCount: 60, starDensity: 50, mountainOpacity: 70 },
+    'winter-aurora':   { auroraGlow: 50, snowfall: 50, starDensity: 50, cameraDrift: 50 },
     'halloween-jack':     { faceExpression: 0, batCount: 50, spiderChance: 30 },
     'christmas-tree':     { lightDensity: 60, snowSpeed: 50, starGlow: 50 },
     'new-year-fireworks': { burstChance: 60, particleCount: 50, gravity: 40, trailFade: 30 },
