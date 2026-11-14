@@ -99,7 +99,7 @@ VIZ_FACTORIES['winter-aurora'] = TimbreScene.factory(function () {
     for (let j = 0; j <= M; j++) {
       for (let i = 0; i <= N; i++) {
         const phi = (i / N) * Math.PI * 2;
-        const down = snow ? 0.62 + 0.1 * Math.cos(7 * phi + 1.3) + 0.05 * Math.cos(3 * phi) : 1;
+        const down = snow ? 0.8 + 0.1 * Math.cos(7 * phi + 1.3) + 0.06 * Math.cos(3 * phi) : 1;
         const t = (j / M) * down;
         const r = t * (1 + 0.14 * t * Math.cos(7 * phi)) * (snow ? 1.06 : 1);
         pos.push(r * Math.cos(phi), 1 - t - 0.2 * t * t + (snow ? 0.035 : 0), r * Math.sin(phi));

@@ -12,6 +12,11 @@ traceability.
 
 ### Added
 
+- **Scene kit**: `TimbreScene.factory(definition)` is the effect factory for a scene;
+  `TimbreScene.follow` and `TimbreScene.fall` are the kit's smoothing formulas; a scene may
+  say how its afterglow cools with `cooling` in its definition. See `docs/EFFECTS.md`
+  ("Kit scenes").
+
 - **Television**, a new character (the 51st effect), listed after Blob and Owl. A floating
   retro set with two springy antennae, two dials and a speaker. It hovers; like Blob and Owl
   it bounces on each syllable, and like the Owl it tilts toward the low or the high end of
@@ -106,6 +111,18 @@ traceability.
 
 ### Changed
 
+- **Winter Aurora is now a floating 3D scene**, the second on the scene kit and the first of
+  the WebGL effects to be rebuilt. A low rise of snow with six snow-laden pines and a log
+  cabin floats in the box with no backdrop; three curtains of aurora hang behind it as added
+  light. The voice travels along each curtain as a wave of taller, brighter rays. The low end
+  of the sound keeps the rays green, the high end lifts the violet tops and brightens the
+  stars, and a beat flushes the hems pink. The aurora also lights the snow from behind, so
+  the pines throw shadows toward the viewer that brighten and fade with the voice. Snow
+  falls, more of it with volume and beats. The cabin's lit window keeps its own time.
+  Settings: `auroraGlow` (how strongly the voice drives the aurora; 0 is a steady dim
+  aurora), `snowfall`, `starDensity` (kept, with any saved value) and `cameraDrift`. The
+  old `ribbonCount` and `mountainOpacity` are retired. The **Scene placement** group now
+  appears for it.
 - **Owl is now a vector character.** Smooth shapes in place of the pixel art: a body with a
   paler belly, a head with ear tufts and large eyes, a beak, wings, a tail and feet. It still
   bobs on each syllable, leans toward the low or the high end of the sound, flaps its wings

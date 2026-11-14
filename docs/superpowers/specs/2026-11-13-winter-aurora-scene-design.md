@@ -75,6 +75,14 @@ shape of the code is the builder's.
    afterglow time; `Infinity` means none. The default is today's `[Infinity, 0.098, 0.035]`
    (green and blue fade first, so candlelight cools toward red). Anything that is not three
    positive numbers is ignored in favour of the default.
+7. **A shadow is drawn without its caster's texture** (found during the build). three.js
+   r160 copies a caster's `map` onto its two shared shadow materials and leaves it there,
+   and in their cached uniforms, after the scene is disposed. The next scene's shadow pass
+   then uploads that disposed texture again and nothing ever frees it: one GL texture lost
+   each time a scene with a textured shadow caster is followed by another scene. The kit
+   sets each object's `onBeforeShadow` to clear the shadow material's `map` and `alphaMap`
+   when its `alphaTest` is 0. With `alphaTest` above 0 three.js uses a material of the
+   caster's own, which is freed with it, so cut-out shadows are unaffected.
 
 ## The scene
 
@@ -154,14 +162,24 @@ Bounce settings are ignored), and the Scene placement group appears for it.
   `follow` and `fall` exist and agree across frame rates; `decay` with a cooling; a bad
   `cooling` falls back to the default; the factory helper is safe with no three.js.
 - **`verify-render.mjs` (browser):** the kit items above (a scene started after an older
-  WebGL effect on a fresh page raises no GL error; an object never passed to `keep()` is
-  freed; the parts contract); and for the scene: it draws solid pixels, added light and a
+  WebGL effect on a fresh page raises no GL error; a scene that is the first WebGL effect on
+  a page gets the context three.js would have asked for; an object never passed to `keep()`
+  is freed; the parts contract; every GL texture made while a scene runs is deleted when it
+  stops, whichever scene ran before it); and for the scene: it draws solid pixels, added light and a
   transparent corner, with no light at the canvas edge; louder gives more light; a burst of
   voice travels along the history at 12 samples a second; the same at 30 and 60 fps (glow,
   history, snow count and height); each setting does what its row says; trailing light is
   never red; re-selecting does not grow GPU resources; a draw averages under 4 ms.
 - **By the owner in OBS:** the real mic, over a bright and a dark source, on the 16:9 page
   and the 4:3 page.
+
+## Known and left alone
+
+- The older WebGL effects have the same upload-flag trouble among themselves: after Glass
+  Prism, each of them raises one GL error while it builds its renderer. That is theirs to
+  fix when they are rebuilt.
+- The pink flush on a beat is strongest at the hem and is tested as "mostly red light in the
+  upper half of the canvas", which is a proxy for the colour, not a judgement of the look.
 
 ## Left to the builder
 

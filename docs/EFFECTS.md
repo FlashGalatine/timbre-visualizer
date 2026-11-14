@@ -76,41 +76,36 @@ A kit scene is a lit 3D set that floats over the stream with no backdrop. It is 
 against the **scene kit** (`overlay/scene-kit.js`, plus the shared geometry in
 `overlay/scene-parts.js`), which owns everything that is easy to get wrong: the one shared
 WebGL renderer, the camera and framing, the Scene placement sliders, the afterglow, shadows
-and disposal. A scene only builds objects and animates them. `thanksgiving-harvest` is the
-first; copy its factory.
+and disposal. A scene only builds objects and animates them. `thanksgiving-harvest` was the
+first; `winter-aurora` is the second and the one to copy.
 
 ### The factory
 
-The factory is a thin wrapper that hands the kit a scene definition:
+A scene is a function that returns a fresh scene definition; `TimbreScene.factory` turns it
+into the effect factory:
 
 ```js
-VIZ_FACTORIES['my-scene'] = function () {
-  function definition() {
-    return {
-      frame: { width: 6.8, height: 3.1, center: [-0.4, 0.75, 0.3] }, // the box that must always fit
-      fov: 30,               // vertical field of view, degrees
-      pitch: 14,             // camera elevation above the centre, degrees
-      groundColor: 0x7a6f66, // optional: the invisible ground that catches practical light
-      build(k) {},           // once: create objects, add them to k.scene
-      update(k, audio, now, dt) {},  // every frame, before drawing
-      debug() { return {}; },        // optional: state for tests / DevTools
-    };
-  }
-  let scene = null;
+VIZ_FACTORIES['my-scene'] = TimbreScene.factory(function () {
+  // the scene's own state lives here: this function runs each time the effect starts
   return {
-    start() { scene = TimbreScene.create(definition()); },
-    stop() { if (scene) scene.dispose(); scene = null; },
-    onResize() { if (scene) scene.resize(); },
-    draw(now, dt) { if (scene) scene.draw(now, dt); },
+    frame: { width: 6.8, height: 3.1, center: [-0.4, 0.75, 0.3] }, // the box that must always fit
+    fov: 30,               // vertical field of view, degrees
+    pitch: 14,             // camera elevation above the centre, degrees
+    groundColor: 0x7a6f66, // optional: the invisible ground that catches practical light
+    cooling: [Infinity, 0.098, 0.035], // optional: how the afterglow cools (see the rules)
+    build(k) {},           // once: create objects, add them to k.scene
+    update(k, audio, now, dt) {},  // every frame, before drawing
+    debug() { return {}; },        // optional: state for tests / DevTools
   };
-};
+});
 ```
 
-`TimbreScene.create(def)` returns `null` when three.js or WebGL is missing, or when
-`build()` throws (the error goes to the console and whatever `build` had made is freed);
-the wrapper above then simply draws nothing. `dispose()` frees everything the scene made
-and puts the WebGL context back to its defaults, so the next effect (including the older
-WebGL ones) starts clean.
+The factory's `start` calls `TimbreScene.create(definition())`, `stop` disposes the scene,
+and `onResize` and `draw` pass through. `create` returns `null` when three.js or WebGL is
+missing, or when `build()` throws (the error goes to the console and whatever `build` had
+made is freed); the effect then simply draws nothing. `dispose()` frees everything the scene
+made and puts the WebGL context back to its defaults, so the next effect (including the older
+WebGL ones) starts clean. (`thanksgiving-harvest` writes the same wrapper out by hand.)
 
 ### The `k` context (passed to `build` and `update`)
 
@@ -138,6 +133,10 @@ WebGL ones) starts clean.
 
 With no mic the level is a slow swell when **Idle animation** is on, otherwise silence.
 
+For a value of the scene's own, `TimbreScene.follow(current, target, rate, dt)` moves it
+toward a target and `TimbreScene.fall(current, rate, dt)` lets it die away, both at `rate`
+per second whatever the frame rate. They are what the fields above are made with.
+
 ### The rules
 
 - **Only solid objects may darken the stream.** Light is written with alpha 0, so it adds
@@ -155,9 +154,19 @@ With no mic the level is a slow swell when **Idle animation** is on, otherwise s
   must fit the canvas at Size 100%, in any canvas shape: the kit picks the camera distance
   from it and the canvas aspect. Design for the frame; the 300x220, 4:3 and 16:9 pages all
   show it whole.
-- **Own what you create.** Everything the scene allocates (geometries, materials,
-  textures) must be reachable by `dispose()`: pass it through `k.keep()`. Lights and
-  instanced meshes added to `k.scene` are swept up by the kit.
+- **Own what you create.** `dispose()` frees every geometry, material and texture it can
+  reach from the objects in `k.scene` (a texture is found as a property of a material or as
+  the value of one of its uniforms), along with lights and instanced meshes. Anything it
+  cannot reach that way goes through `k.keep()`: something not attached to the scene, or a
+  texture held somewhere else. Passing everything through `k.keep()` is still the habit to
+  keep.
+- **A shadow ignores its caster's texture** unless the material cuts holes with it
+  (`alphaTest` above 0). three.js would otherwise leave the texture on its shared shadow
+  materials and upload it again in the next scene, where nothing frees it.
+- **The afterglow cools the way the scene says.** `cooling` is three extra fade times in
+  seconds, for red, green and blue, on top of the afterglow time; `Infinity` adds none. The
+  default, `[Infinity, 0.098, 0.035]`, lets green and blue go first, so fading candlelight
+  turns warm. Winter Aurora uses `[0.05, Infinity, 0.25]` so trailing light stays green.
 - **Rendering is the kit's.** The kit draws solids and light into a half-float target,
   folds in the previous frame so light lingers, tone-maps, and writes the canvas. The
   afterglow length follows the global **Trail veil** setting. Don't render, clear or resize
