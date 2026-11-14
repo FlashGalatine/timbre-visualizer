@@ -148,6 +148,13 @@ Also from breaking the arithmetic on purpose (27 breaks, 24 caught): checks for 
 stars are, for the cloth barely moving next to the pole, and for a burst travelling as
 before after a stalled frame.
 
+And from breaking the scene on purpose (38 breaks, 36 caught at first; one of the 38 had
+been mistyped and was run again): the check that hearts outlive the voice now waits until
+the voice has died away altogether (it waited 0.3 s, so a heart that vanished a second into
+a silence passed), and a new check looks at the picture after a change of Stripe style (the
+old ones read the scene's own count, so a repaint that never reached the screen passed).
+All 38 now fail a check.
+
 ## Task 6: review
 
 One independent review of the branch, then fixes, each with a check first.
