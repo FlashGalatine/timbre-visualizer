@@ -77,7 +77,8 @@ against the **scene kit** (`overlay/scene-kit.js`, plus the shared geometry in
 `overlay/scene-parts.js`), which owns everything that is easy to get wrong: the one shared
 WebGL renderer, the camera and framing, the Scene placement sliders, the afterglow, shadows
 and disposal. A scene only builds objects and animates them. `thanksgiving-harvest` was the
-first; `winter-aurora` is the second and the one to copy.
+first; `winter-aurora` is the second and the one to copy. The five flag effects are one
+scene with five pictures; see "The flag" below.
 
 ### The factory
 
@@ -193,6 +194,10 @@ The same three edits as any effect (above), plus the id in two more lists in
    `DEFAULT_PER_VIZ` work as usual.
 2. Add the scene's `<script>` tag to all three overlay pages, after `scene-kit.js` and
    `scene-parts.js`, which the pages already load before the factories.
+
+If an id no longer says what the effect is, give it a display name in `VIZ_LABELS`
+(`shared/viz-config.js`): the control panel lists the effect by that name. The id stays, so
+saved configs and Streamer.bot actions keep working.
 
 For tests, `TimbreScene.testLevel = 0.8` replaces the mic level (`null` restores it), and
 `TimbreScene.debug()` returns the live scene's render scale, GPU resource counts and its own
@@ -408,6 +413,43 @@ All its timing comes from `dt`. The only randomness is the Television's static, 
 `window.__televisionSeed` seeds the pictures. It uses `TimbrePlanets`' colour helpers when it paints, so
 `planets.js` must be loaded before it. Like `helix.js`, the file must stay loadable under Node,
 because `npm run verify` imports it.
+
+## The flag (`TimbreFlag`)
+
+`overlay/flag.js` is what the four Pride flags and the Fourth of July flag share, as
+`globalThis.TimbreFlag`: the flags themselves, the arithmetic that moves the cloth, and the
+kit scene. Each of the five effect files in `factories/` is one line,
+`VIZ_FACTORIES[id] = TimbreScene.factory(() => TimbreFlag.definition(id))`. It offers:
+
+- **The flags.** `FLAGS[id]` is `{ aspect, stripes, stripes8?, canton?, hearts?, sparks? }`.
+  A stripe is `[red, green, blue, share of the height]`, top to bottom. `stripesOf(spec,
+  eight)` is the list in use; `starPoints()` is the fifty stars as fractions of the union.
+  `paint(ctx, w, h, spec, eight)` draws a flag on the canvas context it is handed, and
+  `paintStars(ctx, w, h, spec)` draws the stars alone, white on black.
+- **The voice, remembered.** `createHistory()` gives `{ step(level, dt), byAge }`: 16 samples,
+  16 a second, index 0 is now. It glides between samples and writes each sample at its own
+  moment, so a gust travels at the same speed at any frame rate. `gusts(byAge, out)` spreads
+  it along the cloth, smoothed, from the pole (now) to the free end (the oldest).
+- **Lift and droop.** `lift(wind)` says how far the wind lifts the flag (0.1 hangs, 1 flies
+  straight out). `droop(fly, length)` says how far below level the cloth runs, limited so the
+  longest flag stays clear of the ground when it hangs.
+- **The cloth.** `shape(out, p)` writes the cloth's points for
+  `p = { length, fly, droop, phase, t, gust, low, high, kick }`: rows top to bottom, columns
+  from the pole to the free end, origin at the top corner by the pole. The cloth keeps its
+  length, so a ripple shortens its reach instead of stretching it, and the edge at the pole
+  never moves. `measure(positions)` reads off the free end's corner, the lowest point and
+  the deepest ripple.
+- **The scene.** `definition(id)` returns the kit scene definition: the pole and base, the
+  lamp, the cloth, and the hearts or the fireworks.
+
+To add a flag: an entry in `FLAGS`, a one-line factory file, and the usual registration as a
+kit scene. A flag with `hearts` sheds hearts in those colours; one with `sparks` has
+fireworks in those colours; one with a `canton` gets the union and its stars.
+
+All its timing comes from `dt`. The arithmetic touches nothing at load, and the file must stay
+loadable under Node, because `npm run verify` imports it; the scene looks up `THREE`,
+`TimbreScene`, `document` and the core.js globals only when it is built. It must be loaded
+after `scene-kit.js` and before the factories.
 
 ## Wire format (for driving Timbre from elsewhere)
 

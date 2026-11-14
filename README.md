@@ -57,8 +57,8 @@ OBS Browser Source and
 
 ## The 51 effects
 
-38 canvas-2D + 13 WebGL (three.js, vendored — works offline). Includes spectrum bars,
-waveforms, matrix rain with custom text, seasonal/holiday scenes, pride ribbons, and
+33 canvas-2D + 18 WebGL (three.js, vendored — works offline). Includes spectrum bars,
+waveforms, matrix rain with custom text, seasonal/holiday scenes, Pride flags, and
 spinning 3D STL models with a shared knob group (rotation, position, clones, spark
 particles). Add your own: drop a factory file in `overlay/factories/`, register it in
 `shared/viz-config.js`, add a `<script>` tag — see [docs/EFFECTS.md](docs/EFFECTS.md).
