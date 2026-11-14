@@ -81,8 +81,11 @@ shape of the code is the builder's.
    then uploads that disposed texture again and nothing ever frees it: one GL texture lost
    each time a scene with a textured shadow caster is followed by another scene. The kit
    sets each object's `onBeforeShadow` to clear the shadow material's `map` and `alphaMap`
-   when its `alphaTest` is 0. With `alphaTest` above 0 three.js uses a material of the
-   caster's own, which is freed with it, so cut-out shadows are unaffected.
+   when its `alphaTest` is 0, and its `displacementMap` when its `displacementScale` is 0
+   (three.js copies that across the same way). With `alphaTest` above 0 three.js uses a
+   material of the caster's own, which is freed with it, so cut-out shadows are unaffected.
+   An object's own `onBeforeShadow` (a scene's, or the one three.js gives a `BatchedMesh`)
+   is kept and runs after the kit's.
 
 ## The scene
 
@@ -128,15 +131,20 @@ Sizes are in scene units; the ground is `y = 0`; the viewer is toward `+z`.
   a wave of taller, brighter rays (and a lower hem) that travels: left to right on the front
   curtain, right to left on the middle one, from the centre outward on the back one. The
   history is laid out by age each frame with the live level at age 0, so the wave moves
-  smoothly and at the same speed at any frame rate.
+  smoothly and at the same speed at any frame rate. A sample that falls inside a frame
+  holds the level at its own moment (between the last frame's level and this one's), so a
+  long frame that takes two samples does not write the same value twice. Each curtain gets
+  its own copy laid out along its length, which is where the direction of travel lives.
 - **Tone.** The low end (the first four frequency bins) keeps the lower rays green; the
   high end (bins 8 to 31) strengthens the violet tops, brightens the stars and turns the
   aurora's light on the snow toward violet. With no mic these two drift slowly with the
   idle level.
 - **Beats.** A beat flushes the hems pink, brightens everything for a moment and gives
   every falling flake one sideways push that dies away.
-- **Snow.** The number falling is `22 + 60 × flame + 70 × burst`, scaled by the Snowfall
-  setting.
+- **Snow.** The number that should be falling is `22 + 60 × flame + 70 × burst`, scaled by
+  the Snowfall setting. That number only decides whether a flake that has landed sets off
+  again. A flake in the air always falls to the snow and shrinks away there, so when the
+  voice drops the sky thins out as flakes land, and nothing vanishes in mid-air.
 - **Afterglow.** From the kit, with this scene's own cooling: red fades fastest and green
   not at all beyond the afterglow time, so trailing light stays aurora-coloured.
 
@@ -146,7 +154,7 @@ Sizes are in scene units; the ground is `y = 0`; the viewer is toward `+z`.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `auroraGlow` | 50 | How strongly the voice drives the aurora. 0 = a steady dim aurora with no travelling waves; 100 = twice the default swing. |
+| `auroraGlow` | 50 | How strongly the voice drives the aurora's brightness and its light on the snow. 0 = no change in brightness, no travelling waves and no flush on a beat (the colours still follow the tone of the voice). 100 = twice the default swing in brightness, up to a ceiling of 1.25; the waves are as tall as at 50. |
 | `snowfall` | 50 | Scales the number of falling flakes. 0 = none. |
 | `starDensity` | 50 | How many stars: 0 = none, 100 = 120. Keeps its name and any saved value. |
 | `cameraDrift` | 50 | Scales the camera's side-to-side drift. 0 = still. |
@@ -180,6 +188,18 @@ Bounce settings are ignored), and the Scene placement group appears for it.
   fix when they are rebuilt.
 - The pink flush on a beat is strongest at the hem and is tested as "mostly red light in the
   upper half of the canvas", which is a proxy for the colour, not a judgement of the look.
+- The shadow maps are drawn again every frame although nothing that casts a shadow moves:
+  seven depth passes, six of them for the window's light. If OBS shows render lag, the first
+  thing to try is a kit option to draw still shadows once.
+- This scene's cooling also applies to the window's light. When the fire dims, its trailing
+  light on the snow leans yellow-green instead of red. It can only show with Trail veil
+  below about 68%.
+- "draw() averages under 4 ms" times the script that issues the drawing commands, not the
+  graphics card's work.
+- The dispose sweep does not reach `customDepthMaterial` / `customDistanceMaterial`, a
+  uniform whose value is an array of textures, `scene.background` / `scene.environment`, a
+  `SpotLight`'s `map`, or textures owned by a `Skeleton` or a `BatchedMesh`. No scene uses
+  any of them; one that does passes them through `k.keep()`.
 
 ## Left to the builder
 

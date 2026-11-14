@@ -41,7 +41,7 @@ VIZ_FACTORIES['winter-aurora'] = TimbreScene.factory(function () {
   };
 
   const AURORA_VERT = `
-    uniform float uTime, uPhase, uZ, uHem, uHeight, uLen, uTravel, uSlope, uArch;
+    uniform float uTime, uPhase, uZ, uHem, uHeight, uLen, uSlope, uArch;
     uniform float uHist[${HIST}];
     varying vec2 vUv;
     varying float vAmp;
@@ -52,9 +52,7 @@ VIZ_FACTORIES['winter-aurora'] = TimbreScene.factory(function () {
     }
     void main() {
       float u = uv.x, v = uv.y, t = uTime;
-      // How long ago the voice now at this point of the curtain was spoken.
-      float age = uTravel > 0.5 ? u : uTravel < -0.5 ? 1.0 - u : abs(u - 0.5) * 2.0;
-      float amp = hist(age);
+      float amp = hist(u);   // the voice as it stands at this point of the curtain
       // The curtain's path seen from above: slow meanders and a travelling fold.
       float x = (u - 0.5) * uLen + 0.35 * sin(u * 11.0 + t * 0.17 + uPhase * 1.7);
       float z = uZ + 0.55 * sin(u * 7.0 + t * 0.21 + uPhase) + 0.28 * sin(u * 17.0 - t * 0.33 + uPhase * 2.3) + 0.1 * sin(u * 41.0 + t * 0.5);
@@ -149,13 +147,23 @@ VIZ_FACTORIES['winter-aurora'] = TimbreScene.factory(function () {
     return c;
   }
 
-  const curtains = [];
+  // A curtain's copy of the history, laid out along its length: how long ago the voice now
+  // at each point was spoken depends on which way the curtain's waves travel.
+  function layOut(byAge, travel, out) {
+    for (let i = 0; i < HIST; i++) {
+      const u = i / (HIST - 1), age = travel > 0 ? u : travel < 0 ? 1 - u : Math.abs(u - 0.5) * 2;
+      const x = age * (HIST - 1), j = Math.floor(x), f = x - j;
+      out[i] = byAge[j] * (1 - f) + byAge[Math.min(j + 1, HIST - 1)] * f;
+    }
+  }
+
+  const curtains = [];        // { material, travel, along }
   const flakes = [];
   const hist = new Float32Array(HIST), ring = new Float32Array(HIST);
-  let ringAt = 0, sinceSample = 0;
+  let ringAt = 0, sinceSample = 0, lastFlame = 0;
   let flakeMesh = null, dummy = null, auroraLight = null, windowLight = null, windowGlow = null, windowPane = null;
   let stars = null, starSeed = null;
-  const s = { glow: 0, bright: 0, low: 0, high: 0, kick: 0, light: 0, orbit: 0, stars: 0, snowTarget: 0, falling: 0, fallingHeight: 0 };
+  const s = { glow: 0, bright: 0, low: 0, high: 0, kick: 0, light: 0, orbit: 0, snowTarget: 0, falling: 0, fallingHeight: 0, landed: 0, landedHigh: 0 };
 
   function build(k) {
     const { THREE, scene } = k;
@@ -262,14 +270,14 @@ VIZ_FACTORIES['winter-aurora'] = TimbreScene.factory(function () {
     cabin.add(windowLight);
 
     // The aurora: three curtains of added light, shaped in the vertex shader.
-    const sheet = k.keep(new THREE.PlaneGeometry(1, 1, 220, 20));
-    sheet.translate(0.5, 0.5, 0);   // so position, like uv, runs 0..1
+    const sheet = k.keep(new THREE.PlaneGeometry(1, 1, 220, 1));   // the shader shapes it along its length only
     for (const [z, hem, height, phase, travel, slope, arch] of CURTAINS) {
+      const along = new Float32Array(HIST);
       const mat = k.keep(k.addLight(new THREE.ShaderMaterial({
         vertexShader: AURORA_VERT, fragmentShader: AURORA_FRAG, side: THREE.DoubleSide,
         uniforms: {
           uTime: { value: 0 }, uPhase: { value: phase }, uZ: { value: z }, uHem: { value: hem }, uHeight: { value: height },
-          uLen: { value: CURTAIN_LENGTH }, uTravel: { value: travel }, uSlope: { value: slope }, uArch: { value: arch }, uHist: { value: hist },
+          uLen: { value: CURTAIN_LENGTH }, uSlope: { value: slope }, uArch: { value: arch }, uHist: { value: along },
           uGlow: { value: 0 }, uKick: { value: 0 }, uLow: { value: 0 }, uHigh: { value: 0 },
           uGreen: { value: new THREE.Vector3(0.12, 1.0, 0.42) }, uTeal: { value: new THREE.Vector3(0.08, 0.75, 0.95) },
           uViolet: { value: new THREE.Vector3(0.6, 0.22, 1.0) }, uPink: { value: new THREE.Vector3(1.0, 0.25, 0.5) },
@@ -278,7 +286,7 @@ VIZ_FACTORIES['winter-aurora'] = TimbreScene.factory(function () {
       const mesh = new THREE.Mesh(sheet, mat);
       mesh.frustumCulled = false;   // the shader moves it
       scene.add(mesh);
-      curtains.push(mat);
+      curtains.push({ material: mat, travel, along });
     }
 
     // Stars: small points of added light behind the curtains.
@@ -325,9 +333,16 @@ VIZ_FACTORIES['winter-aurora'] = TimbreScene.factory(function () {
 
     // Voice history: sampled at a fixed rate, then laid out by age for the shader,
     // with the live level at age 0, so a wave moves smoothly at any frame rate.
+    // A sample that falls inside this frame holds the level at its own moment, between the
+    // last frame's and this one's, so a long frame does not write the same value twice.
     sinceSample += dt;
-    for (let i = 0; sinceSample >= 1 / HIST_HZ && i < HIST; i++) { sinceSample -= 1 / HIST_HZ; ringAt = (ringAt + 1) % HIST; ring[ringAt] = audio.flame; }
+    for (let i = 0; sinceSample >= 1 / HIST_HZ && i < HIST; i++) {
+      sinceSample -= 1 / HIST_HZ;
+      const w = dt > 0 ? Math.max(0, Math.min(1, 1 - sinceSample / dt)) : 1;
+      ringAt = (ringAt + 1) % HIST; ring[ringAt] = lastFlame + (audio.flame - lastFlame) * w;
+    }
     if (sinceSample >= 1 / HIST_HZ) sinceSample = 0;   // a frame longer than the whole history
+    lastFlame = audio.flame;
     const frac = sinceSample * HIST_HZ, past = (j) => ring[(ringAt - Math.min(j, HIST - 1) + HIST * 2) % HIST];
     for (let i = 0; i < HIST; i++) {
       const a = i - frac;
@@ -335,8 +350,9 @@ VIZ_FACTORIES['winter-aurora'] = TimbreScene.factory(function () {
       const j = Math.floor(a), f = a - j;
       hist[i] = (past(j) * (1 - f) + past(j + 1) * f) * waves;
     }
-    for (const m of curtains) {
-      const u = m.uniforms;
+    for (const c of curtains) {
+      layOut(hist, c.travel, c.along);
+      const u = c.material.uniforms;
       u.uTime.value = t; u.uGlow.value = s.bright; u.uKick.value = s.kick; u.uLow.value = s.low; u.uHigh.value = s.high;
     }
 
@@ -352,16 +368,17 @@ VIZ_FACTORIES['winter-aurora'] = TimbreScene.factory(function () {
     windowGlow.material.opacity = 0.55 * fire;
 
     // Stars twinkle, brighter with the high end; the setting says how many there are.
-    s.stars = Math.round(STARS * knob('starDensity') / 100);
-    stars.geometry.setDrawRange(0, s.stars);
+    const shown = Math.round(STARS * knob('starDensity') / 100);
+    stars.geometry.setDrawRange(0, shown);
     const col = stars.geometry.attributes.color;
-    for (let i = 0; i < s.stars; i++) {
+    for (let i = 0; i < shown; i++) {
       const b = (0.25 + 0.75 * (0.5 + 0.5 * Math.sin(t * starSeed[i * 2] + starSeed[i * 2 + 1]))) * (0.35 + 0.9 * s.high);
       col.setXYZ(i, b * 0.85, b * 0.92, b);
     }
     col.needsUpdate = true;
 
-    // Snow: how much falls follows volume and beats; a beat gusts it sideways.
+    // Snow: how much falls follows volume and beats; a beat gusts it sideways. The count
+    // only decides whether a flake that has landed sets off again: one in the air keeps falling.
     const target = Math.min(FLAKES, Math.round((22 + 60 * audio.flame + 70 * audio.burst) * knob('snowfall') / 50));
     const settle = Math.exp(-1.5 * dt);
     let falling = 0, height = 0;
@@ -372,7 +389,8 @@ VIZ_FACTORIES['winter-aurora'] = TimbreScene.factory(function () {
         f.y -= f.speed * dt;
         f.x += (Math.sin(0.9 * t + f.sway) * 0.22 + f.vx) * dt;
         f.z += Math.cos(0.7 * t + f.sway) * 0.1 * dt;
-        if (f.y < riseHeight(f.x, f.z + BACK) + 0.02 || i >= target) f.on = false;
+        const above = f.y - riseHeight(f.x, f.z + BACK);
+        if (above < 0.02) { f.on = false; s.landed++; if (above > s.landedHigh) s.landedHigh = above; }
       } else if (i < target) {
         f.on = true; f.vx = 0;
         f.x = -5.5 + 11 * Math.random(); f.y = 4.4 + 1.2 * Math.random(); f.z = -2.8 + 4.6 * Math.random();
@@ -398,6 +416,11 @@ VIZ_FACTORIES['winter-aurora'] = TimbreScene.factory(function () {
     cooling: [0.05, Infinity, 0.25],   // trailing light stays aurora-coloured: red goes first, green last
     build,
     update,
-    debug() { return Object.assign({ hist: Array.from(hist) }, s); },
+    debug() {
+      return Object.assign({
+        hist: Array.from(hist), curtains: curtains.map((c) => Array.from(c.along)),
+        stars: stars ? stars.geometry.drawRange.count : 0,
+      }, s);
+    },
   };
 });

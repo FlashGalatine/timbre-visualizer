@@ -85,6 +85,30 @@ The first version of the "first scene after an older WebGL effect" check passed 
 fix: a page applies the pushed config when it connects, and the config named a scene, so the
 kit's renderer already existed. The check now pushes a 2D effect first and waits for it.
 
+### After the review
+
+One independent review of the branch: nothing critical. Fixed, each with a check written
+first:
+
+- Flakes switched off in mid-air whenever the wanted number dropped (every pause in speech).
+  The number now only decides whether a landed flake sets off again. No check had ever run
+  long enough for a flake to land; one now runs 25 s.
+- The direction each curtain's wave travels lived only in the shader, where no check could
+  see it. Each curtain now gets its own copy of the history laid out along its length, and
+  the checks read those.
+- The 30 / 60 fps reading fell exactly on a history sample, so the gliding between samples
+  was not tested. It now falls between two, and a check follows the wave frame by frame.
+- A long frame wrote the same level into two samples. Each sample now holds the level at
+  its own moment; a 10 fps run is compared with a 60 fps one.
+- The kit's shadow guard replaced an object's own `onBeforeShadow`; it now runs in front of
+  it. It also drops a displacement map that displaces nothing. A check covers the cut-out
+  case the guard must leave alone.
+- Star density is read from what is drawn, not from the scene's own note of it; the
+  cold-start check also reads the power preference.
+
+Left alone and listed in the spec: shadow maps drawn every frame, the cooling's effect on the
+window's light, what the dispose sweep does not reach.
+
 ### Task 7: review
 
 - Both suites; stills; one independent review of the branch; fixes with a check first, each
