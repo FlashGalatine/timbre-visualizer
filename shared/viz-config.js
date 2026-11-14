@@ -30,10 +30,24 @@
     'mountains-3d', 'sunburst-3d', 'metaball', 'glass-prism', 'chladni',
     'phosphor', 'ink', 'shards', 'jelly', 'boids',
     'rose', 'winter-aurora', 'thanksgiving-harvest',
+    'pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes',
   ];
 
   // Effects built on the scene kit (overlay/scene-kit.js); all of them are 3D.
-  const VIZ_SCENES = ['thanksgiving-harvest', 'winter-aurora'];
+  const VIZ_SCENES = [
+    'thanksgiving-harvest', 'winter-aurora',
+    'pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes',
+  ];
+
+  // The name the control panel shows, where the id no longer says what the effect
+  // is. (The ids stay, so saved configs and Streamer.bot actions keep working.)
+  const VIZ_LABELS = {
+    'pride-ribbon': 'Pride flag',
+    'bi-pride-ribbon': 'Bi pride flag',
+    'ace-pride-ribbon': 'Ace pride flag',
+    'trans-pride-ribbon': 'Trans pride flag',
+    'july-fourth-stripes': 'Fourth of July flag',
+  };
 
   // Where a scene sits in the frame: offset from centre (percent of the half
   // frame) and size (percent of its natural size).
@@ -97,13 +111,13 @@
     'valentines-hearts':  { heartDensity: 50, pulseStrength: 50, cupidChance: 40 },
     'easter-eggs':              { eggCount: 50, patternStyle: 75, bunnyChance: 50 },
     'st-patricks-shamrocks':    { shamrockDensity: 50, rainbowSaturation: 60, goldRate: 50 },
-    'july-fourth-stripes':      { stripeAmplitude: 50, starTwinkle: 50, burstChance: 50 },
+    'july-fourth-stripes':      { wind: 50, starTwinkle: 50, burstChance: 50, cameraDrift: 50 },
     'thanksgiving-harvest':     { candleGlow: 50, leafDensity: 50, cameraDrift: 50 },
     'lunar-new-year-lanterns':  { lanternCount: 60, dragonOpacity: 60, fireworkRate: 50 },
-    'pride-ribbon':             { ribbonAmplitude: 50, heartRate: 50, stripeStyle: 0 },
-    'bi-pride-ribbon':          { ribbonAmplitude: 50, heartRate: 50 },
-    'ace-pride-ribbon':         { ribbonAmplitude: 50, heartRate: 50 },
-    'trans-pride-ribbon':       { ribbonAmplitude: 50, heartRate: 50 },
+    'pride-ribbon':             { wind: 50, heartRate: 50, stripeStyle: 0, cameraDrift: 50 },
+    'bi-pride-ribbon':          { wind: 50, heartRate: 50, cameraDrift: 50 },
+    'ace-pride-ribbon':         { wind: 50, heartRate: 50, cameraDrift: 50 },
+    'trans-pride-ribbon':       { wind: 50, heartRate: 50, cameraDrift: 50 },
     'dia-de-muertos-calavera':  { petalDensity: 60, patternIntensity: 50, candleFlicker: 50 },
   };
 
@@ -251,6 +265,7 @@
     ACTIVE_VIZ_NAMES,
     VIZ_USES_3D,
     VIZ_SCENES,
+    VIZ_LABELS,
     PLACEMENT_RANGES,
     VIZ_AFTERGLOW,
     AFTERGLOW_RANGE,

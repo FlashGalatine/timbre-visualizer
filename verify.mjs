@@ -57,6 +57,12 @@
 //      (size and bounce with the voice, staying in the frame on three pages,
 //      quiet states), and that all three overlay pages load it after infall.js
 //      and before the factories. (Also runs before section 4.)
+//  13. Flags — overlay/flag.js under Node: the five flags (colours, shares,
+//      the union and its stars), painting them, the voice history (travel,
+//      glide, frame rates), lift and droop, the cloth (constant length, pinned
+//      at the pole, clear of the ground, ripples), and that all three overlay
+//      pages load it after scene-parts.js and before the factories. (Also runs
+//      before section 4.)
 //   4. Live transport seam — spawns mock-sb-server.mjs on side ports, loads the
 //      REAL shared/panel-client-sb.js under a browser shim, and asserts:
 //      Subscribe (lowercase), sync-on-connect DoAction, control push →
@@ -105,7 +111,14 @@ console.log('\n[1] table consistency');
   ok(T.VIZ_SCENES.every((n) => T.VIZ_USES_3D.includes(n)), 'VIZ_SCENES ⊆ VIZ_USES_3D');
   ok(T.VIZ_SCENES.includes('thanksgiving-harvest'), 'thanksgiving-harvest is a kit scene');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['thanksgiving-harvest']) === '{"candleGlow":50,"leafDensity":50,"cameraDrift":50}', 'thanksgiving knobs');
-  ok(T.VIZ_SCENES.includes('winter-aurora') && JSON.stringify(T.VIZ_SCENES) === '["thanksgiving-harvest","winter-aurora"]', 'winter-aurora is the second kit scene');
+  ok(T.VIZ_SCENES.indexOf('winter-aurora') === 1 && T.VIZ_SCENES.indexOf('thanksgiving-harvest') === 0, 'winter-aurora is the second kit scene');
+  const FLAG_IDS = ['pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes'];
+  ok(JSON.stringify(T.VIZ_SCENES) === JSON.stringify(['thanksgiving-harvest', 'winter-aurora', ...FLAG_IDS]) && FLAG_IDS.every((n) => T.VIZ_USES_3D.includes(n)), 'the five flags are kit scenes, listed after winter-aurora');
+  ok(JSON.stringify(T.DEFAULT_PER_VIZ['pride-ribbon']) === '{"wind":50,"heartRate":50,"stripeStyle":0,"cameraDrift":50}'
+    && ['bi', 'ace', 'trans'].every((p) => JSON.stringify(T.DEFAULT_PER_VIZ[p + '-pride-ribbon']) === '{"wind":50,"heartRate":50,"cameraDrift":50}'), 'pride flag knobs');
+  ok(JSON.stringify(T.DEFAULT_PER_VIZ['july-fourth-stripes']) === '{"wind":50,"starTwinkle":50,"burstChance":50,"cameraDrift":50}', 'fourth of july flag knobs');
+  ok(JSON.stringify(T.VIZ_LABELS) === JSON.stringify({ 'pride-ribbon': 'Pride flag', 'bi-pride-ribbon': 'Bi pride flag', 'ace-pride-ribbon': 'Ace pride flag', 'trans-pride-ribbon': 'Trans pride flag', 'july-fourth-stripes': 'Fourth of July flag' })
+    && FLAG_IDS.every((n) => T.ACTIVE_VIZ_NAMES.includes(n)), 'the five flags have display names, and keep their ids');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['winter-aurora']) === '{"auroraGlow":50,"snowfall":50,"starDensity":50,"cameraDrift":50}', 'winter aurora knobs');
   ok(JSON.stringify(T.defaultConfig().placement) === '{"x":0,"y":0,"size":100}', 'defaultConfig has placement');
   ok(JSON.stringify(T.VIZ_AFTERGLOW) === '["visualizer","peak-hold","ring-bars","sine-bars","waveform","ring-waveform"]', 'the six afterglow effects');
@@ -182,6 +195,10 @@ console.log('\n[2] sanitizeConfig');
   ok(T.sanitizeConfig({ gain: 50 }, T.sanitizeConfig({ afterglow: 2.5 })).afterglow === 2.5, 'afterglow survives a merge');
   const old = T.sanitizeConfig({ perViz: { 'thanksgiving-harvest': { pumpkinPulse: 80, leafDensity: 20, wheatSway: 10 } } });
   ok(JSON.stringify(old.perViz['thanksgiving-harvest']) === '{"candleGlow":50,"leafDensity":20,"cameraDrift":50}', 'a saved pre-redesign config keeps leafDensity and drops the retired knobs');
+  const oldFlags = T.sanitizeConfig({ activeViz: 'pride-ribbon', perViz: { 'pride-ribbon': { ribbonAmplitude: 90, heartRate: 20, stripeStyle: 80 }, 'bi-pride-ribbon': { ribbonAmplitude: 10, heartRate: 70 }, 'july-fourth-stripes': { stripeAmplitude: 90, starTwinkle: 10, burstChance: 300 } } });
+  ok(oldFlags.activeViz === 'pride-ribbon' && JSON.stringify(oldFlags.perViz['pride-ribbon']) === '{"wind":50,"heartRate":20,"stripeStyle":80,"cameraDrift":50}'
+    && JSON.stringify(oldFlags.perViz['bi-pride-ribbon']) === '{"wind":50,"heartRate":70,"cameraDrift":50}'
+    && JSON.stringify(oldFlags.perViz['july-fourth-stripes']) === '{"wind":50,"starTwinkle":10,"burstChance":100,"cameraDrift":50}', 'a saved pre-redesign flag config keeps its hearts, stripes, stars and bursts, drops the retired amplitudes and clamps');
   const oldAurora = T.sanitizeConfig({ perViz: { 'winter-aurora': { ribbonCount: 80, starDensity: 20, mountainOpacity: 10, snowfall: 400 } } });
   ok(JSON.stringify(oldAurora.perViz['winter-aurora']) === '{"auroraGlow":50,"snowfall":100,"starDensity":20,"cameraDrift":50}', 'a saved pre-redesign winter-aurora config keeps starDensity, drops the retired knobs and clamps');
 }
@@ -1761,6 +1778,183 @@ await import('./overlay/characters.js');
     order.push(pos > html.indexOf('src="infall.js"') && pos < html.indexOf('src="factories/'));
   }
   ok(order.every(Boolean), 'all three overlay pages load characters.js after infall.js and before the factories');
+}
+
+// ── 13. Flags (pure; no browser) ─────────────────────────────────────────────
+console.log('\n[13] flags');
+await import('./overlay/flag.js');
+{
+  const F = globalThis.TimbreFlag;
+  const near = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol;
+  const IDS = ['pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes'];
+  ok(F.HIST === 16 && F.HIST_HZ === 16 && F.NU === 56 && F.NV === 22 && F.HOIST === 2.3 && F.TOP === 4.75 && F.POLE_X === -2.5, 'the sizes: 16 history samples at 16 a second, a 56 by 22 cloth, hoist 2.3, top at 4.75');
+  ok(JSON.stringify(Object.keys(F.FLAGS)) === JSON.stringify(IDS), 'one flag for each of the five effects');
+
+  // The flags themselves.
+  const rgb = (id, eight) => F.stripesOf(F.FLAGS[id], eight).map((s) => s.slice(0, 3).join(','));
+  const shares = (id, eight) => { const st = F.stripesOf(F.FLAGS[id], eight), total = st.reduce((a, s) => a + s[3], 0); return st.map((s) => s[3] / total); };
+  const SIX = ['228,30,38', '243,137,36', '254,224,53', '120,184,60', '0,130,200', '120,73,152'];
+  ok(JSON.stringify(rgb('pride-ribbon', false)) === JSON.stringify(SIX) && shares('pride-ribbon', false).every((s) => near(s, 1 / 6)), 'rainbow: six equal stripes, red at the top, violet at the bottom');
+  ok(JSON.stringify(rgb('pride-ribbon', true)) === JSON.stringify(['40,25,25', '120,80,60', ...SIX]) && shares('pride-ribbon', true).every((s) => near(s, 1 / 8)), 'rainbow, eight stripes: black and brown above the six');
+  ok(IDS.slice(1).every((id) => JSON.stringify(rgb(id, true)) === JSON.stringify(rgb(id, false))), 'only the rainbow has an eight-stripe form');
+  ok(JSON.stringify(rgb('bi-pride-ribbon')) === JSON.stringify(['214,2,112', '155,79,150', '0,56,168']) && shares('bi-pride-ribbon').every((s, i) => near(s, [0.4, 0.2, 0.4][i])), 'bi: magenta 40%, purple 20%, blue 40%');
+  ok(JSON.stringify(rgb('ace-pride-ribbon')) === JSON.stringify(['22,22,22', '165,165,165', '240,240,240', '128,0,128']) && shares('ace-pride-ribbon').every((s) => near(s, 0.25)), 'ace: four equal stripes, black, grey, white, purple');
+  const trans = rgb('trans-pride-ribbon');
+  ok(JSON.stringify(trans) === JSON.stringify(['91,206,250', '245,169,184', '255,255,255', '245,169,184', '91,206,250']) && shares('trans-pride-ribbon').every((s) => near(s, 0.2))
+    && JSON.stringify(trans) === JSON.stringify(trans.slice().reverse()), 'trans: five equal stripes, the same read from either end');
+  const july = F.FLAGS['july-fourth-stripes'];
+  ok(rgb('july-fourth-stripes').length === 13 && rgb('july-fourth-stripes').every((c, i) => c === (i % 2 === 0 ? '201,36,50' : '248,248,250')) && shares('july-fourth-stripes').every((s) => near(s, 1 / 13)),
+    'fourth of july: thirteen equal stripes, red first and last');
+  ok(july.aspect === 1.9 && july.canton && near(july.canton.width, 0.4) && near(july.canton.height, 7 / 13) && july.canton.color.join(',') === '22,56,130'
+    && IDS.slice(0, 4).every((id) => near(F.FLAGS[id].aspect, 5 / 3) && !F.FLAGS[id].canton), 'the union is two fifths of the length and seven stripes tall; the pride flags are 5:3 with none');
+  const stars = F.starPoints(), rows = [...new Set(stars.map((p) => p[1].toFixed(6)))].sort();
+  ok(stars.length === 50 && rows.length === 9 && rows.every((y, r) => stars.filter((p) => p[1].toFixed(6) === y).length === (r % 2 === 0 ? 6 : 5))
+    && stars.every(([x, y]) => x > 0.04 && x < 0.96 && y > 0.04 && y < 0.96)
+    && stars.every(([x, y]) => stars.some(([x2, y2]) => near(x2, 1 - x, 1e-9) && near(y2, y, 1e-9))), 'fifty stars in nine rows of six and five, inside the union, the same left and right');
+  const triples = (list) => Array.isArray(list) && list.length >= 3 && list.every((c) => c.length === 3 && c.every((v) => Number.isInteger(v) && v >= 0 && v <= 255));
+  ok(IDS.slice(0, 4).every((id) => triples(F.FLAGS[id].hearts) && !F.FLAGS[id].sparks) && triples(july.sparks) && july.sparks.length === 3 && !july.hearts
+    && JSON.stringify(F.FLAGS['trans-pride-ribbon'].hearts) === '[[91,206,250],[245,169,184],[255,255,255],[255,200,220],[140,220,255]]', 'pride flags have heart colours, the fourth of july has three spark colours');
+
+  // Painting, on a context that only records what it is asked to draw.
+  const recorder = () => {
+    const c = { fillStyle: '', rects: [], fills: 0, points: 0, fillRect(x, y, w, h) { c.rects.push([c.fillStyle, x, y, w, h]); }, beginPath() {}, moveTo() { c.points++; }, lineTo() { c.points++; }, closePath() {}, fill() { c.fills++; } };
+    return c;
+  };
+  {
+    const c = recorder();
+    F.paint(c, 1000, 600, F.FLAGS['bi-pride-ribbon'], false);
+    const [a, b, d] = c.rects;
+    ok(c.rects.length === 3 && a[0] === 'rgb(214,2,112)' && b[0] === 'rgb(155,79,150)' && d[0] === 'rgb(0,56,168)'
+      && a[1] === 0 && a[3] === 1000 && Math.abs(a[2]) < 1 && Math.abs(b[2] - 240) < 1 && Math.abs(d[2] - 360) < 1 && a[4] >= 240 && b[4] >= 120 && d[2] + d[4] >= 600 && c.fills === 0,
+      'painting draws the stripes top to bottom at their shares of the height, full width');
+    const e = recorder();
+    F.paint(e, 1300, 700, july, false);
+    const union = e.rects[13];
+    ok(e.rects.length === 14 && union[0] === 'rgb(22,56,130)' && union[1] === 0 && union[2] === 0 && near(union[3], 520, 1e-6) && near(union[4], 700 * 7 / 13, 1e-6) && e.fills === 50 && e.points === 500,
+      'the union is painted over the stripes at the top by the pole, with fifty five-pointed stars');
+    const g = recorder();
+    F.paintStars(g, 1300, 700, july);
+    ok(g.rects.length === 1 && g.rects[0][0] === 'rgb(0,0,0)' && g.rects[0][3] === 1300 && g.rects[0][4] === 700 && g.fills === 50, 'the star map is black with the fifty stars alone');
+    const eight = recorder();
+    F.paint(eight, 800, 480, F.FLAGS['pride-ribbon'], true);
+    ok(eight.rects.length === 8 && eight.rects[0][0] === 'rgb(40,25,25)' && eight.rects[7][0] === 'rgb(120,73,152)' && Math.abs(eight.rects[2][2] - 120) < 1, 'eight stripes paint as eight');
+  }
+
+  // The voice history: newest at index 0, 16 samples a second.
+  const history = (fps, steps, trace) => {
+    const h = F.createHistory();
+    let jump = 0, before = null;
+    for (const [level, secs] of steps) for (let i = 0, n = Math.round(secs * fps); i < n; i++) {
+      h.step(level, 1 / fps);
+      if (trace) { if (before) for (let j = 2; j < F.HIST; j++) jump = Math.max(jump, Math.abs(h.byAge[j] - before[j])); before = Array.from(h.byAge); }
+    }
+    return { byAge: Array.from(h.byAge), jump };
+  };
+  const peak = (a) => { let at = -1, top = 0; a.forEach((v, i) => { if (v > top) { top = v; at = i; } }); return { at, top }; };
+  {
+    const burst = [[0, 0.5], [0.9, 4 / 60]];
+    const soon = history(60, [...burst, [0, 0.25]], true), later = history(60, [...burst, [0, 0.75]], true);
+    ok(soon.byAge.length === 16 && peak(soon.byAge).at === 4 && peak(later.byAge).at === 12 && peak(soon.byAge).top > 0.5 && peak(later.byAge).top > 0.5,
+      `a burst of voice travels at 16 samples a second (at ${peak(soon.byAge).at} after a quarter second, ${peak(later.byAge).at} after three quarters)`);
+    ok(soon.jump > 0.02 && soon.jump < 0.35 && later.jump < 0.35, `the history glides between samples (largest step ${soon.jump.toFixed(3)})`);
+    const steady = history(60, [[0.6, 2]]);
+    ok(steady.byAge.every((v) => near(v, 0.6, 1e-6)), 'a steady level fills the history with that level');
+    const fpsSteps = [[0.8, 1], [0, 16 / 30]], h30 = history(30, fpsSteps).byAge, h60 = history(60, fpsSteps).byAge;
+    ok(h60.some((v) => v > 0.7) && h60.every((v, i) => Math.abs(v - h30[i]) < 0.04), 'the history is the same at 30 and 60 fps');
+    // At 10 fps a frame holds more than one sample. Each must hold the level at its own moment:
+    // a level that rises steadily gives evenly spaced samples, none written twice.
+    const ramp = F.createHistory();
+    for (let i = 1; i <= 8; i++) ramp.step(i / 10, 0.1);
+    const gaps = Array.from(ramp.byAge).slice(0, 12).map((v, i) => v - ramp.byAge[i + 1]);
+    ok(gaps.every((d) => near(d, 1 / 16, 1e-6)), `a 10 fps frame writes each sample at its own moment (steps of ${gaps[0].toFixed(4)}, ${gaps[5].toFixed(4)}, ${gaps[11].toFixed(4)})`);
+    // The scene feeds it the kit's envelope (quick to rise, slow to fall), not a raw step.
+    const shaped = (fps) => {
+      const h = F.createHistory();
+      let flame = 0;
+      for (const [level, secs] of [[0, 0.5], [0.9, 0.3], [0, 0.5]]) for (let i = 0, n = Math.round(secs * fps); i < n; i++) {
+        flame += (level - flame) * (1 - Math.exp(-(level > flame ? 30 : 3) / fps));
+        h.step(flame, 1 / fps);
+      }
+      return Array.from(h.byAge);
+    };
+    const h10 = shaped(10), hFast = shaped(60), smear = Math.max(...hFast.map((v, i) => Math.abs(v - h10[i])));
+    ok(smear < 0.22 && hFast.some((v) => v > 0.85), `a syllable's history at 10 fps stays close to the one at 60 fps (${smear.toFixed(3)} apart at most)`);
+    const stalled = F.createHistory();
+    stalled.step(0.5, 1 / 60); stalled.step(0.5, 30);
+    ok(Array.from(stalled.byAge).every((v) => Number.isFinite(v) && v >= 0 && v <= 0.5 + 1e-6), 'a frame longer than the whole history leaves it finite');
+  }
+
+  // Along the cloth: the history spread over the columns and smoothed.
+  {
+    const flat = F.gusts(new Float32Array(16).fill(0.5), new Float32Array(F.NU + 1));
+    ok(flat.length === F.NU + 1 && Array.from(flat).every((v) => near(v, 0.5, 1e-6)), 'a steady history is a steady gust along the whole cloth');
+    const spike = new Float32Array(16); spike[4] = 0.9;
+    const g = Array.from(F.gusts(spike, new Float32Array(F.NU + 1)));
+    const step = Math.max(...g.slice(1).map((v, i) => Math.abs(v - g[i])));
+    // Unsmoothed, one sample of 0.9 would be a step of 0.24 from one column to the next.
+    ok(Math.abs(peak(g).at - (4 / 15) * F.NU) <= 2 && peak(g).top > 0.3 && step < 0.18 && g[F.NU] < 0.01,
+      `a gust sits where its age puts it, with no sharp front (peak at column ${peak(g).at}, largest step ${step.toFixed(3)})`);
+  }
+
+  // Lift and droop.
+  ok(near(F.lift(0), 0.1) && F.lift(1) === 1 && F.lift(0.45) > 0.8 && [0.1, 0.2, 0.3, 0.5].every((w) => F.lift(w) > F.lift(w - 0.05)) && F.lift(0.8) === 1 && F.lift(3) === 1 && F.lift(-1) === F.lift(0),
+    'the flag hangs in silence (0.1), flies in ordinary speech and never passes 1');
+  ok(near(F.droop(1, 3.8), 0.07) && near(F.droop(0.1, F.HOIST * 5 / 3), 0.07 + 0.66 * Math.pow(0.9, 1.4), 1e-6) && F.droop(0.1, F.HOIST * 1.9) < F.droop(0.1, F.HOIST * 5 / 3) && F.droop(0.5, 3.8) < F.droop(0.2, 3.8)
+    && near(F.droop(-2, 3.8), F.droop(0, 3.8)) && near(F.droop(5, 3.8), 0.07), 'a flying flag sags a little, a hanging one droops, a longer one droops less');
+
+  // The cloth.
+  const cloth = (id, o = {}) => {
+    const length = F.HOIST * F.FLAGS[id].aspect, fly = o.fly === undefined ? 1 : o.fly;
+    const gust = new Float32Array(F.NU + 1).fill(o.gust || 0);
+    const out = F.shape(new Float32Array((F.NU + 1) * (F.NV + 1) * 3), { length, fly, droop: F.droop(fly, length), phase: o.phase || 0, t: o.t || 0, gust, low: o.low || 0, high: o.high || 0, kick: o.kick || 0 });
+    return { out, length, m: F.measure(out) };
+  };
+  const rowLength = (out, j) => {
+    let len = 0;
+    for (let i = 1; i <= F.NU; i++) { const a = (j * (F.NU + 1) + i) * 3, b = a - 3; len += Math.hypot(out[a] - out[b], out[a + 1] - out[b + 1], out[a + 2] - out[b + 2]); }
+    return len;
+  };
+  {
+    let worst = 0, pole = 0, bad = 0;
+    for (const id of IDS) for (const fly of [0.07, 0.4, 1]) for (const gust of [0, 1]) for (const phase of [0, 1.3, 4.1]) {
+      const c = cloth(id, { fly, gust, phase, t: phase * 3, low: gust, high: gust, kick: gust });
+      for (let j = 0; j <= F.NV; j++) {
+        worst = Math.max(worst, Math.abs(rowLength(c.out, j) - c.length));
+        const o = j * (F.NU + 1) * 3;
+        pole = Math.max(pole, Math.abs(c.out[o]), Math.abs(c.out[o + 2]), Math.abs(c.out[o + 1] + (j / F.NV) * F.HOIST));
+      }
+      if (!Array.from(c.out).every(Number.isFinite)) bad++;
+    }
+    ok(worst < 1e-4 && bad === 0, `the cloth keeps its length whatever the wind does (worst row off by ${worst.toExponential(1)})`);
+    ok(pole < 1e-5, 'the edge at the pole never moves');
+  }
+  {
+    const flying = IDS.map((id) => cloth(id, { fly: 1 })), hanging = IDS.map((id) => cloth(id, { fly: 0.07 }));
+    ok(flying.every((c) => c.m.endX > 0.9 * c.length && c.m.endY > -0.4 && c.m.endY < 0), 'a flying flag reaches at least nine tenths of its length, sagging a little');
+    ok(hanging.every((c, i) => c.m.endY < -1.5 && c.m.endX < flying[i].m.endX - 0.5), 'a hanging flag droops and reaches less far');
+    const lowest = Math.min(...IDS.flatMap((id) => [0, 2, 5].map((t) => cloth(id, { fly: 0.07, t, phase: t }).m.lowest)));
+    ok(F.TOP + lowest >= 0.3, `the lowest corner of a hanging flag stays clear of the ground (${(F.TOP + lowest).toFixed(2)} above it)`);
+    const calm = cloth('pride-ribbon', { fly: 1, phase: 1 }).m.ripple, gusty = cloth('pride-ribbon', { fly: 1, phase: 1, gust: 1 }).m.ripple;
+    const kicked = cloth('pride-ribbon', { fly: 1, phase: 1, gust: 1, kick: 1 }).m.ripple, deep = cloth('pride-ribbon', { fly: 1, phase: 1, low: 1 }).m.ripple;
+    ok(calm > 0.02 && gusty > 2 * calm && kicked > gusty * 1.2 && deep > calm * 1.5, `a gust deepens the ripples, a beat more still, and so does the low end (${[calm, gusty, kicked, deep].map((v) => v.toFixed(2)).join(', ')})`);
+    const a = cloth('pride-ribbon', { fly: 1, phase: 1, gust: 0.5 }).out, b = cloth('pride-ribbon', { fly: 1, phase: 1, gust: 0.5, high: 1 }).out;
+    const moved = (i) => Math.abs(a[(11 * (F.NU + 1) + i) * 3 + 2] - b[(11 * (F.NU + 1) + i) * 3 + 2]);
+    const flutterEnd = Math.max(moved(F.NU), moved(F.NU - 1), moved(F.NU - 2), moved(F.NU - 3)), flutterPole = Math.max(moved(4), moved(8), moved(12));
+    ok(flutterEnd > 0.01 && flutterPole < flutterEnd / 10, 'the high end of the sound flutters the free end, not the pole end');
+    ok(cloth('pride-ribbon', { fly: 0.1, t: 1 }).m.ripple > 0.05, 'a hanging flag has folds');
+    const p1 = cloth('pride-ribbon', { fly: 1, gust: 0.5, phase: 0 }).out, p2 = cloth('pride-ribbon', { fly: 1, gust: 0.5, phase: 0.8 }).out;
+    ok(Array.from(p1).some((v, i) => Math.abs(v - p2[i]) > 0.03), 'the ripples travel as the phase advances');
+  }
+
+  const order = [];
+  for (const p of ['300x220', '1440x1080', '1920x1080']) {
+    const html = await readFile(resolve(__dirname, `overlay/mic-visualizers-${p}.html`), 'utf8');
+    const pos = html.indexOf('src="flag.js"');
+    order.push(pos > html.indexOf('src="scene-parts.js"') && pos < html.indexOf('src="factories/'));
+  }
+  ok(order.every(Boolean), 'all three overlay pages load flag.js after scene-parts.js and before the factories');
+  const control = await readFile(resolve(__dirname, 'control/control.html'), 'utf8');
+  ok(/T\.VIZ_LABELS\[name\] \|\| nice\(/.test(control), 'the control panel lists an effect by its display name when it has one');
 }
 
 // ── 4. Live transport seam (mock SB + real panel-client-sb.js) ───────────────
