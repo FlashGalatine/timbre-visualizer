@@ -19,7 +19,8 @@ traceability.
 
 - **The flag**: what the five flag effects share is in `overlay/flag.js` (`TimbreFlag`),
   loaded by all three overlay pages and by `verify` under Node, and documented in
-  `docs/EFFECTS.md` ("The flag"). Adding a flag is a table entry and a one-line file.
+  `docs/EFFECTS.md` ("The flag"). Adding a flag is a table entry and a one-line file, plus
+  the usual registration.
 - **Display names**: `VIZ_LABELS` in `shared/viz-config.js` gives an effect the name the
   control panel lists it by, where its id no longer says what it is. Ids do not change.
 
@@ -124,8 +125,8 @@ traceability.
   hangs and sways; talking lifts it until it flies straight out; each syllable is a gust
   that travels from the pole to the free end in just under a second; a beat snaps the
   cloth. The cloth folds without stretching, catches the light across its ripples and
-  throws a moving shadow on the ground. The Pride flags shed hearts in their own colours,
-  which blow away downwind. The Fourth of July flag has its fifty stars drawn as
+  throws a moving shadow on the ground. The Pride flags shed hearts, in colours chosen for
+  each flag, which blow away downwind. The Fourth of July flag has its fifty stars drawn as
   five-pointed stars, which shine with the high end of the sound, and fireworks go off
   behind it on a beat. Every flag keeps its colours and proportions, and the rainbow keeps
   its eight-stripe choice (`stripeStyle` at 50 or more).

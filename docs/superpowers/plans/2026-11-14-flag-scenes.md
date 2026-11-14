@@ -105,9 +105,9 @@ one.
   the free end's height alone.
 - A level that stays loud is two or three beats to the kit, because its running average
   takes a moment to catch up. So a long loud note sets off up to three bursts, not one.
-- A flag makes five GL textures (three render targets, a shadow map, its picture), so the
-  kit's "a scene deletes every GL texture it made" check now asks for more than three made,
-  where it asked for more than five.
+- A Pride flag makes five GL textures (three render targets, a shadow map, its picture), so
+  the kit's "a scene deletes every GL texture it made" check could no longer ask for more
+  than five from every scene. (After the review it has a floor for each scene.)
 - Thresholds measured on the 16:9 page (1728 by 624 canvas) and set to 60%: about 109,000
   solid pixels, 118,000 pixels of light on the ground, 12,300 dark pixels in the black
   stripe of the eight-stripe rainbow.
@@ -115,6 +115,38 @@ one.
   kit scenes and still drawn in 2D, the suite's own loops over `VIZ_SCENES` crash. The
   render checks were first run against the finished scene; what each one catches is shown
   by breaking the code on purpose after the review.
+
+## After the review
+
+One independent review of the branch: nothing critical. Fixed, each with a check written
+first:
+
+- Sparks could vanish in mid-air: three bursts' worth of slots were reused after 1.14 s,
+  while a spark lives up to 1.7 s. There are now five, worked out from those two numbers,
+  and a check fires eight bursts 0.4 s apart and counts sparks cut off (none).
+- The cloth stretched down its height: its free edge was 15% taller than the hoist when it
+  hung, and up to 12% at the loudest moment. The lower rows drooped further than the upper
+  ones, and the ripples slanted steeply from row to row. Every row now droops alike and the
+  slant is halved: 1.4% at worst, and a check holds every column within 2%.
+- Heart rate turned to 0 still let up to eight waiting hearts set off. At 0 none waits.
+- Wind 0 still let the tone of the sound move the cloth. Wind now scales that too.
+- The stars shone only where there were fireworks. They now shine wherever there is a
+  union; a check builds a flag with one and not the other, both ways.
+- Spark colours were written to the colour buffer as sRGB, so red came out pink. They are
+  converted like every other colour.
+- A frame longer than the whole history kept its oldest samples, not its newest.
+- The stars are painted in the white of the stripes.
+
+Checks added for behaviour that nothing was watching: the gust's place on the cloth, the
+ripple speed rule frame by frame, the flag not dropping between words, where the flag is in
+the world (clear of the ground, flying toward the viewer), folds moving in silence, the
+shadow in the pool of light, spark colours, the cloth's glow, and a floor on GL textures for
+each scene (9, 8, 5 for a Pride flag, 7 for the Fourth of July flag, which also has a star
+map and a spark texture).
+
+Also from breaking the arithmetic on purpose (27 breaks, 24 caught): checks for where the
+stars are, for the cloth barely moving next to the pole, and for a burst travelling as
+before after a stalled frame.
 
 ## Task 6: review
 

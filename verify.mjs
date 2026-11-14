@@ -1817,7 +1817,8 @@ await import('./overlay/flag.js');
 
   // Painting, on a context that only records what it is asked to draw.
   const recorder = () => {
-    const c = { fillStyle: '', rects: [], fills: 0, points: 0, fillRect(x, y, w, h) { c.rects.push([c.fillStyle, x, y, w, h]); }, beginPath() {}, moveTo() { c.points++; }, lineTo() { c.points++; }, closePath() {}, fill() { c.fills++; } };
+    const c = { fillStyle: '', rects: [], fills: 0, points: 0, at: [], inks: new Set(), fillRect(x, y, w, h) { c.rects.push([c.fillStyle, x, y, w, h]); }, beginPath() {},
+      moveTo(x, y) { c.points++; c.at.push([x, y]); }, lineTo(x, y) { c.points++; c.at.push([x, y]); }, closePath() {}, fill() { c.fills++; c.inks.add(c.fillStyle); } };
     return c;
   };
   {
@@ -1832,9 +1833,13 @@ await import('./overlay/flag.js');
     const union = e.rects[13];
     ok(e.rects.length === 14 && union[0] === 'rgb(22,56,130)' && union[1] === 0 && union[2] === 0 && near(union[3], 520, 1e-6) && near(union[4], 700 * 7 / 13, 1e-6) && e.fills === 50 && e.points === 500,
       'the union is painted over the stripes at the top by the pole, with fifty five-pointed stars');
+    const mean = (list, k) => list.reduce((a, p) => a + p[k], 0) / list.length;
+    ok(e.at.length === 500 && e.at.every(([x, y]) => x > 0 && x < 520 && y > 0 && y < 700 * 7 / 13) && near(mean(e.at, 0), 260, 1) && near(mean(e.at, 1), 350 * 7 / 13, 1)
+      && [...e.inks].join() === 'rgb(248,248,250)', 'the stars lie inside the union, centred in it, in the white of the stripes');
     const g = recorder();
     F.paintStars(g, 1300, 700, july);
-    ok(g.rects.length === 1 && g.rects[0][0] === 'rgb(0,0,0)' && g.rects[0][3] === 1300 && g.rects[0][4] === 700 && g.fills === 50, 'the star map is black with the fifty stars alone');
+    ok(g.rects.length === 1 && g.rects[0][0] === 'rgb(0,0,0)' && g.rects[0][3] === 1300 && g.rects[0][4] === 700 && g.fills === 50
+      && [...g.inks].join() === 'rgb(255,255,255)' && g.at.every(([x, y], i) => near(x, e.at[i][0]) && near(y, e.at[i][1])), 'the star map is black with the fifty stars alone, where the painted stars are');
     const eight = recorder();
     F.paint(eight, 800, 480, F.FLAGS['pride-ribbon'], true);
     ok(eight.rects.length === 8 && eight.rects[0][0] === 'rgb(40,25,25)' && eight.rects[7][0] === 'rgb(120,73,152)' && Math.abs(eight.rects[2][2] - 120) < 1, 'eight stripes paint as eight');
@@ -1882,6 +1887,16 @@ await import('./overlay/flag.js');
     const stalled = F.createHistory();
     stalled.step(0.5, 1 / 60); stalled.step(0.5, 30);
     ok(Array.from(stalled.byAge).every((v) => Number.isFinite(v) && v >= 0 && v <= 0.5 + 1e-6), 'a frame longer than the whole history leaves it finite');
+    // After such a frame the history travels as before: a burst is four samples old a quarter second later.
+    const woken = F.createHistory();
+    woken.step(0, 1 / 60); woken.step(0, 30);
+    for (let i = 0; i < 4; i++) woken.step(0.9, 1 / 60);
+    for (let i = 0; i < 15; i++) woken.step(0, 1 / 60);
+    ok(peak(Array.from(woken.byAge)).at === 4 && peak(Array.from(woken.byAge)).top > 0.5 && Array.from(woken.byAge).slice(6).every((v) => v === 0), `after a stalled frame a burst travels as before (at ${peak(Array.from(woken.byAge)).at})`);
+    // A two-second frame in which the level rose from 0 to 1 holds its last second, not its first.
+    const long = F.createHistory();
+    long.step(0, 1 / 60); long.step(1, 2);
+    ok(Array.from(long.byAge).every((v, i) => near(v, 1 - i / 32, 0.01)), `a frame longer than the history keeps the newest of it (${Array.from(long.byAge).slice(0, 4).map((v) => v.toFixed(2)).join(', ')})`);
   }
 
   // Along the cloth: the history spread over the columns and smoothed.
@@ -1927,6 +1942,22 @@ await import('./overlay/flag.js');
     }
     ok(worst < 1e-4 && bad === 0, `the cloth keeps its length whatever the wind does (worst row off by ${worst.toExponential(1)})`);
     ok(pole < 1e-5, 'the edge at the pole never moves');
+    // Down its height the cloth keeps its length too, to within 2% (the ripples slant a little).
+    let tall = 0, short = 9;
+    const columnLength = (out, i) => {
+      let len = 0;
+      for (let j = 1; j <= F.NV; j++) { const a = (j * (F.NU + 1) + i) * 3, b = a - (F.NU + 1) * 3; len += Math.hypot(out[a] - out[b], out[a + 1] - out[b + 1], out[a + 2] - out[b + 2]); }
+      return len;
+    };
+    for (const id of IDS) for (const [fly, gust] of [[0.07, 0], [1, 0.6], [1, 1]]) for (const phase of [0, 0.7, 1.9, 3.3, 4.6, 5.9]) {
+      const c = cloth(id, { fly, gust, phase, t: phase * 2, low: gust, high: gust, kick: gust === 1 ? 1 : 0 });
+      for (let i = 0; i <= F.NU; i++) { const r = columnLength(c.out, i) / F.HOIST; tall = Math.max(tall, r); short = Math.min(short, r); }
+    }
+    ok(tall < 1.02 && short > 0.999, `the cloth does not stretch down its height either (its tallest column is ${tall.toFixed(3)} of the hoist)`);
+    // Ripples grow from nothing at the pole.
+    const loud = cloth('pride-ribbon', { fly: 1, gust: 1, low: 1, high: 1, kick: 1, phase: 1.9 }).out;
+    const depth = (i) => { let d = 0; for (let j = 0; j <= F.NV; j++) d = Math.max(d, Math.abs(loud[(j * (F.NU + 1) + i) * 3 + 2])); return d; };
+    ok(depth(1) < 0.03 && depth(3) < 0.09 && depth(F.NU) > 0.3, `next to the pole the cloth barely moves, however loud (${depth(1).toFixed(3)} at the first column, ${depth(F.NU).toFixed(2)} at the free end)`);
   }
   {
     const flying = IDS.map((id) => cloth(id, { fly: 1 })), hanging = IDS.map((id) => cloth(id, { fly: 0.07 }));
