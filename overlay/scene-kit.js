@@ -394,7 +394,7 @@
     }
 
     const internals = {
-      def, view,
+      def, view, camera,
       get targets() { return targets; },
       get afterglowT() { return afterglowT; },
     };
@@ -519,6 +519,7 @@
       targetSize: t ? [t.w, t.h] : [0, 0],
       targetGeneration,
       afterglowT: active.afterglowT,
+      camera: active.camera.position.toArray(),   // where the last frame was drawn from
       memory: { geometries: info.memory.geometries, textures: info.memory.textures },
       programs: info.programs ? info.programs.length : 0,
       state: typeof active.def.debug === 'function' ? active.def.debug() : {},

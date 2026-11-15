@@ -207,8 +207,8 @@ If an id no longer says what the effect is, give it a display name in `VIZ_LABEL
 saved configs and Streamer.bot actions keep working.
 
 For tests, `TimbreScene.testLevel = 0.8` replaces the mic level (`null` restores it), and
-`TimbreScene.debug()` returns the live scene's render scale, GPU resource counts and its own
-`debug()` state.
+`TimbreScene.debug()` returns the live scene's render scale, GPU resource counts, the
+camera's position and its own `debug()` state.
 
 ## Afterglow (bar and wave effects)
 
@@ -481,7 +481,7 @@ offers:
   `shimmer(high, u, wave)` is the flicker the high end gives its outer part; `tint(out, rgb,
   u, b)` is its colour, white at the star and its own colour further out.
 - **The scene.** `definition()` returns the kit scene definition: the star, its glow and
-  the crown. It keeps the voice in `TimbreScene.createHistory(24, 20)`.
+  the crown. It keeps the voice in `TimbreScene.createHistory(25, 20)`.
 
 All its timing comes from `dt`. The arithmetic touches nothing at load, and the file must stay
 loadable under Node, because `npm run verify` imports it; the scene looks up `THREE`,

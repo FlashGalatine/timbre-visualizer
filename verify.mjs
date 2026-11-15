@@ -2030,6 +2030,9 @@ await import('./overlay/sunburst.js');
     const long = K.createHistory(24, 20);
     long.step(0, 1 / 60); long.step(1, 2);
     ok(Array.from(long.byAge).every((v, i) => near(v, 1 - i / 40, 0.01)), `kit history: a frame longer than the history keeps the newest of it (${Array.from(long.byAge).slice(0, 4).map((v) => v.toFixed(2)).join(', ')})`);
+    const fresh = K.createHistory(24, 20);
+    fresh.step(0, 0.05); fresh.step(0.8, 0.01);
+    ok(near(fresh.byAge[0], 0.8, 1e-6) && near(fresh.heard(0), 0.8, 1e-6) && fresh.byAge[1] < 0.2, `kit history: the newest place holds the level now, before a sample of it is stored (${fresh.byAge[0].toFixed(3)})`);
     // heard(seconds): the level that long ago, read between samples, held at both ends.
     ok(near(ramp.heard(0), ramp.byAge[0]) && near(ramp.heard(0.1), ramp.byAge[2]) && near(ramp.heard(0.125), (ramp.byAge[2] + ramp.byAge[3]) / 2)
       && near(ramp.heard(-3), ramp.byAge[0]) && near(ramp.heard(99), ramp.byAge[23]) && near(ramp.heard(NaN), ramp.byAge[0]), 'kit history: heard(seconds) reads between samples and holds at both ends');
@@ -2042,8 +2045,9 @@ await import('./overlay/sunburst.js');
     ok(two.byAge.length === 8 && peak(Array.from(two.byAge)).at === 4, 'kit history: each history has its own size and rate');
   }
 
-  ok(S.RAYS_MIN === 24 && S.RAYS_MAX === 144 && S.SEG === 12 && S.HIST === 24 && S.HIST_HZ === 20 && S.CORE === 0.6 && S.REACH === 3 && S.HEIGHT === 3.6 && S.BANDS === 9 && S.TRAVEL === 0.9,
-    'the sizes: 24 to 144 beams of 12 pieces, 24 history samples at 20 a second, a star of 0.6 with beams up to 3, light taking 0.9 s to cross them');
+  ok(S.RAYS_MIN === 24 && S.RAYS_MAX === 144 && S.SEG === 12 && S.HIST === 25 && S.HIST_HZ === 20 && S.CORE === 0.6 && S.REACH === 3 && S.HEIGHT === 3.6 && S.BANDS === 9 && S.TRAVEL === 0.9,
+    'the sizes: 24 to 144 beams of 12 pieces, 25 history samples at 20 a second, a star of 0.6 with beams up to 3, light taking 0.9 s to cross them');
+  ok((S.HIST - 1) / S.HIST_HZ >= ((S.lengthOf(1, 1) / S.REACH) * S.TRAVEL), 'the history reaches back as far as the tip of the longest beam on a beat');
   ok(S.rayCount(0) === 24 && S.rayCount(50) === 84 && S.rayCount(100) === 144 && S.rayCount(-20) === 24 && S.rayCount(900) === 144 && S.rayCount(NaN) === 84 && S.rayCount(undefined) === 84,
     'Density 0 is 24 beams, 50 is 84, 100 is 144; anything else is held to that range, and no setting at all is the default');
 
@@ -2071,9 +2075,10 @@ await import('./overlay/sunburst.js');
   ok(S.bandOf(0, 0.5) === 0 && near(S.bandOf(1, 0.5), 9) && near(S.bandOf(-1, 0.5), 9) && S.bandOf(0.3, 0.5) < S.bandOf(0.6, 0.5) && S.bandOf(0.6, 0.5) < S.bandOf(0.9, 0.5)
     && near(S.bandOf(-0.6, 0.5), S.bandOf(0.6, 0.5)), 'the belt round the middle hears bin 0 and both poles hear bin 9');
   ok(near(S.bandOf(0.5, 1) - S.bandOf(0.5, 0), 2) && S.bandOf(0, 0) === 0 && S.bandOf(0.05, 0) === 0, 'the scatter moves a beam one bin either way, never below bin 0');
+  ok(near(S.bandOf(0.5, 0.5), 9 * Math.pow(0.5, 1.2)) && S.bandOf(0.5, 0.5) < 4, 'the bands crowd toward the belt: half way to a pole a beam hears bin 3.9, not 4.5');
   const bins = new Uint8Array(32); bins[3] = 255; bins[31] = 51;
   ok(S.loudness(bins, 3, 1) === 1 && near(S.loudness(bins, 3.5, 1), 0.5) && S.loudness(bins, 4, 1) === 0 && S.loudness(bins, 3.5, 2) === 1 && near(S.loudness(bins, 3.5, 0.5), 0.25)
-    && near(S.loudness(bins, 60, 1), 0.2) && S.loudness(bins, -4, 1) === 0 && S.loudness(null, 3, 1) === 0 && S.loudness(new Uint8Array(0), 3, 1) === 0,
+    && near(S.loudness(bins, 60, 1), 0.2) && S.loudness(bins, 3, 3) === 1 && S.loudness(bins, -4, 1) === 0 && S.loudness(null, 3, 1) === 0 && S.loudness(new Uint8Array(0), 3, 1) === 0,
     'a band\'s loudness is read between two bins, times Gain, held to 0..1; no bins is silence');
   ok(S.answer(0, 0) === 0 && near(S.answer(1, 0), 0.7) && near(S.answer(0, 1), 0.45) && S.answer(1, 1) === 1 && near(S.answer(0.5, 0.5), 0.575), 'every beam answers its own band most and the voice as a whole a little');
 
@@ -2111,7 +2116,7 @@ await import('./overlay/sunburst.js');
   // Brightness and colour along a beam.
   ok(near(S.glow(0, 0, 0, 0, 1), 0.12 * 0.6) && S.glow(1, 1, 1, 1, 1) === 0 && [0.1, 0.3, 0.5, 0.7, 0.9].every((u) => S.glow(u, 0.5, 0.5, 0, 1) > S.glow(u + 0.1, 0.5, 0.5, 0, 1)),
     'a beam is brightest at the star and fades to nothing at its tip');
-  ok(S.glow(0.3, 1, 0.5, 0, 1) > 8 * S.glow(0.3, 0, 0.5, 0, 1) && S.glow(0.3, 0.5, 0.5, 0, 1) > 2 * S.glow(0.3, 0, 0.5, 0, 1) && S.glow(0.3, 0.2, 0.5, 1, 1) > S.glow(0.3, 0.2, 0.5, 0, 1)
+  ok(near(S.glow(0, 0.5, 0, 0, 1), (0.12 + 1.9 * Math.pow(0.5, 1.4)) * 0.6) && S.glow(0.3, 1, 0.5, 0, 1) > 8 * S.glow(0.3, 0, 0.5, 0, 1) && S.glow(0.3, 0.5, 0.5, 0, 1) > 2 * S.glow(0.3, 0, 0.5, 0, 1) && S.glow(0.3, 0.2, 0.5, 1, 1) > S.glow(0.3, 0.2, 0.5, 0, 1)
     && S.glow(0.3, 0.2, 1, 0, 1) > S.glow(0.3, 0.2, 0, 0, 1) && near(S.glow(0.3, 0.2, 0.5, 0, 1.5), 1.5 * S.glow(0.3, 0.2, 0.5, 0, 1)),
     'the voice that left the star brightens it most; a beat, a louder band and the flicker add to that');
   ok(S.shimmer(0, 0.7, 1) === 1 && near(S.shimmer(1, 1, 1), 1.9) && near(S.shimmer(1, 1, -1), 0.1) && S.shimmer(1, 0, 1) === 1 && S.shimmer(1, 0, -1) === 1 && near(S.shimmer(0.5, 0.5, 1), 1.225)
