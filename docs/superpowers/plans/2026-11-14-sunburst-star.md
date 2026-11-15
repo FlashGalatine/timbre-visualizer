@@ -113,7 +113,15 @@ animation off.
 
 From breaking the arithmetic on purpose (50 breaks, 46 caught): checks for the power in the
 band formula, for loudness held to 1, for the power in the brightness of a pulse, and for
-the newest place in the history holding the level now.
+the newest place in the history holding the level now. Run again after those: all 50 caught.
+
+From breaking the scene on purpose (41 breaks against the render suite, after one entry
+with no break that had to pass, and did): all 41 caught, no check added. Two are caught
+less directly than the rest: leaving the star's two glows out of the scene is caught by the
+count of GL textures made and deleted, not by a check of the picture; and writing every
+beam's strip into the first beam's place is caught by the Density checks.
+
+The owner looked at the branch in OBS with the real microphone: "All looks right".
 
 ## Found during the build
 
