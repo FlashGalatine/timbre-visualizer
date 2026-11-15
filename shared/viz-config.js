@@ -37,6 +37,7 @@
   const VIZ_SCENES = [
     'thanksgiving-harvest', 'winter-aurora',
     'pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes',
+    'sunburst-3d',
   ];
 
   // The name the control panel shows, where the id no longer says what the effect
@@ -90,7 +91,7 @@
     'vaporwave':     { speed: 50, sunSize: 50 },
     'tunnel':        { bend: 50 },
     'peaks-mirror':  { seam: 50 },
-    'sunburst-3d':   { density: 50 },
+    'sunburst-3d':   { density: 50, spin: 50, cameraDrift: 50 },
     'galaxy-ripple': { sensitivity: 50 },
     'metaball':      { chrome: 50 },
     'glass-prism':   { chroma: 50 },

@@ -17,6 +17,13 @@ traceability.
   say how its afterglow cools with `cooling` in its definition. See `docs/EFFECTS.md`
   ("Kit scenes").
 
+- **Scene kit**: `TimbreScene.createHistory(size, hz)` is a memory of a level for things
+  that travel, read by sample (`byAge`) or by age in seconds (`heard`). A scene's camera is
+  now in place before its first `update`. See `docs/EFFECTS.md` ("Kit scenes").
+- **Sunburst settings**: `spin` (0 to 100, default 50; 0 holds the crown still) and
+  `cameraDrift` (0 to 100, default 50) for the Sunburst effect. What the new Sunburst is
+  made of is in `overlay/sunburst.js` (`TimbreSunburst`), loaded by all three overlay pages
+  and by `verify` under Node, and documented in `docs/EFFECTS.md` ("The sunburst").
 - **The flag**: what the five flag effects share is in `overlay/flag.js` (`TimbreFlag`),
   loaded by all three overlay pages and by `verify` under Node, and documented in
   `docs/EFFECTS.md` ("The flag"). Adding a flag is a table entry and a one-line file, plus
@@ -117,6 +124,19 @@ traceability.
   `test-render-640.png`.
 
 ### Changed
+
+- **Sunburst 3D is now a star with a crown of light**, the eighth scene on the scene kit. The
+  white ball with hair-thin lines is gone. A small star floats in the box: a solid ball,
+  white-hot in the middle and palette-coloured at its edge, in a soft glow. Around it is a
+  crown of soft, tapered beams of light. Each beam follows one band of the sound: the low end
+  drives the belt round the star's middle and the higher bands drive the beams near its
+  poles, so the crown changes shape with the voice. Each syllable is a shell of brightness
+  that leaves the star and travels out along every beam in under a second. A beat lengthens
+  the beams and swells the star; the low end swells the star too; the high end makes the
+  outer part of the beams flicker. The crown turns slowly, faster when the sound is louder.
+  With the mic off and Idle animation on it breathes; with both off it is a small still star.
+  Colours come from the palette as before. `density` now means how many beams (24 to 144).
+  It uses the shared Scene placement sliders, and no longer makes a renderer of its own.
 
 - **The five flag effects are now one 3D cloth flag**, the third to seventh scenes on the
   scene kit: the rainbow, bi, ace and trans Pride flags and the Fourth of July flag. The
