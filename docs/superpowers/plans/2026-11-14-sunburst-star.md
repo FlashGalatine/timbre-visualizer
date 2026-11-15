@@ -83,3 +83,18 @@ break each rule of the arithmetic and the scene on purpose and confirm a check f
 ### Task 6: the owner's look
 
 Final stills; offer to switch the live overlay. Merge only after the owner has seen it in OBS.
+
+## Found during the build
+
+- The render checks were written before the scene but could not be run before it existed:
+  with `sunburst-3d` listed as a kit scene and the old effect still in its file, the suite's
+  loops over every kit scene fail first. Each check is instead shown to fail by breaking the
+  code on purpose (Task 5).
+- Two expectations in the checks were wrong, not the scene: at a steady 0.8 in every band a
+  beam answers 0.92 of its reach (2.78), not all of it; and 0.6 s after a syllable the shell
+  is at piece 9 or 10 of 12 depending on how far the beam has drawn back, so the check asks
+  for "at least four pieces further out" instead of a fixed place.
+- A burst shorter than one history sample can fall between two samples and leave no trace.
+  The history is fed the kit's envelope, which holds a syllable for longer than a sample, so
+  this does not happen in the scene; the check for a history of another size uses a longer
+  burst.

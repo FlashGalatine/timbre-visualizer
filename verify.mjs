@@ -113,7 +113,7 @@ console.log('\n[1] table consistency');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['thanksgiving-harvest']) === '{"candleGlow":50,"leafDensity":50,"cameraDrift":50}', 'thanksgiving knobs');
   ok(T.VIZ_SCENES.indexOf('winter-aurora') === 1 && T.VIZ_SCENES.indexOf('thanksgiving-harvest') === 0, 'winter-aurora is the second kit scene');
   const FLAG_IDS = ['pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes'];
-  ok(JSON.stringify(T.VIZ_SCENES) === JSON.stringify(['thanksgiving-harvest', 'winter-aurora', ...FLAG_IDS]) && FLAG_IDS.every((n) => T.VIZ_USES_3D.includes(n)), 'the five flags are kit scenes, listed after winter-aurora');
+  ok(JSON.stringify(T.VIZ_SCENES) === JSON.stringify(['thanksgiving-harvest', 'winter-aurora', ...FLAG_IDS, 'sunburst-3d']) && FLAG_IDS.every((n) => T.VIZ_USES_3D.includes(n)), 'the five flags are kit scenes, listed after winter-aurora');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['pride-ribbon']) === '{"wind":50,"heartRate":50,"stripeStyle":0,"cameraDrift":50}'
     && ['bi', 'ace', 'trans'].every((p) => JSON.stringify(T.DEFAULT_PER_VIZ[p + '-pride-ribbon']) === '{"wind":50,"heartRate":50,"cameraDrift":50}'), 'pride flag knobs');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['july-fourth-stripes']) === '{"wind":50,"starTwinkle":50,"burstChance":50,"cameraDrift":50}', 'fourth of july flag knobs');
@@ -1986,6 +1986,158 @@ await import('./overlay/flag.js');
   ok(order.every(Boolean), 'all three overlay pages load flag.js after scene-parts.js and before the factories');
   const control = await readFile(resolve(__dirname, 'control/control.html'), 'utf8');
   ok(/T\.VIZ_LABELS\[name\] \|\| nice\(/.test(control), 'the control panel lists an effect by its display name when it has one');
+}
+
+// ── 14. Sunburst (pure; no browser) ─────────────────────────────────────────
+console.log('\n[14] sunburst');
+await import('./overlay/sunburst.js');
+{
+  const K = globalThis.TimbreScene, S = globalThis.TimbreSunburst;
+  const near = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol;
+  const peak = (a) => { let at = -1, top = 0; a.forEach((v, i) => { if (v > top) { top = v; at = i; } }); return { at, top }; };
+
+  // The kit's voice history: 24 samples, 20 a second.
+  {
+    const history = (fps, steps, trace) => {
+      const h = K.createHistory(24, 20);
+      let jump = 0, before = null;
+      for (const [level, secs] of steps) for (let i = 0, n = Math.round(secs * fps); i < n; i++) {
+        h.step(level, 1 / fps);
+        if (trace) { if (before) for (let j = 2; j < 24; j++) jump = Math.max(jump, Math.abs(h.byAge[j] - before[j])); before = Array.from(h.byAge); }
+      }
+      return { byAge: Array.from(h.byAge), jump, h };
+    };
+    const burst = [[0, 0.5], [0.9, 4 / 60]];
+    const soon = history(60, [...burst, [0, 0.25]], true), later = history(60, [...burst, [0, 0.75]], true);
+    ok(soon.byAge.length === 24 && peak(soon.byAge).at === 5 && peak(later.byAge).at === 15 && peak(soon.byAge).top > 0.5 && peak(later.byAge).top > 0.5,
+      `kit history: a burst of voice travels at the rate asked for (at ${peak(soon.byAge).at} after a quarter second, ${peak(later.byAge).at} after three quarters)`);
+    ok(soon.jump > 0.02 && soon.jump < 0.4 && later.jump < 0.4, `kit history: it glides between samples (largest step ${soon.jump.toFixed(3)})`);
+    ok(history(60, [[0.6, 2]]).byAge.every((v) => near(v, 0.6, 1e-6)), 'kit history: a steady level fills it with that level');
+    const fpsSteps = [[0.8, 1], [0, 0.5]], h30 = history(30, fpsSteps).byAge, h60 = history(60, fpsSteps).byAge;
+    ok(h60.some((v) => v > 0.7) && h60.some((v) => v < 0.05) && h60.every((v, i) => Math.abs(v - h30[i]) < 0.04), 'kit history: the same at 30 and 60 fps');
+    const ramp = K.createHistory(24, 20);
+    for (let i = 1; i <= 8; i++) ramp.step(i / 10, 0.1);
+    const gaps = Array.from(ramp.byAge).slice(0, 12).map((v, i) => v - ramp.byAge[i + 1]);
+    ok(gaps.every((d) => near(d, 1 / 20, 1e-6)), `kit history: a 10 fps frame writes each sample at its own moment (steps of ${gaps[0].toFixed(4)}, ${gaps[5].toFixed(4)}, ${gaps[11].toFixed(4)})`);
+    const stalled = K.createHistory(24, 20);
+    stalled.step(0.5, 1 / 60); stalled.step(0.5, 30);
+    ok(Array.from(stalled.byAge).every((v) => Number.isFinite(v) && v >= 0 && v <= 0.5 + 1e-6), 'kit history: a frame longer than the whole history leaves it finite');
+    const woken = K.createHistory(24, 20);
+    woken.step(0, 1 / 60); woken.step(0, 30);
+    for (let i = 0; i < 3; i++) woken.step(0.9, 1 / 60);
+    for (let i = 0; i < 15; i++) woken.step(0, 1 / 60);
+    ok(peak(Array.from(woken.byAge)).at === 5 && peak(Array.from(woken.byAge)).top > 0.5 && Array.from(woken.byAge).slice(8).every((v) => v === 0), `kit history: after a stalled frame a burst travels as before (at ${peak(Array.from(woken.byAge)).at})`);
+    const long = K.createHistory(24, 20);
+    long.step(0, 1 / 60); long.step(1, 2);
+    ok(Array.from(long.byAge).every((v, i) => near(v, 1 - i / 40, 0.01)), `kit history: a frame longer than the history keeps the newest of it (${Array.from(long.byAge).slice(0, 4).map((v) => v.toFixed(2)).join(', ')})`);
+    // heard(seconds): the level that long ago, read between samples, held at both ends.
+    ok(near(ramp.heard(0), ramp.byAge[0]) && near(ramp.heard(0.1), ramp.byAge[2]) && near(ramp.heard(0.125), (ramp.byAge[2] + ramp.byAge[3]) / 2)
+      && near(ramp.heard(-3), ramp.byAge[0]) && near(ramp.heard(99), ramp.byAge[23]) && near(ramp.heard(NaN), ramp.byAge[0]), 'kit history: heard(seconds) reads between samples and holds at both ends');
+    const odd = K.createHistory(0, -1);
+    odd.step(0.5, 0.2); odd.step(NaN, NaN); odd.step(7, -1);
+    ok(odd.byAge.length >= 2 && Array.from(odd.byAge).every((v) => Number.isFinite(v) && v >= 0 && v <= 1) && Number.isFinite(odd.heard(0.1)), 'kit history: odd sizes, rates, levels and frame times leave it sound');
+    const two = K.createHistory(8, 4);
+    for (let i = 0; i < 18; i++) two.step(0.9, 1 / 60);
+    for (let i = 0; i < 60; i++) two.step(0, 1 / 60);
+    ok(two.byAge.length === 8 && peak(Array.from(two.byAge)).at === 4, 'kit history: each history has its own size and rate');
+  }
+
+  ok(S.RAYS_MIN === 24 && S.RAYS_MAX === 144 && S.SEG === 12 && S.HIST === 24 && S.HIST_HZ === 20 && S.CORE === 0.6 && S.REACH === 3 && S.HEIGHT === 3.6 && S.BANDS === 9 && S.TRAVEL === 0.9,
+    'the sizes: 24 to 144 beams of 12 pieces, 24 history samples at 20 a second, a star of 0.6 with beams up to 3, light taking 0.9 s to cross them');
+  ok(S.rayCount(0) === 24 && S.rayCount(50) === 84 && S.rayCount(100) === 144 && S.rayCount(-20) === 24 && S.rayCount(900) === 144 && S.rayCount(NaN) === 84 && S.rayCount(undefined) === 84,
+    'Density 0 is 24 beams, 50 is 84, 100 is 144; anything else is held to that range, and no setting at all is the default');
+
+  // Directions: spread evenly over a sphere, from one pole to the other.
+  for (const n of [24, 84, 144]) {
+    const d = S.directions(n), at = (i) => [d[i * 3], d[i * 3 + 1], d[i * 3 + 2]];
+    const unit = Array.from({ length: n }, (_, i) => Math.hypot(...at(i))).every((l) => near(l, 1, 1e-6));
+    const ys = Array.from({ length: n }, (_, i) => d[i * 3 + 1]);
+    const sum = [0, 1, 2].map((c) => Array.from({ length: n }, (_, i) => d[i * 3 + c]).reduce((a, b) => a + b, 0) / n);
+    let closest = Infinity, loneliest = 0;
+    for (let i = 0; i < n; i++) {
+      let nearest = Infinity;
+      for (let j = 0; j < n; j++) if (j !== i) { const a = at(i), b = at(j); nearest = Math.min(nearest, Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2])))); }
+      closest = Math.min(closest, nearest); loneliest = Math.max(loneliest, nearest);
+    }
+    const ideal = Math.sqrt((4 * Math.PI) / n);
+    ok(d.length === n * 3 && unit && ys.every((y, i) => i === 0 || y < ys[i - 1]) && ys[0] > 0.9 && ys[n - 1] < -0.9 && Math.hypot(...sum) < 0.05
+      && closest > 0.45 * ideal && loneliest < 1.4 * ideal, `${n} directions: unit vectors from pole to pole, evenly spread (nearest neighbours ${(closest / ideal).toFixed(2)} to ${(loneliest / ideal).toFixed(2)} of the even spacing)`);
+  }
+
+  // Each beam's band of the sound.
+  const scat = Array.from({ length: 144 }, (_, i) => S.scatter(i));
+  ok(scat.every((v) => v >= 0 && v < 1) && scat.every((v, i) => v === S.scatter(i)) && new Set(scat.map((v) => v.toFixed(4))).size > 100
+    && Math.abs(scat.reduce((a, b) => a + b, 0) / 144 - 0.5) < 0.15, 'each beam has its own fixed scatter between 0 and 1');
+  ok(S.bandOf(0, 0.5) === 0 && near(S.bandOf(1, 0.5), 9) && near(S.bandOf(-1, 0.5), 9) && S.bandOf(0.3, 0.5) < S.bandOf(0.6, 0.5) && S.bandOf(0.6, 0.5) < S.bandOf(0.9, 0.5)
+    && near(S.bandOf(-0.6, 0.5), S.bandOf(0.6, 0.5)), 'the belt round the middle hears bin 0 and both poles hear bin 9');
+  ok(near(S.bandOf(0.5, 1) - S.bandOf(0.5, 0), 2) && S.bandOf(0, 0) === 0 && S.bandOf(0.05, 0) === 0, 'the scatter moves a beam one bin either way, never below bin 0');
+  const bins = new Uint8Array(32); bins[3] = 255; bins[31] = 51;
+  ok(S.loudness(bins, 3, 1) === 1 && near(S.loudness(bins, 3.5, 1), 0.5) && S.loudness(bins, 4, 1) === 0 && S.loudness(bins, 3.5, 2) === 1 && near(S.loudness(bins, 3.5, 0.5), 0.25)
+    && near(S.loudness(bins, 60, 1), 0.2) && S.loudness(bins, -4, 1) === 0 && S.loudness(null, 3, 1) === 0 && S.loudness(new Uint8Array(0), 3, 1) === 0,
+    'a band\'s loudness is read between two bins, times Gain, held to 0..1; no bins is silence');
+  ok(S.answer(0, 0) === 0 && near(S.answer(1, 0), 0.7) && near(S.answer(0, 1), 0.45) && S.answer(1, 1) === 1 && near(S.answer(0.5, 0.5), 0.575), 'every beam answers its own band most and the voice as a whole a little');
+
+  // A beam's size.
+  ok(near(S.lengthOf(0, 0), 0.3) && near(S.lengthOf(1, 0), 3) && near(S.lengthOf(0.5, 0), 1.65) && near(S.lengthOf(1, 1), 3.9) && near(S.lengthOf(0, 1), 0.39),
+    'a beam is a tenth of its reach in silence, its whole reach at full, and 30% longer on a beat');
+  ok(near(S.widthOf(0, 0), 0.13 * 0.55) && near(S.widthOf(1, 0), 0.13 * 1.3) && near(S.widthOf(1, 1), 0.13 * 1.3 * 1.4), 'a louder beam is wider, and wider still on a beat');
+
+  // The strip of one beam.
+  {
+    const N = (S.SEG + 1) * 2, centre = [0, S.HEIGHT, 0], cam = [0, S.HEIGHT, 12];
+    const strip = (dir, at = 0, len = 2, width = 0.2) => { const out = new Float32Array((N + at + 4) * 3).fill(7); S.strip(out, at, centre, dir, cam, len, width); return out; };
+    const read = (out, at = 0) => Array.from({ length: S.SEG + 1 }, (_, j) => {
+      const a = (at + j * 2) * 3, p = [out[a], out[a + 1], out[a + 2]], q = [out[a + 3], out[a + 4], out[a + 5]];
+      return { mid: p.map((v, c) => (v + q[c]) / 2), across: q.map((v, c) => v - p[c]) };
+    });
+    const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2], len3 = (a) => Math.hypot(a[0], a[1], a[2]);
+    const side = read(strip([1, 0, 0]));
+    ok(side.every((s, j) => near(s.mid[0], S.CORE * 0.7 + (2 + S.CORE * 0.3) * (j / S.SEG), 1e-5) && near(s.mid[1], S.HEIGHT, 1e-5) && near(s.mid[2], 0, 1e-5)),
+      'a beam\'s spine runs straight out from inside the star to its length beyond the star\'s surface');
+    ok(near(len3(side[0].across), 0.2, 1e-5) && near(len3(side[S.SEG].across), 0.2 * 0.08, 1e-5) && side.every((s, j) => j === 0 || len3(s.across) < len3(side[j - 1].across)),
+      'it is its full width at the star and tapers to 8% of that at its tip');
+    ok(side.every((s) => Math.abs(dot(s.across, [1, 0, 0])) < 1e-5 && Math.abs(dot(s.across, [cam[0] - s.mid[0], cam[1] - s.mid[1], cam[2] - s.mid[2]])) < 1e-5),
+      'its width lies across the beam and across the line of sight, so it faces the camera');
+    const slant = read(strip([0.6, 0.64, -0.48]));
+    ok(slant.every((s) => Math.abs(dot(s.across, [0.6, 0.64, -0.48])) < 1e-5 && Math.abs(dot(s.across, [cam[0] - s.mid[0], cam[1] - s.mid[1], cam[2] - s.mid[2]])) < 1e-4),
+      'a beam at a slant faces the camera too');
+    const at = read(strip([0, 0, 1]));   // straight at the camera
+    ok(strip([0, 0, 1]).every(Number.isFinite) && at.every((s, j) => near(len3(s.across), 0.2 * (1 - 0.92 * (j / S.SEG)), 1e-5)), 'a beam pointing straight at the camera keeps its width and stays finite');
+    const offset = strip([1, 0, 0], 5);
+    ok(Array.from(offset.subarray(0, 15)).every((v) => v === 7) && Array.from(offset.subarray((5 + N) * 3)).every((v) => v === 7) && Array.from(offset.subarray(15, (5 + N) * 3)).every((v) => v !== 7)
+      && near(read(offset, 5)[0].mid[0], S.CORE * 0.7, 1e-5), 'a strip is written at its own place among the others and nowhere else');
+  }
+
+  // Brightness and colour along a beam.
+  ok(near(S.glow(0, 0, 0, 0, 1), 0.12 * 0.6) && S.glow(1, 1, 1, 1, 1) === 0 && [0.1, 0.3, 0.5, 0.7, 0.9].every((u) => S.glow(u, 0.5, 0.5, 0, 1) > S.glow(u + 0.1, 0.5, 0.5, 0, 1)),
+    'a beam is brightest at the star and fades to nothing at its tip');
+  ok(S.glow(0.3, 1, 0.5, 0, 1) > 8 * S.glow(0.3, 0, 0.5, 0, 1) && S.glow(0.3, 0.5, 0.5, 0, 1) > 2 * S.glow(0.3, 0, 0.5, 0, 1) && S.glow(0.3, 0.2, 0.5, 1, 1) > S.glow(0.3, 0.2, 0.5, 0, 1)
+    && S.glow(0.3, 0.2, 1, 0, 1) > S.glow(0.3, 0.2, 0, 0, 1) && near(S.glow(0.3, 0.2, 0.5, 0, 1.5), 1.5 * S.glow(0.3, 0.2, 0.5, 0, 1)),
+    'the voice that left the star brightens it most; a beat, a louder band and the flicker add to that');
+  ok(S.shimmer(0, 0.7, 1) === 1 && near(S.shimmer(1, 1, 1), 1.9) && near(S.shimmer(1, 1, -1), 0.1) && S.shimmer(1, 0, 1) === 1 && S.shimmer(1, 0, -1) === 1 && near(S.shimmer(0.5, 0.5, 1), 1.225)
+    && S.glow(0.5, 0, 0, 0, S.shimmer(1, 1, -1)) > 0, 'the high end makes a beam flicker more the further out, never at the star and never below nothing');
+  const t3 = (u, b) => Array.from(S.tint([0, 0, 0], [0.2, 0.4, 0.8], u, b));
+  ok(t3(0, 1).every((v) => near(v, 1)) && t3(0.5, 1).every((v, c) => near(v, [0.2, 0.4, 0.8][c])) && t3(1, 1).every((v, c) => near(v, [0.2, 0.4, 0.8][c]))
+    && t3(0.2, 1).every((v, c) => near(v, 1 + ([0.2, 0.4, 0.8][c] - 1) * 0.44)) && t3(0.5, 2).every((v, c) => near(v, 2 * [0.2, 0.4, 0.8][c])),
+    'a beam is white at the star and its own colour from under half way out');
+
+  // The table.
+  ok(T.VIZ_SCENES[T.VIZ_SCENES.length - 1] === 'sunburst-3d' && T.VIZ_USES_3D.includes('sunburst-3d'), 'sunburst-3d is a kit scene, listed after the flags');
+  ok(JSON.stringify(T.DEFAULT_PER_VIZ['sunburst-3d']) === '{"density":50,"spin":50,"cameraDrift":50}', 'sunburst knobs: density, spin, camera drift');
+  const oldSun = T.sanitizeConfig({ activeViz: 'sunburst-3d', perViz: { 'sunburst-3d': { density: 80 } } });
+  ok(oldSun.activeViz === 'sunburst-3d' && JSON.stringify(oldSun.perViz['sunburst-3d']) === '{"density":80,"spin":50,"cameraDrift":50}', 'a saved pre-redesign sunburst config keeps its density and gains the new defaults');
+  ok(!('sunburst-3d' in T.VIZ_LABELS), 'sunburst keeps the name it is listed by');
+
+  // The files.
+  const order = [];
+  for (const p of ['300x220', '1440x1080', '1920x1080']) {
+    const html = await readFile(resolve(__dirname, `overlay/mic-visualizers-${p}.html`), 'utf8');
+    const pos = html.indexOf('src="sunburst.js"');
+    order.push(pos > html.indexOf('src="flag.js"') && pos > html.indexOf('src="scene-kit.js"') && pos < html.indexOf('src="factories/'));
+  }
+  ok(order.every(Boolean), 'all three overlay pages load sunburst.js after the scene kit and flag.js and before the factories');
+  const factory = await readFile(resolve(__dirname, 'overlay/factories/sunburst-3d.js'), 'utf8');
+  ok(/VIZ_FACTORIES\['sunburst-3d'\] = TimbreScene\.factory\(\(\) => TimbreSunburst\.definition\(\)\);/.test(factory) && !/WebGLRenderer/.test(factory), 'the effect is the kit\'s factory around the sunburst\'s definition, with no renderer of its own');
 }
 
 // ── 4. Live transport seam (mock SB + real panel-client-sb.js) ───────────────

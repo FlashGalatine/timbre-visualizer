@@ -1,6 +1,6 @@
 // Timbre — scene kit, shared by the 3D scene effects. First the pure arithmetic
-// (sound envelope, camera fit, afterglow decay, internal render scale,
-// placement), then the WebGL runtime a scene is written against: create(def).
+// (sound envelope, voice history, camera fit, afterglow decay, internal render
+// scale, placement), then the WebGL runtime a scene is written against: create(def).
 //
 // Valid as BOTH a classic <script> and an ES module (it only assigns
 // `globalThis.TimbreScene`), like shared/viz-config.js, so verify.mjs can import
@@ -42,6 +42,49 @@
         }
         avg = follow(avg, level, 2, dt);
         return { level, flame, slow, kick, burst, beat };
+      },
+    };
+  }
+
+  // A memory of a level: `size` samples, `hz` of them a second. byAge[0] is the level now
+  // and byAge[i] the level i samples ago, read between the stored samples so that it glides
+  // instead of stepping; heard(seconds) reads it at any age, held at both ends. A sample that
+  // falls inside a frame holds the level at its own moment, between the last frame's level
+  // and this one's, so a long frame does not write the same value twice. A frame longer than
+  // the whole history keeps the newest of it.
+  function createHistory(size, hz) {
+    size = Number.isFinite(size) && size >= 2 ? Math.floor(size) : 16;
+    hz = Number.isFinite(hz) && hz > 0 ? hz : 16;
+    const ring = new Float32Array(size), byAge = new Float32Array(size);
+    let ringAt = 0, since = 0, last = 0;
+    const past = (j) => ring[(ringAt - Math.min(j, size - 1) + size * 2) % size];
+    return {
+      byAge,
+      step(level, dt) {
+        level = clamp01(Number.isFinite(level) ? level : 0);
+        dt = Number.isFinite(dt) && dt > 0 ? dt : 0;
+        since += dt;
+        const beyond = Math.floor(since * hz) - size;   // whole samples older than the history holds
+        if (beyond > 0) since -= beyond / hz;
+        while (since >= 1 / hz) {
+          since -= 1 / hz;
+          const w = dt > 0 ? clamp01(1 - since / dt) : 1;
+          ringAt = (ringAt + 1) % size;
+          ring[ringAt] = last + (level - last) * w;
+        }
+        last = level;
+        const frac = since * hz;
+        for (let i = 0; i < size; i++) {
+          const a = i - frac;
+          if (a <= 0) { const w = frac > 1e-6 ? -a / frac : 1; byAge[i] = ring[ringAt] * (1 - w) + level * w; continue; }
+          const j = Math.floor(a), f = a - j;
+          byAge[i] = past(j) * (1 - f) + past(j + 1) * f;
+        }
+      },
+      heard(seconds) {
+        const a = Number.isFinite(seconds) ? Math.max(0, Math.min(size - 1, seconds * hz)) : 0;
+        const j = Math.min(size - 2, Math.floor(a)), f = a - j;
+        return byAge[j] * (1 - f) + byAge[j + 1] * f;
       },
     };
   }
@@ -98,7 +141,7 @@
   // tone-maps to the canvas. Light is written with alpha 0 throughout.
 
   const api = {
-    createEnvelope, follow, fall, fitDistance, afterglowTime, decay, cooling, renderScale, viewOffset,
+    createEnvelope, createHistory, follow, fall, fitDistance, afterglowTime, decay, cooling, renderScale, viewOffset,
     testLevel: null,          // test hook: a number here replaces the mic level
     outputMode: 'added',      // or 'premultiplied' (an owner's decision, never automatic)
     readLevel, create, factory, debug,
@@ -444,6 +487,9 @@
       return null;
     }
     reconcile();
+    // update() runs before the camera is placed for the frame, so place it once now: a scene
+    // that turns things to face the camera has it from its first update.
+    if (view.w > 0) placeCamera(view.w, view.h);
     active = internals;
     return handle;
   }

@@ -114,7 +114,7 @@ WebGL ones) starts clean. (`thanksgiving-harvest` writes the same wrapper out by
 |---|---|
 | `k.THREE` | three.js r160 |
 | `k.scene` | the `THREE.Scene` to add objects to |
-| `k.camera` | the camera; the kit places it every frame, so don't move it |
+| `k.camera` | the camera; the kit places it when the scene is created and again after every `update`, so don't move it. In `update` it is where the last frame left it |
 | `k.orbit` | radians; set it in `update` to swing the camera around the frame centre |
 | `k.keep(obj)` | register a geometry, material or texture for disposal; returns `obj` |
 | `k.practical(light)` | mark a light as a *practical* (see below); returns the light |
@@ -137,6 +137,13 @@ With no mic the level is a slow swell when **Idle animation** is on, otherwise s
 For a value of the scene's own, `TimbreScene.follow(current, target, rate, dt)` moves it
 toward a target and `TimbreScene.fall(current, rate, dt)` lets it die away, both at `rate`
 per second whatever the frame rate. They are what the fields above are made with.
+
+For something that should travel (a gust along a flag, a pulse along a beam), keep a history
+of a level: `TimbreScene.createHistory(size, hz)` gives `{ step(level, dt), byAge,
+heard(seconds) }`. Call `step` once a frame. `byAge[0]` is the level now and `byAge[i]` the
+level `i` samples ago (`hz` samples a second); `heard(seconds)` reads it at any age, held at
+both ends. It glides between samples and writes each sample at its own moment, so what it
+drives travels at the same speed at any frame rate.
 
 ### The rules
 
@@ -451,6 +458,39 @@ All its timing comes from `dt`. The arithmetic touches nothing at load, and the 
 loadable under Node, because `npm run verify` imports it; the scene looks up `THREE`,
 `TimbreScene`, `document` and the core.js globals only when it is built. It must be loaded
 after `scene-kit.js` and before the factories.
+
+## The sunburst (`TimbreSunburst`)
+
+`overlay/sunburst.js` is the Sunburst effect, as `globalThis.TimbreSunburst`: a small star
+with a crown of beams of light. `factories/sunburst-3d.js` is one line,
+`VIZ_FACTORIES['sunburst-3d'] = TimbreScene.factory(() => TimbreSunburst.definition())`. It
+offers:
+
+- **The crown.** `rayCount(density)` is how many beams a Density setting means (24 to 144).
+  `directions(n)` spreads `n` directions evenly over a sphere, from one pole to the other.
+- **The sound.** `bandOf(y, scatter)` is the band a beam follows, as a place among the
+  frequency bins: the belt round the crown's middle hears bin 0 and the poles hear bin 9,
+  with `scatter(i)` moving each beam up to a bin either way. `loudness(bins, band, gain)`
+  reads that band, and `answer(band, flame)` adds a little of the voice as a whole.
+- **A beam.** `lengthOf(amp, kick)` and `widthOf(amp, kick)` are its size.
+  `strip(out, at, centre, dir, cam, len, width)` writes it as 13 pairs of points: a spine
+  running straight out of the star, with its width across the beam and across the line of
+  sight, so the strip faces the camera, tapering to 8% at the tip.
+- **Its light.** `glow(u, pulse, amp, kick, shimmer)` is how bright it is at `u` along its
+  length, where `pulse` is the voice as it was when that light left the star;
+  `shimmer(high, u, wave)` is the flicker the high end gives its outer part; `tint(out, rgb,
+  u, b)` is its colour, white at the star and its own colour further out.
+- **The scene.** `definition()` returns the kit scene definition: the star, its glow and
+  the crown. It keeps the voice in `TimbreScene.createHistory(24, 20)`.
+
+All its timing comes from `dt`. The arithmetic touches nothing at load, and the file must stay
+loadable under Node, because `npm run verify` imports it; the scene looks up `THREE`,
+`TimbreScene`, `document` and the core.js globals only when it is built. It must be loaded
+after `scene-kit.js` and before the factories.
+
+Two things the kit's afterglow does, worth knowing before building on this: a shape that
+moves outward (an expanding ring) leaves a filled shape behind it, and a moving point leaves
+a dotted trail. Both were tried here and dropped.
 
 ## Wire format (for driving Timbre from elsewhere)
 

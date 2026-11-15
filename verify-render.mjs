@@ -1041,6 +1041,203 @@ async function main() {
 
     }
 
+    // ── The sunburst (a kit scene: a star with a crown of light) ───────────────
+    {   // its own block: the names below are the sunburst's own
+    // Build the scene afresh, drive the level and the 32 bins by hand, and read the canvas and
+    // the scene after each step. A step gives level (null: whatever the kit hears), secs, and
+    // either all (every bin, 0..1) or bins ([[bin, 0..1], ...]); idle: true has the mic off,
+    // off: true has the mic and Idle animation off.
+    const SUN = 'sunburst-3d';
+    const sunRun = (steps, { fps = 60, knobs = null, hue = null } = {}) => wide.evaluate(({ id, steps, fps, knobs, hue }) => {
+      window.frame = function () {};
+      const saved = { frequencies, micActive, cfgIdleAnim, cfgColorHue }, knobs0 = Object.assign({}, perViz[id]);
+      try {
+        if (knobs) Object.assign(perViz[id], knobs);
+        if (hue !== null) cfgColorHue = hue;
+        TimbreScene.testLevel = 0;
+        setActiveViz('visualizer'); setActiveViz(id);
+        const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), f = new Uint8Array(32), out = [];
+        let now = 100000 + 1000 / 120;
+        for (const st of steps) {
+          TimbreScene.testLevel = st.level;
+          micActive = !st.idle && !st.off;
+          cfgIdleAnim = st.off ? false : saved.cfgIdleAnim;
+          if (st.knobs) Object.assign(perViz[id], st.knobs);
+          f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
+          if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
+          frequencies = f;
+          const trace = st.trace ? [] : null;
+          let firstCam = null;
+          for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) {
+            now += 1000 / fps; currentViz.draw(now, 1 / fps);
+            const q = window.__timbre.scene.state;
+            if (firstCam === null) firstCam = q.cam;
+            if (trace) trace.push([q.spin, q.flame, q.kick, q.bright[9], q.reach]);
+          }
+          const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);   // row 0 is the bottom of the canvas
+          let solid = 0, light = 0, lightSum = 0, edge = 0, empty = 0;
+          const box = [w, -1, h, -1], solidBox = [w, -1, h, -1];
+          const grow = (b, x, y) => { if (x < b[0]) b[0] = x; if (x > b[1]) b[1] = x; if (y < b[2]) b[2] = y; if (y > b[3]) b[3] = y; };
+          for (let i = 0; i < px.length; i += 4) {
+            const x = (i / 4) % w, y = Math.floor(i / 4 / w), rgb = px[i] + px[i + 1] + px[i + 2], a = px[i + 3];
+            if (a > 250) { solid++; grow(solidBox, x, y); }
+            else if (a < 5 && rgb > 12) {
+              light++; lightSum += rgb; grow(box, x, y);
+              if (x < 4 || y < 4 || x >= w - 4 || y >= h - 4) edge++;
+            }
+            if (a === 0 && rgb === 0) empty++;
+          }
+          const size = (b) => ({ w: b[1] < 0 ? 0 : b[1] - b[0] + 1, h: b[3] < 0 ? 0 : b[3] - b[2] + 1, cx: (b[0] + b[1]) / 2, cy: (b[2] + b[3]) / 2 });
+          const s = window.__timbre.scene, state = (s && s.state) || {}, c = (Math.floor(h / 2) * w + Math.floor(w / 2)) * 4;
+          out.push({ state, textures: s ? s.memory.textures : -1, solid, light, lightSum, edge, empty: empty / (w * h), cornerAlpha: px[3], centreAlpha: px[c + 3],
+            box: size(box), solidBox: size(solidBox), canvas: [w, h], trace, firstCam,
+            expectTip: state.rays ? getColor(state.colorT + (state.ref / state.rays) * 1.4) : null,
+            fit: TimbreScene.fitDistance(8.4, 7.4, 30, canvas3d.clientWidth / canvas3d.clientHeight) });
+        }
+        return out;
+      } finally {
+        frequencies = saved.frequencies; micActive = saved.micActive; cfgIdleAnim = saved.cfgIdleAnim; cfgColorHue = saved.cfgColorHue;
+        Object.assign(perViz[id], knobs0); TimbreScene.testLevel = null;
+      }
+    }, { id: SUN, steps, fps, knobs, hue });
+    const mean = (a) => a.reduce((x, y) => x + y, 0) / Math.max(1, a.length);
+    const sunPeak = (a) => { let at = -1, top = 0; (a || []).forEach((v, i) => { if (v > top) { top = v; at = i; } }); return { at, top }; };
+    const talk = [{ level: 0.8, all: 0.8, secs: 2 }];
+    // Thresholds are 60% of what the scene gives at a steady 0.8: about 11,000 solid pixels
+    // (the star) and 224,000 pixels of light (the crown and the glow).
+    const SUN_SOLID = 6500, SUN_LIGHT = 134000;
+
+    await activate(SUN);
+    const sunState = await sceneState();
+    const [loud] = await sunRun(talk);
+    const [hush] = await sunRun([{ level: 0, secs: 2 }]);
+    check('sunburst-3d is a kit scene: a solid star in the middle, light all round it, a transparent corner',
+      !!sunState && sunState.active === true && sunState.targetSize[0] === 1728 && loud.solid > SUN_SOLID && loud.light > SUN_LIGHT && loud.cornerAlpha === 0 && loud.centreAlpha === 255 && loud.edge === 0 && loud.empty > 0.3,
+      JSON.stringify({ size: sunState && sunState.targetSize, solid: loud.solid, light: loud.light, corner: loud.cornerAlpha, centre: loud.centreAlpha, edge: loud.edge, empty: loud.empty }));
+    check('sunburst: the star is a round ball in the middle of the frame', Math.abs(loud.solidBox.w - loud.solidBox.h) <= 0.1 * loud.solidBox.h && Math.abs(loud.solidBox.cx - loud.canvas[0] / 2) < 0.05 * loud.canvas[0]
+      && Math.abs(loud.solidBox.cy - loud.canvas[1] / 2) < 0.08 * loud.canvas[1] && loud.solid > 0.7 * (Math.PI / 4) * loud.solidBox.w * loud.solidBox.h, JSON.stringify(loud.solidBox));
+    check('sunburst: louder, the beams reach further and the crown is larger', Math.abs(loud.state.reach - 3 * (0.1 + 0.9 * 0.92)) < 0.01 && Math.abs(hush.state.reach - 0.3) < 0.01 && loud.box.w > hush.box.w * 1.8 && loud.box.h > hush.box.h * 1.5 && loud.lightSum > 3 * hush.lightSum,
+      JSON.stringify({ reach: [hush.state.reach, loud.state.reach], box: [hush.box, loud.box], sum: [hush.lightSum, loud.lightSum] }));
+    check('sunburst: in silence the star is still there, small, with short spikes', hush.solid > 0.5 * loud.solid && hush.light > 500 && hush.state.amps.every((a) => a < 0.001), JSON.stringify([hush.solid, hush.light]));
+
+    // Bands: the belt hears the low end, the poles the higher bins; every beam answers the voice a little.
+    const belt = (r) => mean(r.state.amps.filter((_, i) => Math.abs(r.state.ys[i]) < 0.2)), pole = (r) => mean(r.state.amps.filter((_, i) => Math.abs(r.state.ys[i]) > 0.8));
+    const [lowOnly] = await sunRun([{ level: 0.5, bins: [[0, 1], [1, 1]], secs: 2 }]), [highOnly] = await sunRun([{ level: 0.5, bins: [[8, 1], [9, 1], [10, 1]], secs: 2 }]);
+    check('sunburst: the low end drives the belt round the middle', belt(lowOnly) > pole(lowOnly) + 0.4 && belt(lowOnly) > 0.8, JSON.stringify([belt(lowOnly), pole(lowOnly)]));
+    check('sunburst: the higher bins drive the beams near the poles', pole(highOnly) > belt(highOnly) + 0.4 && pole(highOnly) > 0.7, JSON.stringify([belt(highOnly), pole(highOnly)]));
+    const [noBins] = await sunRun([{ level: 0.8, secs: 2 }]);
+    check('sunburst: with no band of its own, every beam still answers the voice a little', noBins.state.amps.length === 84 && noBins.state.amps.every((a) => Math.abs(a - 0.45 * 0.8) < 0.01)
+      && Math.abs(noBins.state.reach - 3 * (0.1 + 0.9 * 0.36)) < 0.03, JSON.stringify([Math.min(...noBins.state.amps), Math.max(...noBins.state.amps), noBins.state.reach]));
+    const [gained] = await sunRun([{ level: 0.5, bins: [[0, 0.4], [1, 0.4]], secs: 2 }]);
+    check('sunburst: a beam\'s reach is its loudest band\'s length', Math.abs(lowOnly.state.reach - 3 * (0.1 + 0.9 * Math.max(...lowOnly.state.amps))) < 1e-4 && gained.state.reach < lowOnly.state.reach - 0.5,
+      JSON.stringify([gained.state.reach, lowOnly.state.reach, Math.max(...lowOnly.state.amps)]));
+
+    // A syllable is a shell of brightness that travels out along the beams.
+    const syllable = [{ level: 0, all: 1, secs: 1 }, { level: 0.9, all: 1, secs: 0.1 }];
+    const [, , soon] = await sunRun([...syllable, { level: 0, all: 1, secs: 0.25 }]), [, , late] = await sunRun([...syllable, { level: 0, all: 1, secs: 0.6 }]);
+    check('sunburst: a syllable travels through the voice history at 20 samples a second', sunPeak(soon.state.hist).at === 5 && sunPeak(late.state.hist).at === 12 && sunPeak(soon.state.hist).top > 0.5,
+      JSON.stringify([sunPeak(soon.state.hist), sunPeak(late.state.hist)]));
+    check('sunburst: on a beam it is a shell of brightness moving outward, under half way after a quarter second and well past it after 0.6 s',
+      sunPeak(soon.state.pulse).at >= 4 && sunPeak(soon.state.pulse).at <= 6 && sunPeak(late.state.pulse).at >= 8 && sunPeak(late.state.pulse).at >= sunPeak(soon.state.pulse).at + 4 && sunPeak(soon.state.pulse).top > 0.5
+      && soon.state.bright[sunPeak(soon.state.pulse).at] > 3 * soon.state.bright[10], JSON.stringify({ soon: sunPeak(soon.state.pulse), late: sunPeak(late.state.pulse), bright: soon.state.bright.map((v) => +v.toFixed(2)) }));
+
+    // A beat.
+    const beat = [{ level: 0.05, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, secs: 0.1 }, { level: 0.9, all: 0.5, secs: 2.5 }];
+    const [calm, hit, after] = await sunRun(beat);
+    check('sunburst: a beat lengthens the beams and swells the star, then lets go', hit.state.kick > 0.5 && after.state.kick < 0.001 && calm.state.kick === 0
+      && Math.abs(hit.state.reach - 3 * (0.1 + 0.9 * Math.max(...hit.state.amps)) * (1 + 0.3 * hit.state.kick)) < 1e-4
+      && Math.abs(hit.state.swell - (1 + 0.22 * hit.state.low + 0.3 * hit.state.kick)) < 1e-9 && hit.state.swell > after.state.swell + 0.1 && hit.solid > after.solid * 1.15 && hit.edge === 0,
+      JSON.stringify({ kick: [calm.state.kick, hit.state.kick, after.state.kick], reach: hit.state.reach, swell: [hit.state.swell, after.state.swell], solid: [hit.solid, after.solid], edge: hit.edge }));
+    const [bass] = await sunRun([{ level: 0.5, bins: [[0, 1], [1, 1], [2, 1], [3, 1]], secs: 3 }]), [treble] = await sunRun([{ level: 0.5, bins: [[6, 1], [8, 1], [10, 1], [12, 1]], secs: 3 }]);
+    check('sunburst: the low end swells the star', bass.state.low > 0.95 && treble.state.low < 0.01 && bass.state.swell > 1.2 && Math.abs(treble.state.swell - 1) < 0.01 && bass.solid > treble.solid * 1.25,
+      JSON.stringify({ low: [bass.state.low, treble.state.low], swell: [bass.state.swell, treble.state.swell], solid: [bass.solid, treble.solid] }));
+
+    // The high end makes the outer half of the beams flicker.
+    const swing = (r) => { const b = r.trace.map((t) => t[3]); return (Math.max(...b) - Math.min(...b)) / Math.max(...b); };
+    const [, flick] = await sunRun([{ level: 0.6, bins: [[5, 1], [6, 1], [7, 1], [8, 1], [9, 1], [10, 1], [11, 1], [12, 1], [13, 1], [14, 1]], secs: 3 }, { level: 0.6, bins: [[5, 1], [6, 1], [7, 1], [8, 1], [9, 1], [10, 1], [11, 1], [12, 1], [13, 1], [14, 1]], secs: 1, trace: true }]);
+    const [, steady] = await sunRun([{ level: 0.6, bins: [[0, 1], [1, 1]], secs: 3 }, { level: 0.6, bins: [[0, 1], [1, 1]], secs: 1, trace: true }]);
+    check('sunburst: the high end makes the outer part of a beam flicker; without it the beam is steady', flick.state.high > 0.9 && steady.state.high < 0.01 && swing(flick) > 0.5 && swing(steady) < 0.02,
+      JSON.stringify({ high: [flick.state.high, steady.state.high], swing: [swing(flick), swing(steady)] }));
+
+    // Density.
+    const [few] = await sunRun(talk, { knobs: { density: 0 } }), [many] = await sunRun(talk, { knobs: { density: 100 } });
+    check('sunburst: Density 0 is 24 beams, the default 84, 100 is 144', few.state.rays === 24 && loud.state.rays === 84 && many.state.rays === 144 && few.state.amps.length === 24 && many.state.amps.length === 144
+      && few.state.drawn === 24 * 12 * 6 && many.state.drawn === 144 * 12 * 6 && many.lightSum > 1.3 * few.lightSum, JSON.stringify({ rays: [few.state.rays, loud.state.rays, many.state.rays], drawn: [few.state.drawn, many.state.drawn], sum: [few.lightSum, many.lightSum] }));
+    const moved = await sunRun([{ level: 0.8, all: 0.8, secs: 1 }, { level: 0.8, all: 0.8, secs: 1, knobs: { density: 100 } }, { level: 0.8, all: 0.8, secs: 1, knobs: { density: 0 } }]);
+    check('sunburst: a change of Density applies at once, both ways', moved[0].state.rays === 84 && moved[1].state.rays === 144 && moved[2].state.rays === 24 && moved[1].lightSum > moved[2].lightSum * 1.3
+      && moved[2].state.amps.length === 24 && moved[1].state.amps.every((a) => a > 0.9) && moved[1].textures === moved[0].textures && moved[2].textures === moved[0].textures,
+      JSON.stringify(moved.map((m) => [m.state.rays, m.lightSum, m.textures])));
+
+    // Spin.
+    const turning = [{ level: 0.05, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, secs: 1.5, trace: true }];
+    const [, spun] = await sunRun(turning), [, held] = await sunRun(turning, { knobs: { spin: 0 } }), [, fast] = await sunRun(turning, { knobs: { spin: 100 } });
+    let worstSpin = 0, kicked = 0;
+    for (let i = 1; i < spun.trace.length; i++) {
+      const [spin, flame, kick] = spun.trace[i];
+      worstSpin = Math.max(worstSpin, Math.abs(spin - spun.trace[i - 1][0] - (0.1 + 0.35 * flame + 0.5 * kick) / 60));
+      kicked = Math.max(kicked, kick);
+    }
+    check('sunburst: the crown turns faster with the voice and faster still on a beat', spun.trace.length === 90 && worstSpin < 1e-9 && kicked > 0.9 && spun.state.spin > 0.5, JSON.stringify({ frames: spun.trace.length, worst: worstSpin, kicked, spin: spun.state.spin }));
+    check('sunburst: Spin 0 holds the crown still; 100 doubles the turning', held.state.spin === 0 && Math.abs(fast.state.spin - 2 * spun.state.spin) < 1e-9, JSON.stringify([held.state.spin, spun.state.spin, fast.state.spin]));
+
+    // Camera.
+    const [still] = await sunRun(talk, { knobs: { cameraDrift: 0 } }), [drift] = await sunRun(talk, { knobs: { cameraDrift: 100 } });
+    check('sunburst: Camera drift 0 holds the camera still; 100 doubles the sway', still.state.orbit === 0 && Math.abs(loud.state.orbit) > 0.005 && Math.abs(drift.state.orbit - 2 * loud.state.orbit) < 1e-9, JSON.stringify([still.state.orbit, loud.state.orbit, drift.state.orbit]));
+    const camDist = (c) => Math.hypot(c[0], c[1] - 3.6, c[2]);
+    check('sunburst: the beams are turned to face the kit\'s camera, from the first frame on', Math.abs(camDist(loud.state.cam) - loud.fit) < 0.01 && Math.abs(camDist(loud.firstCam) - loud.fit) < 0.01 && loud.fit > 10,
+      JSON.stringify({ fit: loud.fit, cam: loud.state.cam, first: loud.firstCam }));
+
+    // The same at any frame rate.
+    const fpsSteps = [{ level: 0.8, all: 0.8, secs: 1 }, { level: 0, all: 0, secs: 0.5 }];
+    const [, s30] = await sunRun(fpsSteps, { fps: 30 }), [, s60] = await sunRun(fpsSteps, { fps: 60 });
+    check('sunburst: the same sound gives the same star at 30 and 60 fps', Math.abs(s30.state.spin - s60.state.spin) < 0.02 && Math.abs(s30.state.reach - s60.state.reach) < 0.06 && s60.state.reach > 0.5
+      && s60.state.hist.every((v, i) => Math.abs(v - s30.state.hist[i]) < 0.05) && Math.abs(s30.state.low - s60.state.low) < 0.02,
+      JSON.stringify({ spin: [s30.state.spin, s60.state.spin], reach: [s30.state.reach, s60.state.reach], low: [s30.state.low, s60.state.low] }));
+
+    // Mic off.
+    const [idle1, idle2] = await sunRun([{ level: null, idle: true, secs: 2 }, { level: null, idle: true, secs: 1.5 }]);
+    check('sunburst: with the mic off and Idle animation on, the crown turns and its beams breathe', idle1.state.live === true && idle2.state.spin > idle1.state.spin + 0.1 && idle1.state.reach > 0.8 && idle1.state.reach < 2.4
+      && idle1.state.amps.some((a, i) => Math.abs(a - idle2.state.amps[i]) > 0.1) && idle1.light > 3000, JSON.stringify({ spin: [idle1.state.spin, idle2.state.spin], reach: [idle1.state.reach, idle2.state.reach], light: idle1.light }));
+    const [off1, off2] = await sunRun([{ level: null, off: true, secs: 3 }, { level: null, off: true, secs: 1, trace: true }]);
+    check('sunburst: with the mic and Idle animation off, the crown does not turn and nothing flickers', off1.state.live === false && off2.state.spin === off1.state.spin && off2.state.clock === off1.state.clock
+      && off2.state.amps.every((a) => a < 0.001) && Math.abs(off2.state.reach - 0.3) < 0.01 && swing(off2) < 0.001 && off2.solid > 0.5 * loud.solid,
+      JSON.stringify({ spin: [off1.state.spin, off2.state.spin], clock: [off1.state.clock, off2.state.clock], reach: off2.state.reach, swing: swing(off2) }));
+
+    // Colour.
+    const [hued] = await sunRun(talk, { hue: 2 });
+    const close = (a, b) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= 2);
+    check('sunburst: a beam takes its colour from the palette, and the hue setting moves it', close(loud.state.tip, loud.expectTip) && close(hued.state.tip, hued.expectTip) && !close(hued.state.tip, loud.state.tip),
+      JSON.stringify({ tip: loud.state.tip, expect: loud.expectTip, hued: hued.state.tip, hueExpect: hued.expectTip }));
+
+    // Placement and cost.
+    await activate(SUN);
+    const sunP0 = await probe();
+    await pushConfig((c) => { c.activeViz = 'sunburst-3d'; c.placement.x = 30; });
+    await wide.waitForTimeout(400);
+    const sunP1 = await probe();
+    check('sunburst: Scene placement slides it', sunP1.centroidX - sunP0.centroidX > 150, `${sunP0.centroidX.toFixed(0)} → ${sunP1.centroidX.toFixed(0)}`);
+    await pushConfig((c) => { c.placement.x = 0; });
+    await wide.waitForTimeout(300);
+    await activate(SUN);
+    const sunCost = await wide.evaluate(() => { perViz['sunburst-3d'].density = 100; try { let now = performance.now(), acc = 0; for (let i = 0; i < 120; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); acc += performance.now() - t; } return acc / 120; } finally { perViz['sunburst-3d'].density = 50; } });
+    check(`sunburst-3d: draw() with all 144 beams averages under 4 ms of script time (${sunCost.toFixed(2)} ms)`, sunCost < 4);
+
+    // The kit places the camera when a scene is created, so its first update() already has it.
+    const firstUpdate = await wide.evaluate(() => {
+      setActiveViz('sunburst-3d'); currentViz.stop();   // the WebGL canvas stays showing, with no scene on it
+      let seen = null, scene = null;
+      try {
+        scene = TimbreScene.create({ frame: { width: 6, height: 4, center: [0, 2, 0] }, fov: 30, pitch: 10, build() {}, update(k) { if (seen === null) seen = k.camera.position.length(); } });
+        if (!scene) return null;
+        scene.draw(300000, 1 / 60);
+        return seen;
+      } finally { if (scene) scene.dispose(); setActiveViz('visualizer'); }
+    });
+    check('a scene\'s camera is in place before its first update', firstUpdate !== null && firstUpdate > 5, String(firstUpdate));
+
+    }
+
     // Every kit scene, so the next one is covered without a new check.
     const gpuAfterSelect = (name) => wide.evaluate((n) => { setActiveViz('visualizer'); setActiveViz(n); currentViz.draw(performance.now(), 1 / 60); const s = window.__timbre.scene; return [s.memory.geometries, s.memory.textures, s.programs]; }, name);
     for (const name of T.VIZ_SCENES) {
@@ -1071,7 +1268,7 @@ async function main() {
       } finally { gl.createTexture = create; gl.deleteTexture = del; }
       return out;
     }, T.VIZ_SCENES);
-    const TEXTURES = { 'thanksgiving-harvest': 9, 'winter-aurora': 8, 'pride-ribbon': 5, 'bi-pride-ribbon': 5, 'ace-pride-ribbon': 5, 'trans-pride-ribbon': 5, 'july-fourth-stripes': 7 };
+    const TEXTURES = { 'thanksgiving-harvest': 9, 'winter-aurora': 8, 'pride-ribbon': 5, 'bi-pride-ribbon': 5, 'ace-pride-ribbon': 5, 'trans-pride-ribbon': 5, 'july-fourth-stripes': 7, 'sunburst-3d': 5 };
     check('a scene deletes every GL texture it made, whichever scene ran before it',
       Object.keys(texturesLeft).length === T.VIZ_SCENES.length ** 2 && Object.entries(texturesLeft).every(([pair, [made, left]]) => made >= TEXTURES[pair.split(' then ')[1]] && left === 0), JSON.stringify(texturesLeft));
 
