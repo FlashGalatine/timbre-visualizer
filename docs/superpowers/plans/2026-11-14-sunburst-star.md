@@ -84,6 +84,37 @@ break each rule of the arithmetic and the scene on purpose and confirm a check f
 
 Final stills; offer to switch the live overlay. Merge only after the owner has seen it in OBS.
 
+## After the review
+
+One independent review of the branch: nothing critical. Fixed, each with a check written
+first:
+
+- Beams that came back when Density was raised started at the length they had when they were
+  last drawn, so they could appear long and shrink with the mic off. They now start from
+  nothing.
+- Spin 0 held the turn but the crown's tilt still wandered. Spin now scales the tilt's
+  wander too, and a check holds the reference beam's direction still at Spin 0.
+- The spec said the outer half of a beam flickers; the flicker grows steadily from the star
+  outward. The spec now says so, and a check holds the beam steady at the star.
+- The history was one sample short of the tip of the longest beam on a beat. It is 25
+  samples now.
+
+Checks added or tightened for behaviour that nothing was watching: the scene's own clock at
+30 and 60 fps; the picture holding still, pixel for pixel, with the mic and Idle animation
+off (the earlier check read numbers only); a beat widening and brightening the beams and
+spreading the glow; the speed of the light pinned for every piece of a beam, whatever the
+beam's length; the crown itself turning as far as its spin says; the strips facing the
+kit's own camera position (the earlier check compared distances only, which a swapped axis
+would pass). `TimbreScene.debug()` now reports the camera's position for that.
+
+Left as it is and written into the spec: on the first frame the camera is at its distance
+with no swing yet; the colours still move through the palette with the mic and Idle
+animation off.
+
+From breaking the arithmetic on purpose (50 breaks, 46 caught): checks for the power in the
+band formula, for loudness held to 1, for the power in the brightness of a pulse, and for
+the newest place in the history holding the level now.
+
 ## Found during the build
 
 - The render checks were written before the scene but could not be run before it existed:

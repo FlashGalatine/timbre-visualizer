@@ -19,7 +19,7 @@
 
   const RAYS_MIN = 24, RAYS_MAX = 144;   // beams at Density 0 and 100
   const SEG = 12;                        // pieces along a beam
-  const HIST = 24, HIST_HZ = 20;         // voice history: 1.2 s, a little more than the longest beam needs
+  const HIST = 25, HIST_HZ = 20;         // voice history: it reaches back 1.2 s; the tip of the longest beam on a beat is 1.17 s old
   const CORE = 0.6;                      // the star's radius
   const REACH = 3;                       // the longest beam, beyond the star's surface (before a beat)
   const HEIGHT = 3.6;                    // the star's centre above the unseen floor
@@ -162,13 +162,18 @@
     let THREE = null, core = null, halo = null, haze = null, beams = null, history = null;
     let dirs = null, n = 0;
     let q = null, qTilt = null, euler = null, v = null, yAxis = null, colour = null, white = null;
-    // What the checks read. spin: how far the crown has turned; reach: the longest beam now;
-    // swell: the star's size; clock: seconds the scene has been live; ref: the beam nearest
-    // the belt, which debug() reports on.
-    const s = { flame: 0, kick: 0, low: 0, high: 0, spin: 0, orbit: 0, reach: 0, rays: 0, swell: 1, live: false, clock: 0, colorT: 0, ref: 0 };
+    // What the checks read. spin: how far the crown has turned; sway: the clock its tilt
+    // wanders by (the Spin setting scales both); reach: the longest beam now; swell: the
+    // star's size; clock: seconds the scene has been live; ref: the beam nearest the belt,
+    // which debug() reports on.
+    const s = { flame: 0, kick: 0, low: 0, high: 0, spin: 0, sway: 0, orbit: 0, reach: 0, rays: 0, swell: 1, live: false, clock: 0, colorT: 0, ref: 0 };
+    const aim = [0, 0, 0];   // which way the reference beam points, in the world
+    let refWidth = 0;
 
-    // Change how many beams there are. Each keeps its loudness; its direction and band are new.
+    // Change how many beams there are. A beam that stays keeps its loudness (its direction
+    // and band are new); one that comes back starts from nothing.
     function setRays(count) {
+      for (let i = n; i < count; i++) amps[i] = 0;
       n = count;
       dirs = directions(n);
       let nearest = Infinity;
@@ -248,7 +253,8 @@
 
       // With the mic and Idle animation both off, the crown does not turn and nothing flickers.
       s.live = !!(micActive || cfgIdleAnim);
-      if (s.live) s.clock += dt;
+      const turn = knob('spin') / 50;
+      if (s.live) { s.clock += dt; s.sway += turn * dt; }
       const c = s.clock;
 
       // The low end swells the star; the high end makes the beams flicker.
@@ -265,9 +271,10 @@
       s.flame = audio.flame; s.kick = audio.kick;
       history.step(audio.flame, dt);
 
-      // The crown turns about a tilted axis; the tilt wanders slowly.
-      if (s.live) s.spin += (0.1 + 0.35 * audio.flame + 0.5 * audio.kick) * (knob('spin') / 50) * dt;
-      qTilt.setFromEuler(euler.set(0.5 + 0.12 * Math.sin(0.13 * c), 0, 0.22 * Math.sin(0.09 * c + 1)));
+      // The crown turns about a tilted axis; the tilt wanders slowly. Spin scales both, so
+      // Spin 0 holds the crown quite still.
+      if (s.live) s.spin += (0.1 + 0.35 * audio.flame + 0.5 * audio.kick) * turn * dt;
+      qTilt.setFromEuler(euler.set(0.5 + 0.12 * Math.sin(0.13 * s.sway), 0, 0.22 * Math.sin(0.09 * s.sway + 1)));
       q.setFromAxisAngle(yAxis, s.spin).premultiply(qTilt);
       cam[0] = k.camera.position.x; cam[1] = k.camera.position.y; cam[2] = k.camera.position.z;
 
@@ -285,10 +292,12 @@
         if (len > reach) reach = len;
         v.set(dirs[i * 3], dirs[i * 3 + 1], dirs[i * 3 + 2]).applyQuaternion(q);
         dir[0] = v.x; dir[1] = v.y; dir[2] = v.z;
-        strip(position.array, i * PER, centre, dir, cam, len, widthOf(amps[i], audio.kick));
+        const width = widthOf(amps[i], audio.kick);
+        if (i === s.ref) { aim[0] = v.x; aim[1] = v.y; aim[2] = v.z; refWidth = width; }
+        strip(position.array, i * PER, centre, dir, cam, len, width);
 
         palette(colorT + (i / n) * 1.4);
-        const wave = s.live ? Math.sin(c * (9 + 11 * scatters[i]) + scatters[i] * 40) : 0;
+        const wave = Math.sin(c * (9 + 11 * scatters[i]) + scatters[i] * 40);   // c stands still when the scene is not live
         for (let j = 0; j <= SEG; j++) {
           const u = j / SEG, r = CORE * 0.7 + (len + CORE * 0.3) * u;
           // The voice as it was when the light here left the star's surface.
@@ -338,6 +347,8 @@
           pulse: Array.from(pulses), bright: Array.from(brights),      // along the reference beam
           tip: [Math.round(out.r * 255), Math.round(out.g * 255), Math.round(out.b * 255)],
           cam: cam.slice(),                                            // where the strips were turned to face
+          aim: aim.slice(), width: refWidth,                           // the reference beam's direction and width
+          glowSize: halo.scale.x,
           drawn: beams.geometry.drawRange.count,
         }, s);
       },

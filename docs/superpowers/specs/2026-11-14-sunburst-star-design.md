@@ -38,24 +38,27 @@ A small star floats in the box, built on the scene kit (`overlay/scene-kit.js`).
   while someone talks: `amp = min(1, 0.7 * band + 0.45 * flame)`.
 - **A beam's length** is `REACH * (0.1 + 0.9 * amp) * (1 + 0.3 * kick)`. It rises quickly (22
   a second) and falls slowly (3.5 a second).
-- **Each syllable bursts outward.** The scene keeps a history of the voice (24 samples, 20 a
+- **Each syllable bursts outward.** The scene keeps a history of the voice (25 samples, 20 a
   second). The light at a point on a beam is as bright as the voice was when that light left
   the star: light takes 0.9 s to travel the longest reach. So a syllable is a shell of
   brightness that leaves the star and travels out along every beam.
 - **A beat** (the kit's) lengthens every beam by up to 30%, widens them, brightens them and
   swells the star.
-- **The low end** swells the star. **The high end** makes the outer half of each beam flicker.
+- **The low end** swells the star. **The high end** makes each beam flicker, more the further
+  out and not at all at the star.
 - **The crown turns** about a tilted axis: `0.1 + 0.35 * flame + 0.5 * kick` radians a second
-  at the default Spin. The tilt wanders slowly.
+  at the default Spin. The tilt wanders slowly, at a pace that Spin scales too.
 - **Mic off, Idle animation on:** the kit's slow swell drives it, and the beams breathe in a
   slow pattern. **Mic off, Idle animation off:** the star is a small still ball with short
   spikes; the crown does not turn and nothing flickers. (The camera still drifts, as in the
-  other scenes.)
+  other scenes, and the colours still move through the palette, as they did in the old
+  effect.)
 
 ## Settings
 
 - `density` (kept): how many beams, 24 at 0, 84 at 50, 144 at 100. Applies at once.
-- `spin` (new): how fast the crown turns. 0 holds it still; 100 doubles the speed.
+- `spin` (new): how fast the crown turns. 0 holds it still, its tilt included; 100 doubles
+  the speed.
 - `cameraDrift` (new): as in the other scenes. 0 holds the camera still; 100 doubles the sway.
 
 A config saved before this change keeps its `density` and gains the two defaults. The effect
@@ -78,7 +81,9 @@ The display name does not change.
 - **Kit: the camera is in place before a scene's first update.** `update()` runs before the
   kit places the camera, so on the first frame the camera was still at the origin. A scene
   that turns things to face the camera needs it from the start, so the kit now places the
-  camera once when the scene is created.
+  camera once when the scene is created. That first placement has the camera's distance and
+  height but no swing yet (`k.orbit` is 0 until the first update). In every later update the
+  camera is where the last frame left it, one frame's swing behind, which cannot be seen.
 
 ## Tried in the spike and dropped
 
@@ -92,6 +97,10 @@ The display name does not change.
 - The afterglow smears the turning crown slightly. It reads as softness.
 - Over a bright backdrop added light washes out, as in every scene; the solid star still shows.
 - The beam strips cross where they leave the star; the star covers that.
+- A beam that stays when Density changes keeps its loudness though its direction is new. It
+  settles within a fraction of a second.
+- No check covers the star's own brightness and limb colour, the glow's colour, or the
+  neutral `cooling`.
 
 ## Checks
 

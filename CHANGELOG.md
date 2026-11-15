@@ -21,7 +21,8 @@ traceability.
   that travel, read by sample (`byAge`) or by age in seconds (`heard`). A scene's camera is
   now in place before its first `update`. See `docs/EFFECTS.md` ("Kit scenes").
 - **Sunburst settings**: `spin` (0 to 100, default 50; 0 holds the crown still) and
-  `cameraDrift` (0 to 100, default 50) for the Sunburst effect. What the new Sunburst is
+  `cameraDrift` (0 to 100, default 50) for the Sunburst effect. Spin also scales how fast
+  the crown's tilt wanders. What the new Sunburst is
   made of is in `overlay/sunburst.js` (`TimbreSunburst`), loaded by all three overlay pages
   and by `verify` under Node, and documented in `docs/EFFECTS.md` ("The sunburst").
 - **The flag**: what the five flag effects share is in `overlay/flag.js` (`TimbreFlag`),
@@ -134,7 +135,8 @@ traceability.
   that leaves the star and travels out along every beam in under a second. A beat lengthens
   the beams and swells the star; the low end swells the star too; the high end makes the
   outer part of the beams flicker. The crown turns slowly, faster when the sound is louder.
-  With the mic off and Idle animation on it breathes; with both off it is a small still star.
+  With the mic off and Idle animation on it breathes; with both off it is a small star that
+  holds still (its colours still move through the palette).
   Colours come from the palette as before. `density` now means how many beams (24 to 144).
   It uses the shared Scene placement sliders, and no longer makes a renderer of its own.
 
