@@ -1504,6 +1504,201 @@ async function main() {
 
     }
 
+    // ── The phosphor (a kit scene: glowing traces on a deck of dark slices) ────
+    {   // its own block: the names below are the phosphor's own
+    // Build the scene afresh, drive the level and the 32 bins by hand, and read the canvas and
+    // the scene after each step. A step gives level (null: whatever the kit hears), secs, and
+    // either all (every bin, 0..1) or bins ([[bin, 0..1], ...]); idle: true has the mic off,
+    // off: true has the mic and Idle animation off.
+    const DECK = 'phosphor';
+    // hue and colorSpeed set the palette's place and speed for the run, gain the Gain setting. A trace row is
+    // [clock, flame, kick, the front trace's stand, its peak, its brightness, its half width, orbit, the last slice's first phase].
+    const deckRun = (steps, { fps = 60, knobs = null, hue = null, colorSpeed = null, gain = null } = {}) => wide.evaluate(({ id, steps, fps, knobs, hue, colorSpeed, gain }) => {
+      window.frame = function () {};
+      const saved = { frequencies, micActive, cfgIdleAnim, cfgColorHue, cfgColorSpeed, cfgGain }, knobs0 = Object.assign({}, perViz[id]);
+      try {
+        if (knobs) Object.assign(perViz[id], knobs);
+        if (hue !== null) cfgColorHue = hue;
+        if (colorSpeed !== null) cfgColorSpeed = colorSpeed;
+        if (gain !== null) cfgGain = gain;
+        TimbreScene.testLevel = 0;
+        setActiveViz('visualizer'); setActiveViz(id);
+        const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), f = new Uint8Array(32), out = [];
+        let now = 100000 + 1000 / 120;
+        for (const st of steps) {
+          TimbreScene.testLevel = st.level;
+          micActive = !st.idle && !st.off;
+          cfgIdleAnim = st.off ? false : saved.cfgIdleAnim;
+          if (st.knobs) Object.assign(perViz[id], st.knobs);
+          f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
+          if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
+          frequencies = f;
+          const trace = st.trace ? [] : null;
+          for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) {
+            now += 1000 / fps; currentViz.draw(now, 1 / fps);
+            if (trace) { const q = window.__timbre.scene.state; trace.push([q.clock, q.flame, q.kick, q.stands[0], q.peaks[0], q.brights[0], q.widths[0], q.orbit, q.lag[0]]); }
+          }
+          const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);   // row 0 is the bottom of the canvas
+          let solid = 0, light = 0, lightSum = 0, edge = 0, empty = 0, hash = 2166136261;
+          for (let i = 0; i < px.length; i++) hash = Math.imul(hash ^ px[i], 16777619) >>> 0;   // the whole picture, as one number
+          const box = [w, -1, h, -1], solidBox = [w, -1, h, -1];
+          const grow = (b, x, y) => { if (x < b[0]) b[0] = x; if (x > b[1]) b[1] = x; if (y < b[2]) b[2] = y; if (y > b[3]) b[3] = y; };
+          for (let i = 0; i < px.length; i += 4) {
+            const x = (i / 4) % w, y = Math.floor(i / 4 / w), rgb = px[i] + px[i + 1] + px[i + 2], a = px[i + 3];
+            if (a > 250) { solid++; grow(solidBox, x, y); }
+            else if (a < 5 && rgb > 12) {
+              light++; lightSum += rgb; grow(box, x, y);
+              if (x < 4 || y < 4 || x >= w - 4 || y >= h - 4) edge++;
+            }
+            if (a === 0 && rgb === 0) empty++;
+          }
+          const size = (b) => ({ w: b[1] < 0 ? 0 : b[1] - b[0] + 1, h: b[3] < 0 ? 0 : b[3] - b[2] + 1, cx: (b[0] + b[1]) / 2, cy: (b[2] + b[3]) / 2 });
+          const s = window.__timbre.scene, state = (s && s.state) || {};
+          out.push({ state, solid, light, lightSum, edge, empty: empty / (w * h), cornerAlpha: px[3],
+            box: size(box), solidBox: size(solidBox), canvas: [w, h], trace, hash, kitCam: s ? s.camera : null,
+            expectTone: state.slices ? getColor(state.colorT + TimbrePhosphor.backOf(state.ref, state.slices) * 0.8) : null });
+        }
+        return out;
+      } finally {
+        frequencies = saved.frequencies; micActive = saved.micActive; cfgIdleAnim = saved.cfgIdleAnim; cfgColorHue = saved.cfgColorHue; cfgColorSpeed = saved.cfgColorSpeed; cfgGain = saved.cfgGain;
+        Object.assign(perViz[id], knobs0); TimbreScene.testLevel = null;
+      }
+    }, { id: DECK, steps, fps, knobs, hue, colorSpeed, gain });
+    const mean = (a) => a.reduce((x, y) => x + y, 0) / Math.max(1, a.length);
+    const top = (a) => Math.max(...a);
+    const gap = (a, b) => top(a.map((v, i) => Math.abs(v - b[i])));
+    const tallest = (a) => a.indexOf(top(a));
+    const ageOfSlice = (i, n) => (i / (n - 1)) * 2.2;
+    // The free part of a trace, between the two pinned ends.
+    const free = (trace) => trace.slice(16, 80);
+    const humps = (trace) => { const t = free(trace); let n = 0; for (let j = 1; j < t.length - 1; j++) if (t[j] > t[j - 1] && t[j] >= t[j + 1]) n++; return n; };
+    const swing = (trace) => top(free(trace)) - Math.min(...free(trace));
+    const talk = [{ level: 0.8, all: 0.8, secs: 3 }];
+    // Thresholds are 60% of what the scene gives after 3 s at a steady 0.8: about 319,000 solid pixels
+    // (the slices) and 9,200 pixels of light over the background (the traces' glow above the deck and at its sides).
+    const DECK_SOLID = 190000, DECK_LIGHT = 5500;
+
+    await activate(DECK);
+    const deckState = await sceneState();
+    const [loud] = await deckRun(talk);
+    const [hush] = await deckRun([{ level: 0, secs: 2 }]);
+    check('phosphor is a kit scene: solid dark slices, traces of added light along their tops, a transparent corner',
+      !!deckState && deckState.active === true && deckState.targetSize[0] === 1728 && loud.solid > DECK_SOLID && loud.light > DECK_LIGHT && loud.cornerAlpha === 0 && loud.edge === 0 && loud.empty > 0.3,
+      JSON.stringify({ size: deckState && deckState.targetSize, solid: loud.solid, light: loud.light, corner: loud.cornerAlpha, edge: loud.edge, empty: loud.empty, box: [loud.solidBox, hush.solidBox], hush: [hush.solid, hush.light] }));
+    check('phosphor: the deck sits in the middle of the frame, wider than it is tall', Math.abs(loud.solidBox.cx - loud.canvas[0] / 2) < 0.06 * loud.canvas[0] && loud.solidBox.w > 1.5 * loud.solidBox.h && loud.solidBox.w > 0.3 * loud.canvas[0],
+      JSON.stringify({ box: loud.solidBox, canvas: loud.canvas }));
+    const A8 = Math.pow(0.8, 0.9);
+    check('phosphor: louder, the traces stand taller', loud.state.stands.length === 24 && loud.state.stands.every((a) => Math.abs(a - A8) < 0.01) && top(loud.state.peaks) < 0.14 + 1.5 * A8 + 1e-6 && Math.min(...loud.state.peaks) > 0.14 + 1.5 * A8 * 0.55
+      && hush.state.peaks.every((p) => Math.abs(p - 0.14) < 1e-6) && loud.solidBox.h > 1.15 * hush.solidBox.h && gap(loud.state.tops, loud.state.peaks) < 1e-5,
+      JSON.stringify({ stand: [Math.min(...loud.state.stands), top(loud.state.stands)], peaks: [Math.min(...loud.state.peaks), top(loud.state.peaks)], solid: [hush.solid, loud.solid] }));
+    check('phosphor: in silence the deck is a row of low feet with dim, flat traces', hush.solid > 500 && hush.light > 150 && hush.state.stands.every((a) => a === 0) && hush.state.front.every((y) => Math.abs(y - 0.14) < 1e-6)
+      && Math.abs(hush.state.brights[0] - 0.3) < 1e-6 && Math.abs(hush.state.widths[0] - 0.045) < 1e-6, JSON.stringify({ solid: hush.solid, light: hush.light, bright: hush.state.brights[0] }));
+    check('phosphor: the slices stand from the front of the deck to the back, the front one nearest', Math.abs(loud.state.zs[0] - 1.8) < 1e-6 && Math.abs(loud.state.zs[23] + 1.8) < 1e-6 && loud.state.zs.every((z, i) => i === 0 || Math.abs(loud.state.zs[i - 1] - z - 3.6 / 23) < 1e-5),
+      JSON.stringify([loud.state.zs[0], loud.state.zs[1], loud.state.zs[23]]));
+
+    // The echoes: a syllable, then silence. The tallest slice is the one as old as the silence is long.
+    const syllable = [{ level: 0.9, all: 0.9, secs: 0.25 }];
+    const [, soon] = await deckRun([...syllable, { level: 0, secs: 0.6 }]), [, late] = await deckRun([...syllable, { level: 0, secs: 1.3 }]);
+    check('phosphor: a syllable travels back through the deck, one slice after another', Math.abs(ageOfSlice(tallest(soon.state.stands), 24) - 0.6) < 0.1 && Math.abs(ageOfSlice(tallest(late.state.stands), 24) - 1.3) < 0.1
+      && top(soon.state.stands) > 0.7 && soon.state.stands[0] < 0.4 && late.state.stands[0] < 0.05 && soon.state.stands[23] < 0.01 && Math.abs(tallest(soon.state.peaks) - tallest(soon.state.stands)) <= 1,
+      JSON.stringify({ soon: [tallest(soon.state.stands), top(soon.state.stands), soon.state.stands[0]], late: [tallest(late.state.stands), top(late.state.stands), late.state.stands[0]] }));
+    const paceOf = (b) => (0.9 + 0.55 * b) * (b % 2 ? -1 : 1);
+    check('phosphor: an echo\'s waves are where the front\'s were when it was the front', loud.state.lag.length === 10 && loud.state.lag.every((p, b) => Math.abs(p - paceOf(b) * (loud.state.clock - 2.2)) < 1e-9) && Math.abs(loud.state.clock - 3) < 1e-6,
+      JSON.stringify({ clock: loud.state.clock, lag: loud.state.lag.slice(0, 3) }));
+
+    // Bands: the low end makes broad waves, the higher bands fine ripples.
+    const [lowOnly] = await deckRun([{ level: 0.6, bins: [[0, 1]], secs: 1.5 }]), [highOnly] = await deckRun([{ level: 0.6, bins: [[9, 1]], secs: 1.5 }]);
+    check('phosphor: the low end makes broad waves and the higher bands fine ripples', humps(lowOnly.state.front) <= 2 && humps(highOnly.state.front) >= 5 && humps(highOnly.state.front) <= 8 && swing(lowOnly.state.front) > 0.2 && swing(highOnly.state.front) > 0.2,
+      JSON.stringify({ humps: [humps(lowOnly.state.front), humps(highOnly.state.front)], swing: [swing(lowOnly.state.front), swing(highOnly.state.front)] }));
+    const [, turned] = await deckRun([{ level: 0.6, bins: [[0, 1]], secs: 1.5 }, { level: 0.6, bins: [[9, 1]], secs: 0.7 }]);
+    check('phosphor: an echo keeps the bands of its own moment', turned.state.ref === 12 && humps(turned.state.front) >= 5 && humps(turned.state.mid) <= 2 && swing(turned.state.mid) > 0.2,
+      JSON.stringify({ humps: [humps(turned.state.front), humps(turned.state.mid)], swing: [swing(turned.state.front), swing(turned.state.mid)] }));
+    const [risen, fallen] = await deckRun([{ level: 0.6, bins: [[3, 1]], secs: 0.05 }, { level: 0.6, secs: 0.1 }], { gain: 1 });
+    check('phosphor: a band is followed, quick to rise and slower to fall, so the front trace does not step with each reading', Math.abs(risen.state.now[3] - (1 - Math.exp(-1))) < 1e-5 && Math.abs(fallen.state.now[3] - (1 - Math.exp(-1)) * Math.exp(-0.8)) < 1e-5 && risen.state.now[4] === 0,
+      JSON.stringify([risen.state.now[3], fallen.state.now[3]]));
+    const [noBins] = await deckRun([{ level: 0.6, secs: 1.5 }]);
+    check('phosphor: with no band sounding a trace is a smooth arch as tall as the voice is loud', swing(noBins.state.front) < 1e-6 && Math.abs(top(noBins.state.front) - (0.14 + 1.5 * Math.pow(0.6, 0.9) * 0.55)) < 0.01, JSON.stringify([swing(noBins.state.front), top(noBins.state.front)]));
+    const quiet = [{ level: 0.6, bins: [[3, 0.3]], secs: 1.5 }], w3 = 1 / 1.45, A6 = Math.pow(0.6, 0.9);
+    const [plain] = await deckRun(quiet, { gain: 1 }), [boosted] = await deckRun(quiet, { gain: 2 });
+    const swingFor = (a) => 1.5 * A6 * 0.9 * ((a * w3) / (0.15 + a * w3));
+    check('phosphor: Gain scales how loud a band is, and so how full its wave swings', Math.abs(swing(plain.state.front) - swingFor(0.3)) < 0.02 && Math.abs(swing(boosted.state.front) - swingFor(0.6)) < 0.02 && swing(boosted.state.front) > swing(plain.state.front) + 0.08,
+      JSON.stringify({ swing: [swing(plain.state.front), swing(boosted.state.front)], want: [swingFor(0.3), swingFor(0.6)] }));
+
+    // A beat.
+    const beat = [{ level: 0.05, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, secs: 0.1 }, { level: 0.9, all: 0.5, secs: 2.5 }];
+    const [calm, hit, after] = await deckRun(beat);
+    const hitA = Math.pow(hit.state.flame, 0.9) * (1 + 0.25 * hit.state.kick);
+    check('phosphor: a beat lifts, brightens and widens the nearest traces, then lets go', hit.state.kick > 0.5 && after.state.kick < 0.001 && calm.state.kick === 0
+      && Math.abs(hit.state.stands[0] - hitA) < 1e-5 && Math.abs(hit.state.brights[0] - (0.3 + 1.4 * hitA + 0.9 * hit.state.kick)) < 1e-5 && Math.abs(hit.state.widths[0] - (0.045 + 0.035 * hitA + 0.03 * hit.state.kick)) < 1e-6
+      && Math.abs(hit.state.span - 2 * hit.state.widths[0]) < 1e-5 && hit.state.brights[0] > after.state.brights[0] * 1.2 && hit.state.widths[0] > after.state.widths[0] * 1.1
+      && [0, 6, 12].every((i) => { const back = i / 23, A = hit.state.stands[i]; return Math.abs(A - Math.pow(hit.state.heard[i], 0.9) * (1 + 0.25 * hit.state.kick * Math.exp(-5.75 * back))) < 1e-5
+        && Math.abs(hit.state.brights[i] - (0.3 + 1.4 * A + 0.9 * hit.state.kick * Math.exp(-(23 / 3) * back)) * (0.12 + 0.88 * Math.pow(1 - back, 1.3))) < 1e-5
+        && Math.abs(hit.state.widths[i] - (0.045 + 0.035 * A + 0.03 * hit.state.kick * Math.exp(-(23 / 3) * back)) * (1 - 0.35 * back)) < 1e-6; })
+      && hit.edge === 0,
+      JSON.stringify({ kick: [calm.state.kick, hit.state.kick, after.state.kick], stand: [hit.state.stands[0], hitA], bright: [hit.state.brights[0], after.state.brights[0]], width: [hit.state.widths[0], after.state.widths[0]], span: hit.state.span }));
+
+    // Depth.
+    const [few] = await deckRun(talk, { knobs: { depth: 0 } }), [many] = await deckRun(talk, { knobs: { depth: 100 } });
+    check('phosphor: Depth 0 is 12 slices, the default 24, 100 is 36, in the same deck', few.state.slices === 12 && loud.state.slices === 24 && many.state.slices === 36 && few.state.drawn[0] === 12 * 95 * 6 && few.state.drawn[1] === 12 * 95 * 12 && many.state.drawn[0] === 36 * 95 * 6
+      && few.state.zs.length === 12 && Math.abs(few.state.zs[11] + 1.8) < 1e-6 && Math.abs(many.state.zs[35] + 1.8) < 1e-6 && Math.abs(few.state.zs[0] - 1.8) < 1e-6 && few.state.stands.length === 12 && many.state.stands.length === 36,
+      JSON.stringify({ slices: [few.state.slices, loud.state.slices, many.state.slices], drawn: [few.state.drawn, many.state.drawn], solid: [few.solid, many.solid], light: [few.light, many.light] }));
+    const moved = await deckRun([{ level: 0.8, all: 0.8, secs: 1 }, { level: 0.8, all: 0.8, secs: 0.1, knobs: { depth: 100 } }, { level: 0.8, all: 0.8, secs: 0.1, knobs: { depth: 0 } }]);
+    check('phosphor: a change of Depth applies at once, both ways, and the front trace stays as it was', moved.map((r) => r.state.slices).join() === '24,36,12' && moved.map((r) => r.state.stands.length).join() === '24,36,12'
+      && Math.abs(moved[1].state.stands[0] - moved[0].state.stands[0]) < 0.02 && Math.abs(moved[2].state.stands[0] - moved[0].state.stands[0]) < 0.02 && moved[2].state.zs.length === 12 && moved[1].state.zs.length === 36,
+      JSON.stringify(moved.map((r) => [r.state.slices, r.state.stands[0], r.light])));
+
+    // Camera.
+    const [still] = await deckRun(talk, { knobs: { cameraDrift: 0 } }), [drift] = await deckRun(talk, { knobs: { cameraDrift: 100 } });
+    check('phosphor: Camera drift 0 holds the camera still; 100 doubles the sway', still.state.orbit === 0 && Math.abs(loud.state.orbit) > 0.005 && Math.abs(drift.state.orbit - 2 * loud.state.orbit) < 1e-9
+      && Math.abs(still.kitCam[0]) < 1e-6 && Math.abs(drift.kitCam[0]) > 1.5 * Math.abs(loud.kitCam[0]) && Math.abs(loud.kitCam[0]) > 0.05,
+      JSON.stringify({ orbit: [still.state.orbit, loud.state.orbit, drift.state.orbit], x: [still.kitCam[0], loud.kitCam[0], drift.kitCam[0]] }));
+    check('phosphor: each trace lies in the plane of its slice, a hair in front of it', loud.state.span > 0 && loud.state.lift.every((d) => Math.abs(d - 0.006) < 1e-6) && Math.abs(loud.state.span - 2 * loud.state.widths[0]) < 1e-5, JSON.stringify({ lift: loud.state.lift.slice(0, 3), span: loud.state.span }));
+
+    // The same at any frame rate.
+    const fpsSteps = [{ level: 0.8, all: 0.8, secs: 1 }, { level: 0, all: 0, secs: 0.5 }];
+    const [, d30] = await deckRun(fpsSteps, { fps: 30 }), [, d60] = await deckRun(fpsSteps, { fps: 60 });
+    check('phosphor: the same sound gives the same deck at 30 and 60 fps', Math.abs(d30.state.clock - 1.5) < 1e-6 && Math.abs(d60.state.clock - 1.5) < 1e-6 && gap(d30.state.lag, d60.state.lag) < 1e-6
+      && gap(d30.state.stands, d60.state.stands) < 0.06 && gap(d30.state.peaks, d60.state.peaks) < 0.1 && top(d60.state.stands) > 0.7 && tallest(d30.state.stands) === tallest(d60.state.stands),
+      JSON.stringify({ clock: [d30.state.clock, d60.state.clock], stands: gap(d30.state.stands, d60.state.stands), peaks: gap(d30.state.peaks, d60.state.peaks), tallest: [tallest(d30.state.stands), tallest(d60.state.stands)] }));
+
+    // Mic off.
+    const [idle1, idle2] = await deckRun([{ level: null, idle: true, secs: 3 }, { level: null, idle: true, secs: 1.5 }]);
+    check('phosphor: with the mic off and Idle animation on, the traces swell and their waves run', idle1.state.live === true && Math.abs(idle2.state.clock - 4.5) < 1e-6 && idle2.state.stands[0] > 0.03 && idle2.state.stands[0] < 0.9
+      && gap(idle1.state.front, idle2.state.front) > 0.01 && swing(idle2.state.front) > 0.01 && idle2.light > 1000,
+      JSON.stringify({ clock: [idle1.state.clock, idle2.state.clock], stand: idle2.state.stands[0], moved: gap(idle1.state.front, idle2.state.front), swing: swing(idle2.state.front), light: idle2.light }));
+    // Camera drift 0 and a palette that stands still, so that nothing but the scene could move the picture.
+    const [off1, off2] = await deckRun([{ level: null, off: true, secs: 3 }, { level: null, off: true, secs: 1, trace: true }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
+    const [on1, on2] = await deckRun([{ level: null, idle: true, secs: 3 }, { level: null, idle: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
+    check('phosphor: with the mic and Idle animation off the picture holds still, pixel for pixel', off1.hash === off2.hash && on1.hash !== on2.hash && off2.solid > 500 && off2.light > 5,
+      JSON.stringify({ off: [off1.hash, off2.hash], idle: [on1.hash, on2.hash], solid: off2.solid, light: off2.light }));
+    const [live1, muted1, muted2, muted3] = await deckRun([{ level: 0.8, all: 0.8, secs: 2 }, { level: null, off: true, secs: 0.5 }, { level: null, off: true, secs: 7.5, trace: true }, { level: null, off: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
+    check('phosphor: muted in the middle of a stream, the waves stop where they are and the echoes die away', muted1.state.live === false && muted1.state.clock === live1.state.clock && muted2.state.clock === live1.state.clock
+      && gap(muted1.state.lag, muted2.state.lag) === 0 && muted2.trace.every((t) => t[0] === live1.state.clock && t[8] === muted2.trace[0][8])
+      && muted1.state.stands[23] > 0.5 && muted1.state.stands[0] < 0.4 && top(muted2.state.stands) < 0.01 && muted2.state.peaks.every((p) => p < 0.16) && muted2.hash === muted3.hash && muted1.hash !== muted2.hash,
+      JSON.stringify({ clock: [live1.state.clock, muted1.state.clock, muted2.state.clock], stands: [muted1.state.stands[0], muted1.state.stands[23], top(muted2.state.stands)] }));
+
+    // Colour.
+    const [hued] = await deckRun(talk, { hue: 2 });
+    const close = (a, b) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= 2);
+    check('phosphor: a trace takes its colour from the palette by how far back it is, and the hue setting moves it', close(loud.state.tone, loud.expectTone) && close(hued.state.tone, hued.expectTone) && !close(hued.state.tone, loud.state.tone) && loud.state.ref === 12,
+      JSON.stringify({ tone: loud.state.tone, expect: loud.expectTone, hued: hued.state.tone, hueExpect: hued.expectTone }));
+
+    // Placement and cost.
+    await activate(DECK);
+    const deckP0 = await probe();
+    await pushConfig((c) => { c.activeViz = 'phosphor'; c.placement.x = 30; });
+    await wide.waitForTimeout(400);
+    const deckP1 = await probe();
+    check('phosphor: Scene placement slides it', deckP1.centroidX - deckP0.centroidX > 150, `${deckP0.centroidX.toFixed(0)} → ${deckP1.centroidX.toFixed(0)}`);
+    await pushConfig((c) => { c.placement.x = 0; });
+    await wide.waitForTimeout(300);
+    await activate(DECK);
+    const deckCost = await wide.evaluate(() => { perViz['phosphor'].depth = 100; try { let now = performance.now(), acc = 0; for (let i = 0; i < 120; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); acc += performance.now() - t; } return acc / 120; } finally { perViz['phosphor'].depth = 50; } });
+    check(`phosphor: draw() with all 36 slices averages under 5 ms of script time (${deckCost.toFixed(2)} ms)`, deckCost < 5);
+
+    }
+
     // Every kit scene, so the next one is covered without a new check.
     const gpuAfterSelect = (name) => wide.evaluate((n) => { setActiveViz('visualizer'); setActiveViz(n); currentViz.draw(performance.now(), 1 / 60); const s = window.__timbre.scene; return [s.memory.geometries, s.memory.textures, s.programs]; }, name);
     for (const name of T.VIZ_SCENES) {
@@ -1534,7 +1729,7 @@ async function main() {
       } finally { gl.createTexture = create; gl.deleteTexture = del; }
       return out;
     }, T.VIZ_SCENES);
-    const TEXTURES = { 'thanksgiving-harvest': 9, 'winter-aurora': 8, 'pride-ribbon': 5, 'bi-pride-ribbon': 5, 'ace-pride-ribbon': 5, 'trans-pride-ribbon': 5, 'july-fourth-stripes': 7, 'sunburst-3d': 5, 'mountains-3d': 5 };
+    const TEXTURES = { 'thanksgiving-harvest': 9, 'winter-aurora': 8, 'pride-ribbon': 5, 'bi-pride-ribbon': 5, 'ace-pride-ribbon': 5, 'trans-pride-ribbon': 5, 'july-fourth-stripes': 7, 'sunburst-3d': 5, 'mountains-3d': 5, 'phosphor': 4 };
     check('a scene deletes every GL texture it made, whichever scene ran before it',
       Object.keys(texturesLeft).length === T.VIZ_SCENES.length ** 2 && Object.entries(texturesLeft).every(([pair, [made, left]]) => made >= TEXTURES[pair.split(' then ')[1]] && left === 0), JSON.stringify(texturesLeft));
 
