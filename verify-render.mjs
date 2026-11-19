@@ -1352,7 +1352,7 @@ async function main() {
     // Thresholds are 60% of what the scene gives after 4 s at a steady 0.8: about 299,000 solid pixels
     // (the block) and 43,500 pixels of light (the sun, most of it behind the peaks, and the sky's glow).
     const LAND_SOLID = 180000, LAND_LIGHT = 26000;
-    const SPC = 4.4 / 52, FLOW = 4.4 / 5;
+    const SPC = 4.4 / 52, FLOW = 4.4 / 5, LAND_TALL = 352;   // the block measures 365 pixels
 
     await activate(LAND);
     const landState = await sceneState();
@@ -1395,8 +1395,20 @@ async function main() {
     check('mountains: the far and near edges stay where they are, and the rows between ride a row apart', zs.length === 54 && Math.abs(zs[0] + 2.2) < 1e-9 && Math.abs(zs[53] - 2.2) < 1e-9 && mid50.state.top === Math.floor(mid50.state.travel / SPC)
       && Math.abs(zs[1] - (-2.2 + part * SPC)) < 1e-9 && zs.slice(1, 52).every((v, j) => Math.abs(zs[j + 2] - v - SPC) < 1e-9) && zs[52] <= 2.2,
       JSON.stringify({ top: mid50.state.top, travel: mid50.state.travel, z: [zs[0], zs[1], zs[2], zs[52], zs[53]] }));
-    check('mountains: the far edge is the voice as it is now', Math.abs(loud.state.far[40] - loud.expectFar) < 1e-5 && Math.abs(lowOnly.state.far[40] - lowOnly.expectFar) < 1e-5 && loud.expectFar > 0.3,
-      JSON.stringify({ far: [loud.state.far[40], lowOnly.state.far[40]], expect: [loud.expectFar, lowOnly.expectFar] }));
+    // Read an eighth of a second into a syllable too: the loudness is then well short of full height and still
+    // rising by the frame, so a far edge that lagged a frame, or stood at full height, would not match.
+    const [onset] = await landRun([{ level: 0.8, all: 0.8, secs: 0.12 }], { gain: 1 });
+    check('mountains: the far edge is the voice as it is now', Math.abs(loud.state.far[40] - loud.expectFar) < 1e-5 && Math.abs(lowOnly.state.far[40] - lowOnly.expectFar) < 1e-5 && loud.expectFar > 0.3
+      && Math.abs(onset.state.far[40] - onset.expectFar) < 1e-5 && onset.state.amps[40] > 0.15 && onset.state.amps[40] < 0.6,
+      JSON.stringify({ far: [loud.state.far[40], lowOnly.state.far[40], onset.state.far[40]], expect: [loud.expectFar, lowOnly.expectFar, onset.expectFar], amp: onset.state.amps[40] }));
+
+    // The loudness a column follows: quick to rise, slow to fall. The middle column is followed by hand
+    // here, from the voice the scene saw on each frame.
+    const ramp = await landRun([{ level: 0.8, all: 0.8, secs: 0.5, trace: true }, { level: 0, all: 0, secs: 1.5, trace: true }], { gain: 1 });
+    let byHand = 0;
+    const wanted = ramp.map((r, i) => { for (const t of r.trace) { const target = Math.min(1, 0.7 * (i === 0 ? 0.8 : 0) + 0.45 * t[2]); byHand += (target - byHand) * (1 - Math.exp(-(target > byHand ? 4 : 0.75) / 60)); } return byHand; });
+    check('mountains: the loudness a column follows rises in a quarter of a second and falls over more than one', Math.abs(ramp[0].state.amps[40] - wanted[0]) < 1e-4 && Math.abs(ramp[1].state.amps[40] - wanted[1]) < 1e-4
+      && wanted[0] > 0.7 && wanted[1] > 0.2 && wanted[1] < 0.4, JSON.stringify({ amps: [ramp[0].state.amps[40], ramp[1].state.amps[40]], wanted }));
 
     // A phrase makes a range, and the range travels.
     const [, phrase] = await landRun([{ level: 0.8, all: 0.8, secs: 1.2 }, { level: 0, secs: 3.5 }]);
@@ -1406,13 +1418,18 @@ async function main() {
 
     // The cut edges.
     check('mountains: the land sinks to its cut edges, and the block has a flat base', loud.state.rim <= 0.14 * 2.15 * loud.state.lift + 1e-6 && loud.state.rim > 0.02 && Math.abs(loud.state.floor + 0.26) < 1e-6
-      && [loud.state.profile[0], loud.state.profile[80], loud.state.depth[0], loud.state.depth[53]].every((h) => h <= 0.14 * 2.15 + 1e-6 && h > 0.01) && top(loud.state.depth) > 5 * loud.state.depth[53],
+      && [loud.state.profile[0], loud.state.profile[80], loud.state.depth[0], loud.state.depth[53]].every((h) => h <= 0.14 * 2.15 + 1e-6 && h > 0.01) && top(loud.state.depth) > 5 * loud.state.depth[53]
+      && loud.state.seam === 0 && hush.state.seam === 0 && mid50.state.seam === 0,
       JSON.stringify({ rim: loud.state.rim, floor: loud.state.floor, edges: [loud.state.profile[0], loud.state.profile[80], loud.state.depth[0], loud.state.depth[53]] }));
+
+    // The land's normals are worked out again as it changes: steep land leans its faces further from upright.
+    check('mountains: the shading follows the shape of the land', loud.state.tilt > 2 * hush.state.tilt && hush.state.tilt > 0.0005 && loud.state.tilt < 0.9, JSON.stringify([hush.state.tilt, loud.state.tilt]));
 
     // The light and the lift answer at once; a beat.
     check('mountains: the sun\'s light and the lift of the range follow the voice as it is now', Math.abs(hush.state.sun - 1.5) < 1e-9 && Math.abs(loud.state.sun - (1.5 + 2.2 * loud.state.flame + 1.6 * loud.state.kick)) < 1e-9 && loud.state.sun > hush.state.sun + 1.5
       && Math.abs(loud.state.lift - (0.86 + 0.24 * loud.state.flame + 0.16 * loud.state.kick)) < 1e-9 && loud.state.lift > hush.state.lift + 0.15
-      && Math.abs(loud.state.sunY - (0.8 + 1.3 * loud.state.slow)) < 1e-9 && loud.state.sunY > hush.state.sunY + 0.2 && loud.lightSum > 2 * hush.lightSum,
+      && Math.abs(loud.state.sunY - (0.8 + 1.3 * loud.state.slow)) < 1e-9 && loud.state.sunY > hush.state.sunY + 0.2 && loud.lightSum > 2 * hush.lightSum
+      && Math.abs(loud.state.high - loud.state.peak * loud.state.lift) < 1e-4 && Math.abs(hush.state.high - hush.state.peak * 0.86) < 1e-4 && Math.abs(hush.state.glow - 0.4) < 1e-6 && Math.abs(loud.state.glow - (0.4 + 0.7 * loud.state.flame + 0.7 * loud.state.kick)) < 1e-6,
       JSON.stringify({ sun: [hush.state.sun, loud.state.sun], lift: [hush.state.lift, loud.state.lift], sunY: [hush.state.sunY, loud.state.sunY], light: [hush.lightSum, loud.lightSum] }));
     const beat = [{ level: 0.05, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, secs: 0.1 }, { level: 0.9, all: 0.5, secs: 2.5 }];
     const [calm, hit, after] = await landRun(beat);
@@ -1427,6 +1444,9 @@ async function main() {
     check('mountains: Camera drift 0 holds the camera still; 100 doubles the sway', still.state.orbit === 0 && Math.abs(mid50.state.orbit) > 0.005 && Math.abs(drift.state.orbit - 2 * mid50.state.orbit) < 1e-9
       && Math.abs(still.kitCam[0]) < 1e-6 && Math.abs(drift.kitCam[0]) > 1.5 * Math.abs(mid50.kitCam[0]) && Math.abs(mid50.kitCam[0]) > 0.05,
       JSON.stringify({ orbit: [still.state.orbit, mid50.state.orbit, drift.state.orbit], x: [still.kitCam[0], mid50.kitCam[0], drift.kitCam[0]] }));
+
+    // With the camera held still, the block is LAND_TALL pixels from its base to its tallest point; without its cut sides it would be about 35 fewer.
+    check('mountains: the block has cut sides down to its base', still.solidBox.h > LAND_TALL && still.solidBox.h < LAND_TALL + 30, JSON.stringify(still.solidBox));
 
     // The same at any frame rate.
     // 2.6 s in all: the land has then come 27.04 rows, so both runs have written the same number of rows.
@@ -1450,6 +1470,12 @@ async function main() {
     check('mountains: with the mic and Idle animation off, the land does not flow', off1.state.live === false && off2.state.travel === 0 && off2.state.clock === 0 && off2.state.amps.every((a) => a < 0.001)
       && off2.trace.every((t) => t[0] === 0 && t[8] === off2.trace[0][8] && t[4] === off2.trace[0][4]) && off2.state.peak <= 2.15 * 0.15 + 1e-6,
       JSON.stringify({ travel: off2.state.travel, clock: off2.state.clock, peak: off2.state.peak }));
+
+    const [live1, muted1, muted2] = await landRun([{ level: 0.8, all: 0.8, secs: 2 }, { level: null, off: true, secs: 1 }, { level: null, off: true, secs: 4, trace: true }], { gain: 1 });
+    check('mountains: muted in the middle of a stream, the land stops where it is and the far edge settles', Math.abs(live1.state.travel - 2 * FLOW) < 1e-6 && muted1.state.travel === live1.state.travel && muted2.state.travel === live1.state.travel
+      && muted1.state.live === false && muted2.state.clock === live1.state.clock && muted2.trace.every((t) => t[0] === live1.state.travel)
+      && muted1.state.amps[40] < live1.state.amps[40] - 0.2 && muted1.state.amps[40] > 0.2 && muted2.state.amps[40] < 0.05 && gap(muted1.state.depth.slice(3, 50), muted2.state.depth.slice(3, 50)) === 0 && top(muted2.state.depth) > 1,
+      JSON.stringify({ travel: [live1.state.travel, muted1.state.travel, muted2.state.travel], amp: [live1.state.amps[40], muted1.state.amps[40], muted2.state.amps[40]], moved: gap(muted1.state.depth.slice(3, 50), muted2.state.depth.slice(3, 50)) }));
 
     // Colour.
     const [hued] = await landRun(flowing, { hue: 2 });

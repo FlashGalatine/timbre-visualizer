@@ -524,9 +524,14 @@ It offers:
   and `z(j)` are what to draw: row 0 is the far edge (the voice now), the last row is the
   near edge (read between the two stored rows either side of it), and the rows between are
   the stored rows, newest first. `write` fills a position buffer with the whole land, sunk
-  toward the edges and lifted, and returns the tallest height.
+  toward the edges and lifted. It also fills `heights` with every point's height before the
+  lift, which is what colour and snow go by, and returns the tallest of those.
+- **The cut sides.** `rim()` gives `{ from, normals, index }`: for each point of the land's
+  rim, that point and the point under it on the block's base, with the triangles wound to
+  face out of the block.
 - **The scene.** `definition()` returns the kit scene definition: the land, the cut sides
-  of the block, the sun's light with its shadow, the sun and the glow of the sky.
+  of the block, the sun's light with its shadow, a weak fill light and a sky light, the sun
+  and the glow of the sky.
 
 All its timing comes from `dt`, as a distance handed to `advance`. The arithmetic touches
 nothing at load, and the file must stay loadable under Node, because `npm run verify`

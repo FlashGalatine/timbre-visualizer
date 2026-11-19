@@ -23,7 +23,8 @@ A block of alpine land floats in the box, built on the scene kit (`overlay/scene
   and dark cut sides.
 - **The land** on it is long connected crests with smaller ones riding on them. It is lit
   from behind and to the left by a low sun, so the peaks throw their shadows across the
-  land toward the viewer.
+  land, to the right and toward the viewer. (The light comes from further left and higher
+  than the sun's disc is drawn, and does not move when the disc climbs.)
 - **The land sinks toward all four edges** of the block, to 14% of its height, so the cut
   sides stay low and the mountains stand in the middle.
 - **Snow.** Land above the snow line is white.
@@ -82,7 +83,7 @@ The display name does not change.
   same sound writes the same land at any frame rate.
 - The land is one mesh of 54 rows of 81 points. Its positions and colours are written on
   the CPU every frame and its normals recomputed. The cut sides are a second mesh that
-  follows the land's rim.
+  follows the land's rim (`rim()`), each piece wound to face out of the block.
 - The sun's light is one directional light with a 1024 shadow map. It is not a practical:
   it lights the land, not the unseen ground.
 
@@ -106,8 +107,14 @@ The display name does not change.
 - Smooth shading softens the creases between rows. It reads as snow and scree.
 - Over a bright backdrop the sun's added light washes out, as in every scene; the solid
   land still shows.
-- No check covers the fill light, the colour of the cut sides, the colour of the sun and
-  its sky glow, or the neutral `cooling`.
+- How much of the range a speaking voice raises, and how much of it is snow, has only been
+  seen on simulated speech. One loud syllable raises land to about three quarters of full
+  height, and after a one-second pause new land still stands at about two thirds. If real
+  speech gives too even a range, the rise curve, the fall rate (0.75 a second) and the snow
+  line are the numbers to change.
+- A beat lifts the whole range within one frame. That is the kit's beat, as in every scene.
+- No check covers the shadows, the direction of the light, the fill light, the colour of
+  the cut sides, the colour of the sun and its sky glow, or the neutral `cooling`.
 
 ## Checks
 

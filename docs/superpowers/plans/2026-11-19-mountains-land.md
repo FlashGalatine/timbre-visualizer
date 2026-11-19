@@ -59,6 +59,51 @@ break each rule of the arithmetic and the scene on purpose and confirm a check f
 
 Final stills; offer to switch the live overlay. Merge only after the owner has seen it in OBS.
 
+## After the review
+
+One independent review of the branch: nothing critical. It checked `createLand()` against a
+reference that keeps every row, over 8,000 random steps, and found it sound. Fixed, each
+with a check written first:
+
+- The far and right cut sides were wound to face into the block and drawn two-sided, so
+  from outside the right side took the sun's light as if it faced left. It shows once the
+  camera swings past the block's right edge, from about Camera drift 55. The sides are now
+  arithmetic (`rim()`), every piece wound to face out, drawn one-sided, and a Node check
+  holds each piece's winding to its normal and its normal to the outside.
+
+Checks added or tightened for behaviour that nothing was watching:
+
+- how fast the loudness a column follows rises and falls (the middle column followed by
+  hand from the voice the scene saw on each frame);
+- the far edge read an eighth of a second into a syllable (before, it was read only where
+  the land was already at full height and no longer changing);
+- the land stopping where it is when muted in the middle of a stream, and its far edge
+  settling;
+- the cut sides meeting the rim at every point (before, only the highest rim point);
+- the land's normals being worked out again as it changes;
+- the drawn land being lifted, and the sun's light, height, size and brightness, read back
+  from the objects drawn (before, from what `update()` meant to draw);
+- the block's height in pixels with its base;
+- after a jump, what the rows hold (before, only that it took no time);
+- the row-keeping check read one row too far back; it now reads the two rows the near edge
+  is read from.
+
+Left as it is and written into the spec: how much of the range a speaking voice raises and
+how much of it is snow, which needs the owner's look with a real microphone; the light
+coming from further left and higher than the sun's disc; a beat lifting the range within a
+frame; no check for the shadows or the direction of the light. The 30 and 60 fps checks
+still compare rows by their place in the grid, with durations chosen to end off a row
+boundary.
+
+The render checks for the seam and the normals were not run before their code: they read
+values `debug()` did not yet report, so they could only fail. Breaking the code on purpose
+is what shows them catching anything.
+
+From breaking the arithmetic on purpose (79 breaks): 78 caught. The one that was not swaps
+the far edge's loudness for the value saved from the same step, which is the same number.
+Three checks were added while the list was being written: the easing of the noise, the ring
+keeping a row until it has left the near edge, and a jump.
+
 ## Found during the build
 
 - As with Sunburst, the render checks were written before the scene but could not be run
