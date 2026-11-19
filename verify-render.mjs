@@ -1334,9 +1334,14 @@ async function main() {
             if (a === 0 && rgb === 0) empty++;
           }
           const size = (b) => ({ w: b[1] < 0 ? 0 : b[1] - b[0] + 1, h: b[3] < 0 ? 0 : b[3] - b[2] + 1, cx: (b[0] + b[1]) / 2, cy: (b[2] + b[3]) / 2 });
+          // How much of the lowest twentieth of the block's box is solid: its near side, from edge to edge.
+          let foot = 0;
+          const rows = Math.max(1, Math.round((solidBox[3] - solidBox[2] + 1) / 20));
+          if (solidBox[1] >= 0) for (let y = solidBox[2]; y < solidBox[2] + rows; y++) for (let x = solidBox[0]; x <= solidBox[1]; x++) if (px[(y * w + x) * 4 + 3] > 250) foot++;
+          foot /= Math.max(1, rows * (solidBox[1] - solidBox[0] + 1));
           const s = window.__timbre.scene, state = (s && s.state) || {};
           out.push({ state, textures: s ? s.memory.textures : -1, solid, white, light, lightSum, edge, empty: empty / (w * h), cornerAlpha: px[3],
-            box: size(box), solidBox: size(solidBox), canvas: [w, h], trace, hash, kitCam: s ? s.camera : null,
+            box: size(box), solidBox: size(solidBox), canvas: [w, h], trace, hash, kitCam: s ? s.camera : null, foot,
             expectRock: state.amps ? getColor(state.colorT + 0.3) : null,
             expectFar: state.amps ? TimbreMountains.heightAt(0, state.travel, state.amps[40]) : null });
         }
@@ -1446,7 +1451,8 @@ async function main() {
       JSON.stringify({ orbit: [still.state.orbit, mid50.state.orbit, drift.state.orbit], x: [still.kitCam[0], mid50.kitCam[0], drift.kitCam[0]] }));
 
     // With the camera held still, the block is LAND_TALL pixels from its base to its tallest point; without its cut sides it would be about 35 fewer.
-    check('mountains: the block has cut sides down to its base', still.solidBox.h > LAND_TALL && still.solidBox.h < LAND_TALL + 30, JSON.stringify(still.solidBox));
+    // And its near side is a wall from edge to edge: the lowest rows of the block are solid nearly all the way across.
+    check('mountains: the block has cut sides down to its base', still.solidBox.h > LAND_TALL && still.solidBox.h < LAND_TALL + 30 && still.foot > 0.8, JSON.stringify({ box: still.solidBox, foot: still.foot }));
 
     // The same at any frame rate.
     // 2.6 s in all: the land has then come 27.04 rows, so both runs have written the same number of rows.
