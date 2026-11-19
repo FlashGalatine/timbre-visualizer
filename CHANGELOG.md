@@ -20,6 +20,10 @@ traceability.
 - **Scene kit**: `TimbreScene.createHistory(size, hz)` is a memory of a level for things
   that travel, read by sample (`byAge`) or by age in seconds (`heard`). A scene's camera is
   now in place before its first `update`. See `docs/EFFECTS.md` ("Kit scenes").
+- **Phosphor setting**: `cameraDrift` (0 to 100, default 50) for the Phosphor effect. What
+  the new Phosphor is made of is in `overlay/phosphor.js` (`TimbrePhosphor`), loaded by all
+  three overlay pages and by `verify` under Node, and documented in `docs/EFFECTS.md` ("The
+  phosphor").
 - **Mountains 3D setting**: `cameraDrift` (0 to 100, default 50) for the Mountains 3D effect.
   What the new Mountains 3D is made of is in `overlay/mountains.js` (`TimbreMountains`),
   loaded by all three overlay pages and by `verify` under Node, and documented in
@@ -129,6 +133,22 @@ traceability.
   `test-render-640.png`.
 
 ### Changed
+
+- **Phosphor is now glowing traces on a deck of dark slices**, the tenth scene on the scene
+  kit. The tape of jittering one-pixel lines is gone. A deck of thin dark slices stands in
+  the box, one behind another, each with a glowing trace along its top edge, like the line
+  on an oscilloscope. The front trace is the voice now and each one behind it is the same
+  trace a little earlier, so the voice and its echoes recede into the deck over about two
+  seconds. A trace stands as tall as the voice was loud. Its shape comes from the sound's
+  bands, not the raw waveform: the low end makes broad waves and the higher bands fine
+  ripples, moving smoothly enough to see. The slices are solid, so a tall one hides the
+  traces behind it and the deck still shows over a bright game. A beat flashes the nearest
+  traces. With the mic off and Idle animation on the traces swell and their waves run;
+  with both off the waves stop and the echoes die away (its colours still move through the
+  palette).
+  Colours come from the palette, front to back, as before. `depth` now means how many slices
+  (12 to 36). It uses the shared Scene placement sliders, and no longer makes a renderer of
+  its own.
 
 - **Mountains 3D is now a block of land that the voice raises**, the ninth scene on the scene
   kit. The flat-shaded sheet of terrain whose rows jumped a step at a time is gone. A block

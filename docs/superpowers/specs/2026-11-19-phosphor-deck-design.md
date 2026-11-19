@@ -22,11 +22,11 @@ A deck of thin slices stands in the box, one behind another, built on the scene 
 (`overlay/scene-kit.js`).
 
 - **A slice** is a thin, solid, nearly black wall, 6.4 wide. Its top edge is the trace.
-- **The trace** is a soft strip of added light along that edge, turned to face the camera,
-  white-hot on the nearest slices and palette-coloured further back. It fades out toward
+- **The trace** is a soft strip of added light along that edge, lying flat just in front
+  of its slice, white-hot on the nearest slices and palette-coloured further back. It fades out toward
   its two ends, where the slice comes down to a low foot.
-- **Under each trace** the slice glows faintly in the trace's colour, over the top 0.28 of
-  its height. Below that it is dark.
+- **Under each trace** the slice glows faintly in the trace's colour, down to 0.28 below
+  the trace. Below that it is dark.
 - **The deck** is 3.6 deep. Slices are solid, so a tall one hides the traces behind it; the
   deck therefore shows over a bright backdrop, where added light alone washes out.
 - **Colours** come from the palette: the slice at `back` (0 at the front, 1 at the back)
@@ -43,15 +43,21 @@ A deck of thin slices stands in the box, one behind another, built on the scene 
 - **The shape of a trace comes from the sound's bands**, not from the raw waveform. Each of
   the first ten bins (where speech lives) is one sine across the width: the lowest bin 1.2
   waves, each next bin 0.9 more, each running along the trace at its own steady pace,
-  alternately one way and the other. A bin's sine is as strong as the bin is loud. So the
-  low end makes broad waves and the higher bands fine ripples, and the trace changes
-  smoothly enough to see.
-- **The echoes are true delayed copies:** a slice 1 s back shows exactly what the front
-  showed 1 s ago, loudness, bands and the place of every wave.
-- **A beat** (the kit's) flashes the nearest traces, widens them and lifts them a little.
+  alternately one way and the other. A bin's sine is as strong as the bin is loud (the higher bins count
+  a little less), and the whole is scaled to the bins' total, so the shape says which bands
+  are sounding and the height says how loud. Each band is followed, quick to rise and
+  slower to fall, because the bins are read only 30 times a second. So the low end makes
+  broad waves and the higher bands fine ripples, and the trace changes smoothly enough to
+  see.
+- **The echoes are true delayed copies:** a slice 1 s back shows what the front showed 1 s
+  ago: the place of every wave exactly (while the scene stays live), and the loudness and
+  the bands as the history kept them (24 samples a second, read between samples).
+- **A beat** (the kit's) flashes the nearest traces, widens them and lifts them a little,
+  less the further back, and as deep into the deck whatever the Depth.
 - **Mic off, Idle animation on:** the kit's slow swell drives the height and a slow pattern
   drives the bands. **Mic off, Idle animation off:** the waves stop running and the echoes
-  die away over the 2.2 s the deck holds; then the deck is flat and still. (The camera
+  die away over about four seconds (the voice's own release, then the 2.2 s the deck
+  holds); then the deck is flat and still. (The camera
   still drifts, as in the other scenes, and the colours still move through the palette, as
   they did in the old effect.)
 
@@ -77,7 +83,7 @@ The display name does not change.
   loudness and one for each of the ten bands, 56 samples at 24 a second.
 - The traces are one mesh and the slices another. Their positions and colours are written
   on the CPU every frame (at most 36 slices of 96 points).
-- The raw `waveform` is no longer used by this effect.
+- The effect no longer draws the raw `waveform`. (The kit still measures loudness from it.)
 
 ## Tried in the spike and dropped
 
@@ -93,18 +99,25 @@ The display name does not change.
 - A tall front trace hides part of the deck behind it. The camera looks down at 30 degrees
   so the echoes show over it.
 - The slices' ends are a row of low dark feet.
+- In silence the 24 feet overlap on screen into one near-black sheet, about a quarter of
+  the canvas. The owner saw this in the spike's stills. A lower foot (`LOW`, 0.14) would
+  open gaps between them; it is one number.
+- Where a loud high band makes crests tighter than the trace is wide, the strip folds on
+  itself there and is brighter.
+- After the scene has been muted and is live again, slices that still show sound from
+  before the mute have their waves shifted by the time it was muted.
 - Over a bright backdrop the traces' added light washes out; the dark slices still show.
 - A change of Depth re-reads the same history at new ages, so the deck redraws in one
-  frame with no fade.
+  frame; the old traces' light fades with the afterglow.
 
 ## Checks
 
 Node (`npm run verify`): the table and the saved-config case; slice count; a slice's place
 and age; the waves, their pace and weight; loudness; the shape of a trace; how tall it
-stands; the pin and the fade at the ends; the strip (along the trace, facing the camera);
+stands; the pin and the fade at the ends; the strip (along the trace, in the plane of its slice);
 the wall; brightness, width and colour; the idle pattern; page order. Render
 (`npm run verify:render`): the slices are solid and the traces are added light; louder is
-taller; silence; an echo is a delayed copy; a band drives its own waves; Gain; a beat; the
+taller; silence; a syllable travelling back; an echo keeping the bands of its own moment; a band driving its own waves, and followed; Gain; a beat and how deep it reaches; the
 Depth setting; Camera drift; the same at 30 and 60 fps; idle, and nothing moving with the
-mic and idle off once the echoes have died; palette colour; placement; cost. Every check is
+mic and idle off, from a fresh scene and once the echoes of a voice have died; palette colour; placement; cost. Every check is
 confirmed by breaking the code on purpose.

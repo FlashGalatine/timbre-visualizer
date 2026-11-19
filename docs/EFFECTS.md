@@ -542,6 +542,53 @@ Worth knowing before building another piece of moving ground: the rows move with
 and only the two edge rows stay put. Sampling a moving height field at fixed points makes
 every sharp crest swim as it passes between them.
 
+## The phosphor (`TimbrePhosphor`)
+
+`overlay/phosphor.js` is the Phosphor effect, as `globalThis.TimbrePhosphor`: a deck of dark
+slices with a glowing trace along the top of each, the voice at the front and its echoes
+behind. `factories/phosphor.js` is one line,
+`VIZ_FACTORIES['phosphor'] = TimbreScene.factory(() => TimbrePhosphor.definition())`. It
+offers:
+
+- **The deck.** `sliceCount(depth)` is how many slices a Depth setting means (12 to 36).
+  `backOf(i, n)` is where slice `i` of `n` is, 0 at the front and 1 at the back;
+  `ageOf(back)` is how old the voice it shows is (2.2 s at the back) and `zOf(back)` where
+  it stands. `xOf(j)` is where point `j` of a trace is across the deck.
+- **The sound.** Each of the first ten bins is one sine across the width: `waves(b)` is how
+  many waves band `b` has, `pace(b)` how fast it runs along the trace (odd bands the other
+  way) and `weight(b)` how much it counts. `loudness(bins, band, gain)` reads a band.
+- **A trace.** `shape(u, amps, phases)` is its shape at `u` along it, -1 to 1: the bands'
+  sines, each as strong as its band is loud, scaled to their total. `stand(level, kick, back)`
+  is how tall the slice at `back` stands for a loudness, and `heightOf(A, pinned, w)` the height of
+  one point. `pin(u)` holds a trace down at its two ends and `ends(u)` fades its light there.
+- **What is drawn.** `strip(out, at, xs, ys, z, half)` writes a trace as pairs of points
+  centred on it, across the trace, flat in the plane of its slice (the scene puts it 0.006
+  in front). A strip turned to face the camera would, on a steep flank, put half of itself
+  behind its own slice. `wall(out, at, xs, ys, z)` writes the slice under it as three points for each
+  point of the trace: the top edge, where its glow ends, and the foot.
+- **Light.** `fade(back)`, `bright(A, kick, back)`, `hot(back)`, `halfWidth(A, kick, back)`,
+  `under(A, back)` and `tint(out, rgb, heat, b)` are how bright, how white, how wide and
+  what colour a trace is, and how bright its slice glows under it. They go by how far back
+  a slice is, not by its number, so a beat and the white heat reach as deep at any Depth. `idle(b, t)` is
+  what a band pretends to hear with the mic off.
+- **The scene.** `definition()` returns the kit scene definition: the slices and the
+  traces. It keeps the voice in eleven of the kit's histories
+  (`TimbreScene.createHistory(56, 24)`): one for the loudness and one for each band. A band
+  is followed before it is kept (up at 20 a second, down at 8), because the bins are read
+  only 30 times a second and a trace drawn straight from them changes shape in steps.
+
+All its timing comes from `dt`. The arithmetic touches nothing at load, and the file must stay
+loadable under Node, because `npm run verify` imports it; the scene looks up `THREE`,
+`TimbreScene`, `document` and the core.js globals only when it is built. It must be loaded
+after `scene-kit.js` and before the factories.
+
+Worth knowing before building another effect on the waveform: the `waveform` Timbre captures
+is 64 samples, about a thousandth of a second, which is a fragment of one cycle of a voice.
+It jitters from one reading to the next and cannot show a whole wave. This effect draws its
+trace from the frequency bins instead. And nothing in this deck moves from place to place,
+only in shape, so the kit's afterglow gives the traces a little persistence where they rise
+and fall, not the filled wake it leaves behind something that travels.
+
 ## Wire format (for driving Timbre from elsewhere)
 
 Anything that can call a Streamer.bot action can drive Timbre:

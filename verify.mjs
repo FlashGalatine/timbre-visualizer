@@ -113,7 +113,7 @@ console.log('\n[1] table consistency');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['thanksgiving-harvest']) === '{"candleGlow":50,"leafDensity":50,"cameraDrift":50}', 'thanksgiving knobs');
   ok(T.VIZ_SCENES.indexOf('winter-aurora') === 1 && T.VIZ_SCENES.indexOf('thanksgiving-harvest') === 0, 'winter-aurora is the second kit scene');
   const FLAG_IDS = ['pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes'];
-  ok(JSON.stringify(T.VIZ_SCENES) === JSON.stringify(['thanksgiving-harvest', 'winter-aurora', ...FLAG_IDS, 'sunburst-3d', 'mountains-3d']) && FLAG_IDS.every((n) => T.VIZ_USES_3D.includes(n)), 'the five flags are kit scenes, listed after winter-aurora');
+  ok(JSON.stringify(T.VIZ_SCENES) === JSON.stringify(['thanksgiving-harvest', 'winter-aurora', ...FLAG_IDS, 'sunburst-3d', 'mountains-3d', 'phosphor']) && FLAG_IDS.every((n) => T.VIZ_USES_3D.includes(n)), 'the five flags are kit scenes, listed after winter-aurora');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['pride-ribbon']) === '{"wind":50,"heartRate":50,"stripeStyle":0,"cameraDrift":50}'
     && ['bi', 'ace', 'trans'].every((p) => JSON.stringify(T.DEFAULT_PER_VIZ[p + '-pride-ribbon']) === '{"wind":50,"heartRate":50,"cameraDrift":50}'), 'pride flag knobs');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['july-fourth-stripes']) === '{"wind":50,"starTwinkle":50,"burstChance":50,"cameraDrift":50}', 'fourth of july flag knobs');
@@ -2334,7 +2334,7 @@ await import('./overlay/mountains.js');
   }
 
   // The table.
-  ok(T.VIZ_SCENES[T.VIZ_SCENES.length - 1] === 'mountains-3d' && T.VIZ_USES_3D.includes('mountains-3d'), 'mountains-3d is a kit scene, listed after the sunburst');
+  ok(T.VIZ_SCENES.indexOf('mountains-3d') === T.VIZ_SCENES.indexOf('sunburst-3d') + 1 && T.VIZ_USES_3D.includes('mountains-3d'), 'mountains-3d is a kit scene, listed after the sunburst');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['mountains-3d']) === '{"speed":50,"cameraDrift":50}', 'mountains knobs: speed and camera drift');
   const oldLand = T.sanitizeConfig({ activeViz: 'mountains-3d', perViz: { 'mountains-3d': { speed: 80 } } });
   ok(oldLand.activeViz === 'mountains-3d' && JSON.stringify(oldLand.perViz['mountains-3d']) === '{"speed":80,"cameraDrift":50}', 'a saved pre-redesign mountains config keeps its speed and gains the new default');
@@ -2350,6 +2350,130 @@ await import('./overlay/mountains.js');
   ok(order.every(Boolean), 'all three overlay pages load mountains.js after the scene kit and sunburst.js and before the factories');
   const factory = await readFile(resolve(__dirname, 'overlay/factories/mountains-3d.js'), 'utf8');
   ok(/VIZ_FACTORIES\['mountains-3d'\] = TimbreScene\.factory\(\(\) => TimbreMountains\.definition\(\)\);/.test(factory) && !/WebGLRenderer/.test(factory), 'the effect is the kit\'s factory around the mountains\' definition, with no renderer of its own');
+}
+
+console.log('\n[16] phosphor');
+await import('./overlay/phosphor.js');
+{
+  const Ph = globalThis.TimbrePhosphor;
+  const near = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol;
+  const ease = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const P = Ph.P, K = Ph.K;
+
+  ok(Ph.SLICES_MIN === 12 && Ph.SLICES_MAX === 36 && Ph.P === 96 && Ph.K === 10 && Ph.W === 6.4 && Ph.D === 3.6 && Ph.SPAN === 2.2 && Ph.HZ === 24 && Ph.HIST === 56 && Ph.LOW === 0.14 && Ph.TALL === 1.5 && Ph.GLOW === 0.28 && Ph.FRONT === 0.006 && Ph.RISE === 20 && Ph.FALL === 8,
+    'the sizes: 12 to 36 slices of 96 points, a deck 6.4 wide and 3.6 deep holding 2.2 s, ten bands, 56 history samples at 24 a second');
+  ok((Ph.HIST - 1) / Ph.HZ >= Ph.SPAN, 'the history reaches back as far as the last slice');
+  ok(Ph.sliceCount(0) === 12 && Ph.sliceCount(50) === 24 && Ph.sliceCount(100) === 36 && Ph.sliceCount(-9) === 12 && Ph.sliceCount(500) === 36 && Ph.sliceCount(NaN) === 24 && Ph.sliceCount(undefined) === 24 && Ph.sliceCount(25) === 18,
+    'Depth 0 is 12 slices, 50 is 24, 100 is 36; anything else is held to that range, and no setting at all is the default');
+
+  // Where a slice is, and how old.
+  ok(Ph.backOf(0, 24) === 0 && Ph.backOf(23, 24) === 1 && near(Ph.backOf(5, 12), 5 / 11) && Ph.backOf(0, 1) === 0, 'the front slice is at 0 and the last at 1, however many there are');
+  ok(Ph.ageOf(0) === 0 && near(Ph.ageOf(1), 2.2) && near(Ph.ageOf(0.5), 1.1) && near(Ph.zOf(0), 1.8) && near(Ph.zOf(1), -1.8) && near(Ph.zOf(0.25), 0.9),
+    'the front slice is the voice now and nearest the viewer; the last is 2.2 s old and 3.6 further back');
+  ok(near(Ph.xOf(0), -3.2) && near(Ph.xOf(95), 3.2) && near(Ph.xOf(19), (19 / 95 - 0.5) * 6.4), 'a trace runs the width of the deck');
+
+  // The bands.
+  ok(near(Ph.waves(0), 1.2) && near(Ph.waves(1), 2.1) && near(Ph.waves(9), 9.3) && near(Ph.pace(0), 0.9) && near(Ph.pace(1), -1.45) && near(Ph.pace(2), 2) && near(Ph.pace(9), -5.85)
+    && Ph.weight(0) === 1 && near(Ph.weight(9), 1 / 2.35) && near(Ph.weight(4), 1 / 1.6),
+    'each band is a sine across the width: the lowest 1.2 waves and 0.9 more for each band, running alternately one way and the other, the higher ones faster and a little weaker');
+  {
+    const bins = new Uint8Array(32); bins[0] = 255; bins[1] = 51; bins[9] = 102;
+    ok(near(Ph.loudness(bins, 0, 1), 1) && near(Ph.loudness(bins, 1, 1), 0.2) && near(Ph.loudness(bins, 9, 1), 0.4) && near(Ph.loudness(bins, 1, 2), 0.4) && Ph.loudness(bins, 9, 3) === 1
+      && Ph.loudness(bins, 1, 0) === 0 && Ph.loudness(null, 3, 1) === 0 && Ph.loudness(new Uint8Array(0), 3, 1) === 0 && Ph.loudness(bins, 40, 1) === 0,
+      'a band is as loud as its bin, times Gain, held to 1; nothing with no bins or a band past the last bin');
+  }
+
+  // The shape of a trace.
+  {
+    const none = new Float32Array(K), phases = new Float64Array(K), one = new Float32Array(K), two = new Float32Array(K);
+    one[3] = 1; two[0] = 0.5; two[6] = 0.8;
+    const w3 = Ph.weight(3), f3 = Ph.waves(3);
+    ok(Ph.shape(0.3, none, phases) === 0 && near(Ph.shape(0.3, one, phases), (w3 * Math.sin(2 * Math.PI * f3 * 0.3)) / (0.15 + w3)) && near(Ph.shape(0, one, phases), 0),
+      'with no sound a trace is flat; one band alone is that band\'s sine, a little short of full swing');
+    phases[3] = 1.1;
+    ok(near(Ph.shape(0.3, one, phases), (w3 * Math.sin(2 * Math.PI * f3 * 0.3 + 1.1)) / (0.15 + w3)), 'a band\'s phase moves its wave along the trace');
+    const p2 = new Float64Array(K); p2[0] = 0.4; p2[6] = -2;
+    const want = (0.5 * Ph.weight(0) * Math.sin(2 * Math.PI * Ph.waves(0) * 0.7 + 0.4) + 0.8 * Ph.weight(6) * Math.sin(2 * Math.PI * Ph.waves(6) * 0.7 - 2)) / (0.15 + 0.5 * Ph.weight(0) + 0.8 * Ph.weight(6));
+    ok(near(Ph.shape(0.7, two, p2), want, 1e-7), 'bands add, each weighed by how loud it is, and the whole is scaled to the bands\' total');
+    const full = new Float32Array(K).fill(1);
+    let worst = 0;
+    for (let i = 0; i < 500; i++) { for (let b = 0; b < K; b++) p2[b] = i * 0.37 * (b + 1); worst = Math.max(worst, Math.abs(Ph.shape((i * 0.0137) % 1, full, p2))); }
+    ok(worst < 1 && worst > 0.4, 'the shape stays within one either way, however the waves fall');
+  }
+
+  // How tall a trace stands.
+  ok(Ph.stand(0, 0, 0) === 0 && near(Ph.stand(1, 0, 0), 1) && near(Ph.stand(0.5, 0, 0.3), Math.pow(0.5, 0.9)) && near(Ph.stand(1, 1, 0), 1.25) && near(Ph.stand(1, 1, 4 / 23), 1 + 0.25 * Math.exp(-1)) && near(Ph.stand(1, 1, 1), 1 + 0.25 * Math.exp(-5.75)) && Ph.stand(-2, 0, 0) === 0
+    && near(Ph.stand(0.5, 1, 0), Math.pow(0.5, 0.9) * 1.25), 'a trace stands as tall as the voice was loud; a beat lifts the nearest ones by up to a quarter, less the further back');
+  ok(near(Ph.heightOf(0, 1, 0.3), 0.14) && near(Ph.heightOf(1, 1, 1), 1.64) && near(Ph.heightOf(1, 1, -1), 0.14 + 1.5 * 0.1) && near(Ph.heightOf(1, 0, 1), 0.14) && near(Ph.heightOf(0.5, 0.5, 0), 0.14 + 1.5 * 0.25 * 0.55),
+    'in silence a slice is a foot 0.14 high; a loud voice adds up to 1.5, more where the wave is up and less where it is down, and nothing at the pinned ends');
+  ok(Ph.pin(0) === 0 && Ph.pin(1) === 0 && near(Ph.pin(0.5), 1) && near(Ph.pin(0.16), 1) && near(Ph.pin(0.84), 1) && near(Ph.pin(0.08), 0.5) && near(Ph.pin(0.92), 0.5) && near(Ph.pin(0.04), ease(0, 0.16, 0.04)),
+    'a trace is held down at its two ends and free from 16% of the way in');
+  ok(Ph.ends(0) === 0 && Ph.ends(1) === 0 && near(Ph.ends(0.5), 1) && near(Ph.ends(0.16 / 2.2), 1) && near(Ph.ends(0.08 / 2.2), 0.5) && near(Ph.ends(1 - 0.08 / 2.2), 0.5), 'its light fades out over the last 7% at each end');
+
+  // The strip of light along a trace, and the wall under it.
+  {
+    const xs = new Float32Array(P), flat = new Float32Array(P).fill(1), slant = new Float32Array(P), out = new Float32Array((P + 3) * 6);
+    for (let j = 0; j < P; j++) { xs[j] = Ph.xOf(j); slant[j] = 1 + 0.5 * xs[j]; }
+    const pairs = (ys, z, half, at = 0) => {
+      out.fill(NaN);
+      Ph.strip(out, at, xs, ys, z, half);
+      let onTrace = true, wide = true, across = true, facing = true;
+      for (let j = 0; j < P; j++) {
+        const a = (at + j * 2) * 3, p = [out[a], out[a + 1], out[a + 2]], q = [out[a + 3], out[a + 4], out[a + 5]];
+        const m = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2, (p[2] + q[2]) / 2], d = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
+        if (!near(m[0], xs[j], 1e-5) || !near(m[1], ys[j], 1e-5) || !near(m[2], z, 1e-5)) onTrace = false;
+        if (!near(Math.hypot(d[0], d[1], d[2]), 2 * half, 1e-5)) wide = false;
+        const j0 = Math.max(0, j - 1), j1 = Math.min(P - 1, j + 1), t = [xs[j1] - xs[j0], ys[j1] - ys[j0], 0];
+        if (Math.abs(d[0] * t[0] + d[1] * t[1] + d[2] * t[2]) > 1e-5) across = false;
+        if (d[2] !== 0 || out[a + 2] !== Math.fround(z) || !(q[1] > p[1])) facing = false;   // in the slice's plane, the second point of a pair the upper one
+      }
+      return { onTrace, wide, across, facing, untouched: Number.isNaN(out[(at + P * 2) * 3]) && (at === 0 || Number.isNaN(out[(at - 1) * 3])) };
+    };
+    const a = pairs(flat, 0.5, 0.06), b = pairs(slant, -1, 0.1, 4);
+    ok(a.onTrace && a.wide && a.across && a.facing && b.onTrace && b.wide && b.across && b.facing && a.untouched && b.untouched,
+      'a trace is a strip of pairs of points: each pair is centred on the trace, as far apart as the strip is wide, across the trace, and in the plane of its slice');
+    const w = new Float32Array((P + 2) * 9).fill(NaN), ys = new Float32Array(P).fill(1); ys[10] = 0.14; ys[11] = 0.3;
+    Ph.wall(w, 2, xs, ys, 0.7);
+    const tri = (j) => Array.from(w.subarray((2 + j * 3) * 3, (2 + j * 3) * 3 + 9));
+    ok(tri(0).every((v, i) => near(v, [xs[0], 1, 0.7, xs[0], 0.72, 0.7, xs[0], 0, 0.7][i], 1e-6)) && tri(10).every((v, i) => near(v, [xs[10], 0.14, 0.7, xs[10], 0, 0.7, xs[10], 0, 0.7][i], 1e-6))
+      && near(tri(11)[4], 0.02, 1e-6) && Number.isNaN(w[0]) && Number.isNaN(w[(2 + P * 3) * 3]),
+      'a slice is three points under each point of its trace: the top edge, where the glow ends 0.28 below it (never under the foot), and the foot');
+  }
+
+  // Brightness, width and colour.
+  ok(Ph.fade(0) === 1 && near(Ph.fade(1), 0.12) && near(Ph.fade(0.5), 0.12 + 0.88 * Math.pow(0.5, 1.3)) && Ph.fade(0.3) > Ph.fade(0.6), 'the traces dim toward the back of the deck, to 12%');
+  ok(near(Ph.bright(0, 0, 0), 0.3) && near(Ph.bright(1, 0, 0), 1.7) && near(Ph.bright(1, 1, 0), 2.6) && near(Ph.bright(1, 1, 3 / 23), (1.7 + 0.9 * Math.exp(-1)) * Ph.fade(3 / 23)) && near(Ph.bright(1, 0, 0.5), 1.7 * Ph.fade(0.5)),
+    'a trace is brighter the louder the voice was, and a beat flashes the nearest ones');
+  ok(near(Ph.hot(0), 0.55) && near(Ph.hot(5 / 23), 0.55 * Math.exp(-2)) && Ph.hot(20 / 23) < 0.001, 'the nearest traces are white-hot, whatever the number of slices');
+  ok(near(Ph.halfWidth(0, 0, 0), 0.045) && near(Ph.halfWidth(1, 0, 0), 0.08) && near(Ph.halfWidth(1, 1, 0), 0.11) && near(Ph.halfWidth(1, 1, 3 / 23), (0.08 + 0.03 * Math.exp(-1)) * (1 - 0.35 * 3 / 23)) && near(Ph.halfWidth(1, 0, 1), 0.08 * 0.65),
+    'a trace is wider when the voice was louder and on a beat, and narrower toward the back');
+  ok(near(Ph.under(0, 0), 0.03) && near(Ph.under(1, 0), 0.23) && near(Ph.under(1, 1), 0.23 * 0.12), 'a slice glows under its trace, more when the voice was louder, dimmer toward the back');
+  {
+    const t3 = (hot, b) => Array.from(Ph.tint([0, 0, 0], [0.2, 0.4, 0.8], hot, b));
+    const out = [9, 9, 9];
+    ok(t3(0, 2).every((v, c) => near(v, 2 * [0.2, 0.4, 0.8][c])) && t3(1, 2).every((v) => near(v, 2)) && t3(0.5, 1).every((v, c) => near(v, [0.6, 0.7, 0.9][c])) && Ph.tint(out, [1, 1, 1], 0, 1) === out,
+      'a trace is its own colour, mixed toward white where it is hot, times its brightness');
+  }
+  ok(near(Ph.idle(2, 3), Math.max(0, 0.3 + 0.25 * Math.sin(0.7 * 3 + 1.3 * 2))) && near(Ph.idle(7, 3), 0.4 * Math.max(0, 0.3 + 0.25 * Math.sin(0.7 * 3 + 1.3 * 7))) && [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].every((b) => Ph.idle(b, 11.3) >= 0 && Ph.idle(b, 11.3) <= 1)
+    && Math.abs(Ph.idle(1, 0) - Ph.idle(1, 2)) > 0.05, 'with the mic off the bands follow a slow pattern, the higher ones weaker');
+
+  // The table.
+  ok(T.VIZ_SCENES[T.VIZ_SCENES.length - 1] === 'phosphor' && T.VIZ_USES_3D.includes('phosphor'), 'phosphor is a kit scene, listed after the mountains');
+  ok(JSON.stringify(T.DEFAULT_PER_VIZ['phosphor']) === '{"depth":50,"cameraDrift":50}', 'phosphor knobs: depth and camera drift');
+  const oldDeck = T.sanitizeConfig({ activeViz: 'phosphor', perViz: { 'phosphor': { depth: 80 } } });
+  ok(oldDeck.activeViz === 'phosphor' && JSON.stringify(oldDeck.perViz['phosphor']) === '{"depth":80,"cameraDrift":50}', 'a saved pre-redesign phosphor config keeps its depth and gains the new default');
+  ok(!('phosphor' in T.VIZ_LABELS), 'phosphor keeps the name it is listed by');
+
+  // The files.
+  const order = [];
+  for (const p of ['300x220', '1440x1080', '1920x1080']) {
+    const html = await readFile(resolve(__dirname, `overlay/mic-visualizers-${p}.html`), 'utf8');
+    const pos = html.indexOf('src="phosphor.js"');
+    order.push(pos > html.indexOf('src="mountains.js"') && pos > html.indexOf('src="scene-kit.js"') && pos < html.indexOf('src="factories/'));
+  }
+  ok(order.every(Boolean), 'all three overlay pages load phosphor.js after the scene kit and mountains.js and before the factories');
+  const factory = await readFile(resolve(__dirname, 'overlay/factories/phosphor.js'), 'utf8');
+  ok(/VIZ_FACTORIES\['phosphor'\] = TimbreScene\.factory\(\(\) => TimbrePhosphor\.definition\(\)\);/.test(factory) && !/WebGLRenderer/.test(factory), 'the effect is the kit\'s factory around the phosphor\'s definition, with no renderer of its own');
 }
 
 // ── 4. Live transport seam (mock SB + real panel-client-sb.js) ───────────────

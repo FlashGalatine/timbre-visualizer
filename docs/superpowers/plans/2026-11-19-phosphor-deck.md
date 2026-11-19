@@ -56,8 +56,49 @@ break each rule of the arithmetic and the scene on purpose and confirm a check f
 
 Final stills; offer to switch the live overlay. Merge only after the owner has seen it in OBS.
 
+## After the review
+
+One independent review, made before either suite could run. It replayed the scene checks
+frame by frame under Node with the real kit, and drew the picture with a rasterizer of its
+own to predict the pixel counts. Nothing critical. Changed, with the check written or
+corrected first:
+
+- **A strip turned to face the camera** put half of itself behind its own slice on a steep
+  flank when the camera swung. A trace now lies flat, 0.006 in front of its slice.
+- **The bands were read raw**, 30 times a second, so the front trace changed shape in
+  steps. Each band is now followed (up at 20 a second, down at 8) before it is kept.
+- **The beat and the white heat went by a slice's number**, so at Depth 100 they reached a
+  third as deep as at Depth 0. They go by how far back a slice is.
+
+Checks the review showed to be wrong as written, corrected before their first run: louder
+doubling the solid pixels (the feet already overlap into one sheet in silence; the check
+compares the deck's height); the tallest slice by peak being the tallest by loudness (a
+wave's crest can put the neighbour first; one slice either way is allowed); more slices
+giving more light (fewer leave gaps that the traces glow into); a muted deck being flat
+after 3.5 s (it takes about four: the voice's release, then the 2.2 s the deck holds); and
+two thresholds for dim light.
+
+Checks added for behaviour that nothing was watching: an echo keeping the bands of its own
+moment (the review swapped in the bands as they are now and no check noticed); a band
+being followed, by its rates; the beat reaching the nearest slices and less the further
+back, at three depths, from the loudness each slice heard; the picture holding still after
+a voice's echoes have died (before, only from a scene that had heard nothing).
+
+Left as it is and written into the spec: in silence the feet overlap into one near-black
+sheet about a quarter of the canvas, which the owner saw in the spike's stills; the strip
+folding at crests tighter than it is wide; echoes of sound from before a mute being
+shifted by the time muted.
+
 ## Found during the build
 
 - The branch was started on top of the Mountains 3D branch, before that had landed, and
   while its deliberate-break run held the suites' ports. The arithmetic checks were run on
-  their own, outside the suite, until the ports were free.
+  their own, outside the suite, until the ports were free. The branch was rebased onto
+  `main` once Mountains 3D was there.
+- As with the two before it, the render checks were written before the scene but could
+  not be run before it existed. Here they could not be run for some hours after it existed
+  either, so the review came first and corrected six of them on paper. On their first run
+  all passed but three: the two thresholds left to be measured (solid pixels and textures)
+  and one for dim light (the muted deck shows 16 pixels of light over the background, not
+  the 20 asked for). Breaking the code on purpose (Task 4) is what shows each one catching
+  anything.
