@@ -37,7 +37,7 @@
   const VIZ_SCENES = [
     'thanksgiving-harvest', 'winter-aurora',
     'pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes',
-    'sunburst-3d',
+    'sunburst-3d', 'mountains-3d',
   ];
 
   // The name the control panel shows, where the id no longer says what the effect
@@ -87,7 +87,7 @@
     },
     'sine-bars':     { ribbon: 50 },
     'mountains-2d':  { speed: 50 },
-    'mountains-3d':  { speed: 50 },
+    'mountains-3d':  { speed: 50, cameraDrift: 50 },
     'vaporwave':     { speed: 50, sunSize: 50 },
     'tunnel':        { bend: 50 },
     'peaks-mirror':  { seam: 50 },
