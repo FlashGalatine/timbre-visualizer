@@ -113,7 +113,7 @@ console.log('\n[1] table consistency');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['thanksgiving-harvest']) === '{"candleGlow":50,"leafDensity":50,"cameraDrift":50}', 'thanksgiving knobs');
   ok(T.VIZ_SCENES.indexOf('winter-aurora') === 1 && T.VIZ_SCENES.indexOf('thanksgiving-harvest') === 0, 'winter-aurora is the second kit scene');
   const FLAG_IDS = ['pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes'];
-  ok(JSON.stringify(T.VIZ_SCENES) === JSON.stringify(['thanksgiving-harvest', 'winter-aurora', ...FLAG_IDS, 'sunburst-3d']) && FLAG_IDS.every((n) => T.VIZ_USES_3D.includes(n)), 'the five flags are kit scenes, listed after winter-aurora');
+  ok(JSON.stringify(T.VIZ_SCENES) === JSON.stringify(['thanksgiving-harvest', 'winter-aurora', ...FLAG_IDS, 'sunburst-3d', 'mountains-3d']) && FLAG_IDS.every((n) => T.VIZ_USES_3D.includes(n)), 'the five flags are kit scenes, listed after winter-aurora');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['pride-ribbon']) === '{"wind":50,"heartRate":50,"stripeStyle":0,"cameraDrift":50}'
     && ['bi', 'ace', 'trans'].every((p) => JSON.stringify(T.DEFAULT_PER_VIZ[p + '-pride-ribbon']) === '{"wind":50,"heartRate":50,"cameraDrift":50}'), 'pride flag knobs');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['july-fourth-stripes']) === '{"wind":50,"starTwinkle":50,"burstChance":50,"cameraDrift":50}', 'fourth of july flag knobs');
@@ -2127,7 +2127,7 @@ await import('./overlay/sunburst.js');
     'a beam is white at the star and its own colour from under half way out');
 
   // The table.
-  ok(T.VIZ_SCENES[T.VIZ_SCENES.length - 1] === 'sunburst-3d' && T.VIZ_USES_3D.includes('sunburst-3d'), 'sunburst-3d is a kit scene, listed after the flags');
+  ok(T.VIZ_SCENES.indexOf('sunburst-3d') === T.VIZ_SCENES.indexOf('july-fourth-stripes') + 1 && T.VIZ_USES_3D.includes('sunburst-3d'), 'sunburst-3d is a kit scene, listed after the flags');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['sunburst-3d']) === '{"density":50,"spin":50,"cameraDrift":50}', 'sunburst knobs: density, spin, camera drift');
   const oldSun = T.sanitizeConfig({ activeViz: 'sunburst-3d', perViz: { 'sunburst-3d': { density: 80 } } });
   ok(oldSun.activeViz === 'sunburst-3d' && JSON.stringify(oldSun.perViz['sunburst-3d']) === '{"density":80,"spin":50,"cameraDrift":50}', 'a saved pre-redesign sunburst config keeps its density and gains the new defaults');
@@ -2143,6 +2143,177 @@ await import('./overlay/sunburst.js');
   ok(order.every(Boolean), 'all three overlay pages load sunburst.js after the scene kit and flag.js and before the factories');
   const factory = await readFile(resolve(__dirname, 'overlay/factories/sunburst-3d.js'), 'utf8');
   ok(/VIZ_FACTORIES\['sunburst-3d'\] = TimbreScene\.factory\(\(\) => TimbreSunburst\.definition\(\)\);/.test(factory) && !/WebGLRenderer/.test(factory), 'the effect is the kit\'s factory around the sunburst\'s definition, with no renderer of its own');
+}
+
+console.log('\n[15] mountains');
+await import('./overlay/mountains.js');
+{
+  const M = globalThis.TimbreMountains;
+  const near = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol;
+  const NC = M.NX + 1, NR = M.NZ + 2, SP = M.SP;
+  const flat = (v) => new Float32Array(NC).fill(v);
+  const ease = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+  ok(M.W === 7 && M.D === 4.4 && M.NX === 80 && M.NZ === 52 && near(M.SP, 4.4 / 52) && M.HMAX === 2.15 && M.FOOT === 0.15 && M.EDGE === 0.14 && M.BASE === 0.26 && M.SNOW === 1.05 && M.BANDS === 9 && M.FLANK === 2.6 && near(M.W / 2 - M.FLANK, 0.9) && M.CROSS === 5,
+    'the sizes: a block 7 wide and 4.4 deep, 80 columns and 52 stored rows, peaks up to 2.15, snow from 1.05, land crossing in 5 s');
+
+  // The shape of the land before the voice scales it.
+  {
+    const samples = [];
+    for (let i = 0; i < 400; i++) samples.push(M.noise(i * 0.137 - 20, i * 0.291 + 3));
+    ok(samples.every((v) => v >= 0 && v <= 1) && Math.max(...samples) > 0.8 && Math.min(...samples) < 0.2, 'noise stays within 0 to 1 and uses the range');
+    ok(near(M.noise(3, -7), M.hash(3, -7)) && near(M.noise(3.5, -7), (M.hash(3, -7) + M.hash(4, -7)) / 2) && near(M.noise(3, -6.5), (M.hash(3, -7) + M.hash(3, -6)) / 2),
+      'noise is the lattice value at a lattice point and half way between two of them at the middle');
+    ok(Math.abs(M.noise(1.2345, 5.4321) - M.noise(1.2346, 5.4321)) < 1e-3 && Math.abs(M.noise(1.99999, 5.5) - M.noise(2.00001, 5.5)) < 1e-4, 'noise has no steps in it, across a lattice line or within a cell');
+    const want = (x, w) => {
+      const r1 = 1 - Math.abs(2 * M.noise(x * 0.62 + 11.3, w * 0.62) - 1), r2 = 1 - Math.abs(2 * M.noise(x * 1.7 + 3.1, w * 1.7 + 7.7) - 1), r3 = M.noise(x * 4.6 + 1.9, w * 4.6 + 5.2);
+      return 0.16 + 0.6 * Math.pow(r1, 1.45) + 0.2 * r2 * (0.35 + 0.65 * r1) + 0.04 * r3;
+    };
+    const field = [];
+    let same = true;
+    for (let i = 0; i < 600; i++) { const x = -3.5 + (i % 30) * 0.24, w = Math.floor(i / 30) * 0.31 - 2; field.push(M.ridge(x, w)); if (!near(M.ridge(x, w), want(x, w))) same = false; }
+    ok(same && field.every((v) => v >= 0.16 && v <= 1) && Math.max(...field) > 0.85 && Math.min(...field) < 0.3,
+      'the land is crests of three sizes on a floor of 0.16: never under the floor, never over 1, and both valleys and peaks in it');
+  }
+
+  // Columns, bands and loudness.
+  ok(near(M.columnX(0), -3.5) && near(M.columnX(80), 3.5) && near(M.columnX(40), 0) && near(M.columnX(20), -1.75), 'the columns run from one side of the block to the other');
+  ok(M.bandOf(0) === 0 && near(M.bandOf(2.6), 9) && near(M.bandOf(-2.6), 9) && near(M.bandOf(1.3), 4.5) && near(M.bandOf(-1.3), 4.5) && near(M.bandOf(3.5), 9) && near(M.bandOf(40), 9) && near(M.sink(2.6, 0), 1) && M.sink(2.7, 0) < 1,
+    'the middle of the range hears bin 0 and both flanks bin 9, the same on either side; the flanks are where the land begins to sink toward the sides');
+  {
+    const bins = new Uint8Array(32); bins[0] = 255; bins[1] = 51; bins[9] = 102;
+    ok(near(M.loudness(bins, 0, 1), 1) && near(M.loudness(bins, 1, 1), 0.2) && near(M.loudness(bins, 0.5, 1), 0.6) && near(M.loudness(bins, 9, 1), 0.4) && near(M.loudness(bins, 8.5, 1), 0.2),
+      'loudness reads a band between two bins');
+    ok(near(M.loudness(bins, 1, 2), 0.4) && M.loudness(bins, 9, 3) === 1 && M.loudness(bins, 1, 0) === 0 && M.loudness(null, 3, 1) === 0 && M.loudness(new Uint8Array(0), 3, 1) === 0 && near(M.loudness(bins, -4, 1), 1) && M.loudness(bins, 99, 1) === 0,
+      'loudness is scaled by Gain, held to 1, and nothing with no bins; a band off either end reads the end bin');
+  }
+  ok(near(M.answer(0, 0), 0) && near(M.answer(1, 0), 0.7) && near(M.answer(0, 1), 0.45) && M.answer(1, 1) === 1 && near(M.answer(0.5, 0.4), 0.53), 'a column answers its own band most and the whole voice a little, held to 1');
+
+  // How high the voice lifts the land.
+  ok(near(M.rise(0), 0.15) && near(M.rise(1), 1) && M.rise(5) <= 1 + 1e-12 && near(M.rise(1 / 1.3), 1) && near(M.rise(0.5), 0.15 + 0.85 * Math.pow(0.65, 0.85)) && near(M.rise(-2), 0.15) && near(M.rise(0.2), 0.15 + 0.85 * Math.pow(0.26, 0.85)) && M.rise(0.3) > M.rise(0.2),
+    'in silence the land keeps 15% of its height; it is at full height from a loudness of 1/1.3 and never over it');
+  ok(near(M.heightAt(1.3, 4.2, 0.5), 2.15 * M.rise(0.5) * M.ridge(1.3, 4.2)) && near(M.heightAt(-2, -9, 0), 2.15 * 0.15 * M.ridge(-2, -9)) && M.heightAt(0.4, 1, 1) <= 2.15,
+    'a point of land is the shape of the land there, times what the voice lifts, times the tallest peak');
+  ok(near(M.lift(0, 0), 0.86) && near(M.lift(1, 0), 1.1) && near(M.lift(0, 1), 1.02) && near(M.lift(1, 1), 1.26) && near(M.lift(0.5, 0.25), 1.02), 'the whole range lifts with the voice and jumps on a beat');
+
+  // The land sinks toward the block's edges.
+  ok(near(M.sink(0, 0), 1) && near(M.sink(-3.5, 0), 0.14) && near(M.sink(3.5, 0), 0.14) && near(M.sink(0, 2.2), 0.14) && near(M.sink(0, -2.2), 0.14) && near(M.sink(2, 0.5), M.sink(-2, 0.5)),
+    'the land is whole in the middle and keeps 14% of its height at all four edges');
+  ok(near(M.sink(0, -2.2 + 0.5), 1) && M.sink(0, 2.2 - 0.5) < 0.95 && near(M.sink(0, 2.2 - 0.85), 1) && near(M.sink(3.5 - 0.9, 0), 1) && M.sink(3.5 - 0.45, 0) < 0.7
+    && near(M.sink(3.5 - 0.45, 2.2 - 0.425), 0.14 + 0.86 * ease(0, 0.9, 0.45) * ease(0, 0.85, 0.425)),
+    'it rises over 0.5 from the far edge, 0.85 from the near edge and 0.9 from each side');
+
+  // Speed.
+  ok(near(M.flow(50), 4.4 / 5) && near(M.flow(0), 0.25 * 4.4 / 5) && near(M.flow(100), 1.75 * 4.4 / 5) && near(M.flow(-30), M.flow(0)) && near(M.flow(400), M.flow(100)) && near(M.flow(NaN), M.flow(50)) && near(M.flow(undefined), M.flow(50)),
+    'Speed 50 crosses the block in 5 s, 0 in 20 s, 100 in under 3 s; anything else is held to that range, and no setting is the default');
+
+  // Colour.
+  {
+    const c3 = (h) => Array.from(M.shade([0, 0, 0], [0.2, 0.4, 0.8], h));
+    const rock = (h) => 0.2 + 0.8 * ease(0, 1.05, h), snow = (h) => ease(1.05 - 0.08, 1.05 + 0.3, h);
+    ok(c3(0).every((v, i) => near(v, [0.2, 0.4, 0.8][i] * 0.2)) && c3(0.5).every((v, i) => near(v, [0.2, 0.4, 0.8][i] * rock(0.5))) && c3(0.97).every((v, i) => near(v, [0.2, 0.4, 0.8][i] * rock(0.97))),
+      'below the snow line the land is its own colour, dark in the valleys and full at the snow line');
+    ok(c3(1.35).every((v, i) => near(v, [0.93, 0.95, 1][i])) && c3(3).every((v, i) => near(v, [0.93, 0.95, 1][i])) && c3(1.15).every((v, i) => near(v, [0.2, 0.4, 0.8][i] * (1 - snow(1.15)) + [0.93, 0.95, 1][i] * snow(1.15))) && snow(1.15) > 0.3 && snow(1.15) < 0.7,
+      'above the snow line it turns white, fully white from 0.3 above it');
+    const out = [9, 9, 9];
+    ok(M.shade(out, [1, 1, 1], 0) === out, 'the colour is written into the array it is given');
+  }
+  {
+    const row = Array.from({ length: NC }, (_, c) => M.idle(c, 3)), later = Array.from({ length: NC }, (_, c) => M.idle(c, 9));
+    ok(row.every((v) => v >= 0 && v <= 1) && Math.max(...row) - Math.min(...row) > 0.3 && row.some((v, c) => Math.abs(v - later[c]) > 0.2) && near(M.idle(10, 2), Math.max(0, Math.min(1, 0.34 + 0.26 * Math.sin(0.9 + 1) + 0.14 * Math.sin(2.3 - 0.62)))),
+      'with the mic off the land is a slow swell that differs across the range and changes with time');
+  }
+
+  // The land itself: rows that ride with the terrain.
+  {
+    const land = M.createLand();
+    ok(land.travel === 0 && land.top === 0 && near(land.z(0), -2.2) && near(land.z(NR - 1), 2.2) && near(land.z(1), -2.2) && near(land.z(2), -2.2 + SP)
+      && Array.from(land.row(5)).every((h, c) => near(h, M.heightAt(M.columnX(c), -4 * SP, 0), 1e-6)), 'new land is foothills from the far edge to the near edge');
+    land.advance(0.5 * SP, flat(0.6));
+    ok(near(land.travel, 0.5 * SP) && land.top === 0 && near(land.z(0), -2.2) && near(land.z(1), -2.2 + 0.5 * SP) && near(land.z(2), -2.2 + 1.5 * SP) && near(land.z(NR - 1), 2.2)
+      && Array.from(land.row(0)).every((h, c) => near(h, M.heightAt(M.columnX(c), 0.5 * SP, 0.6), 1e-6)), 'the far edge stays where it is and holds the voice as it is now, while the rows behind it move on');
+    land.advance(0.75 * SP, flat(0.2));
+    const written = Array.from(land.row(1));
+    ok(land.top === 1 && near(land.z(1), -2.2 + 0.25 * SP) && written.every((h, c) => near(h, M.heightAt(M.columnX(c), SP, 0.6 + (0.2 - 0.6) * (2 / 3)), 1e-6)),
+      'a row is written as it leaves the far edge, with the voice as it was at that moment of the step');
+    land.advance(2.5 * SP, flat(0.9));
+    land.advance(0.3 * SP, flat(0.1));
+    ok(land.top === 4 && Array.from(land.row(4)).every((h, c) => near(h, written[c])) && near(land.z(4), -2.2 + 0.25 * SP + 2.8 * SP), 'a written row keeps its heights and rides toward the viewer at the speed of the land');
+    ok([2, 3].every((j) => Array.from(land.row(j)).every((h, c) => near(h, M.heightAt(M.columnX(c), (5 - j) * SP, 0.2 + 0.7 * (((5 - j) * SP - 1.25 * SP) / (2.5 * SP))), 1e-6)))
+      && Array.from(land.row(1)).every((h, c) => near(h, M.heightAt(M.columnX(c), 4 * SP, 0.9 + (0.1 - 0.9) * (0.25 / 0.3)), 1e-6)),
+      'a long step writes each row it passes at that row\'s own moment');
+    const f = land.travel / SP - land.top, a = land.row(NR - 2), b = land.row(NR - 1), older = land.stored(land.top - M.NZ);
+    ok(near(land.z(NR - 2), 2.2 - (1 - f) * SP) && land.z(NR - 2) <= 2.2 && near(land.z(NR - 1), 2.2), 'the near edge stays where it is; the last riding row is within a row of it');
+    ok(a === land.stored(land.top - M.NZ + 1) && Array.from(b).every((h, c) => near(h, a[c] + (older[c] - a[c]) * (1 - f), 1e-6)) && Array.from(b).some((h, c) => Math.abs(h - a[c]) > 1e-4),
+      'the near edge is read between the two rows either side of it');
+    const before = M.createLand(), after = M.createLand(), ramp = (v) => flat(v);
+    before.advance(3.2 * SP, ramp(0.5)); after.advance(3.2 * SP, ramp(0.5));
+    const pa = new Float32Array(NR * NC * 3), pb = new Float32Array(NR * NC * 3), ha = new Float32Array(NR * NC), hb = new Float32Array(NR * NC);
+    before.advance(0.7999 * SP, ramp(0.5)); after.advance(0.8001 * SP, ramp(0.5));
+    before.write(pa, ha, 1); after.write(pb, hb, 1);
+    let jump = 0;
+    for (let c = 0; c < NC; c++) for (const j of [0, NR - 1]) jump = Math.max(jump, Math.abs(pa[(j * NC + c) * 3 + 1] - pb[(j * NC + c) * 3 + 1]));
+    let inner = 0;   // the riding rows: the same land, one mesh row further on
+    for (let j = 2; j < NR - 1; j++) for (let c = 0; c < NC; c++) inner = Math.max(inner, Math.abs(before.row(j - 1)[c] - after.row(j)[c]));
+    ok(before.top === 3 && after.top === 4 && jump < 2e-3 && inner < 1e-6 && Math.abs(after.z(1) - (-2.2)) < 1e-3 * SP + 1e-9 && Array.from(after.row(1)).every((h, c) => Math.abs(h - after.row(0)[c]) < 2e-3),
+      'nothing jumps when a row is written: the new row starts at the far edge with the far edge\'s heights');
+  }
+  {
+    // The same sound gives the same land whatever the frame rate.
+    const run = (fps) => {
+      const land = M.createLand(), amps = new Float32Array(NC);
+      for (let i = 1; i <= 2 * fps; i++) { const t = i / fps; for (let c = 0; c < NC; c++) amps[c] = 0.3 * t * (0.5 + c / NC); land.advance(M.flow(50) / fps, amps); }
+      const out = [];
+      for (let j = 1; j < 12; j++) out.push(Array.from(land.row(j)));
+      return { out, top: land.top, travel: land.travel, z: land.z(3) };
+    };
+    const a = run(30), b = run(60), c = run(10);
+    let worst = 0, worst10 = 0;
+    for (let j = 0; j < a.out.length; j++) for (let i = 0; i < NC; i++) { worst = Math.max(worst, Math.abs(a.out[j][i] - b.out[j][i])); worst10 = Math.max(worst10, Math.abs(a.out[j][i] - c.out[j][i])); }
+    ok(a.top === b.top && a.top === c.top && near(a.travel, b.travel, 1e-9) && near(a.z, b.z, 1e-9) && worst < 1e-4 && worst10 < 1e-4, 'the same sound writes the same land at 10, 30 and 60 frames a second');
+  }
+  {
+    const land = M.createLand(), pos = new Float32Array(NR * NC * 3), high = new Float32Array(NR * NC);
+    for (let i = 0; i < 400; i++) land.advance(M.flow(50) / 60, flat(1));
+    const peak = land.write(pos, high, 1.2);
+    let okPos = true, top = 0, edge = 0;
+    for (let j = 0; j < NR; j++) for (let c = 0; c < NC; c++) {
+      const a = (j * NC + c) * 3, h = land.row(j)[c] * M.sink(M.columnX(c), land.z(j));
+      if (!near(pos[a], M.columnX(c), 1e-6) || !near(pos[a + 2], land.z(j), 1e-6) || !near(pos[a + 1], h * 1.2, 1e-5) || !near(high[j * NC + c], h, 1e-5)) okPos = false;
+      top = Math.max(top, h);
+      if (j === 0 || j === NR - 1 || c === 0 || c === NC - 1) edge = Math.max(edge, h);
+    }
+    ok(okPos && near(peak, top, 1e-6), 'the land is drawn as its rows, each point sunk toward the edges and lifted by the voice; the heights for colouring are before the lift');
+    ok(peak > 1.6 && peak > M.SNOW + 0.3 && edge <= 0.14 * 2.15 + 1e-6, 'a loud voice raises peaks well above the snow line, and the cut edges stay low');
+    const hush = M.createLand();
+    for (let i = 0; i < 400; i++) hush.advance(M.flow(50) / 60, flat(0));
+    ok(hush.write(pos, high, 1) <= 2.15 * 0.15 + 1e-6 && hush.write(pos, high, 1) > 0.15, 'in silence the land is foothills');
+    const odd = M.createLand();
+    odd.advance(NaN, flat(0.5)); odd.advance(-3, flat(0.5)); odd.advance(Infinity, flat(0.5)); odd.advance(0, flat(0.5));
+    ok(odd.travel === 0 && odd.top === 0 && Number.isFinite(odd.write(pos, high, 1)) && pos.every(Number.isFinite), 'a step that is not a distance moves nothing and leaves the land sound');
+    const far = M.createLand();
+    far.advance(40000, flat(0.5));
+    for (let i = 0; i < 30; i++) far.advance(0.011, flat(0.5));
+    ok(Number.isFinite(far.write(pos, high, 1)) && pos.every(Number.isFinite) && near(far.z(NR - 1), 2.2) && far.z(1) >= -2.2 - 1e-9 && far.z(1) < -2.2 + SP, 'after hours of travel, and after a jump, the rows are still in place');
+  }
+
+  // The table.
+  ok(T.VIZ_SCENES[T.VIZ_SCENES.length - 1] === 'mountains-3d' && T.VIZ_USES_3D.includes('mountains-3d'), 'mountains-3d is a kit scene, listed after the sunburst');
+  ok(JSON.stringify(T.DEFAULT_PER_VIZ['mountains-3d']) === '{"speed":50,"cameraDrift":50}', 'mountains knobs: speed and camera drift');
+  const oldLand = T.sanitizeConfig({ activeViz: 'mountains-3d', perViz: { 'mountains-3d': { speed: 80 } } });
+  ok(oldLand.activeViz === 'mountains-3d' && JSON.stringify(oldLand.perViz['mountains-3d']) === '{"speed":80,"cameraDrift":50}', 'a saved pre-redesign mountains config keeps its speed and gains the new default');
+  ok(!('mountains-3d' in T.VIZ_LABELS), 'mountains keeps the name it is listed by');
+
+  // The files.
+  const order = [];
+  for (const p of ['300x220', '1440x1080', '1920x1080']) {
+    const html = await readFile(resolve(__dirname, `overlay/mic-visualizers-${p}.html`), 'utf8');
+    const pos = html.indexOf('src="mountains.js"');
+    order.push(pos > html.indexOf('src="sunburst.js"') && pos > html.indexOf('src="scene-kit.js"') && pos < html.indexOf('src="factories/'));
+  }
+  ok(order.every(Boolean), 'all three overlay pages load mountains.js after the scene kit and sunburst.js and before the factories');
+  const factory = await readFile(resolve(__dirname, 'overlay/factories/mountains-3d.js'), 'utf8');
+  ok(/VIZ_FACTORIES\['mountains-3d'\] = TimbreScene\.factory\(\(\) => TimbreMountains\.definition\(\)\);/.test(factory) && !/WebGLRenderer/.test(factory), 'the effect is the kit\'s factory around the mountains\' definition, with no renderer of its own');
 }
 
 // ── 4. Live transport seam (mock SB + real panel-client-sb.js) ───────────────

@@ -1,0 +1,414 @@
+// Timbre — the mountains: a block of alpine land that the voice raises. First the
+// arithmetic: the shape of the land, which band of the sound a column follows, how high the
+// voice lifts it, how it sinks toward the block's edges, its colour, and the land itself, a
+// set of rows that ride with the terrain as it flows toward the viewer. Then the 3D scene,
+// written against the scene kit: definition() returns what TimbreScene.factory() needs.
+//
+// All timing comes from the caller (a distance or dt in seconds), never from counting
+// frames, so the same sound gives the same land at any frame rate.
+//
+// Valid as BOTH a classic <script> and an ES module (it only assigns
+// `globalThis.TimbreMountains`), like sunburst.js, so verify.mjs can import it under Node.
+// Nothing here may touch document, window, THREE, TimbreScene or core.js globals at load
+// time; the scene looks them up when it is built.
+
+(function () {
+  'use strict';
+
+  const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+  const ease = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+
+  const W = 7, D = 4.4;              // the block of land: width and depth
+  const NX = 80, NZ = 52;            // columns across it, and stored rows across its depth
+  const SP = D / NZ;                 // the spacing of stored rows
+  const HMAX = 2.15;                 // the tallest peak, before the voice lifts the range
+  const FOOT = 0.15;                 // the share of its height the land keeps in silence
+  const EDGE = 0.14;                 // the share of its height the land keeps at the cut edges
+  const BASE = 0.26;                 // the thickness of the block below the valley floor
+  const SNOW = 1.05;                 // the snow line
+  const BANDS = 9;                   // the flanks hear this bin; speech lives in the first ten
+  const FLANK = 2.6;                 // how far from the middle the flanks are: where the land begins to sink toward the sides
+  const CROSS = 5;                   // seconds for land to cross the block at Speed 50
+  const NC = NX + 1, NR = NZ + 2;    // points in a row; rows drawn (the two edges and the stored rows between)
+  const ROWS = NZ + 4;               // stored rows kept
+  const SNOW_RGB = [0.93, 0.95, 1];
+
+  // A fixed number in 0..1 for each lattice point.
+  function hash(ix, iz) {
+    let h = Math.imul(ix, 374761393) + Math.imul(iz, 668265263);
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  }
+
+  // Smooth noise in 0..1: the lattice values, eased between.
+  function noise(x, z) {
+    const ix = Math.floor(x), iz = Math.floor(z);
+    let fx = x - ix, fz = z - iz;
+    fx = fx * fx * (3 - 2 * fx); fz = fz * fz * (3 - 2 * fz);
+    const a = hash(ix, iz), b = hash(ix + 1, iz), c = hash(ix, iz + 1), d = hash(ix + 1, iz + 1);
+    return a + (b - a) * fx + (c - a) * fz + (a - b - c + d) * fx * fz;
+  }
+
+  // The shape of the land before the voice scales it, 0.16..1: long connected crests, smaller
+  // ones riding on them, and a little roughness. x is across the block; w is along the way
+  // the land travels, in the land's own coordinate, so a crest keeps its shape as it moves.
+  function ridge(x, w) {
+    const r1 = 1 - Math.abs(2 * noise(x * 0.62 + 11.3, w * 0.62) - 1);
+    const r2 = 1 - Math.abs(2 * noise(x * 1.7 + 3.1, w * 1.7 + 7.7) - 1);
+    const r3 = noise(x * 4.6 + 1.9, w * 4.6 + 5.2);
+    return 0.16 + 0.6 * Math.pow(r1, 1.45) + 0.2 * r2 * (0.35 + 0.65 * r1) + 0.04 * r3;
+  }
+
+  // Where column c is, across the block.
+  function columnX(c) {
+    return -W / 2 + (c / NX) * W;
+  }
+
+  // Which band of the sound a place across the block follows, as a place among the frequency
+  // bins (fractions allowed): the middle hears bin 0 and both flanks hear bin BANDS. The
+  // bands stop at the flanks, so every one of them drives land that stands at full height.
+  function bandOf(x) {
+    return Math.min(1, Math.abs(x) / FLANK) * BANDS;
+  }
+
+  // How loud a band is, 0..1: read between two bins, times Gain.
+  function loudness(bins, band, gain) {
+    if (!bins || !bins.length) return 0;
+    const b = Math.max(0, Math.min(bins.length - 1, band));
+    const j = Math.max(0, Math.min(bins.length - 2, Math.floor(b))), f = b - j;
+    const next = j + 1 < bins.length ? bins[j + 1] : bins[j];
+    return clamp01(((bins[j] + (next - bins[j]) * f) / 255) * gain);
+  }
+
+  // What a column answers to: its own band most, and the voice as a whole a little, so that
+  // the whole range rises when someone talks.
+  function answer(band, flame) {
+    return Math.min(1, 0.7 * band + 0.45 * flame);
+  }
+
+  // The share of its full height the land stands at, for a loudness of 0..1.
+  function rise(amp) {
+    return FOOT + (1 - FOOT) * Math.pow(clamp01(1.3 * amp), 0.85);
+  }
+
+  // The height of the land at x across the block and w along its travel, for a loudness.
+  function heightAt(x, w, amp) {
+    return HMAX * rise(amp) * ridge(x, w);
+  }
+
+  // The land sinks toward the block's edges, so the cut faces stay low: the share of its
+  // height it keeps at x across and z along the block (z = -D/2 is the far edge). It rises
+  // over a shorter distance from the far edge, where new land comes in.
+  function sinkAcross(x) {
+    return ease(0, 0.9, W / 2 - Math.abs(x));   // 0.9 is from the side to the flank
+  }
+  function sinkAlong(z) {
+    return ease(0, 0.85, D / 2 - z) * ease(0, 0.5, z + D / 2);
+  }
+  function sink(x, z) {
+    return EDGE + (1 - EDGE) * sinkAcross(x) * sinkAlong(z);
+  }
+
+  // How fast the land flows, in units a second, for a Speed setting. No setting is the
+  // default, 50.
+  function flow(speed) {
+    const s = Number.isFinite(speed) ? clamp01(speed / 100) : 0.5;
+    return (D / CROSS) * (0.25 + 1.5 * s);
+  }
+
+  // The whole range lifts with the voice and jumps on a beat.
+  function lift(flame, kick) {
+    return 0.86 + 0.24 * flame + 0.16 * kick;
+  }
+
+  // The colour of the land at height h (before the lift): its own colour (rgb, 0..1 each),
+  // dark in the valleys and full at the snow line, and white above it. Written into out and
+  // returned.
+  function shade(out, rgb, h) {
+    const rock = 0.2 + 0.8 * ease(0, SNOW, h), snow = ease(SNOW - 0.08, SNOW + 0.3, h);
+    out[0] = rgb[0] * rock * (1 - snow) + SNOW_RGB[0] * snow;
+    out[1] = rgb[1] * rock * (1 - snow) + SNOW_RGB[1] * snow;
+    out[2] = rgb[2] * rock * (1 - snow) + SNOW_RGB[2] * snow;
+    return out;
+  }
+
+  // With the mic off and Idle animation on: the loudness column c pretends to hear at t
+  // seconds, a slow swell that differs across the range.
+  function idle(c, t) {
+    return clamp01(0.34 + 0.26 * Math.sin(0.09 * c + 0.5 * t) + 0.14 * Math.sin(0.23 * c - 0.31 * t));
+  }
+
+  // The land: rows of heights that ride with the terrain. A row is written once, at the
+  // moment it leaves the far edge, with the loudness of each column at that moment; after
+  // that it only moves. So nothing swims as the land flows, and no row jumps.
+  //
+  //   advance(distance, amps)  move the land on; amps is each column's loudness now
+  //   row(j), z(j)             what to draw: row 0 is the far edge (the voice right now),
+  //                            rows 1..NZ are the stored rows, newest first, and row NZ + 1
+  //                            is the near edge, read between the two rows either side of it
+  //   write(positions, heights, lift)  the whole land as points; returns the tallest height
+  function createLand() {
+    const xs = new Float32Array(NC), across = new Float32Array(NC);
+    for (let c = 0; c < NC; c++) { xs[c] = columnX(c); across[c] = sinkAcross(xs[c]); }
+    const rows = [];
+    for (let i = 0; i < ROWS; i++) rows.push(new Float32Array(NC));
+    const far = new Float32Array(NC), nearRow = new Float32Array(NC), before = new Float32Array(NC);
+    const at = (i) => rows[((i % ROWS) + ROWS) % ROWS];
+    let travel = 0, top = 0;   // how far the land has come; the newest stored row
+    for (let i = top - ROWS + 1; i <= top; i++) { const row = at(i); for (let c = 0; c < NC; c++) row[c] = heightAt(xs[c], i * SP, 0); }
+
+    function edges(amps) {
+      const f = travel / SP - top, newer = at(top - NZ + 1), older = at(top - NZ);
+      for (let c = 0; c < NC; c++) {
+        far[c] = heightAt(xs[c], travel, amps[c]);
+        nearRow[c] = newer[c] + (older[c] - newer[c]) * (1 - f);
+      }
+    }
+    edges(before);
+
+    function advance(distance, amps) {
+      const d = Number.isFinite(distance) && distance > 0 ? distance : 0, from = travel;
+      travel = from + d;
+      const last = Math.floor(travel / SP);
+      if (last - top > ROWS) top = last - ROWS;   // a jump: only the rows still in the block matter
+      while (top < last) {
+        top++;
+        // When in this step the far edge passed the row's place.
+        const w = clamp01((top * SP - from) / d), row = at(top);
+        for (let c = 0; c < NC; c++) row[c] = heightAt(xs[c], top * SP, before[c] + (amps[c] - before[c]) * w);
+      }
+      before.set(amps);
+      edges(amps);
+    }
+
+    const row = (j) => (j <= 0 ? far : j >= NR - 1 ? nearRow : at(top - (j - 1)));
+    const z = (j) => (j <= 0 ? -D / 2 : j >= NR - 1 ? D / 2 : -D / 2 + (travel / SP - top + j - 1) * SP);
+
+    function write(positions, heights, lifted) {
+      let peak = 0;
+      for (let j = 0; j < NR; j++) {
+        const r = row(j), zj = z(j), along = sinkAlong(zj);
+        for (let c = 0; c < NC; c++) {
+          const h = r[c] * (EDGE + (1 - EDGE) * across[c] * along), a = (j * NC + c) * 3;
+          positions[a] = xs[c]; positions[a + 1] = h * lifted; positions[a + 2] = zj;
+          heights[j * NC + c] = h;
+          if (h > peak) peak = h;
+        }
+      }
+      return peak;
+    }
+
+    return {
+      advance, row, z, write, stored: at,
+      get travel() { return travel; },
+      get top() { return top; },
+    };
+  }
+
+  // ── The scene ───────────────────────────────────────────────────────────────
+  // Everything below runs only when the scene is built: THREE, TimbreScene and the core.js
+  // globals (the mic, the bins, the palette, the settings) are looked up then.
+
+  // The scene definition, for TimbreScene.factory().
+  function definition() {
+    const ID = 'mountains-3d';
+    // A setting, read live so the control panel's sliders apply at once.
+    const knob = (name) => {
+      const v = typeof perViz !== 'undefined' && perViz[ID];
+      return v && typeof v[name] === 'number' ? v[name] : 50;
+    };
+    const amps = new Float32Array(NC), bands = new Float32Array(NC), tones = new Float32Array(NC * 3);
+    const heights = new Float32Array(NR * NC), rgb = [0, 0, 0], tone = [0, 0, 0];
+    for (let c = 0; c < NC; c++) bands[c] = bandOf(columnX(c));
+    let THREE = null, land = null, mesh = null, skirt = null, skirtFrom = null, sun = null, haze = null, key = null;
+    let colour = null, white = null;
+    // What the checks read. travel: how far the land has come; peak: the tallest point drawn,
+    // before the lift; amp: the mean loudness across the range; clock: seconds the scene has
+    // been live; snowy: how many points are more snow than rock.
+    const s = { flame: 0, kick: 0, slow: 0, travel: 0, top: 0, peak: 0, amp: 0, lift: 1, live: false, clock: 0, orbit: 0, colorT: 0, snowy: 0, sun: 0, sunY: 0, sunSize: 0, glow: 0 };
+
+    function build(k) {
+      THREE = k.THREE;
+      colour = new THREE.Color(); white = new THREE.Color(1, 1, 1);
+      land = createLand();
+
+      // The land: one grid, rewritten each frame.
+      const geo = new THREE.BufferGeometry();
+      for (const name of ['position', 'color', 'normal']) {
+        const attribute = new THREE.BufferAttribute(new Float32Array(NR * NC * 3), 3);
+        attribute.setUsage(THREE.DynamicDrawUsage);
+        geo.setAttribute(name, attribute);
+      }
+      const index = [];
+      for (let j = 0; j < NR - 1; j++) for (let c = 0; c < NX; c++) {
+        const p = j * NC + c, q = p + NC;
+        index.push(p, q, p + 1, p + 1, q, q + 1);
+      }
+      geo.setIndex(index);
+      mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 }));
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      mesh.frustumCulled = false;   // its points move every frame
+      k.scene.add(mesh);
+
+      // The cut sides of the block: each point of the land's rim, and the point below it.
+      const from = [], normals = [], sides = [];
+      const side = (list, nx, nz) => {
+        const first = from.length;
+        for (const v of list) { from.push(v, v); normals.push(nx, 0, nz, nx, 0, nz); }
+        for (let i = 0; i < list.length - 1; i++) { const a = first + i * 2; sides.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      };
+      const run = (n, f) => Array.from({ length: n }, (_, i) => f(i));
+      side(run(NC, (c) => c), 0, -1);                   // far
+      side(run(NC, (c) => (NR - 1) * NC + c), 0, 1);    // near
+      side(run(NR, (j) => j * NC), -1, 0);              // left
+      side(run(NR, (j) => j * NC + NX), 1, 0);          // right
+      skirtFrom = Int32Array.from(from);
+      const sg = new THREE.BufferGeometry();
+      for (const name of ['position', 'color']) {
+        const attribute = new THREE.BufferAttribute(new Float32Array(from.length * 3), 3);
+        attribute.setUsage(THREE.DynamicDrawUsage);
+        sg.setAttribute(name, attribute);
+      }
+      sg.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+      sg.setIndex(sides);
+      skirt = new THREE.Mesh(sg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }));
+      skirt.castShadow = true;
+      skirt.frustumCulled = false;
+      k.scene.add(skirt);
+
+      // The sun's light: low, from behind the range and to the left, so the peaks throw
+      // their shadows across the land toward the viewer. A weak fill keeps the near faces
+      // readable over a dark game. Neither lights the unseen ground.
+      key = new THREE.DirectionalLight(0xffffff, 2);
+      key.position.set(-5.2, 4.4, -2.6);
+      key.target.position.set(0.3, 0.3, 0.2);
+      key.castShadow = true;
+      key.shadow.mapSize.set(1024, 1024);
+      const cam = key.shadow.camera;
+      cam.left = -5; cam.right = 5; cam.top = 4; cam.bottom = -4; cam.near = 1; cam.far = 16;
+      key.shadow.bias = -0.0012; key.shadow.normalBias = 0.05;
+      const fill = new THREE.DirectionalLight(0xbcd0ff, 0.75);
+      fill.position.set(2.5, 3, 6);
+      k.scene.add(key, key.target, fill, new THREE.HemisphereLight(0xc4d6ff, 0x2a2233, 0.85));
+
+      // The sun itself and the glow of the sky round it: added light, behind the range.
+      const disc = k.glowTexture(255, 255, 255);
+      sun = new THREE.Sprite(k.addLight(new THREE.SpriteMaterial({ map: disc, depthTest: true })));
+      haze = new THREE.Sprite(k.addLight(new THREE.SpriteMaterial({ map: disc, depthTest: true })));
+      haze.position.set(-0.6, 1.4, -D / 2 - 1.4);
+      haze.scale.set(9, 4.5, 1);
+      k.scene.add(sun, haze);
+    }
+
+    // The palette colour at t, as the colour buffer wants it (linear), into rgb.
+    function palette(t) {
+      const p = getColor(t);
+      colour.setRGB(p[0] / 255, p[1] / 255, p[2] / 255, THREE.SRGBColorSpace);
+      rgb[0] = colour.r; rgb[1] = colour.g; rgb[2] = colour.b;
+    }
+
+    function update(k, audio, now, dt) {
+      const t = now / 1000, follow = TimbreScene.follow;
+      s.orbit = k.orbit = (0.22 * Math.sin(0.15 * t) + 0.06 * Math.sin(0.41 * t + 2)) * knob('cameraDrift') / 50;
+
+      // With the mic and Idle animation both off, the land stands still.
+      s.live = !!(micActive || cfgIdleAnim);
+      if (s.live) s.clock += dt;
+      s.flame = audio.flame; s.kick = audio.kick; s.slow = audio.slow;
+
+      // How loud each column's band has been lately. It rises in a quarter of a second and
+      // falls over more than one, so a phrase, not a syllable, makes a mountain.
+      let mean = 0;
+      for (let c = 0; c < NC; c++) {
+        let target = 0;
+        if (micActive) target = answer(loudness(frequencies, bands[c], cfgGain), audio.flame);
+        else if (cfgIdleAnim) target = idle(c, s.clock);
+        amps[c] = follow(amps[c], target, target > amps[c] ? 4 : 0.75, dt);
+        mean += amps[c];
+      }
+      s.amp = mean / NC;
+
+      land.advance(s.live ? flow(knob('speed')) * dt : 0, amps);
+      s.travel = land.travel; s.top = land.top;
+      s.lift = lift(audio.flame, audio.kick);
+      const position = mesh.geometry.attributes.position, colours = mesh.geometry.attributes.color;
+      s.peak = land.write(position.array, heights, s.lift);
+
+      // Colours across the range, from the palette.
+      const colorT = ((now * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
+      s.colorT = colorT;
+      for (let c = 0; c < NC; c++) {
+        palette(colorT + (c / NX) * 1.2);
+        tones[c * 3] = rgb[0]; tones[c * 3 + 1] = rgb[1]; tones[c * 3 + 2] = rgb[2];
+      }
+      const col = colours.array;
+      let snowy = 0;
+      for (let j = 0; j < NR; j++) for (let c = 0; c < NC; c++) {
+        const i = j * NC + c, h = heights[i];
+        rgb[0] = tones[c * 3]; rgb[1] = tones[c * 3 + 1]; rgb[2] = tones[c * 3 + 2];
+        shade(tone, rgb, h);
+        col[i * 3] = tone[0]; col[i * 3 + 1] = tone[1]; col[i * 3 + 2] = tone[2];
+        if (h > SNOW + 0.11) snowy++;
+      }
+      s.snowy = snowy;
+      position.needsUpdate = true; colours.needsUpdate = true;
+      mesh.geometry.computeVertexNormals();
+
+      // The cut sides follow the rim of the land.
+      const sp = skirt.geometry.attributes.position.array, sc = skirt.geometry.attributes.color.array, pos = position.array;
+      for (let i = 0; i < skirtFrom.length; i++) {
+        const v = skirtFrom[i] * 3, a = i * 3, c = (skirtFrom[i] % NC) * 3, low = i & 1, dark = low ? 0.1 : 0.2;
+        sp[a] = pos[v]; sp[a + 1] = low ? -BASE : pos[v + 1]; sp[a + 2] = pos[v + 2];
+        sc[a] = tones[c] * dark + 0.015; sc[a + 1] = tones[c + 1] * dark + 0.015; sc[a + 2] = tones[c + 2] * dark + 0.02;
+      }
+      skirt.geometry.attributes.position.needsUpdate = true; skirt.geometry.attributes.color.needsUpdate = true;
+
+      // The sun, its light and the sky's glow answer the voice at once.
+      palette(colorT + 0.6);
+      colour.setRGB(rgb[0], rgb[1], rgb[2]);
+      key.color.copy(colour).lerp(white, 0.62);
+      s.sun = key.intensity = 1.5 + 2.2 * audio.flame + 1.6 * audio.kick;
+      s.sunY = 0.8 + 1.3 * audio.slow;
+      sun.position.set(-1.9, s.sunY, -D / 2 - 1);
+      s.sunSize = 1.5 + 0.7 * audio.flame + audio.kick;
+      sun.scale.setScalar(s.sunSize);
+      s.glow = 0.4 + 0.7 * audio.flame + 0.7 * audio.kick;
+      sun.material.color.copy(colour).lerp(white, 0.4).multiplyScalar(s.glow);
+      haze.material.color.copy(colour).multiplyScalar(0.06 + 0.12 * audio.flame + 0.1 * audio.kick);
+    }
+
+    return {
+      frame: { width: 8.8, height: 5.4, center: [0, 0.8, 0.2] },
+      fov: 30,
+      pitch: 18,
+      cooling: [Infinity, Infinity, Infinity],   // fading light keeps its colour
+      build,
+      update,
+      debug() {
+        if (!mesh) return Object.assign({}, s);
+        // What the checks read of the land as drawn: the tallest point in each column and in
+        // each row (before the lift), where each row is, and the colour of one low point on
+        // the near edge with its shading taken back out.
+        const profile = new Array(NC).fill(0), depth = new Array(NR).fill(0), zs = [];
+        for (let j = 0; j < NR; j++) {
+          zs.push(land.z(j));
+          for (let c = 0; c < NC; c++) { const h = heights[j * NC + c]; if (h > profile[c]) profile[c] = h; if (h > depth[j]) depth[j] = h; }
+        }
+        const ref = (NR - 1) * NC + NX / 4, col = mesh.geometry.attributes.color, rock = 0.2 + 0.8 * ease(0, SNOW, heights[ref]), out = { r: 0, g: 0, b: 0 };
+        colour.setRGB(col.getX(ref) / rock, col.getY(ref) / rock, col.getZ(ref) / rock).getRGB(out, THREE.SRGBColorSpace);
+        return Object.assign({
+          amps: Array.from(amps), profile, depth, zs,
+          far: Array.from(land.row(0)),
+          rock: [Math.round(out.r * 255), Math.round(out.g * 255), Math.round(out.b * 255)],
+          rim: Math.max(...Array.from(skirt.geometry.attributes.position.array).filter((_, i) => i % 3 === 1)),
+          floor: Math.min(...Array.from(skirt.geometry.attributes.position.array).filter((_, i) => i % 3 === 1)),
+        }, s);
+      },
+    };
+  }
+
+  globalThis.TimbreMountains = {
+    W, D, NX, NZ, SP, HMAX, FOOT, EDGE, BASE, SNOW, BANDS, FLANK, CROSS,
+    hash, noise, ridge, columnX, bandOf, loudness, answer, rise, heightAt, sink, flow, lift, shade, idle, createLand, definition,
+  };
+})();

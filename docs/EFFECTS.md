@@ -492,6 +492,51 @@ Two things the kit's afterglow does, worth knowing before building on this: a sh
 moves outward (an expanding ring) leaves a filled shape behind it, and a moving point leaves
 a dotted trail. Both were tried here and dropped.
 
+## The mountains (`TimbreMountains`)
+
+`overlay/mountains.js` is the Mountains 3D effect, as `globalThis.TimbreMountains`: a block
+of alpine land that the voice raises and that flows toward the viewer.
+`factories/mountains-3d.js` is one line,
+`VIZ_FACTORIES['mountains-3d'] = TimbreScene.factory(() => TimbreMountains.definition())`.
+It offers:
+
+- **The shape of the land.** `hash(ix, iz)` and `noise(x, z)` are smooth noise in 0 to 1.
+  `ridge(x, w)` is the land before the voice scales it, 0.16 to 1: long connected crests,
+  smaller ones on them and a little roughness. `w` runs along the way the land travels, in
+  the land's own coordinate, so a crest keeps its shape as it moves.
+- **The sound.** `columnX(c)` is where a column is across the block. `bandOf(x)` is the
+  band it follows, as a place among the frequency bins: the middle hears bin 0 and the
+  flanks (2.6 from the middle, where the land begins to sink toward the sides) hear bin 9.
+  `loudness(bins, band, gain)` reads that band, and `answer(band, flame)` adds a little of
+  the voice as a whole.
+- **Height.** `rise(amp)` is the share of its full height the land stands at for a
+  loudness (15% in silence), `heightAt(x, w, amp)` the height of a point, and
+  `lift(flame, kick)` what the whole range is scaled by as the voice and a beat lift it.
+  `sink(x, z)` is the share the land keeps toward the block's edges (14% at the edge).
+- **Flow and colour.** `flow(speed)` is how fast the land moves for a Speed setting, in
+  units a second. `shade(out, rgb, h)` is the land's colour at a height: its own colour,
+  dark in the valleys, and white above the snow line. `idle(c, t)` is the swell a column
+  follows with the mic off.
+- **The land.** `createLand()` gives `{ advance(distance, amps), row(j), z(j),
+  write(positions, heights, lift), stored(i), travel, top }`. It keeps rows of heights that
+  ride with the terrain. `advance` moves the land on and writes each row it passes, once,
+  with every column's loudness at the moment the far edge passed that row's place. `row(j)`
+  and `z(j)` are what to draw: row 0 is the far edge (the voice now), the last row is the
+  near edge (read between the two stored rows either side of it), and the rows between are
+  the stored rows, newest first. `write` fills a position buffer with the whole land, sunk
+  toward the edges and lifted, and returns the tallest height.
+- **The scene.** `definition()` returns the kit scene definition: the land, the cut sides
+  of the block, the sun's light with its shadow, the sun and the glow of the sky.
+
+All its timing comes from `dt`, as a distance handed to `advance`. The arithmetic touches
+nothing at load, and the file must stay loadable under Node, because `npm run verify`
+imports it; the scene looks up `THREE`, `TimbreScene` and the core.js globals only when it
+is built. It must be loaded after `scene-kit.js` and before the factories.
+
+Worth knowing before building another piece of moving ground: the rows move with the land
+and only the two edge rows stay put. Sampling a moving height field at fixed points makes
+every sharp crest swim as it passes between them.
+
 ## Wire format (for driving Timbre from elsewhere)
 
 Anything that can call a Streamer.bot action can drive Timbre:

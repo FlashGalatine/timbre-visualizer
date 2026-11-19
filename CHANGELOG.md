@@ -20,6 +20,10 @@ traceability.
 - **Scene kit**: `TimbreScene.createHistory(size, hz)` is a memory of a level for things
   that travel, read by sample (`byAge`) or by age in seconds (`heard`). A scene's camera is
   now in place before its first `update`. See `docs/EFFECTS.md` ("Kit scenes").
+- **Mountains 3D setting**: `cameraDrift` (0 to 100, default 50) for the Mountains 3D effect.
+  What the new Mountains 3D is made of is in `overlay/mountains.js` (`TimbreMountains`),
+  loaded by all three overlay pages and by `verify` under Node, and documented in
+  `docs/EFFECTS.md` ("The mountains").
 - **Sunburst settings**: `spin` (0 to 100, default 50; 0 holds the crown still) and
   `cameraDrift` (0 to 100, default 50) for the Sunburst effect. Spin also scales how fast
   the crown's tilt wanders. What the new Sunburst is
@@ -125,6 +129,21 @@ traceability.
   `test-render-640.png`.
 
 ### Changed
+
+- **Mountains 3D is now a block of land that the voice raises**, the ninth scene on the scene
+  kit. The flat-shaded sheet of terrain whose rows jumped a step at a time is gone. A block
+  of alpine land floats in the box, cut square like a terrain model, lit by a low sun behind
+  it so the peaks throw shadows toward you. The land flows toward you, smoothly. New land
+  enters at the far edge as high as the voice is loud: a phrase raises a range of peaks, and
+  a pause leaves a valley of foothills. The middle of the range hears the low end of the
+  sound and the flanks the higher bands. Land above the snow line is white, so a loud voice
+  and music give snow-capped peaks. The sun and its light brighten with each syllable, the
+  whole range lifts a little with the voice, and a beat lifts it further and flares the sun.
+  With the mic off and Idle animation on the land keeps flowing under a slow swell; with
+  both off it stands still (its colours still move through the palette).
+  Colours come from the palette, now running across the range. `speed` is how fast the land
+  flows (50 crosses the block in 5 s). It uses the shared Scene placement sliders, and no
+  longer makes a renderer of its own.
 
 - **Sunburst 3D is now a star with a crown of light**, the eighth scene on the scene kit. The
   white ball with hair-thin lines is gone. A small star floats in the box: a solid ball,
