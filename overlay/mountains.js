@@ -205,6 +205,28 @@
     };
   }
 
+  // The cut sides of the block: a wall below the land's rim. For every point of the rim there
+  // are two points, the rim point itself and the point under it on the base (the odd ones).
+  // from: which point of the land each copies; normals: which way each side faces; index: the
+  // triangles, wound so that each faces out of the block.
+  function rim() {
+    const from = [], normals = [], index = [];
+    const side = (list, nx, nz, turn) => {
+      const first = from.length;
+      for (const v of list) { from.push(v, v); normals.push(nx, 0, nz, nx, 0, nz); }
+      for (let i = 0; i < list.length - 1; i++) {
+        const a = first + i * 2;
+        if (turn) index.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); else index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      }
+    };
+    const run = (n, f) => Array.from({ length: n }, (_, i) => f(i));
+    side(run(NC, (c) => c), 0, -1, true);                    // far
+    side(run(NC, (c) => (NR - 1) * NC + c), 0, 1, false);    // near
+    side(run(NR, (j) => j * NC), -1, 0, false);              // left
+    side(run(NR, (j) => j * NC + NX), 1, 0, true);           // right
+    return { from: Int32Array.from(from), normals: Float32Array.from(normals), index };
+  }
+
   // ── The scene ───────────────────────────────────────────────────────────────
   // Everything below runs only when the scene is built: THREE, TimbreScene and the core.js
   // globals (the mic, the bins, the palette, the settings) are looked up then.
@@ -251,27 +273,17 @@
       k.scene.add(mesh);
 
       // The cut sides of the block: each point of the land's rim, and the point below it.
-      const from = [], normals = [], sides = [];
-      const side = (list, nx, nz) => {
-        const first = from.length;
-        for (const v of list) { from.push(v, v); normals.push(nx, 0, nz, nx, 0, nz); }
-        for (let i = 0; i < list.length - 1; i++) { const a = first + i * 2; sides.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
-      };
-      const run = (n, f) => Array.from({ length: n }, (_, i) => f(i));
-      side(run(NC, (c) => c), 0, -1);                   // far
-      side(run(NC, (c) => (NR - 1) * NC + c), 0, 1);    // near
-      side(run(NR, (j) => j * NC), -1, 0);              // left
-      side(run(NR, (j) => j * NC + NX), 1, 0);          // right
-      skirtFrom = Int32Array.from(from);
+      const sides = rim();
+      skirtFrom = sides.from;
       const sg = new THREE.BufferGeometry();
       for (const name of ['position', 'color']) {
-        const attribute = new THREE.BufferAttribute(new Float32Array(from.length * 3), 3);
+        const attribute = new THREE.BufferAttribute(new Float32Array(skirtFrom.length * 3), 3);
         attribute.setUsage(THREE.DynamicDrawUsage);
         sg.setAttribute(name, attribute);
       }
-      sg.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-      sg.setIndex(sides);
-      skirt = new THREE.Mesh(sg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, side: THREE.DoubleSide }));
+      sg.setAttribute('normal', new THREE.BufferAttribute(sides.normals, 3));
+      sg.setIndex(sides.index);
+      skirt = new THREE.Mesh(sg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 }));
       skirt.castShadow = true;
       skirt.frustumCulled = false;
       k.scene.add(skirt);
@@ -394,21 +406,34 @@
           zs.push(land.z(j));
           for (let c = 0; c < NC; c++) { const h = heights[j * NC + c]; if (h > profile[c]) profile[c] = h; if (h > depth[j]) depth[j] = h; }
         }
+        const sp = skirt.geometry.attributes.position.array, lp = mesh.geometry.attributes.position.array, nrm = mesh.geometry.attributes.normal.array;
+        let seam = 0, tilt = 0;   // how far any point of the cut sides is from the rim point it hangs from; how far from upright the land's faces lean
+        for (let i = 0; i < skirtFrom.length; i += 2) {
+          const v = skirtFrom[i] * 3, a = i * 3;
+          seam = Math.max(seam, Math.abs(sp[a] - lp[v]), Math.abs(sp[a + 1] - lp[v + 1]), Math.abs(sp[a + 2] - lp[v + 2]), Math.abs(sp[a + 3] - lp[v]), Math.abs(sp[a + 5] - lp[v + 2]));
+        }
+        for (let i = 1; i < nrm.length; i += 3) tilt += 1 - nrm[i];
+        tilt /= NR * NC;
         const ref = (NR - 1) * NC + NX / 4, col = mesh.geometry.attributes.color, rock = 0.2 + 0.8 * ease(0, SNOW, heights[ref]), out = { r: 0, g: 0, b: 0 };
         colour.setRGB(col.getX(ref) / rock, col.getY(ref) / rock, col.getZ(ref) / rock).getRGB(out, THREE.SRGBColorSpace);
         return Object.assign({
-          amps: Array.from(amps), profile, depth, zs,
+          amps: Array.from(amps), profile, depth, zs, seam, tilt,
           far: Array.from(land.row(0)),
           rock: [Math.round(out.r * 255), Math.round(out.g * 255), Math.round(out.b * 255)],
           rim: Math.max(...Array.from(skirt.geometry.attributes.position.array).filter((_, i) => i % 3 === 1)),
           floor: Math.min(...Array.from(skirt.geometry.attributes.position.array).filter((_, i) => i % 3 === 1)),
-        }, s);
+        }, s, {
+          // Read back from what is drawn, not from what update() meant to draw.
+          high: Math.max(...Array.from(mesh.geometry.attributes.position.array).filter((_, i) => i % 3 === 1)),
+          sun: key.intensity, sunY: sun.position.y, sunSize: sun.scale.x,
+          glow: (palette(s.colorT + 0.6), sun.material.color.r / (rgb[0] + (1 - rgb[0]) * 0.4)),
+        });
       },
     };
   }
 
   globalThis.TimbreMountains = {
     W, D, NX, NZ, SP, HMAX, FOOT, EDGE, BASE, SNOW, BANDS, FLANK, CROSS,
-    hash, noise, ridge, columnX, bandOf, loudness, answer, rise, heightAt, sink, flow, lift, shade, idle, createLand, definition,
+    hash, noise, ridge, columnX, bandOf, loudness, answer, rise, heightAt, sink, flow, lift, shade, idle, createLand, rim, definition,
   };
 })();

@@ -2299,14 +2299,38 @@ await import('./overlay/mountains.js');
     const kept = M.createLand();
     for (let i = 0; i < 70; i++) kept.advance(1.01 * SP, flat(1));   // a little over a row a step, so that rounding cannot hold a row back
     for (let i = 0; i < 3; i++) kept.advance(1.01 * SP, flat(0));
-    ok(kept.top === 73 && Array.from(kept.stored(kept.top - M.NZ)).every((h, c) => near(h, M.heightAt(M.columnX(c), (kept.top - M.NZ) * SP, 1), 1e-6))
-      && Array.from(kept.stored(kept.top - M.NZ - 1)).every((h, c) => near(h, M.heightAt(M.columnX(c), (kept.top - M.NZ - 1) * SP, 1), 1e-6)),
+    ok(kept.top === 73 && [kept.top - M.NZ + 1, kept.top - M.NZ].every((i) => Array.from(kept.stored(i)).every((h, c) => near(h, M.heightAt(M.columnX(c), i * SP, 1), 1e-6))),
       'a row is kept until it has left the near edge: the newest rows never overwrite the two the near edge is read from');
     const far = M.createLand(), jumpStart = Date.now();
     far.advance(40000, flat(0.5));
     ok(Date.now() - jumpStart < 1000 && far.top === Math.floor(40000 / SP), 'a jump writes only the rows still in the block, so it takes no time');
+    ok([1, 20, M.NZ, M.NZ + 1].every((n) => { const i = far.top - (n - 1); return Array.from(far.stored(i)).every((h, c) => near(h, M.heightAt(M.columnX(c), i * SP, 0.5 * ((i * SP) / 40000)), 1e-5)); }),
+      'after a jump every row the block shows, and the two the near edge is read from, is the land that belongs there');
     for (let i = 0; i < 30; i++) far.advance(0.011, flat(0.5));
     ok(Number.isFinite(far.write(pos, high, 1)) && pos.every(Number.isFinite) && near(far.z(NR - 1), 2.2) && far.z(1) >= -2.2 - 1e-9 && far.z(1) < -2.2 + SP, 'after hours of travel, and after a jump, the rows are still in place');
+  }
+
+  // The cut sides of the block.
+  {
+    const R = M.rim(), land = M.createLand(), pos = new Float32Array(NR * NC * 3), high = new Float32Array(NR * NC);
+    for (let i = 0; i < 200; i++) land.advance(M.flow(50) / 60, flat(0.7));
+    land.write(pos, high, 1);
+    const at = (i) => { const v = R.from[i] * 3; return [pos[v], i & 1 ? -M.BASE : pos[v + 1], pos[v + 2]]; };
+    let faces = 0, agree = true, outward = true;
+    for (let t = 0; t < R.index.length; t += 3) {
+      const a = at(R.index[t]), b = at(R.index[t + 1]), c = at(R.index[t + 2]);
+      const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+      const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]], l = Math.hypot(n[0], n[1], n[2]);
+      const s = [0, 1, 2].map((k) => R.normals[R.index[t] * 3 + k]);
+      faces++;
+      if (l < 1e-9 || (n[0] * s[0] + n[1] * s[1] + n[2] * s[2]) / l < 0.999) agree = false;                        // wound to face the way its normal says
+      if (s[0] * (a[0] + b[0] + c[0]) + s[2] * (a[2] + b[2] + c[2]) <= 0 || s[1] !== 0) outward = false;             // and that way is out of the block
+    }
+    const onRim = Array.from(R.from).every((v) => { const j = Math.floor(v / NC), c = v % NC; return j === 0 || j === NR - 1 || c === 0 || c === NC - 1; });
+    const paired = Array.from(R.from).every((v, i) => (i & 1 ? v === R.from[i - 1] : true));
+    ok(R.from.length === 2 * (2 * NC + 2 * NR) && R.normals.length === R.from.length * 3 && faces === 2 * (2 * (NC - 1) + 2 * (NR - 1)) && onRim && paired,
+      'the cut sides are a wall below every point of the land\'s rim: each rim point and the point under it on the base');
+    ok(agree && outward, 'every piece of the cut sides faces out of the block, and is wound the way its normal points');
   }
 
   // The table.
