@@ -104,6 +104,19 @@ the far edge's loudness for the value saved from the same step, which is the sam
 Three checks were added while the list was being written: the easing of the noise, the ring
 keeping a row until it has left the near edge, and a jump.
 
+From breaking the cut sides on purpose (9 breaks against the Node suite): all caught.
+
+From breaking the scene on purpose (43 breaks against the render suite, after one entry
+with no break that had to pass, and did): 42 caught. The one that was not drew the cut
+sides inside out. The block is then hollow (its near side is missing and the far side
+shows from within), but it measures the same from top to bottom, which was all the check
+of the base looked at. That check now also asks that the lowest rows of the block are
+solid nearly all the way across, and the break is caught. Two unrelated checks (a
+Sunburst one and the context-restore one) each failed once during this run, alongside the
+check that was meant to fail; stills were being rendered on the same machine at the time.
+
+The owner looked at the branch in OBS with the real microphone: "All looks right".
+
 ## Found during the build
 
 - As with Sunburst, the render checks were written before the scene but could not be run
