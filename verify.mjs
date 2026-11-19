@@ -2164,6 +2164,11 @@ await import('./overlay/mountains.js');
     ok(samples.every((v) => v >= 0 && v <= 1) && Math.max(...samples) > 0.8 && Math.min(...samples) < 0.2, 'noise stays within 0 to 1 and uses the range');
     ok(near(M.noise(3, -7), M.hash(3, -7)) && near(M.noise(3.5, -7), (M.hash(3, -7) + M.hash(4, -7)) / 2) && near(M.noise(3, -6.5), (M.hash(3, -7) + M.hash(3, -6)) / 2),
       'noise is the lattice value at a lattice point and half way between two of them at the middle');
+    {
+      const a = M.hash(3, -7), b = M.hash(4, -7), c = M.hash(3, -6), d = M.hash(4, -6), q = 0.25 * 0.25 * (3 - 2 * 0.25);
+      ok(near(M.noise(3.25, -7), a + (b - a) * q) && near(M.noise(3, -6.75), a + (c - a) * q) && near(M.noise(3.5, -6.5), (a + b + c + d) / 4) && near(M.noise(3.25, -6.75), a + (b - a) * q + (c - a) * q + (a - b - c + d) * q * q),
+        'noise is eased between lattice points, both ways: a quarter of the way along is 15.6% of the way in value');
+    }
     ok(Math.abs(M.noise(1.2345, 5.4321) - M.noise(1.2346, 5.4321)) < 1e-3 && Math.abs(M.noise(1.99999, 5.5) - M.noise(2.00001, 5.5)) < 1e-4, 'noise has no steps in it, across a lattice line or within a cell');
     const want = (x, w) => {
       const r1 = 1 - Math.abs(2 * M.noise(x * 0.62 + 11.3, w * 0.62) - 1), r2 = 1 - Math.abs(2 * M.noise(x * 1.7 + 3.1, w * 1.7 + 7.7) - 1), r3 = M.noise(x * 4.6 + 1.9, w * 4.6 + 5.2);
@@ -2291,8 +2296,15 @@ await import('./overlay/mountains.js');
     const odd = M.createLand();
     odd.advance(NaN, flat(0.5)); odd.advance(-3, flat(0.5)); odd.advance(Infinity, flat(0.5)); odd.advance(0, flat(0.5));
     ok(odd.travel === 0 && odd.top === 0 && Number.isFinite(odd.write(pos, high, 1)) && pos.every(Number.isFinite), 'a step that is not a distance moves nothing and leaves the land sound');
-    const far = M.createLand();
+    const kept = M.createLand();
+    for (let i = 0; i < 70; i++) kept.advance(1.01 * SP, flat(1));   // a little over a row a step, so that rounding cannot hold a row back
+    for (let i = 0; i < 3; i++) kept.advance(1.01 * SP, flat(0));
+    ok(kept.top === 73 && Array.from(kept.stored(kept.top - M.NZ)).every((h, c) => near(h, M.heightAt(M.columnX(c), (kept.top - M.NZ) * SP, 1), 1e-6))
+      && Array.from(kept.stored(kept.top - M.NZ - 1)).every((h, c) => near(h, M.heightAt(M.columnX(c), (kept.top - M.NZ - 1) * SP, 1), 1e-6)),
+      'a row is kept until it has left the near edge: the newest rows never overwrite the two the near edge is read from');
+    const far = M.createLand(), jumpStart = Date.now();
     far.advance(40000, flat(0.5));
+    ok(Date.now() - jumpStart < 1000 && far.top === Math.floor(40000 / SP), 'a jump writes only the rows still in the block, so it takes no time');
     for (let i = 0; i < 30; i++) far.advance(0.011, flat(0.5));
     ok(Number.isFinite(far.write(pos, high, 1)) && pos.every(Number.isFinite) && near(far.z(NR - 1), 2.2) && far.z(1) >= -2.2 - 1e-9 && far.z(1) < -2.2 + SP, 'after hours of travel, and after a jump, the rows are still in place');
   }
