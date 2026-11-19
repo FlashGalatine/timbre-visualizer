@@ -89,6 +89,29 @@ sheet about a quarter of the canvas, which the owner saw in the spike's stills; 
 folding at crests tighter than it is wide; echoes of sound from before a mute being
 shifted by the time muted.
 
+## Breaking it on purpose
+
+Each rule was broken in a separate copy, one at a time, and the suites run against it: 72
+breaks of the arithmetic and 45 of the scene, after one run with nothing broken. Every break
+of the arithmetic failed a check. Three of the scene did not, and each now has one:
+
+- **The ends of a trace not held down.** The check reads both ends of the front trace at
+  the foot under three different sounds, and the rise from there against the curve.
+- **A slice open below its glow.** Nothing showed it in the numbers: the quiet slices
+  behind fill the gap from above, and the count of solid pixels stayed over its threshold.
+  The check looks at the picture with the camera square on: over the middle half of the
+  deck, every column is solid down to the deck's bottom edge.
+- **A band followed by a fixed sixtieth of a second, not by the time passed.** The check of
+  30 against 60 fps looked at a deck after the bands had settled. It now also reads a band
+  a tenth of a second into its rise, at both rates.
+
+Each of the three breaks was run again and fails its new check.
+
+During these runs two checks of other scenes failed now and then, on breaks that cannot
+reach them: Sunburst's and Mountains 3D's "with the mic and Idle animation off the picture
+holds still", three times and twice in 46 runs. Both have passed in every run of the suite on its own.
+The cause is not known.
+
 ## Found during the build
 
 - The branch was started on top of the Mountains 3D branch, before that had landed, and

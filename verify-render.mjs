@@ -1554,8 +1554,20 @@ async function main() {
             if (a === 0 && rgb === 0) empty++;
           }
           const size = (b) => ({ w: b[1] < 0 ? 0 : b[1] - b[0] + 1, h: b[3] < 0 ? 0 : b[3] - b[2] + 1, cx: (b[0] + b[1]) / 2, cy: (b[2] + b[3]) / 2 });
+          // foot: over the middle half of the deck, how far above the deck's bottom edge a column's
+          // lowest solid pixel is at most, in pixels. With the camera square on, the front slice's
+          // foot is that bottom edge, so this is 0 or so unless the slice is open underneath.
+          let foot = -1;
+          if (solidBox[1] >= 0) {
+            const span = solidBox[1] - solidBox[0];
+            for (let x = Math.round(solidBox[0] + span * 0.25); x <= Math.round(solidBox[0] + span * 0.75); x++) {
+              let y = solidBox[2];
+              while (y <= solidBox[3] && px[(y * w + x) * 4 + 3] <= 250) y++;
+              foot = Math.max(foot, y - solidBox[2]);
+            }
+          }
           const s = window.__timbre.scene, state = (s && s.state) || {};
-          out.push({ state, solid, light, lightSum, edge, empty: empty / (w * h), cornerAlpha: px[3],
+          out.push({ state, solid, light, lightSum, edge, foot, empty: empty / (w * h), cornerAlpha: px[3],
             box: size(box), solidBox: size(solidBox), canvas: [w, h], trace, hash, kitCam: s ? s.camera : null,
             expectTone: state.slices ? getColor(state.colorT + TimbrePhosphor.backOf(state.ref, state.slices) * 0.8) : null });
         }
@@ -1619,6 +1631,12 @@ async function main() {
       JSON.stringify([risen.state.now[3], fallen.state.now[3]]));
     const [noBins] = await deckRun([{ level: 0.6, secs: 1.5 }]);
     check('phosphor: with no band sounding a trace is a smooth arch as tall as the voice is loud', swing(noBins.state.front) < 1e-6 && Math.abs(top(noBins.state.front) - (0.14 + 1.5 * Math.pow(0.6, 0.9) * 0.55)) < 0.01, JSON.stringify([swing(noBins.state.front), top(noBins.state.front)]));
+    // Both ends of a trace are held down at the foot, whatever sounds; it rises from there.
+    const ease = (u) => { const t = Math.min(1, Math.max(0, u / 0.16)); return t * t * (3 - 2 * t); };
+    const archAt = (j) => 0.14 + 1.5 * Math.pow(0.6, 0.9) * 0.55 * ease(j / 95) * ease(1 - j / 95);
+    check('phosphor: both ends of a trace are held at the foot, and it rises from there', [noBins, loud, highOnly].every((r) => Math.abs(r.state.front[0] - 0.14) < 1e-6 && Math.abs(r.state.front[95] - 0.14) < 1e-6)
+      && top(loud.state.front) > 0.8 && [4, 8, 12, 87, 91].every((j) => Math.abs(noBins.state.front[j] - archAt(j)) < 0.01) && noBins.state.front[4] < noBins.state.front[8] && noBins.state.front[8] < noBins.state.front[12],
+      JSON.stringify({ ends: [loud.state.front[0], loud.state.front[95], highOnly.state.front[0]], rise: [4, 8, 12].map((j) => [noBins.state.front[j], archAt(j)]) }));
     const quiet = [{ level: 0.6, bins: [[3, 0.3]], secs: 1.5 }], w3 = 1 / 1.45, A6 = Math.pow(0.6, 0.9);
     const [plain] = await deckRun(quiet, { gain: 1 }), [boosted] = await deckRun(quiet, { gain: 2 });
     const swingFor = (a) => 1.5 * A6 * 0.9 * ((a * w3) / (0.15 + a * w3));
@@ -1653,14 +1671,19 @@ async function main() {
     check('phosphor: Camera drift 0 holds the camera still; 100 doubles the sway', still.state.orbit === 0 && Math.abs(loud.state.orbit) > 0.005 && Math.abs(drift.state.orbit - 2 * loud.state.orbit) < 1e-9
       && Math.abs(still.kitCam[0]) < 1e-6 && Math.abs(drift.kitCam[0]) > 1.5 * Math.abs(loud.kitCam[0]) && Math.abs(loud.kitCam[0]) > 0.05,
       JSON.stringify({ orbit: [still.state.orbit, loud.state.orbit, drift.state.orbit], x: [still.kitCam[0], loud.kitCam[0], drift.kitCam[0]] }));
+    check('phosphor: a slice is solid from its trace down to its foot', still.foot >= 0 && still.foot <= 2 && still.solidBox.h > 100, JSON.stringify({ foot: [still.foot, hush.foot], box: still.solidBox }));
     check('phosphor: each trace lies in the plane of its slice, a hair in front of it', loud.state.span > 0 && loud.state.lift.every((d) => Math.abs(d - 0.006) < 1e-6) && Math.abs(loud.state.span - 2 * loud.state.widths[0]) < 1e-5, JSON.stringify({ lift: loud.state.lift.slice(0, 3), span: loud.state.span }));
 
     // The same at any frame rate.
     const fpsSteps = [{ level: 0.8, all: 0.8, secs: 1 }, { level: 0, all: 0, secs: 0.5 }];
     const [, d30] = await deckRun(fpsSteps, { fps: 30 }), [, d60] = await deckRun(fpsSteps, { fps: 60 });
+    // A band a tenth of a second into its rise: the same at both rates, and where the rate of 20 a second puts it.
+    const onset = [{ level: 0.6, bins: [[3, 1]], secs: 0.1 }];
+    const [b30] = await deckRun(onset, { fps: 30, gain: 1 }), [b60] = await deckRun(onset, { fps: 60, gain: 1 });
     check('phosphor: the same sound gives the same deck at 30 and 60 fps', Math.abs(d30.state.clock - 1.5) < 1e-6 && Math.abs(d60.state.clock - 1.5) < 1e-6 && gap(d30.state.lag, d60.state.lag) < 1e-6
-      && gap(d30.state.stands, d60.state.stands) < 0.06 && gap(d30.state.peaks, d60.state.peaks) < 0.1 && top(d60.state.stands) > 0.7 && tallest(d30.state.stands) === tallest(d60.state.stands),
-      JSON.stringify({ clock: [d30.state.clock, d60.state.clock], stands: gap(d30.state.stands, d60.state.stands), peaks: gap(d30.state.peaks, d60.state.peaks), tallest: [tallest(d30.state.stands), tallest(d60.state.stands)] }));
+      && gap(d30.state.stands, d60.state.stands) < 0.06 && gap(d30.state.peaks, d60.state.peaks) < 0.1 && top(d60.state.stands) > 0.7 && tallest(d30.state.stands) === tallest(d60.state.stands)
+      && Math.abs(b30.state.now[3] - (1 - Math.exp(-2))) < 1e-5 && Math.abs(b60.state.now[3] - (1 - Math.exp(-2))) < 1e-5,
+      JSON.stringify({ clock: [d30.state.clock, d60.state.clock], stands: gap(d30.state.stands, d60.state.stands), peaks: gap(d30.state.peaks, d60.state.peaks), tallest: [tallest(d30.state.stands), tallest(d60.state.stands)], band: [b30.state.now[3], b60.state.now[3]] }));
 
     // Mic off.
     const [idle1, idle2] = await deckRun([{ level: null, idle: true, secs: 3 }, { level: null, idle: true, secs: 1.5 }]);
