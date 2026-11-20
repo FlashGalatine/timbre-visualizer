@@ -2623,9 +2623,11 @@ async function main() {
     const [risen, fallen] = await blobRun([{ level: 0.6, bins: [[2, 1]], secs: 0.1 }, { level: 0.6, secs: 0.5 }], { gain: 1 });
     check('metaball: a band is followed, quick out and slow home', Math.abs(risen.state.bands[2] - (1 - Math.exp(-1.2))) < 1e-5 && Math.abs(fallen.state.bands[2] - (1 - Math.exp(-1.2)) * Math.exp(-1.1)) < 1e-5 && risen.state.bands[3] === 0 && far(fallen, 3) < far(risen, 3) && far(fallen, 3) > 0.05,
       JSON.stringify({ bands: [risen.state.bands[2], fallen.state.bands[2]], far: [far(risen, 3), far(fallen, 3)] }));
+    // An edge too faint to count as metal would be taken for light by the afterglow, and linger where the droplet had been.
+    check('metaball: a droplet going home leaves no light behind it', fallen.light === 0 && risen.light === 0 && fallen.solid > 1000, JSON.stringify({ light: [risen.light, fallen.light], solid: fallen.solid }));
     const quiet = [{ level: 0.6, bins: [[2, 0.4]], secs: 1.5 }];
     const [plain] = await blobRun(quiet, { gain: 1 }), [boosted] = await blobRun(quiet, { gain: 2 });
-    check('metaball: Gain scales how loud a band is, and so how far its droplet goes', Math.abs(plain.state.bands[2] - 0.4) < 0.005 && Math.abs(boosted.state.bands[2] - 0.8) < 0.005 && Math.abs(far(plain, 3) - 1.6 * smooth(plain.state.bands[2])) < 0.07 && far(boosted, 3) > far(plain, 3) + 0.5,
+    check('metaball: Gain scales how loud a band is, and so how far its droplet goes', Math.abs(plain.state.bands[2] - 0.4) < 0.005 && Math.abs(boosted.state.bands[2] - 0.8) < 0.005 && Math.abs(far(plain, 3) - 1.6 * smooth(plain.state.bands[2])) < 0.07 && far(boosted, 3) > far(plain, 3) + 0.5 && plain.state.out === 0 && boosted.state.out === 1,
       JSON.stringify({ bands: [plain.state.bands[2], boosted.state.bands[2]], far: [far(plain, 3), far(boosted, 3)] }));
 
     // Loudness and a beat.
@@ -2672,8 +2674,9 @@ async function main() {
     const [on1, on2] = await blobRun([{ level: null, idle: true, secs: 3 }, { level: null, idle: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
     check('metaball: with the mic and Idle animation off the picture holds still, pixel for pixel', off1.hash === off2.hash && on1.hash !== on2.hash && off2.solid > 500 && off2.state.live === false && off2.state.clock === 0 && off2.state.out === 0,
       JSON.stringify({ off: [off1.hash, off2.hash], idle: [on1.hash, on2.hash], solid: off2.solid, differs: off2.diff }));
-    const [live1, muted1, muted2, muted3] = await blobRun([{ level: 0.8, all: 0.8, secs: 2 }, { level: null, off: true, secs: 0.5 }, { level: null, off: true, secs: 7.5 }, { level: null, off: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
-    check('metaball: muted in the middle of a stream, the droplets stop turning, drift home, and then nothing moves', muted1.state.live === false && muted1.state.clock === live1.state.clock && muted2.state.clock === live1.state.clock && live1.state.out === 8
+    // (Quiet and then loud, so that a beat has struck and is still dying away when the mic goes.)
+    const [, live1, muted1, muted2, muted3] = await blobRun([{ level: 0.05, all: 0.8, secs: 1 }, { level: 0.9, all: 0.8, secs: 1 }, { level: null, off: true, secs: 0.5 }, { level: null, off: true, secs: 7.5 }, { level: null, off: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
+    check('metaball: muted in the middle of a stream, the droplets stop turning, drift home, and then nothing moves', muted1.state.live === false && muted1.state.clock === live1.state.clock && muted2.state.clock === live1.state.clock && live1.state.out === 8 && live1.state.kick > 0.001 && muted1.state.kick > 0 && muted1.state.kick < live1.state.kick
       && far(muted1, 1) > 0.05 && far(muted1, 1) < far(live1, 1) && muted2.state.bands.every((b) => b === 0) && muted2.state.flame === 0 && muted2.state.kick === 0 && muted2.state.glow === 0 && radius(muted2, 0) === Math.fround(0.74) && [1, 2, 3, 4, 5, 6, 7, 8].every((i) => far(muted2, i) === 0) && muted2.hash === muted3.hash && muted1.hash !== muted2.hash,
       JSON.stringify({ clock: [live1.state.clock, muted1.state.clock, muted2.state.clock], far: [far(live1, 1), far(muted1, 1), far(muted2, 1)], bands: muted2.state.bands.slice(0, 3), differs: muted3.diff }));
 
@@ -2695,6 +2698,9 @@ async function main() {
     check('metaball: Scene placement slides it', blobP1.centroidX - blobP0.centroidX > 150, `${blobP0.centroidX.toFixed(0)} → ${blobP1.centroidX.toFixed(0)}`);
     await pushConfig((c) => { c.activeViz = 'metaball'; c.placement.size = 50; });
     await wide.waitForTimeout(400);
+    const [halfHush] = await blobRun([{ level: 0, secs: 2 }]);
+    check('metaball: at half size the soft edge is still about a pixel wide in the picture', halfHush.soft > 0.9 * Math.PI * halfHush.solidBox.w && halfHush.soft < 1.7 * Math.PI * halfHush.solidBox.w && Math.abs(halfHush.solidBox.w - ballWide(0.74, halfHush.canvas) / 2) <= 3,
+      JSON.stringify({ soft: halfHush.soft, around: Math.PI * halfHush.solidBox.w, box: halfHush.solidBox }));
     const halfEdge = await wide.evaluate(() => { currentViz.draw(performance.now(), 1 / 60); currentViz.draw(performance.now() + 17, 1 / 60); return window.__timbre.scene.state.pixel; });
     // The small page draws into a picture several times taller than its canvas.
     const smallBlob = await page.evaluate(() => { currentViz.draw(performance.now(), 1 / 60); currentViz.draw(performance.now() + 17, 1 / 60); const s = window.__timbre.scene, c = document.getElementById('vizCanvas3D'); return { name: window.__timbre.currentVizName, scale: s && s.renderScale, pixel: s && s.state.pixel, want: TimbreMetaball.pixelOf(s.renderScale * c.height, 0.5) }; });

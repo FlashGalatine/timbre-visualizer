@@ -95,9 +95,12 @@ confirmed here before it was fixed, and each fix has a check that failed first.
   was a hard step. Such a pixel is now a blend of the two, by how nearly its ray missed the
   droplet. The check measures how far each outline pixel is from the nearer of the two
   colours it parts: 0.08 to 0.10 of the step without the blend, 0.30 to 0.38 with it.
-- **A step on the inside of the soft edge**, a faint edge that lingered as light, and a
-  march that gave up 30 from the camera whatever the page: all three went with the same
-  rewrite of the shader's ending.
+- **A step on the inside of the soft edge**, and a march that gave up 30 from the camera
+  whatever the page: both went with the same rewrite of the shader's ending.
+- **The faintest part of the edge might linger as light** (the kit's afterglow takes
+  anything under 2% for light). Looked for and not found: it is under 5 parts in 255, and
+  not drawing it changed no picture. Nothing was changed for it; a check now watches for
+  light behind a droplet going home.
 - **The shader ran on a sphere of radius 2.5 whatever the blob was doing**, so in a pause
   nine tenths of its work was on empty pixels. The sphere is now 0.16 past the blob.
 - **Checks that read numbers where they should read the picture.** The ball's width in
@@ -106,3 +109,30 @@ confirmed here before it was fixed, and each fix has a check that failed first.
   and pitch are checked; a frame is timed with the GPU's work included (about 2 ms).
 - Left alone, and written down in the design: the soft edge comes out a little brighter
   than a true blend over mid-tone footage, as the kit's own edges do.
+
+## Breaking it on purpose
+
+Each break is one changed line, run against the Metaball's own checks (its section of
+`verify`, or its block of `verify-render` cut out and run alone), in a separate copy.
+
+- **The arithmetic: 75 breaks.** 71 caught at once. Four were not, and each got a check
+  that its break then failed: the eased size of a droplet at a band where easing matters;
+  the 0.42 the surface is smoothed by, at the point midway between the ball and a droplet;
+  the surface going with the ball as it bobs; and the smallest droplet counting toward the
+  sphere the surface is drawn on.
+- **The scene and the shader: 54 breaks before the review's fixes, 73 after.** After: 67
+  caught at once. Of the six that were not:
+  - a beat still dying away when the mic goes was never settled to nothing in a checked
+    run (no beat had struck in it); the muted run now starts with one;
+  - a droplet was counted as out however quiet its band; the Gain check now counts them;
+  - the soft edge's width was only measured at full size, where a fixed width passes; it is
+    now measured at half size too;
+  - one line of the shader (the last sample of a ray that never turned back from the
+    metal) could not be reached by any ray: removed;
+  - not drawing the faintest 2% of the edge changed nothing: taken back out;
+  - the sixth is the run with nothing broken.
+  Each new check was confirmed by running its break again.
+- Before the fixes, the first run of 54 missed six, among them the glow (no check read it
+  from the picture), the camera's pitch, and the smooth union replaced by a plain one in
+  the shader. Those are what the picture-against-arithmetic check and the others in "What
+  the review found" are for, and all six are caught now.
