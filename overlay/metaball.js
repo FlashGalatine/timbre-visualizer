@@ -19,12 +19,13 @@
 
   const DROPS = 8;                          // droplets: one for each of the eight lowest bins
   const REACH = 1.6;                        // how far from the middle a droplet goes at full band
-  const BOUND = 2.5;                        // the sphere the surface is drawn on: it holds everything at its furthest
+  const ROOM = 0.16;                        // how far past the ball and its droplets the sphere the surface is drawn on reaches
+  const SKIN = 1.02;                        // that sphere is drawn flat-sided: this much larger, so that its flats clear it
   const CORE = 0.74;                        // the ball's radius in silence
   const SMOOTH = 0.42;                      // surfaces nearer than this flow together
   const RISE = 12, FALL = 2.2;              // how fast a band is followed, up and down, a second
   const FOV = 30, PITCH = 12;               // the camera: how wide it sees and how far it looks down, in degrees
-  const FRAME = { width: 5.2, height: 4.2, center: [0, 0, 0] };   // what the camera frames
+  const FRAME = { width: 5.2, height: 4.8, center: [0, 0, 0] };   // what the camera frames: tall enough for the furthest droplet on a beat
   const RAD = Math.PI / 180;
 
   // A band, eased: slow to leave and slow to arrive.
@@ -94,6 +95,14 @@
     return d;
   }
 
+  // The radius of the sphere the surface is drawn on: ROOM past the furthest reach of the ball
+  // or any droplet, so that it holds the surface and its soft edge and little else.
+  function boundOf(balls) {
+    let far = 0;
+    for (let i = 0; i <= DROPS; i++) { const a = i * 4; far = Math.max(far, Math.hypot(balls[a], balls[a + 1], balls[a + 2]) + balls[a + 3]); }
+    return far + ROOM;
+  }
+
   // A level that has all but died away is none. The voice and a beat die away for ever and
   // never arrive, and a picture that should be still would go on changing by a hair.
   function settle(v) {
@@ -124,8 +133,10 @@
 
   // ── The shader ──────────────────────────────────────────────────────────────
   // The surface is field() again, in GLSL, from the same numbers. A ray is marched from
-  // where it enters the sphere the surface is drawn on until it meets the surface; one that
-  // only just misses gives the soft edge.
+  // where it enters the sphere the surface is drawn on until it meets the surface or leaves
+  // the sphere. One that only just misses gives the soft edge; one that only just misses a
+  // droplet and then meets the metal behind it is a blend of the two, so the outlines inside
+  // the blob are as smooth as the one round it.
   const VERT = `
     varying vec3 vWorld;
     void main() { vec4 w = modelMatrix * vec4(position, 1.0); vWorld = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`;
@@ -134,7 +145,8 @@
     varying vec3 vWorld;
     uniform vec4 uBall[${DROPS + 1}];            // x, y, z and radius: the ball, then the droplets
     uniform vec3 uSky, uHorizon, uBody;
-    uniform float uChrome, uGlow, uPixel;
+    uniform float uChrome, uGlow, uPixel, uBound;
+    const float HIT = 0.0015;                  // a ray this near the surface has met it
     float smin(float a, float b, float k) { float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0); return mix(b, a, h) - k * h * (1.0 - h); }
     float field(vec3 p) {
       float d = length(p - uBall[0].xyz) - uBall[0].w;
@@ -155,26 +167,38 @@
       c += vec3(0.9) * pow(max(dot(r, normalize(vec3(-0.7, 0.3, 0.4))), 0.0), 18.0);
       return c;
     }
-    void main() {
-      vec3 ro = cameraPosition, rd = normalize(vWorld - cameraPosition);
-      float t = max(0.0, length(vWorld - ro) - 0.01), nearest = 1e9, tNear = t;
-      bool hit = false;
-      for (int i = 0; i < 64; i++) {
-        float d = field(ro + rd * t);
-        if (d < nearest) { nearest = d; tNear = t; }
-        if (d < 0.0015) { hit = true; break; }
-        t += d * 0.9;
-        if (t > 30.0) break;
-      }
-      float a = hit ? 1.0 : 1.0 - smoothstep(0.0, uPixel * tNear, nearest);
-      if (a <= 0.0) discard;
-      vec3 p = ro + rd * (hit ? t : tNear), n = normalAt(p);
+    // The colour of the metal at p, seen along rd.
+    vec3 shade(vec3 p, vec3 rd) {
+      vec3 n = normalAt(p);
       float rim = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);
       vec3 mirror = sky(reflect(rd, n));
       vec3 soft = uBody * (0.10 + 0.55 * max(dot(n, normalize(vec3(0.4, 0.8, 0.5))), 0.0)) + uSky * 0.25 * rim;
       vec3 col = mix(soft, mirror * mix(uBody, vec3(1.0), 0.45), 0.25 + 0.75 * uChrome);
-      col += uHorizon * rim * 0.35 + uBody * uGlow * (0.15 + 0.6 * rim);
-      gl_FragColor = vec4(col, a);
+      return col + uHorizon * rim * 0.35 + uBody * uGlow * (0.15 + 0.6 * rim);
+    }
+    // How much of a pixel the metal covers when a ray passes d from it, t along the ray.
+    float cover(float d, float t) { return 1.0 - smoothstep(HIT, HIT + uPixel * t, d); }
+    void main() {
+      vec3 ro = cameraPosition, rd = normalize(vWorld - cameraPosition);
+      float b = dot(ro, rd), tOut = -b + sqrt(max(b * b - dot(ro, ro) + uBound * uBound, 0.0));   // where the ray leaves the sphere
+      float t = max(0.0, length(vWorld - ro) - 0.01);
+      // graze: the nearest the ray came to metal that it then left behind (or never reached).
+      float graze = 1e9, tGraze = t, was = 1e9, tWas = t;
+      bool hit = false;
+      for (int i = 0; i < 128; i++) {
+        float d = field(ro + rd * t);
+        if (d < HIT) { hit = true; break; }
+        if (d > was && was < graze) { graze = was; tGraze = tWas; }
+        was = d; tWas = t;
+        t += d * 0.9;
+        if (t > tOut) break;
+      }
+      if (!hit && was < graze) { graze = was; tGraze = tWas; }
+      float edge = cover(graze, tGraze);
+      if (!hit && edge <= 0.02) discard;        // (so faint an edge would linger as light)
+      vec3 col = edge > 0.0 ? shade(ro + rd * tGraze, rd) : vec3(0.0);
+      if (hit) col = mix(shade(ro + rd * t, rd), col, edge);
+      gl_FragColor = vec4(col, hit ? 1.0 : edge);
     }`;
 
   // ── The scene ───────────────────────────────────────────────────────────────
@@ -192,7 +216,7 @@
     const bands = new Float32Array(DROPS), places = new Float32Array((DROPS + 1) * 4), balls = [];
     let THREE = null, mesh = null, mat = null;
     // What the checks read. clock: seconds the scene has been live, which the droplets turn by.
-    const s = { flame: 0, kick: 0, clock: 0, live: false, orbit: 0, colorT: 0, chrome: 0, glow: 0, pixel: 0, out: 0 };
+    const s = { flame: 0, kick: 0, clock: 0, live: false, orbit: 0, colorT: 0, chrome: 0, glow: 0, pixel: 0, out: 0, bound: 0 };
 
     function build(k) {
       THREE = k.THREE;
@@ -201,11 +225,12 @@
         vertexShader: VERT, fragmentShader: FRAG, transparent: true,
         uniforms: {
           uBall: { value: balls }, uSky: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() }, uBody: { value: new THREE.Color() },
-          uChrome: { value: 0.5 }, uGlow: { value: 0 }, uPixel: { value: 0.002 },
+          uChrome: { value: 0.5 }, uGlow: { value: 0 }, uPixel: { value: 0.002 }, uBound: { value: 1 },
         },
       });
-      // The surface is drawn on a sphere that holds it; the shader finds it inside.
-      mesh = new THREE.Mesh(new THREE.SphereGeometry(BOUND, 24, 16), mat);
+      // The surface is drawn on a sphere that holds it; the shader finds it inside. The sphere
+      // is one in radius, and is scaled each frame to what the blob needs.
+      mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), mat);
       mesh.frustumCulled = false;
       k.scene.add(mesh);
     }
@@ -239,6 +264,8 @@
       }
       s.out = out;
       for (let i = 0; i <= DROPS; i++) balls[i].set(places[i * 4], places[i * 4 + 1], places[i * 4 + 2], places[i * 4 + 3]);
+      s.bound = boundOf(places);
+      mesh.scale.setScalar(s.bound * SKIN);
 
       const colorT = ((now * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
       s.colorT = colorT;
@@ -246,6 +273,7 @@
       palette(u.uBody.value, colorT); palette(u.uHorizon.value, colorT + 1); palette(u.uSky.value, colorT + 2);
       s.chrome = u.uChrome.value = clamp01(knob('chrome') / 100);
       s.glow = u.uGlow.value = glowOf(flame, kick);
+      u.uBound.value = s.bound * SKIN;
       s.pixel = u.uPixel.value = pixelOf(TimbreScene.renderScale(canvas3d.height) * canvas3d.height, k.camera.zoom);
     }
 
@@ -265,14 +293,14 @@
         for (const v of u.uBall.value) given.push(v.x, v.y, v.z, v.w);
         return Object.assign({
           balls: given, bands: Array.from(bands), body: srgb(u.uBody.value), horizon: srgb(u.uHorizon.value), sky: srgb(u.uSky.value),
-          uniforms: [u.uChrome.value, u.uGlow.value, u.uPixel.value], transparent: mat.transparent === true,
+          uniforms: [u.uChrome.value, u.uGlow.value, u.uPixel.value, u.uBound.value], drawnOn: mesh.scale.x, transparent: mat.transparent === true,
         }, s);
       },
     };
   }
 
   globalThis.TimbreMetaball = {
-    DROPS, REACH, BOUND, CORE, SMOOTH, RISE, FALL, FOV, PITCH, FRAME, VERT, FRAG,
-    ease, direction, swing, reach, dropSize, dropAt, coreAt, smin, field, settle, glowOf, pixelOf, loudness, idle, definition,
+    DROPS, REACH, ROOM, SKIN, CORE, SMOOTH, RISE, FALL, FOV, PITCH, FRAME, VERT, FRAG,
+    ease, direction, swing, reach, dropSize, dropAt, coreAt, smin, field, boundOf, settle, glowOf, pixelOf, loudness, idle, definition,
   };
 })();

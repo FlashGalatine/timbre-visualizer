@@ -3194,8 +3194,9 @@ await import('./overlay/metaball.js');
   const near = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol;
   const D = M.DROPS;
 
-  ok(M.DROPS === 8 && M.REACH === 1.6 && M.BOUND === 2.5 && M.CORE === 0.74 && M.SMOOTH === 0.42 && M.RISE === 12 && M.FALL === 2.2 && M.FOV === 30 && M.PITCH === 12 && JSON.stringify(M.FRAME) === '{"width":5.2,"height":4.2,"center":[0,0,0]}',
-    'the sizes: a ball 0.74 in radius with eight droplets that reach 1.6 from its middle, joined over 0.42, in a sphere of 2.5');
+  ok(M.DROPS === 8 && M.REACH === 1.6 && M.ROOM === 0.16 && M.SKIN === 1.02 && M.SKIN * Math.cos(Math.PI / 24) * Math.cos(Math.PI / 32) > 1 && M.CORE === 0.74 && M.SMOOTH === 0.42 && M.RISE === 12 && M.FALL === 2.2 && M.FOV === 30 && M.PITCH === 12 && JSON.stringify(M.FRAME) === '{"width":5.2,"height":4.8,"center":[0,0,0]}' && !('BOUND' in M),
+    'the sizes: a ball 0.74 in radius with eight droplets that reach 1.6 from its middle, joined over 0.42, in a frame 4.8 tall');
+  ok(M.definition().cooling.length === 3 && M.definition().cooling.every((v) => v === Infinity), 'light that lingers keeps its colour');
   ok(M.ease(0) === 0 && M.ease(1) === 1 && near(M.ease(0.5), 0.5) && near(M.ease(0.25), 0.15625) && M.ease(-3) === 0 && M.ease(7) === 1, 'a band is eased: slow to leave and slow to arrive');
 
   // Where a droplet leaves the ball.
@@ -3215,7 +3216,7 @@ await import('./overlay/metaball.js');
   // How far a droplet goes and how large it is.
   ok(M.reach(0, 0) === 0 && near(M.reach(1, 0), 1.6) && near(M.reach(0.5, 0), 0.8) && near(M.reach(1, 1), 1.888) && near(M.reach(0.25, 0), 0.25) && M.reach(0, 1) === 0 && near(M.reach(3, 0), 1.6),
     'a droplet goes as far from the middle as its band is loud, eased, up to 1.6; a beat throws it 18% further');
-  ok(near(M.dropSize(0, 1), 0.44) && near(M.dropSize(7, 1), 0.23) && near(M.dropSize(0, 0), 0.242) && near(M.dropSize(3, 0.5), 0.35 * 0.775) && M.dropSize(2, 1) > M.dropSize(5, 1), 'low bands are large drops and high bands small ones; a droplet still inside the ball is 55% of its size');
+  ok(near(M.dropSize(0, 1), 0.44) && near(M.dropSize(7, 1), 0.23) && near(M.dropSize(0, 0), 0.242) && near(M.dropSize(3, 0.5), 0.35 * 0.775) && near(M.dropSize(3, 0.25), 0.35 * (0.55 + 0.45 * 0.15625)) && M.dropSize(2, 1) > M.dropSize(5, 1), 'low bands are large drops and high bands small ones; a droplet still inside the ball is 55% of its size');
   {
     const out = new Float32Array(8), p = (b, band, kick, clock, at = 0) => { out.fill(NaN); M.dropAt(out, at, b, band, kick, clock); return Array.from(out.subarray(at, at + 4)); };
     const d0 = M.direction([0, 0, 0], 3), still = p(3, 1, 0, 0), a = M.swing(3, 0);
@@ -3248,11 +3249,50 @@ await import('./overlay/metaball.js');
     ok(bulge.worst < -0.2 && bulge.far > 0.4, 'a droplet partly out is a bulge on the ball: metal all the way from the middle to it');
     ok(neck.worst < 0 && neck.worst > -0.15 && neck.at > 0.74 && neck.at < neck.far - neck.size, 'further out it is joined to the ball by a neck, thinnest between them');
     ok(apart.worst > 0.05 && apart.own < 0 && small.worst > 0.15 && small.own < 0 && large.worst > 0.05 && large.own < 0 && near(apart.far, 1.6, 0.07) && near(large.far, 1.6, 0.07), 'right out it has pinched off, the largest droplet too: there is a gap between it and the ball');
-    // Louder and on a beat, still apart; and nothing reaches past the sphere the surface is drawn on.
-    set(all, 1, 1, 3.3);
-    let furthest = 0;
-    for (let i = 0; i < 9; i++) furthest = Math.max(furthest, Math.hypot(balls[i * 4], balls[i * 4 + 1], balls[i * 4 + 2]) + balls[i * 4 + 3]);
-    ok(furthest < M.BOUND - 0.05 && furthest > 2.2, 'with every band full, on a beat, nothing reaches past the sphere the surface is drawn on');
+    // The surface goes with the ball as it bobs.
+    set(none, 0, 0, 1.2);
+    const bob = 0.04 * Math.sin(1.56);
+    ok(near(M.field(0, bob + 0.74, 0, balls), 0, 1e-6) && near(M.field(0, bob - 0.74, 0, balls), 0, 1e-6) && near(M.field(0.74, bob, 0, balls), 0, 1e-6) && bob > 0.03, 'the surface goes with the ball as it bobs');
+    // Where the ball and a droplet are as near as each other, the surface is a quarter of 0.42 nearer than either.
+    {
+      const bands = none.slice(); bands[2] = 1; set(bands);
+      const c = balls.subarray(12, 16), away = Math.hypot(c[0], c[1], c[2]), u = (away + 0.74 - c[3]) / (2 * away), each = (away - 0.74 - c[3]) / 2;
+      ok(near(M.field(c[0] * u, c[1] * u, c[2] * u, balls), each - 0.105, 1e-6) && each > 0.2, 'midway between the ball and a droplet that has pinched off, the surface is a quarter of 0.42 nearer than either');
+    }
+    // The sphere the surface is drawn on: no larger than it has to be.
+    set(none);
+    ok(near(M.boundOf(balls), 0.9, 1e-6), 'in a pause the sphere the surface is drawn on is only a little larger than the ball');
+    {
+      let inside = true, most = 0, least = 9;
+      for (let n = 0; n < 60; n++) {
+        const bands = none.map((_, b) => (n < 3 ? [0, 0.5, 1][n] : ((n * 7 + b * 13) % 11) / 10));
+        set(bands, (n % 5) / 4, (n % 3) / 2, n * 0.37);
+        const R = M.boundOf(balls);
+        let furthest = 0;
+        for (let i = 0; i < 9; i++) furthest = Math.max(furthest, Math.hypot(balls[i * 4], balls[i * 4 + 1], balls[i * 4 + 2]) + balls[i * 4 + 3]);
+        if (!near(R, furthest + 0.16, 1e-9)) inside = false;
+        most = Math.max(most, R);
+        for (let i = 0; i < 80; i++) { const a = i * 2.39996, y = 1 - (2 * (i + 0.5)) / 80, r = Math.sqrt(1 - y * y), v = M.field(Math.cos(a) * r * R, y * R, Math.sin(a) * r * R, balls); least = Math.min(least, v); }
+      }
+      ok(inside && least > 0.04 && most > 2.3 && most < 2.7, 'it is 0.16 past the furthest reach of the ball or any droplet, and however they stand the surface is inside it with room for its soft edge');
+    }
+    // With every band full, on a beat, at any camera drift: nothing reaches the top or bottom of the picture.
+    {
+      const p = M.PITCH * Math.PI / 180, half = Math.tan(M.FOV * Math.PI / 360), d = M.FRAME.height / 2 / half;
+      let highest = 0;
+      for (const o of [-0.76, 0, 0.76]) {
+        const cam = [d * Math.sin(o) * Math.cos(p), d * Math.sin(p), d * Math.cos(o) * Math.cos(p)], f = cam.map((v) => -v / d);
+        const side = [f[2] / Math.hypot(f[0], f[2]), 0, -f[0] / Math.hypot(f[0], f[2])], up = [f[1] * side[2] - f[2] * side[1], f[2] * side[0] - f[0] * side[2], f[0] * side[1] - f[1] * side[0]];
+        for (let clock = 0; clock < 40; clock += 0.1) {
+          set(all, 1, 1, clock);
+          for (let i = 0; i < 9; i++) {
+            const v = [balls[i * 4] - cam[0], balls[i * 4 + 1] - cam[1], balls[i * 4 + 2] - cam[2]], el = Math.atan2(v[0] * up[0] + v[1] * up[1] + v[2] * up[2], v[0] * f[0] + v[1] * f[1] + v[2] * f[2]), wide = Math.asin(balls[i * 4 + 3] / Math.hypot(...v));
+            highest = Math.max(highest, Math.abs(Math.tan(el + wide)) / half, Math.abs(Math.tan(el - wide)) / half);
+          }
+        }
+      }
+      ok(highest < 0.94 && highest > 0.85, 'with every band full, on a beat, at any camera drift, nothing reaches the top or bottom of the picture');
+    }
   }
 
   // Light, the edge, and the bands.
@@ -3267,7 +3307,7 @@ await import('./overlay/metaball.js');
   }
   ok(near(M.idle(2, 3), Math.max(0, 0.34 + 0.34 * Math.sin(1.5 + 3.8))) && near(M.idle(6, 3), 0.6 * Math.max(0, 0.34 + 0.34 * Math.sin(1.5 + 11.4))) && [0, 1, 2, 3, 4, 5, 6, 7].every((b) => M.idle(b, 11.3) >= 0 && M.idle(b, 11.3) <= 1)
     && Math.abs(M.idle(1, 0) - M.idle(1, 3)) > 0.05, 'with the mic off the bands follow a slow pattern, the higher ones weaker');
-  ok(typeof M.FRAG === 'string' && M.FRAG.includes('uBall[9]') && M.FRAG.includes('0.42') && M.FRAG.includes('i < 9') && typeof M.VERT === 'string' && !/gl_FragDepth/.test(M.FRAG),
+  ok(typeof M.FRAG === 'string' && M.FRAG.includes('uBall[9]') && M.FRAG.includes('0.42') && M.FRAG.includes('i < 9') && M.FRAG.includes('i < 128') && M.FRAG.includes('uBound') && typeof M.VERT === 'string' && !/gl_FragDepth/.test(M.FRAG),
     'the shader joins the ball and its eight droplets with the same smooth union');
 
   // The table.

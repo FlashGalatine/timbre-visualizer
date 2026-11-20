@@ -185,7 +185,7 @@ traceability.
   ball with a few drops round it, and music a cluster. The voice swells the ball and makes
   the metal glow, and a beat throws every droplet further. With the mic off and Idle
   animation on droplets come and go; with both off they drift home and the ball is still
-  (its colours still move through the palette).
+  (the camera still drifts and its colours still move through the palette).
   Colours come from the palette, not from a hue of its own as before. `chrome` is how much of
   a mirror the metal is. It uses the shared Scene placement sliders, and no longer makes a
   renderer of its own.
