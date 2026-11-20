@@ -2512,6 +2512,13 @@ await import('./overlay/chladni.js');
     ok(worstF < 0.02 && worstS < 0.3 && steep > 10, 'the tables give a figure\'s value and its slope each way, to within a cell');
   }
 
+  {
+    const bins = new Uint8Array(32); bins[0] = 255; bins[1] = 51; bins[9] = 102;
+    ok(near(C.loudness(bins, 0, 1), 1) && near(C.loudness(bins, 1, 1), 0.2) && near(C.loudness(bins, 9, 1), 0.4) && near(C.loudness(bins, 1, 2), 0.4) && C.loudness(bins, 9, 3) === 1
+      && C.loudness(bins, 1, 0) === 0 && C.loudness(null, 3, 1) === 0 && C.loudness(new Uint8Array(0), 3, 1) === 0 && C.loudness(bins, 40, 1) === 0,
+      'a band is as loud as its bin, times Gain, held to 1; nothing with no bins or a band past the last bin');
+  }
+
   // The tone, and which figure.
   {
     const bands = new Float32Array(16);
@@ -2564,6 +2571,9 @@ await import('./overlay/chladni.js');
     const gap = C.voice(); gap.figure = 3; gap.since = 1; gap.quiet = 0.3; gap.phrases = 1;
     C.listen(gap, 0.5, 3, 1 / 60);
     ok(gap.figure === 3 && gap.changes === 0 && gap.quiet === 0, 'a gap shorter than a pause is not a new phrase');
+    const murmur = C.voice(); murmur.figure = 3; murmur.phrases = 1; murmur.quiet = 1;
+    for (let i = 0; i < 30; i++) C.listen(murmur, 0.15, 6, 1 / 60);
+    ok(murmur.figure === 3 && murmur.quiet === 1 && murmur.phrases === 1, 'after a pause, a voice neither loud nor hushed does not start a phrase');
     const mute = C.voice(); mute.figure = 3; mute.phrases = 1;
     for (let i = 0; i < 30; i++) C.listen(mute, 0.5, -1, 1 / 60);
     const waiting = mute.figure === 3 && mute.quiet === 9 && mute.phrases === 1;
@@ -2593,15 +2603,43 @@ await import('./overlay/chladni.js');
       offMax = Math.max(offMax, Math.abs(a.off[i])); offSum += a.off[i];
     }
     const same = (p, q) => p.x.every((v, i) => v === q.x[i]) && p.z.every((v, i) => v === q.z[i]) && p.y.every((v, i) => v === q.y[i]);
-    ok(a.n === N && inside && Math.abs(quad / N - 0.25) < 0.03 && offMax <= 1.5 * 0.024 && offMax > 0.02 && Math.abs(offSum / N) < 0.002 && same(a, b) && !same(a, c) && a.rng.every((s) => s !== 0),
+    const seeds0 = Uint32Array.from(a.rng);
+    ok(a.n === N && inside && Math.abs(quad / N - 0.25) < 0.03 && offMax <= 1.5 * 0.024 && offMax > 0.02 && Math.abs(offSum / N) < 0.002 && same(a, b) && !same(a, c) && a.rng.every((s) => s !== 0) && new Set(a.rng).size > 0.99 * N,
       'sand starts spread evenly over the plate, each grain with its own place beside a line and its own random numbers; the same seed gives the same sand');
 
     const fig = F[2], first = C.measure(a, N, fig, fig, 1);
+    // One grain, with the plate shaking so little that nothing jostles it: far from its place it walks straight
+    // down the slope at the plate's pace, and within reach of its place it slows.
+    {
+      const one = C.createSand(1, 2), out = [0, 0, 0], step = 0.01;
+      const walkFrom = (x, z, off) => {
+        one.x[0] = x; one.z[0] = z; one.y[0] = 0; one.off[0] = off;
+        C.sample(fig, C.cell(x), C.cell(z), out);
+        const v = out[0], sx = out[1], sz = out[2], steep = Math.hypot(sx, sz);
+        C.stepSand(one, 1, fig, fig, 1, 0, true, step);
+        const dx = one.x[0] - x, dz = one.z[0] - z;
+        return { far: v / steep - off, moved: Math.hypot(dx, dz), down: -(dx * sx + dz * sz) * Math.sign(v / steep - off) / (Math.hypot(dx, dz) * steep || 1), f: one.f[0], v };
+      };
+      const far = walkFrom(0.31, 0.12, 0), own = walkFrom(0.31, 0.12, 0.03);
+      // Follow the grain in until it is within reach of its place, and measure the step it takes from there.
+      let nearby = null;
+      for (let i = 0, p = [0.31, 0.12]; i < 400 && !nearby; i++) { const w = walkFrom(p[0], p[1], 0); if (Math.abs(w.far) < 0.03 && Math.abs(w.far) > 0.005) nearby = w; p = [one.x[0], one.z[0]]; }
+      ok(Math.abs(far.far) > 0.05 && near(far.moved, 0.5 * step, 1e-5) && far.down > 0.999 && near(far.f, far.v, 1e-6), 'a grain far from its place walks straight down the slope toward it, at the plate\'s pace, and keeps the plate\'s value under it');
+      ok(!!nearby && near(nearby.moved, 0.5 * step * Math.abs(nearby.far) / 0.04, 2e-5) && nearby.down > 0.99, 'within 0.04 of its place a grain slows in proportion');
+      ok(near(own.moved, 0.5 * step, 1e-5) && Math.abs(own.far - (far.far - 0.03)) < 1e-6, 'a grain\'s place is its own: as far from the line as its offset');
+    }
+    // Sand lying where the plate moves hops, more when the plate shakes harder.
+    {
+      const hop = C.createSand(N, 21), calm = C.createSand(N, 21);
+      for (let i = 0; i < 6; i++) { C.stepSand(hop, N, fig, fig, 1, 1, true, h); C.stepSand(calm, N, fig, fig, 1, 0.1, true, h); }
+      const hopping = C.measure(hop, N, fig, fig, 1), calmer = C.measure(calm, N, fig, fig, 1);
+      ok(hopping.air > 0.03 && hopping.top > 0.01 && hopping.top < 0.2 && calmer.air < hopping.air / 3, 'sand lying where the plate moves hops, more often and higher the harder the plate shakes');
+    }
     for (let i = 0; i < 240; i++) { C.stepSand(a, N, fig, fig, 1, 0.5, true, h); C.stepSand(b, N, fig, fig, 1, 0.5, true, h); }
     const loud = C.measure(a, N, fig, fig, 1);
     let onPlate = true, finite = true;
     for (let i = 0; i < N; i++) { if (!(Math.abs(a.x[i]) <= 1 && Math.abs(a.z[i]) <= 1 && a.y[i] >= 0)) onPlate = false; if (!Number.isFinite(a.x[i] + a.z[i] + a.y[i])) finite = false; }
-    ok(first.settled < 0.3 && loud.settled > 0.75 && loud.spread < first.spread / 4 && onPlate && finite && same(a, b),
+    ok(first.settled < 0.3 && loud.settled > 0.75 && loud.spread < first.spread / 4 && onPlate && finite && same(a, b) && a.rng.every((s, i) => s !== seeds0[i]),
       'shaken, the sand gathers on the lines of the figure and stays on the plate; a run is repeatable', JSON.stringify([first, loud]));
     for (let i = 0; i < 120; i++) C.stepSand(a, N, fig, fig, 1, 0.04, true, h);
     const hum = C.measure(a, N, fig, fig, 1);
@@ -2621,15 +2659,16 @@ await import('./overlay/chladni.js');
 
     // A throw.
     C.throwSand(a, N, 1);
-    let up = true, vmin = 9, vmax = 0, side = 0;
-    for (let i = 0; i < N; i++) { if (!(a.y[i] > 0)) up = false; vmin = Math.min(vmin, a.vy[i]); vmax = Math.max(vmax, a.vy[i]); side = Math.max(side, Math.abs(a.vx[i]), Math.abs(a.vz[i])); }
+    let up = true, vmin = 9, vmax = 0, side = 0, sideX = 0, sideZ = 0;
+    for (let i = 0; i < N; i++) { if (!(a.y[i] > 0)) up = false; vmin = Math.min(vmin, a.vy[i]); vmax = Math.max(vmax, a.vy[i]); sideX = Math.max(sideX, Math.abs(a.vx[i])); sideZ = Math.max(sideZ, Math.abs(a.vz[i])); }
+    side = Math.max(sideX, sideZ);
     for (let i = 0; i < 6; i++) C.stepSand(a, N, fig, fig, 1, 0, false, h);
     const flying = C.measure(a, N, fig, fig, 1);
     for (let i = 0; i < 40; i++) C.stepSand(a, N, fig, fig, 1, 0, false, h);
     const landed = C.measure(a, N, fig, fig, 1);
     let rest = true;
     for (let i = 0; i < N; i++) if (a.y[i] !== 0 || a.vx[i] !== 0 || a.vy[i] !== 0 || a.vz[i] !== 0) rest = false;
-    ok(up && vmin >= 0.75 && vmax <= 2.25 && vmax > 2 && side <= 0.65 && side > 0.5 && flying.air > 0.95 && flying.top > 0.1 && flying.top < 0.3 && landed.air === 0 && rest && landed.settled < hum.settled - 0.2,
+    ok(up && vmin >= 0.75 && vmax <= 2.25 && vmax > 2 && side <= 0.65 && sideX > 0.5 && sideZ > 0.5 && flying.air > 0.95 && flying.top > 0.1 && flying.top < 0.3 && landed.air === 0 && rest && landed.settled < hum.settled - 0.2,
       'a throw sends every grain up and a little sideways; with the plate still they land scattered and lie where they fall', JSON.stringify({ vmin, vmax, side, flying, landed }));
     const half = C.createSand(200, 3);
     C.throwSand(half, 200, 0.5);
@@ -2651,7 +2690,9 @@ await import('./overlay/chladni.js');
     // Only the grains drawn are stepped.
     const part = C.createSand(100, 9), kept = Float32Array.from(part.x);
     for (let i = 0; i < 30; i++) C.stepSand(part, 40, fig, fig, 1, 0.8, true, h);
-    ok(part.x.subarray(40).every((v, i) => v === kept[40 + i]) && !part.x.subarray(0, 40).every((v, i) => v === kept[i]), 'grains beyond the Density setting are left where they lie');
+    C.throwSand(part, 40, 1);
+    ok(part.x.subarray(40).every((v, i) => v === kept[40 + i]) && !part.x.subarray(0, 40).every((v, i) => v === kept[i]) && part.y.subarray(40).every((v) => v === 0) && part.y.subarray(0, 40).every((v) => v > 0),
+      'grains beyond the Density setting are left where they lie, and are not thrown');
   }
 
   // The plate, and the sand's colour.
