@@ -25,7 +25,7 @@
   const G = 48;                             // cells along a side of the plate's grid
   const T = 2048;                           // table cells across the plate
   const BANDS = 16;                         // bins the tone is weighed over
-  const TONE_LOW = 1.3, TONE_SPAN = 4.2;    // the tone is 0 with the sound's weight at bin 1.3 and 1 at bin 5.5
+  const TONE_LOW = 0.4, TONE_SPAN = 2.6;    // the tone is 0 with the sound's weight at bin 0.4 and 1 at bin 3
   const BLEND = 0.8;                        // seconds the plate takes to change figure
   const PAUSE = 0.45;                       // seconds of quiet that make the next sound a new phrase
   const HOLD = 3;                           // seconds a figure is kept within a phrase
@@ -329,7 +329,7 @@
   // the tone with it.
   function idle(b, t) {
     const d = b - (TONE_LOW + TONE_SPAN * (0.5 + 0.5 * Math.sin(0.08 * t)));
-    return Math.exp(-(d * d) / 6);
+    return Math.exp(-(d * d) / 1.5);
   }
 
   // ── The scene ───────────────────────────────────────────────────────────────
@@ -357,7 +357,7 @@
     const st = voice();
     // What the checks read. clock: seconds the scene has been live, which the plate bends by;
     // cold: no tone has been heard since the last pause; hits: how many throws there have been.
-    const s = { flame: 0, kick: 0, level: 0, clock: 0, live: false, orbit: 0, colorT: 0, grains: 0, tone: 0, want: 0, cold: true, heardFor: 0, shake: 0, flex: 0, glowMax: 0, glowAt: 0, size: 0, hits: 0, strength: 0, sinceHit: 9, lastKick: 0 };
+    const s = { flame: 0, kick: 0, level: 0, clock: 0, live: false, orbit: 0, colorT: 0, grains: 0, tone: 0, want: 0, cold: true, heardFor: 0, shake: 0, flex: 0, glowMax: 0, glowAt: 0, hits: 0, strength: 0, sinceHit: 9, lastKick: 0 };
 
     function setGrains(n) {
       count = n;
@@ -465,7 +465,7 @@
       }
       // Only the grains drawn are sent to the GPU.
       for (const a of [grains.geometry.attributes.position, grains.geometry.attributes.color]) { a.addUpdateRange(0, count * 3); a.needsUpdate = true; }
-      s.size = grains.material.size = grainSize(TimbreScene.renderScale(canvas3d.height), k.camera.zoom);
+      grains.material.size = grainSize(TimbreScene.renderScale(canvas3d.height), k.camera.zoom);
 
       // The plate: bent by the figure, glowing where it moves, with a lit rim.
       palette(colorT + 0.7);
@@ -531,7 +531,7 @@
         colour.setRGB((pc[ga] - 0.006) / gm, (pc[ga + 1] - 0.006) / gm, (pc[ga + 2] - 0.009) / gm).getRGB(lit, THREE.SRGBColorSpace);
         return Object.assign(voiced, m, {
           glowTint: [Math.round(lit.r * 255), Math.round(lit.g * 255), Math.round(lit.b * 255)],
-          drawn: grains.geometry.drawRange.count, first, drawn0: [pos[0], pos[1], pos[2]], f0: sand.f[0],
+          drawn: grains.geometry.drawRange.count, size: grains.material.size, first, drawn0: [pos[0], pos[1], pos[2]], f0: sand.f[0],
           ring: (radius(sand.x[0], sand.z[0]) * RINGS) | 0, tint: [Math.round(out.r * 255), Math.round(out.g * 255), Math.round(out.b * 255)],
           relief, plateLit, plateDark, rimLit: pc[0] + pc[1] + pc[2], thick, skirtOff,
         }, s);

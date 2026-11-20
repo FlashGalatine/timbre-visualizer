@@ -2485,7 +2485,7 @@ await import('./overlay/chladni.js');
   const exact = (fig, x, z) => Math.cos(fig[0] * PI * x) * Math.cos(fig[1] * PI * z) + fig[2] * Math.cos(fig[1] * PI * x) * Math.cos(fig[0] * PI * z);
 
   ok(C.GRAINS_MIN === 6000 && C.GRAINS_MAX === 30000 && C.HALF === 2.2 && C.THICK === 0.09 && C.G === 48 && C.T === 2048 && C.BANDS === 16 && C.BLEND === 0.8 && C.PAUSE === 0.45 && C.HOLD === 3 && C.REST === 2.5
-    && C.HUSH === 0.1 && C.LOUD === 0.22 && C.HUM === 0.04 && C.GRAV === 9 && C.REACH === 0.04 && C.SPREAD === 0.024 && C.TONE_LOW === 1.3 && C.TONE_SPAN === 4.2 && C.FLEX === 0.035 && C.BEAT === 4 && C.RIM === 0.16 && C.ONSET === 0.1 && C.STEPS_MAX === 6 && C.TONE_RATE === 2.5 && C.LIFT === 0.014 && C.SIZE === 0.085 && C.RINGS === 32,
+    && C.HUSH === 0.1 && C.LOUD === 0.22 && C.HUM === 0.04 && C.GRAV === 9 && C.REACH === 0.04 && C.SPREAD === 0.024 && C.TONE_LOW === 0.4 && C.TONE_SPAN === 2.6 && C.FLEX === 0.035 && C.BEAT === 4 && C.RIM === 0.16 && C.ONSET === 0.1 && C.STEPS_MAX === 6 && C.TONE_RATE === 2.5 && C.LIFT === 0.014 && C.SIZE === 0.085 && C.RINGS === 32,
     'the sizes: 6,000 to 30,000 grains on a plate 4.4 on a side and 0.09 thick, a grid of 48, tables of 2,048, 16 bands, a blend of 0.8 s, a pause of 0.45 s, a hold of 3 s, a rest of 2.5 s between throws');
   ok(C.grainCount(0) === 6000 && C.grainCount(50) === 18000 && C.grainCount(100) === 30000 && C.grainCount(-9) === 6000 && C.grainCount(500) === 30000 && C.grainCount(NaN) === 18000 && C.grainCount(undefined) === 18000 && C.grainCount(25) === 12000,
     'Density 0 is 6,000 grains, 50 is 18,000, 100 is 30,000; anything else is held to that range, and no setting at all is the default');
@@ -2529,18 +2529,18 @@ await import('./overlay/chladni.js');
     const low = C.toneOf(bands);
     bands.fill(0); bands[9] = 1;
     const high = C.toneOf(bands);
-    bands.fill(0); bands[2] = 0.5; bands[4] = 0.5;
+    bands.fill(0); bands[1] = 0.5; bands[2] = 0.5;
     const mid = C.toneOf(bands);
     bands.fill(0); bands[2] = 0.9; bands[5] = 0.3;
     const lean = C.toneOf(bands);
-    ok(none === -1 && faint === -1 && low === 0 && high === 1 && near(mid, 1.7 / 4.2) && near(lean, (2.3 - 1.3) / 4.2, 1e-6),
+    ok(none === -1 && faint === -1 && low === 0 && high === 1 && near(mid, 1.1 / 2.6) && near(lean, (2.3 - 0.4) / 2.6, 1e-6),
       'the tone is where the sound\'s weight sits among the 16 lowest bins, each weighing as its square, 0 to 1; with too little sound there is none');
-    // A floor of hiss in every bin under a low voice: the tone stays near the voice's. (Weighed plainly, it would be 0.84.)
-    bands.fill(0); bands[2] = 0.8;
+    // A floor of hiss in every bin under a low voice: the tone stays near the voice's. (Weighed plainly, it would be 1.)
+    bands.fill(0); bands[1] = 0.8;
     const clean = C.toneOf(bands);
-    bands.fill(0.05); bands[2] = 0.8;
+    bands.fill(0.05); bands[1] = 0.8;
     const hissy = C.toneOf(bands);
-    ok(near(clean, 0.7 / 4.2, 1e-6) && hissy > clean && hissy - clean < 0.1, 'a floor of hiss under the voice barely moves the tone');
+    ok(near(clean, 0.6 / 2.6, 1e-6) && hissy > clean && hissy - clean < 0.15, 'a floor of hiss under the voice barely moves the tone');
     ok(C.meanOf(0.2, 1, 0, 0.01) === 1 && near(C.meanOf(1, 0, 0.05, 0.05), 0.5) && near(C.meanOf(0.4, 0.4, 0.3, 0.1), 0.4) && near(C.meanOf(0, 1, 0.09, 0.01), 0.1) && C.meanOf(0.7, 0.3, 0, 0) === 0.3,
       'a running mean: what there was, for as long as it lasted, and the new value for its moment');
     ok(C.wantFigure(0) === 0 && C.wantFigure(0.05) === 0 && C.wantFigure(0.1) === 1 && C.wantFigure(0.45) === 4 && C.wantFigure(0.999) === 9 && C.wantFigure(1) === 9 && C.wantFigure(-1) === 0 && C.wantFigure(NaN) === 0,
@@ -2791,9 +2791,9 @@ await import('./overlay/chladni.js');
   }
   ok(C.radius(0, 0) === 0 && near(C.radius(1, 1), 1) && near(C.radius(1, 0), Math.SQRT1_2) && near(C.radius(-0.5, 0.5), 0.5), 'a grain\'s colour goes by how far it is from the middle of the plate, 1 at a corner');
   {
-    const centre = (s) => 1.3 + 4.2 * (0.5 + 0.5 * Math.sin(0.08 * s)), toneAt = (s) => { const b = new Float32Array(16); for (let i = 0; i < 16; i++) b[i] = C.idle(i, s); return C.toneOf(b); };
+    const centre = (s) => 0.4 + 2.6 * (0.5 + 0.5 * Math.sin(0.08 * s)), toneAt = (s) => { const b = new Float32Array(16); for (let i = 0; i < 16; i++) b[i] = C.idle(i, s); return C.toneOf(b); };
     const quarter = Math.PI / 2 / 0.08;
-    ok(near(C.idle(3, 0), Math.exp(-0.16 / 6)) && near(C.idle(7, 10), Math.exp(-Math.pow(7 - centre(10), 2) / 6)) && [0, 5, 10, 15].every((b) => C.idle(b, 33) >= 0 && C.idle(b, 33) <= 1)
+    ok(near(C.idle(2, 0), Math.exp(-0.09 / 1.5)) && near(C.idle(4, 10), Math.exp(-Math.pow(4 - centre(10), 2) / 1.5)) && [0, 5, 10, 15].every((b) => C.idle(b, 33) >= 0 && C.idle(b, 33) <= 1)
       && Math.abs(toneAt(0) - 0.5) < 0.05 && toneAt(quarter) > 0.95 && toneAt(3 * quarter) < 0.1 && toneAt(quarter / 2) > toneAt(0) && toneAt(quarter / 2) < 0.95 && toneAt(2.5 * quarter) < toneAt(2 * quarter) && toneAt(2.5 * quarter) > 0.05,
       'with the mic off the tone drifts slowly from one end of the figures to the other and back, without stopping at either');
   }
