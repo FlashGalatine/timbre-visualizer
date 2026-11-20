@@ -112,41 +112,97 @@
     return out;
   }
 
-  // How a turned box lies on the picture, seen from where a scene's camera rests: how far
-  // its eight corners reach from the middle of the frame, as [lowest, highest, leftmost,
-  // rightmost], in the scene's units there. box is { min: [x, y, z], max: [x, y, z] }; view
-  // is { frame, fov, pitch } as in a scene's definition; the box is drawn at `scale` with
-  // its own origin at (px, py, pz).
-  function reach(box, view, rx, ry, rz, scale, px, py, pz) {
+  // How a turned box lies on the picture: how far its eight corners reach from the middle of
+  // the frame, as [lowest, highest, leftmost, rightmost], in the scene's units there. box is
+  // { min: [x, y, z], max: [x, y, z] }; view is { frame, fov, pitch } as in a scene's
+  // definition; the box is drawn at `scale` with its own origin at (px, py, pz). The camera
+  // is where it rests, or swung `orbit` radians round the middle of the frame as a scene's
+  // k.orbit swings it. (The camera is taken to be as far away as the frame's height asks,
+  // which it is on any page at least as wide as the frame.)
+  function reach(box, view, rx, ry, rz, scale, px, py, pz, orbit) {
     const sinP = Math.sin(view.pitch * DEG), cosP = Math.cos(view.pitch * DEG), dist = view.frame.height / 2 / Math.tan((view.fov * DEG) / 2), c = view.frame.center;
+    const co = Math.cos(orbit || 0), so = Math.sin(orbit || 0);
     const b = [Infinity, -Infinity, Infinity, -Infinity], p = [0, 0, 0];
     for (let i = 0; i < 8; i++) {
       turn(p, (i & 1 ? box.max : box.min)[0], (i & 2 ? box.max : box.min)[1], (i & 4 ? box.max : box.min)[2], rx, ry, rz);
-      const qx = p[0] * scale + px - c[0], qy = p[1] * scale + py - c[1], qz = p[2] * scale + pz - c[2];
-      const near = dist / (dist - (qy * sinP + qz * cosP)), v = (qy * cosP - qz * sinP) * near, h = qx * near;
+      const wx = p[0] * scale + px - c[0], qy = p[1] * scale + py - c[1], wz = p[2] * scale + pz - c[2];
+      const qx = wx * co - wz * so, qz = wx * so + wz * co;                 // as the swung camera sees it
+      // (A corner at the camera or behind it has no place on the picture: it is held just in front.)
+      const near = dist / Math.max(dist - (qy * sinP + qz * cosP), 0.05 * dist), v = (qy * cosP - qz * sinP) * near, h = qx * near;
       if (v < b[0]) b[0] = v; if (v > b[1]) b[1] = v; if (h < b[2]) b[2] = h; if (h > b[3]) b[3] = h;
     }
     return b;
   }
 
+  // The same, over every place a camera that sways `sway` radians each way comes to.
+  function sweep(box, view, rx, ry, rz, scale, px, py, pz, sway) {
+    const b = reach(box, view, rx, ry, rz, scale, px, py, pz, 0);
+    if (!(sway > 0)) return b;
+    for (const part of [-1, -0.75, -0.5, -0.25, 0.25, 0.5, 0.75, 1]) {
+      const o = reach(box, view, rx, ry, rz, scale, px, py, pz, part * sway);
+      b[0] = Math.min(b[0], o[0]); b[1] = Math.max(b[1], o[1]); b[2] = Math.min(b[2], o[2]); b[3] = Math.max(b[3], o[3]);
+    }
+    return b;
+  }
+
   // Where to put a turned box and how large to draw it, so that it stays in the frame:
-  // { scale, x, y, z }. With no rotation it is where it always was, at full size. Turned, it
-  // may reach as far from the middle of the frame as it did unturned, or FILL of the way to
-  // the frame's edge if that is further; if it would reach past that it is drawn smaller,
-  // and it is moved so that it sits in the frame where the unturned box does. Nearer things
-  // look larger, so one correction is not exact: four rounds bring it home.
+  // { scale, x, y, z }. With no rotation it is where it always was, at full size.
+  //
+  // Seen from where the camera rests, a turned box may be as tall and as wide as it was
+  // unturned, or FILL of the frame if that is more, and it sits where the unturned box does
+  // (but never further out than the unturned box reached, or FILL of the way to the frame's
+  // edge). If it is too large for that it is drawn smaller.
+  //
+  // `sway` is how far the scene's camera swings each way, in radians. Wherever the camera
+  // comes to, the box must be inside the frame itself (or reach no further than the unturned
+  // box does from there): it is drawn smaller again if it must be, and moved over.
+  //
+  // Nearer things look larger, so a correction is never exact: the rounds go on until one
+  // changes nothing (a handful as a rule; a box that comes close to the camera can take
+  // hundreds).
   const FILL = 0.86;
-  function poseFor(box, view, rx, ry, rz) {
-    const rest = reach(box, view, 0, 0, 0, 1, 0, 0, 0), sinP = Math.sin(view.pitch * DEG), cosP = Math.cos(view.pitch * DEG);
-    const vRoom = Math.max((FILL * view.frame.height) / 2, (rest[1] - rest[0]) / 2), hRoom = Math.max((FILL * view.frame.width) / 2, (rest[3] - rest[2]) / 2);
+  function poseFor(box, view, rx, ry, rz, sway) {
+    const sinP = Math.sin(view.pitch * DEG), cosP = Math.cos(view.pitch * DEG), halfV = view.frame.height / 2, halfH = view.frame.width / 2;
+    const rest = reach(box, view, 0, 0, 0, 1, 0, 0, 0, 0), swaying = sway > 0, far = swaying ? sweep(box, view, 0, 0, 0, 1, 0, 0, 0, sway) : rest;
+    // At rest: how tall and wide it may be, where its middle belongs, and how far out it may reach.
+    const tall = Math.max(2 * FILL * halfV, rest[1] - rest[0]), wide = Math.max(2 * FILL * halfH, rest[3] - rest[2]);
+    const homeV = (rest[0] + rest[1]) / 2, homeH = (rest[2] + rest[3]) / 2;
+    const low = Math.min(rest[0], -FILL * halfV), high = Math.max(rest[1], FILL * halfV), left = Math.min(rest[2], -FILL * halfH), right = Math.max(rest[3], FILL * halfH);
+    // Swaying: the frame, or as far as the unturned box reaches from wherever the camera is.
+    const lowS = Math.min(far[0], -halfV), highS = Math.max(far[1], halfV), leftS = Math.min(far[2], -halfH), rightS = Math.max(far[3], halfH);
+    // Where a box from..to should have its middle: at `home` if it is inside lo..hi there, or as near as it can
+    // be; and then moved over if the box as the swaying camera finds it (sFrom..sTo) is outside sLo..sHi.
+    const aim = (from, to, home, lo, hi, sFrom, sTo, sLo, sHi) => {
+      const half = (to - from) / 2, mid = (from + to) / 2;
+      let want = home;
+      if (from + (home - mid) < lo || to + (home - mid) > hi) want = Math.min(Math.max(home, lo + half), hi - half);
+      if (swaying) {
+        const move = want - mid, f = sFrom + move, e = sTo + move;
+        if (f >= sLo && e <= sHi) return want;
+        if (f < sLo) want += sLo - f;
+        else want -= e - sHi;
+      }
+      return want;
+    };
     const pose = { scale: 1, x: 0, y: 0, z: 0 };
-    for (let round = 0; round < 4; round++) {
+    let gainV = 1, gainH = 1;
+    for (let round = 0; round < 600; round++) {
       // Its size first, then its place at that size.
-      let b = reach(box, view, rx, ry, rz, pose.scale, pose.x, pose.y, pose.z);
-      pose.scale = Math.min(1, pose.scale * Math.min(vRoom / ((b[1] - b[0]) / 2), hRoom / ((b[3] - b[2]) / 2)));
-      b = reach(box, view, rx, ry, rz, pose.scale, pose.x, pose.y, pose.z);
-      const up = (rest[0] + rest[1]) / 2 - (b[0] + b[1]) / 2, across = (rest[2] + rest[3]) / 2 - (b[2] + b[3]) / 2;
+      let b = reach(box, view, rx, ry, rz, pose.scale, pose.x, pose.y, pose.z, 0), s = swaying ? sweep(box, view, rx, ry, rz, pose.scale, pose.x, pose.y, pose.z, sway) : b;
+      let fit = Math.min(tall / (b[1] - b[0]), wide / (b[3] - b[2]));
+      if (swaying) fit = Math.min(fit, (highS - lowS) / (s[1] - s[0]), (rightS - leftS) / (s[3] - s[2]));
+      const scale = Math.min(1, pose.scale * fit), grew = Math.abs(scale - pose.scale);
+      pose.scale = scale;
+      b = reach(box, view, rx, ry, rz, pose.scale, pose.x, pose.y, pose.z, 0);
+      s = swaying ? sweep(box, view, rx, ry, rz, pose.scale, pose.x, pose.y, pose.z, sway) : b;
+      const midV = (b[0] + b[1]) / 2, midH = (b[2] + b[3]) / 2;
+      const up = (aim(b[0], b[1], homeV, low, high, s[0], s[1], lowS, highS) - midV) / gainV, across = (aim(b[2], b[3], homeH, left, right, s[2], s[3], leftS, rightS) - midH) / gainH;
       pose.x += across; pose.y += up * cosP; pose.z -= up * sinP;
+      if (grew < 1e-10 && Math.abs(up) < 1e-9 && Math.abs(across) < 1e-9) break;
+      // How far the box moved on the picture for the move it was given: nearer than the frame, further.
+      b = reach(box, view, rx, ry, rz, pose.scale, pose.x, pose.y, pose.z, 0);
+      if (Math.abs(up) > 1e-7) gainV = Math.min(4, Math.max(0.3, ((b[0] + b[1]) / 2 - midV) / up));
+      if (Math.abs(across) > 1e-7) gainH = Math.min(4, Math.max(0.3, ((b[2] + b[3]) / 2 - midH) / across));
     }
     return pose;
   }
@@ -197,7 +253,7 @@
   // tone-maps to the canvas. Light is written with alpha 0 throughout.
 
   const api = {
-    createEnvelope, createHistory, follow, fall, fitDistance, turn, reach, poseFor, FILL, afterglowTime, decay, cooling, renderScale, viewOffset,
+    createEnvelope, createHistory, follow, fall, fitDistance, turn, reach, sweep, poseFor, FILL, afterglowTime, decay, cooling, renderScale, viewOffset,
     testLevel: null,          // test hook: a number here replaces the mic level
     outputMode: 'added',      // or 'premultiplied' (an owner's decision, never automatic)
     readLevel, create, factory, debug,

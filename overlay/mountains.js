@@ -35,7 +35,8 @@
   const FOV = 30, PITCH = 18;        // the camera: how wide it sees and how far it looks down, in degrees
   const FRAME = { width: 8.8, height: 5.4, center: [0, 0.8, 0.2] };   // what the camera frames
   // The block as a box, for the Rotate settings to keep in the frame: its base, and its tallest peak lifted.
-  const BOX = { min: [-W / 2, -BASE, -D / 2], max: [W / 2, HMAX * 1.2, D / 2] }, VIEW = { frame: FRAME, fov: FOV, pitch: PITCH };
+  const BOX = { min: [-W / 2, -BASE, -D / 2], max: [W / 2, HMAX * 1.26, D / 2] }, VIEW = { frame: FRAME, fov: FOV, pitch: PITCH };
+  const SWAY = 0.28;                 // how far the camera swings each way at Camera drift 50, in radians
   const RAD = Math.PI / 180;
 
   // A fixed number in 0..1 for each lattice point.
@@ -247,7 +248,8 @@
     const amps = new Float32Array(NC), bands = new Float32Array(NC), tones = new Float32Array(NC * 3);
     const heights = new Float32Array(NR * NC), rgb = [0, 0, 0], tone = [0, 0, 0];
     for (let c = 0; c < NC; c++) bands[c] = bandOf(columnX(c));
-    let THREE = null, whole = null, land = null, mesh = null, skirt = null, skirtFrom = null, sun = null, haze = null, key = null;
+    let THREE = null, whole = null, land = null, mesh = null, skirt = null, skirtFrom = null, base = null, sun = null, haze = null, key = null, fill = null, sky = null;
+    let swayWas = -1;
     let pose = { scale: 1, x: 0, y: 0, z: 0 };
     const turned = [0, 0, 0];
     let colour = null, white = null;
@@ -301,6 +303,12 @@
       skirt.frustumCulled = false;
       whole.add(skirt);
 
+      // The underside of the block, so that it is solid whichever way it is turned.
+      const under = new THREE.PlaneGeometry(W, D);
+      under.rotateX(Math.PI / 2); under.translate(0, -BASE, 0);
+      base = new THREE.Mesh(under, new THREE.MeshStandardMaterial({ color: 0x0b0a12, roughness: 0.95, metalness: 0 }));
+      whole.add(base);
+
       // The sun's light: low, from behind the range and to the left, so the peaks throw
       // their shadows across the land toward the viewer. A weak fill keeps the near faces
       // readable over a dark game. Neither lights the unseen ground.
@@ -312,9 +320,14 @@
       const cam = key.shadow.camera;
       cam.left = -5; cam.right = 5; cam.top = 4; cam.bottom = -4; cam.near = 1; cam.far = 16;
       key.shadow.bias = -0.0012; key.shadow.normalBias = 0.05;
-      const fill = new THREE.DirectionalLight(0xbcd0ff, 0.75);
+      fill = new THREE.DirectionalLight(0xbcd0ff, 0.75);
       fill.position.set(2.5, 3, 6);
-      whole.add(key, key.target, fill, new THREE.HemisphereLight(0xc4d6ff, 0x2a2233, 0.85));
+      whole.add(key, key.target, fill, fill.target);
+      // The light of the sky comes from above the land. three.js takes its direction from where
+      // the light is in the scene, so it cannot ride in the group (the group's own place would
+      // leak into it): it stays in the scene and is put above the land each frame.
+      sky = new THREE.HemisphereLight(0xc4d6ff, 0x2a2233, 0.85);
+      k.scene.add(sky);
 
       // The sun itself and the glow of the sky round it: added light, behind the range.
       const disc = k.glowTexture(255, 255, 255);
@@ -337,12 +350,23 @@
       s.orbit = k.orbit = (0.22 * Math.sin(0.15 * t) + 0.06 * Math.sin(0.41 * t + 2)) * knob('cameraDrift') / 50;
       // The block as the Rotate settings turn it, kept in the frame.
       const rx = knob('rotateX', 0), ry = knob('rotateY', 0), rz = knob('rotateZ', 0);
-      if (rx !== turned[0] || ry !== turned[1] || rz !== turned[2]) { turned[0] = rx; turned[1] = ry; turned[2] = rz; pose = TimbreScene.poseFor(BOX, VIEW, rx, ry, rz); }
+      const sway = (SWAY * knob('cameraDrift')) / 50;
+      if (rx !== turned[0] || ry !== turned[1] || rz !== turned[2] || sway !== swayWas) {
+        turned[0] = rx; turned[1] = ry; turned[2] = rz; swayWas = sway;
+        pose = TimbreScene.poseFor(BOX, VIEW, rx, ry, rz, sway);
+        // The sun's shadows are measured in the scene's units: they shrink with the block.
+        const cam = key.shadow.camera;
+        cam.left = -5 * pose.scale; cam.right = 5 * pose.scale; cam.top = 4 * pose.scale; cam.bottom = -4 * pose.scale; cam.near = pose.scale; cam.far = 16 * pose.scale;
+        cam.updateProjectionMatrix();
+        key.shadow.normalBias = 0.05 * pose.scale;
+      }
       whole.rotation.set(rx * RAD, ry * RAD, rz * RAD);
       whole.scale.setScalar(pose.scale);
       whole.position.set(pose.x, pose.y, pose.z);
       // How it stands, for the checks: the settings as read, its size and place, and where one corner is in the scene.
       whole.updateMatrixWorld(true);
+      sky.position.set(0, 1, 0).applyQuaternion(whole.quaternion);
+      sky.updateMatrixWorld();
       mesh.localToWorld(cornerAt.set(W / 2, 0, D / 2));
       s.turned[0] = rx; s.turned[1] = ry; s.turned[2] = rz; s.scale = pose.scale; s.at[0] = pose.x; s.at[1] = pose.y; s.at[2] = pose.z; s.corner[0] = cornerAt.x; s.corner[1] = cornerAt.y; s.corner[2] = cornerAt.z;
 
@@ -450,6 +474,14 @@
           // Read back from what is drawn, not from what update() meant to draw.
           high: Math.max(...Array.from(mesh.geometry.attributes.position.array).filter((_, i) => i % 3 === 1)),
           sun: key.intensity, sunY: sun.position.y, sunSize: sun.scale.x,
+          // Where three.js will take each light to come from: a light's place less its target's, or the sky light's place.
+          lights: (() => {
+            const at = (o) => new THREE.Vector3().setFromMatrixPosition(o.matrixWorld), from = (l) => at(l).sub(at(l.target)).normalize().toArray();
+            return { key: from(key), fill: from(fill), sky: at(sky).normalize().toArray(), keyAt: at(key).toArray(), keyAim: at(key.target).toArray(), fillAt: at(fill).toArray(), fillAim: at(fill.target).toArray() };
+          })(),
+          shadow: [key.shadow.camera.right, key.shadow.camera.top, key.shadow.camera.near, key.shadow.camera.far, key.shadow.normalBias],
+          sway: swayWas, under: base.geometry.attributes.position.count,
+          sunAt: sun.getWorldPosition(new THREE.Vector3()).toArray(), sunLocal: sun.position.toArray(),
           glow: (palette(s.colorT + 0.6), sun.material.color.r / (rgb[0] + (1 - rgb[0]) * 0.4)),
         });
       },
@@ -457,7 +489,7 @@
   }
 
   globalThis.TimbreMountains = {
-    W, D, NX, NZ, SP, HMAX, FOOT, EDGE, BASE, SNOW, BANDS, FLANK, CROSS, FOV, PITCH, FRAME, BOX,
+    W, D, NX, NZ, SP, HMAX, FOOT, EDGE, BASE, SNOW, BANDS, FLANK, CROSS, FOV, PITCH, FRAME, BOX, SWAY,
     hash, noise, ridge, columnX, bandOf, loudness, answer, rise, heightAt, sink, flow, lift, shade, idle, createLand, rim, definition,
   };
 })();

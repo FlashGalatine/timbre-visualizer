@@ -331,13 +331,16 @@
     return TimbreScene.turn(out, x, y, z, rx, ry, rz);
   }
   // How far the turned plate reaches from the middle of the frame: [lowest, highest, leftmost, rightmost].
-  function bounds(rx, ry, rz, scale, px, py, pz) {
-    return TimbreScene.reach(BOX, VIEW, rx, ry, rz, scale, px, py, pz);
+  // (orbit: how far the camera has swung round the plate, in radians; none if left out.)
+  function bounds(rx, ry, rz, scale, px, py, pz, orbit) {
+    return TimbreScene.reach(BOX, VIEW, rx, ry, rz, scale, px, py, pz, orbit);
   }
   // Where to put the turned plate and how large to draw it so that it stays in the frame.
-  function poseFor(rx, ry, rz) {
-    return TimbreScene.poseFor(BOX, VIEW, rx, ry, rz);
+  // sway: how far the camera swings each way, in radians: the plate stays in wherever it is.
+  function poseFor(rx, ry, rz, sway) {
+    return TimbreScene.poseFor(BOX, VIEW, rx, ry, rz, sway);
   }
+  const SWAY = 0.28;                      // how far the camera swings each way at Camera drift 50, in radians
 
   // How far a place on the plate is from its middle: 0 there, 1 at a corner.
   function radius(x, z) {
@@ -376,6 +379,7 @@
     let THREE = null, whole = null, plate = null, skirt = null, grains = null, colour = null, sand = null, camera = null, count = 0;
     let pose = poseFor(0, 0, 0);
     const turned = [0, 0, 0];
+    let swayWas = -1;
     const st = voice();
     // What the checks read. clock: seconds the scene has been live, which the plate bends by;
     // cold: no tone has been heard since the last pause; hits: how many throws there have been.
@@ -445,7 +449,9 @@
       if (n !== count) setGrains(n);
       // The plate as the Rotate settings turn it, kept in the frame.
       const rx = knob('rotateX', 0), ry = knob('rotateY', 0), rz = knob('rotateZ', 0);
-      if (rx !== turned[0] || ry !== turned[1] || rz !== turned[2]) { turned[0] = rx; turned[1] = ry; turned[2] = rz; pose = poseFor(rx, ry, rz); }
+      const sway = (SWAY * knob('cameraDrift')) / 50;
+      if (rx !== turned[0] || ry !== turned[1] || rz !== turned[2] || sway !== swayWas) { turned[0] = rx; turned[1] = ry; turned[2] = rz; swayWas = sway; pose = poseFor(rx, ry, rz, sway); }
+      s.sway = sway;
       whole.rotation.set(rx * RAD, ry * RAD, rz * RAD);
       whole.scale.setScalar(pose.scale);
       whole.position.set(pose.x, pose.y, pose.z);
@@ -584,6 +590,6 @@
   globalThis.TimbreChladni = {
     GRAINS_MIN, GRAINS_MAX, HALF, THICK, G, T, BANDS, TONE_LOW, TONE_SPAN, BLEND, PAUSE, HOLD, HUSH, LOUD, HUM, REST, GRAV, REACH, SPREAD, FLEX, BEAT, RIM, ONSET, TONE_RATE, LIFT, SIZE, RINGS, STEPS_MAX, PITCH, FOV, FRAME, AIR, BOX, SEED,
     FIGURES, grainCount, value, cell, sample, loudness, toneOf, meanOf, wantFigure, voice, phraseFigure, listen, blendOf, shakeOf, pace, jostle, hopChance, hopSpeed, thrown, stepsFor,
-    createSand, stepSand, throwSand, measure, bend, glow, sandBright, pale, grainSize, turn, bounds, poseFor, radius, idle, definition,
+    createSand, stepSand, throwSand, measure, bend, glow, sandBright, pale, grainSize, turn, bounds, poseFor, SWAY, radius, idle, definition,
   };
 })();
