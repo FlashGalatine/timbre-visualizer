@@ -2011,6 +2011,201 @@ async function main() {
 
     }
 
+    // ── The glass prism (a kit scene: a cut crystal turning in the light) ────
+    {   // its own block: the names below are the crystal's own
+    // Build the scene afresh, drive the level and the 32 bins by hand, and read the canvas and
+    // the scene after each step. A step gives level (null: whatever the kit hears), secs, and
+    // either all (every bin, 0..1) or bins ([[bin, 0..1], ...]); idle: true has the mic off,
+    // off: true has the mic and Idle animation off.
+    const PRISM = 'glass-prism';
+    const prismRun = (steps, { fps = 60, knobs = null, hue = null, colorSpeed = null, gain = null } = {}) => wide.evaluate(({ id, steps, fps, knobs, hue, colorSpeed, gain }) => {
+      window.frame = function () {};
+      const saved = { frequencies, micActive, cfgIdleAnim, cfgColorHue, cfgColorSpeed, cfgGain }, knobs0 = Object.assign({}, perViz[id]);
+      try {
+        if (knobs) Object.assign(perViz[id], knobs);
+        if (hue !== null) cfgColorHue = hue;
+        if (colorSpeed !== null) cfgColorSpeed = colorSpeed;
+        if (gain !== null) cfgGain = gain;
+        TimbreScene.testLevel = 0;
+        setActiveViz('visualizer'); setActiveViz(id);
+        const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), f = new Uint8Array(32), out = [];
+        let now = 100000 + 1000 / 120, last = null;
+        for (const st of steps) {
+          TimbreScene.testLevel = st.level;
+          micActive = !st.idle && !st.off;
+          cfgIdleAnim = st.off ? false : saved.cfgIdleAnim;
+          if (st.knobs) Object.assign(perViz[id], st.knobs);
+          f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
+          if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
+          frequencies = f;
+          let beats = 0;
+          for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) { now += 1000 / fps; const k0 = window.__timbre.scene ? window.__timbre.scene.state.kicks : 0; currentViz.draw(now, 1 / fps); if (window.__timbre.scene.state.kicks > k0) beats++; }
+          const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);   // row 0 is the bottom of the canvas
+          // light: pixels of light over the background, which is all this scene makes. solid: pixels that
+          // cover the background, which it should never make. sum: how much light there is in all.
+          let solid = 0, light = 0, sum = 0, edge = 0, empty = 0, sx = 0, hash = 2166136261;
+          for (let i = 0; i < px.length; i++) hash = Math.imul(hash ^ px[i], 16777619) >>> 0;   // the whole picture, as one number
+          const box = [w, -1, h, -1];
+          for (let i = 0; i < px.length; i += 4) {
+            const x = (i / 4) % w, y = Math.floor(i / 4 / w), rgb = px[i] + px[i + 1] + px[i + 2], a = px[i + 3];
+            if (a > 250) solid++;
+            else if (a < 5 && rgb > 12) {
+              light++; sum += rgb; sx += x;
+              if (x < box[0]) box[0] = x; if (x > box[1]) box[1] = x; if (y < box[2]) box[2] = y; if (y > box[3]) box[3] = y;
+              if (x < 4 || y < 4 || x >= w - 4 || y >= h - 4) edge++;
+            }
+            if (a === 0 && rgb === 0) empty++;
+          }
+          const size = (b) => ({ w: b[1] < 0 ? 0 : b[1] - b[0] + 1, h: b[3] < 0 ? 0 : b[3] - b[2] + 1, cx: (b[0] + b[1]) / 2, cy: (b[2] + b[3]) / 2 });
+          // How this picture differs from the last step's, for when a still picture is not still.
+          const diff = { n: 0, max: 0 };
+          if (last) for (let i = 0; i < px.length; i++) { const d = Math.abs(px[i] - last[i]); if (d) { diff.n++; if (d > diff.max) diff.max = d; } }
+          last = px;
+          const s = window.__timbre.scene, state = (s && s.state) || {};
+          out.push({ state, solid, light, sum, edge, beats, empty: empty / (w * h), cornerAlpha: px[3], box: size(box), centroidX: light ? sx / light : 0, canvas: [w, h], hash, diff, kitCam: s ? s.camera : null,
+            expect: state.copies ? [getColor(state.colorT), getColor(state.colorT + 1), getColor(state.colorT + 2)] : null });
+        }
+        return out;
+      } finally {
+        frequencies = saved.frequencies; micActive = saved.micActive; cfgIdleAnim = saved.cfgIdleAnim; cfgColorHue = saved.cfgColorHue; cfgColorSpeed = saved.cfgColorSpeed; cfgGain = saved.cfgGain;
+        Object.assign(perViz[id], knobs0); TimbreScene.testLevel = null;
+      }
+    }, { id: PRISM, steps, fps, knobs, hue, colorSpeed, gain });
+    const top = (a) => Math.max(...a);
+    const gap = (a, b) => top(a.map((v, i) => Math.abs(v - b[i])));
+    const close = (a, b) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= 2);
+    const long = (v) => Math.hypot(...v);
+    const dot4 = (a, b) => Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]);
+    // How far a turn is from another, in radians (from none at all, by default).
+    const turned = (q, from = [0, 0, 0, 1]) => 2 * Math.acos(Math.min(1, dot4(q, from)));
+    const apartOf = (high, kick, chroma = 50) => (0.018 + 0.1 * high + 0.08 * kick) * chroma / 50;
+    // A run's three copies are where its `apart` puts them: the middle one as the crystal is, the others
+    // smaller and larger, rolled about the line of sight and moved along the camera's right.
+    const placed = (r) => { const a = r.state.apart, c = r.state.copies, q = r.state.q; return turned(c[1].turned, q) < 1e-6 && c[1].scale === 1 && long(c[1].at) === 0
+      && [0, 2].every((i) => { const off = (i - 1) * a; return Math.abs(c[i].scale - (1 + off)) < 1e-9 && gap(c[i].at, r.state.right.map((v) => v * 0.5 * off)) < 1e-9 && Math.abs(turned(c[i].turned, q) - 0.9 * a) < 1e-6; }); };
+    const talk = [{ level: 0.8, all: 0.8, secs: 3 }];
+    // The threshold is 60% of what the scene gives after 3 s at a steady 0.8 with every band sounding: about
+    // 127,000 pixels of light.
+    const PRISM_LIGHT = 76000;
+
+    await activate(PRISM);
+    const prismState = await sceneState();
+    const [loud] = await prismRun(talk);
+    const [hush] = await prismRun([{ level: 0, secs: 2 }]);
+    check('glass-prism is a kit scene: light only, with nothing solid, a transparent corner and no light at the edge',
+      !!prismState && prismState.active === true && prismState.targetSize[0] === 1728 && loud.light > PRISM_LIGHT && loud.solid === 0 && hush.solid === 0 && loud.cornerAlpha === 0 && loud.edge === 0 && loud.empty > 0.4
+        && loud.state.copies.length === 3 && loud.state.copies.every((c) => c.light === true),
+      JSON.stringify({ size: prismState && prismState.targetSize, light: [loud.light, hush.light], sum: [loud.sum, hush.sum], solid: loud.solid, corner: loud.cornerAlpha, edge: loud.edge, empty: loud.empty, box: [loud.box, hush.box] }));
+    check('glass-prism: in a pause the crystal sits in the middle of the frame, dim, its colours all but together', hush.state.flame === 0 && hush.state.kick === 0 && Math.abs(hush.state.apart - 0.018) < 1e-6 && Math.abs(hush.state.bright - 0.26) < 1e-9 && hush.state.bands.every((b) => b === 0)
+      && Math.abs(hush.box.cx - hush.canvas[0] / 2) < 0.05 * hush.canvas[0] && Math.abs(hush.box.cy - hush.canvas[1] / 2) < 0.08 * hush.canvas[1] && hush.box.h > 0.45 * hush.canvas[1] && hush.box.h < 0.9 * hush.canvas[1] && hush.light > 0.2 * PRISM_LIGHT && placed(hush),
+      JSON.stringify({ apart: hush.state.apart, bright: hush.state.bright, box: hush.box, canvas: hush.canvas, light: hush.light }));
+    check('glass-prism: with every band sounding it is far brighter, and its colours are further apart', loud.state.bands.every((b) => b > 0.7) && Math.abs(loud.state.high - loud.state.bands.slice(5).reduce((a, b) => a + b, 0) / 5) < 1e-6
+      && Math.abs(loud.state.apart - apartOf(loud.state.high, loud.state.kick)) < 0.002 && loud.state.apart > 3 * hush.state.apart && loud.sum > 2 * hush.sum && loud.box.w > hush.box.w && placed(loud),
+      JSON.stringify({ bands: loud.state.bands, high: loud.state.high, apart: [hush.state.apart, loud.state.apart], sum: [hush.sum, loud.sum], box: [hush.box.w, loud.box.w] }));
+
+    // A band and its facets.
+    const [none] = await prismRun([{ level: 0.6, secs: 1.5 }], { gain: 1 });
+    const [third] = await prismRun([{ level: 0.6, bins: [[2, 1]], secs: 1.5 }], { gain: 1 });
+    const [beyond] = await prismRun([{ level: 0.6, bins: [[12, 1]], secs: 1.5 }], { gain: 1 });
+    check('glass-prism: a band lights its own facets, and no other band\'s', Math.abs(third.state.bands[2] - 1) < 1e-6 && third.state.bands.every((b, i) => i === 2 || b === 0) && gap(third.state.given, third.state.bands) === 0 && third.state.given.length === 10
+      && third.sum > 1.02 * none.sum && third.state.high === 0, JSON.stringify({ bands: third.state.bands, given: third.state.given, sum: [none.sum, third.sum] }));
+    check('glass-prism: only the ten lowest bins are heard', beyond.state.bands.every((b) => b === 0) && Math.abs(beyond.sum - none.sum) <= 0.001 * none.sum && beyond.light === none.light,
+      JSON.stringify({ bands: beyond.state.bands, sum: [none.sum, beyond.sum], light: [none.light, beyond.light] }));
+    const [risen, fallen] = await prismRun([{ level: 0.6, bins: [[2, 1]], secs: 0.1 }, { level: 0.6, secs: 0.5 }], { gain: 1 });
+    check('glass-prism: a band is followed, quick up and slower down', Math.abs(risen.state.bands[2] - (1 - Math.exp(-2))) < 1e-5 && Math.abs(fallen.state.bands[2] - (1 - Math.exp(-2)) * Math.exp(-2.5)) < 1e-5 && risen.state.bands[3] === 0,
+      JSON.stringify({ bands: [risen.state.bands[2], fallen.state.bands[2]] }));
+    const quiet = [{ level: 0.6, bins: [[2, 0.4]], secs: 1.5 }];
+    const [plain] = await prismRun(quiet, { gain: 1 }), [boosted] = await prismRun(quiet, { gain: 2 });
+    check('glass-prism: Gain scales how loud a band is', Math.abs(plain.state.bands[2] - 0.4) < 0.005 && Math.abs(boosted.state.bands[2] - 0.8) < 0.005 && boosted.sum > plain.sum,
+      JSON.stringify({ bands: [plain.state.bands[2], boosted.state.bands[2]], sum: [plain.sum, boosted.sum] }));
+
+    // The colours coming apart.
+    const lows = [[0, 1], [1, 1], [2, 1], [3, 1], [4, 1]], highs = [[5, 1], [6, 1], [7, 1], [8, 1], [9, 1]];
+    const [low] = await prismRun([{ level: 0.6, bins: lows, secs: 2 }], { gain: 1 }), [high] = await prismRun([{ level: 0.6, bins: highs, secs: 2 }], { gain: 1 });
+    check('glass-prism: the high end of the sound pulls its colours apart, and the low end does not', low.state.high === 0 && Math.abs(high.state.high - 1) < 1e-6 && Math.abs(low.state.apart - 0.018) < 1e-6 && Math.abs(high.state.apart - 0.118) < 1e-6
+      && placed(low) && placed(high) && high.state.copies[2].scale > 1.11 && high.state.copies[0].scale < 0.89 && long(high.state.copies[2].at) > 0.05 && high.box.w > low.box.w + 20 && high.light > 1.1 * low.light,
+      JSON.stringify({ high: [low.state.high, high.state.high], apart: [low.state.apart, high.state.apart], scale: high.state.copies.map((c) => c.scale), box: [low.box.w, high.box.w], light: [low.light, high.light] }));
+    const [together] = await prismRun([{ level: 0.6, bins: highs, secs: 2 }], { gain: 1, knobs: { chroma: 0 } }), [wide2] = await prismRun([{ level: 0.6, bins: highs, secs: 2 }], { gain: 1, knobs: { chroma: 100 } });
+    check('glass-prism: Chroma 0 keeps the three colours together; 100 takes them twice as far apart', together.state.apart === 0 && together.state.copies.every((c) => c.scale === 1 && long(c.at) === 0 && turned(c.turned, together.state.q) < 1e-6)
+      && Math.abs(wide2.state.apart - 0.236) < 1e-6 && placed(wide2) && wide2.light > high.light && high.light > 1.2 * together.light && wide2.box.w > high.box.w,
+      JSON.stringify({ apart: [together.state.apart, high.state.apart, wide2.state.apart], light: [together.light, high.light, wide2.light], box: [together.box.w, high.box.w, wide2.box.w] }));
+
+    // The voice, the tumble and a beat.
+    const [slowTurn] = await prismRun([{ level: 0, secs: 2 }]), [fastTurn] = await prismRun([{ level: 0.8, secs: 2 }]);
+    check('glass-prism: it turns slowly in silence and several times as fast with the voice, which also brightens it', Math.abs(turned(slowTurn.state.q) - 0.5) < 0.01 && turned(fastTurn.state.q) > 4 * turned(slowTurn.state.q) && Math.abs(fastTurn.state.flame - 0.8) < 0.01
+      && Math.abs(fastTurn.state.bright - (0.26 + 0.2 * fastTurn.state.flame + 0.18 * fastTurn.state.kick)) < 1e-9 && fastTurn.state.copies.every((c) => c.bright === fastTurn.state.bright) && fastTurn.sum > 1.3 * slowTurn.sum
+      && Math.abs(fastTurn.state.heart.size - (1.8 + fastTurn.state.flame + 0.6 * fastTurn.state.kick)) < 1e-9 && Math.abs(slowTurn.state.heart.size - 1.8) < 1e-9 && top(fastTurn.state.heart.light) > 3 * top(slowTurn.state.heart.light),
+      JSON.stringify({ turned: [turned(slowTurn.state.q), turned(fastTurn.state.q)], flame: fastTurn.state.flame, bright: [slowTurn.state.bright, fastTurn.state.bright], sum: [slowTurn.sum, fastTurn.sum], heart: [slowTurn.state.heart, fastTurn.state.heart] }));
+    const beat = [{ level: 0.05, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, secs: 0.1 }, { level: 0.9, all: 0.5, secs: 2.5 }];
+    const [calm, hit, after] = await prismRun(beat, { gain: 1 });
+    const kick1 = [2.2 * Math.cos(2.4), 2.2 * Math.sin(4.08), 2.2 * Math.sin(2.4)];
+    check('glass-prism: a beat kicks its tumble about a new axis, pulls its colours apart and brightens it, then lets go', calm.state.kicks === 0 && long(calm.state.spin) === 0 && hit.beats === 1 && hit.state.kicks === 1 && hit.state.kick > 0.5
+      && long(hit.state.spin) > 0.7 * long(kick1) && long(hit.state.spin) <= long(kick1) && long(kick1) > 2.2 && gap(hit.state.spin.map((v) => v / long(hit.state.spin)), kick1.map((v) => v / long(kick1))) < 1e-9
+      && hit.state.apart > calm.state.apart + 0.02 && hit.state.bright > calm.state.bright + 0.15 && after.state.kicks >= 1 && after.state.kick < 0.001 && long(after.state.spin) < 0.05 && after.state.apart < hit.state.apart && hit.edge === 0 && placed(hit),
+      JSON.stringify({ kicks: [calm.state.kicks, hit.state.kicks, after.state.kicks], beats: hit.beats, kick: [hit.state.kick, after.state.kick], spin: [hit.state.spin, after.state.spin], apart: [calm.state.apart, hit.state.apart, after.state.apart], bright: [calm.state.bright, hit.state.bright], speed: [long(kick1), long(hit.state.spin), long(after.state.spin)] }));
+    const second = (await prismRun([...beat, { level: 0.05, all: 0.5, secs: 2 }, { level: 0.9, all: 0.5, secs: 0.1 }], { gain: 1 }))[4];
+    // (The kit may hear more beats than one in a long loud stretch: whichever this is, its axis is that beat's own.)
+    const nth = (n) => [Math.cos(2.4 * n), Math.sin(4.08 * n), Math.sin(2.4 * n)];
+    check('glass-prism: the next beat kicks it about another axis', !!second && second.beats === 1 && second.state.kicks > 1 && gap(second.state.spin.map((v) => v / long(second.state.spin)), nth(second.state.kicks).map((v, _, a) => v / long(a))) < 1e-9
+      && gap(nth(second.state.kicks).map((v, _, a) => v / long(a)), kick1.map((v) => v / long(kick1))) > 0.3,
+      JSON.stringify(second && { kicks: second.state.kicks, spin: second.state.spin }));
+
+    // Camera.
+    const [still] = await prismRun(talk, { knobs: { cameraDrift: 0 } }), [drift] = await prismRun(talk, { knobs: { cameraDrift: 100 } });
+    check('glass-prism: Camera drift 0 holds the camera still; 100 doubles the sway', still.state.orbit === 0 && Math.abs(loud.state.orbit) > 0.005 && Math.abs(drift.state.orbit - 2 * loud.state.orbit) < 1e-9
+      && Math.abs(still.kitCam[0]) < 1e-6 && Math.abs(drift.kitCam[0]) > 1.5 * Math.abs(loud.kitCam[0]) && Math.abs(loud.kitCam[0]) > 0.05 && Math.abs(long(drift.state.right) - 1) < 1e-9 && Math.abs(drift.state.right[2]) > 0.01 && Math.abs(still.state.right[2]) < 1e-9,
+      JSON.stringify({ orbit: [still.state.orbit, loud.state.orbit, drift.state.orbit], x: [still.kitCam[0], loud.kitCam[0], drift.kitCam[0]], right: [still.state.right, drift.state.right] }));
+
+    // The same at any frame rate.
+    const fpsSteps = [{ level: 0.05, all: 0.5, secs: 1 }, { level: 0.9, all: 0.8, secs: 1 }, { level: 0, all: 0, secs: 0.5 }];
+    const [, , d30] = await prismRun(fpsSteps, { fps: 30 }), [, , d60] = await prismRun(fpsSteps, { fps: 60 });
+    check('glass-prism: the same sound gives the same crystal at 30 and 60 fps', Math.abs(d30.state.clock - 2.5) < 1e-6 && Math.abs(d60.state.clock - 2.5) < 1e-6 && d30.state.kicks >= 1 && d60.state.kicks === d30.state.kicks && gap(d30.state.bands, d60.state.bands) < 1e-5
+      && turned(d30.state.q, d60.state.q) < 0.05 && turned(d60.state.q) > 0.5 && Math.abs(d30.state.apart - d60.state.apart) < 0.005,
+      JSON.stringify({ clock: [d30.state.clock, d60.state.clock], kicks: [d30.state.kicks, d60.state.kicks], bands: gap(d30.state.bands, d60.state.bands), between: turned(d30.state.q, d60.state.q), turned: turned(d60.state.q), apart: [d30.state.apart, d60.state.apart] }));
+
+    // Mic off.
+    const [idle1, idle2] = await prismRun([{ level: null, idle: true, secs: 3 }, { level: null, idle: true, secs: 1.5 }]);
+    check('glass-prism: with the mic off and Idle animation on it tumbles slowly and its facets take turns', idle1.state.live === true && Math.abs(idle2.state.clock - 4.5) < 1e-6 && turned(idle2.state.q, idle1.state.q) > 0.2 && gap(idle1.state.bands, idle2.state.bands) > 0.1 && top(idle2.state.bands) > 0.3 && top(idle2.state.bands) < 0.61
+      && idle2.state.kicks === 0, JSON.stringify({ clock: [idle1.state.clock, idle2.state.clock], turned: turned(idle2.state.q, idle1.state.q), bands: idle2.state.bands }));
+    // Camera drift 0 and a palette that stands still, so that nothing but the scene could move the picture.
+    const [off1, off2] = await prismRun([{ level: null, off: true, secs: 4 }, { level: null, off: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
+    const [on1, on2] = await prismRun([{ level: null, idle: true, secs: 4 }, { level: null, idle: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
+    check('glass-prism: with the mic and Idle animation off the picture holds still, pixel for pixel', off1.hash === off2.hash && on1.hash !== on2.hash && off2.light > 0.2 * PRISM_LIGHT && off2.state.live === false && off2.state.clock === 0 && turned(off2.state.q) === 0,
+      JSON.stringify({ off: [off1.hash, off2.hash], idle: [on1.hash, on2.hash], light: off2.light, differs: off2.diff }));
+    const [live1, muted1, muted2, muted3] = await prismRun([{ level: 0.8, all: 0.8, secs: 2 }, { level: null, off: true, secs: 0.5 }, { level: null, off: true, secs: 7.5 }, { level: null, off: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
+    check('glass-prism: muted in the middle of a stream, it stops turning where it is, dims, and then nothing moves', muted1.state.live === false && muted1.state.clock === live1.state.clock && muted2.state.clock === live1.state.clock && turned(live1.state.q) > 1
+      && gap(muted1.state.q, live1.state.q) === 0 && gap(muted2.state.q, live1.state.q) === 0 && long(muted1.state.spin) === 0 && muted1.state.bands[0] > 0.01 && muted1.state.bands[0] < live1.state.bands[0]
+      && muted2.state.bands.every((b) => b === 0) && muted2.state.flame === 0 && muted2.state.kick === 0 && muted2.state.bright === 0.26 && Math.abs(muted2.state.apart - 0.018) < 1e-12 && muted2.hash === muted3.hash && muted1.hash !== muted2.hash,
+      JSON.stringify({ clock: [live1.state.clock, muted1.state.clock, muted2.state.clock], bands: [live1.state.bands[0], muted1.state.bands[0], muted2.state.bands[0]], apart: muted2.state.apart, differs: muted3.diff }));
+
+    // Colour.
+    const [hued] = await prismRun(talk, { hue: 2 });
+    check('glass-prism: its three copies are three palette colours, the glow inside the middle one, and the hue setting moves them', [0, 1, 2].every((c) => close(loud.state.copies[c].color, loud.expect[c])) && [0, 1, 2].every((c) => close(hued.state.copies[c].color, hued.expect[c]))
+      && !close(hued.state.copies[0].color, loud.state.copies[0].color) && !close(loud.state.copies[0].color, loud.state.copies[1].color),
+      JSON.stringify({ copies: loud.state.copies.map((c) => c.color), expect: loud.expect, hued: hued.state.copies[0].color }));
+
+    // Placement and cost.
+    const [placed0] = await prismRun([{ level: 0.5, all: 0.5, secs: 1 }]);
+    await pushConfig((c) => { c.activeViz = PRISM; c.placement.x = 30; });
+    await wide.waitForTimeout(400);
+    const [placed1] = await prismRun([{ level: 0.5, all: 0.5, secs: 1 }]);
+    check('glass-prism: Scene placement slides it', placed1.centroidX - placed0.centroidX > 150 && placed1.light > 0.5 * placed0.light, `${placed0.centroidX.toFixed(0)} → ${placed1.centroidX.toFixed(0)}`);
+    await pushConfig((c) => { c.activeViz = PRISM; c.placement.x = 0; c.placement.size = 50; });
+    await wide.waitForTimeout(400);
+    const [halved] = await prismRun([{ level: 0.5, all: 0.5, secs: 1 }]);
+    // The small page draws into a picture several times taller than its canvas.
+    const smallPrism = await page.evaluate(() => { currentViz.draw(performance.now(), 1 / 60); currentViz.draw(performance.now() + 17, 1 / 60); const s = window.__timbre.scene; return { name: window.__timbre.currentVizName, scale: s && s.renderScale, copies: s && s.state.copies ? s.state.copies.length : 0 }; });
+    check('glass-prism: the Size slider halves it, and the small page draws it too', halved.box.w < 0.62 * placed0.box.w && halved.box.w > 0.38 * placed0.box.w && halved.solid === 0 && smallPrism.name === PRISM && smallPrism.scale >= 2 && smallPrism.copies === 3,
+      JSON.stringify({ box: [placed0.box.w, halved.box.w], small: smallPrism }));
+    await pushConfig((c) => { c.placement.size = 100; });
+    await wide.waitForTimeout(300);
+    await activate(PRISM);
+    const prismCost = await wide.evaluate(() => { let now = performance.now(), acc = 0; for (let i = 0; i < 120; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); acc += performance.now() - t; } return acc / 120; });
+    check(`glass-prism: draw() averages under 5 ms of script time (${prismCost.toFixed(2)} ms)`, prismCost < 5);
+
+    }
+
     // Every kit scene, so the next one is covered without a new check.
     const gpuAfterSelect = (name) => wide.evaluate((n) => { setActiveViz('visualizer'); setActiveViz(n); currentViz.draw(performance.now(), 1 / 60); const s = window.__timbre.scene; return [s.memory.geometries, s.memory.textures, s.programs]; }, name);
     for (const name of T.VIZ_SCENES) {
@@ -2041,7 +2236,7 @@ async function main() {
       } finally { gl.createTexture = create; gl.deleteTexture = del; }
       return out;
     }, T.VIZ_SCENES);
-    const TEXTURES = { 'thanksgiving-harvest': 9, 'winter-aurora': 8, 'pride-ribbon': 5, 'bi-pride-ribbon': 5, 'ace-pride-ribbon': 5, 'trans-pride-ribbon': 5, 'july-fourth-stripes': 7, 'sunburst-3d': 5, 'mountains-3d': 5, 'phosphor': 4, 'chladni': 4 };
+    const TEXTURES = { 'thanksgiving-harvest': 9, 'winter-aurora': 8, 'pride-ribbon': 5, 'bi-pride-ribbon': 5, 'ace-pride-ribbon': 5, 'trans-pride-ribbon': 5, 'july-fourth-stripes': 7, 'sunburst-3d': 5, 'mountains-3d': 5, 'phosphor': 4, 'chladni': 4, 'glass-prism': 4 };
     check('a scene deletes every GL texture it made, whichever scene ran before it',
       Object.keys(texturesLeft).length === T.VIZ_SCENES.length ** 2 && Object.entries(texturesLeft).every(([pair, [made, left]]) => made >= TEXTURES[pair.split(' then ')[1]] && left === 0), JSON.stringify(texturesLeft));
 
@@ -2183,10 +2378,12 @@ async function main() {
       const fresh = await freshPage();
       const first = await fresh.evaluate(async () => {
         window.frame = function () {};
-        setActiveViz('glass-prism');
+        setActiveViz('ink');
         await new Promise((r) => setTimeout(r, 900));
         currentViz.draw(performance.now(), 1 / 60);
         const gl = document.getElementById('vizCanvas3D').getContext('webgl2');
+        // None of the older effects left uploads a texture any more, so the flag is set here as one that did would leave it.
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
         const before = { flip: gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL), error: gl.getError() };
         setActiveViz('thanksgiving-harvest');
         const created = gl.getError();
@@ -2195,7 +2392,7 @@ async function main() {
         const attrs = gl.getContextAttributes();
         return { before, created, drawn: gl.getError(), active: !!s && s.active === true, attrs: [attrs.alpha, attrs.antialias, attrs.depth, attrs.stencil, attrs.premultipliedAlpha] };
       });
-      check('an older WebGL effect leaves the flip flag set (what the next check guards against)', first.before.flip === true && first.before.error === 0, JSON.stringify(first.before));
+      check('an older WebGL effect made the context, and the flip flag is set as one with a texture would leave it (what the next check guards against)', first.before.flip === true && first.before.error === 0, JSON.stringify(first.before));
       check('the first scene after an older WebGL effect starts without a GL error', first.created === 0 && first.drawn === 0 && first.active, JSON.stringify(first));
       await fresh.close();
     }

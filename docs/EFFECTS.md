@@ -657,6 +657,50 @@ Two frame rates still give the same kind of figure and not the same grains, beca
 is a chance taken each step. And the kit's afterglow lingers only where nothing solid is
 drawn: sand over the plate leaves no trail, sand thrown beyond its edge does.
 
+## The glass prism (`TimbreGlassPrism`)
+
+`overlay/glass-prism.js` is the Glass Prism effect, as `globalThis.TimbreGlassPrism`: a cut
+crystal of twenty facets that tumbles in the box, drawn in light only, whose colours come
+apart like light through a prism. `factories/glass-prism.js` is one line,
+`VIZ_FACTORIES['glass-prism'] = TimbreScene.factory(() => TimbreGlassPrism.definition())`.
+It offers:
+
+- **The sound.** `loudness(bins, band, gain)` reads one of the ten lowest bins, `idle(b, t)`
+  is what a band pretends to hear with the mic off, `highOf(bands)` the mean of the five
+  highest bands, and `bandOf(facet)` the band a facet answers. `settle(v)` makes nothing of
+  a level within a ten-thousandth of nothing.
+- **The colours coming apart.** `apartOf(high, kick, chroma)` is how far apart the three
+  copies of the crystal should be, and `copyAt(out, c, apart)` copy `c`'s size, its roll
+  about the line of sight and its move to the camera's right.
+- **Light.** `brightOf(flame, kick)` is how bright the crystal is drawn and
+  `heartOf(out, flame, kick)` the glow inside it.
+- **The tumble.** `turnRate(flame)` is how fast it turns by itself, `axisAt(out, clock)` the
+  wandering axis it turns about, `kickAt(out, n)` the spin the nth beat gives it and
+  `kickAngle(speed, dt)` the angle a dying spin turns in a step. `turn(q, x, y, z, angle)`
+  turns a quaternion (x, y, z, w) about a world axis, and `tumble(q, spin, mid, flame, dt)`
+  is one whole step.
+- **The scene.** `VERT` and `FRAG` draw a facet in added light: its ridges, light bleeding
+  in from them, a flash when it mirrors a lamp, and its band. `definition()` returns the
+  kit scene definition: one icosahedron drawn three times, and a glow sprite inside.
+
+All its timing comes from `dt`. The arithmetic touches nothing at load, and the file must
+stay loadable under Node, because `npm run verify` imports it; the scene looks up `THREE`,
+`TimbreScene` and the core.js globals only when it is built. It must be loaded after
+`scene-kit.js` and before the factories.
+
+Worth knowing before making another thing that turns freely:
+
+- Two turns do not add up the same in either order, so a step that makes one and then the
+  other comes out differently at 30 and at 60 frames a second. `tumble` makes half of the
+  crystal's own turn, then the whole of the kick's, then the other half, which agrees
+  across frame rates to a few ten-thousandths of a radian over two seconds.
+- A spin that dies away turns through an angle that can be worked out exactly
+  (`kickAngle`); multiplying the speed by the step would depend on the frame rate.
+- three.js builds an icosahedron with no shared corners, three to a facet in order, so a
+  facet's number is its first corner's index over three. Each corner carries one of
+  1,0,0 / 0,1,0 / 0,0,1, and the least of the three at a point says how near a ridge it
+  is: that is how the ridges are drawn without a second mesh of lines.
+
 ## Wire format (for driving Timbre from elsewhere)
 
 Anything that can call a Streamer.bot action can drive Timbre:
