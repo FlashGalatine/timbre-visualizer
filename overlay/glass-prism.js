@@ -23,6 +23,7 @@
   const RISE = 20, FALL = 5;                // how fast a band is followed, up and down, a second
   const KICK = 2.2, KICK_FALL = 2.5;        // a beat's spin, in radians a second, and how fast it dies away
   const APART_RATE = 10;                    // how fast the colours follow how far apart they should be
+  const LINGER = 0.06;                      // how long the light it leaves behind takes to go, in seconds
   const FOV = 30, PITCH = 8;                // the camera: how wide it sees and how far it looks down, in degrees
   const FRAME = { width: 5.2, height: 4.2, center: [0, 0, 0] };   // what the camera frames
 
@@ -157,15 +158,18 @@
   const FRAG = `
     precision highp float;
     uniform vec3 uColor;
-    uniform float uBright;
+    uniform float uBright, uScale;
     varying vec3 vBary, vNormal, vView;
     varying float vBand;
     void main() {
       vec3 n = normalize(vNormal);
       float front = gl_FrontFacing ? 1.0 : 0.0;
       if (front < 0.5) n = -n;
-      float m = min(vBary.x, min(vBary.y, vBary.z)), w = fwidth(m);
-      float ridge = 1.0 - smoothstep(0.007 - w, 0.007 + w, m);
+      // w: how far m goes across one pixel of the page. (The kit draws small pages into a picture several
+      // times the page, of which a page pixel shows only the middle: a ridge thinner than the page's own
+      // pixels would come out in dashes.)
+      float m = min(vBary.x, min(vBary.y, vBary.z)), w = fwidth(m) * uScale, reach = max(0.007, 0.75 * w);
+      float ridge = 1.0 - smoothstep(reach - w, reach + w, m);
       float bloom = exp(-m / 0.045);
       float facing = max(dot(n, vView), 0.0);
       vec3 h1 = normalize(normalize(vec3(0.5, 0.8, 0.6)) + vView), h2 = normalize(normalize(vec3(-0.7, 0.2, 0.5)) + vView);
@@ -192,7 +196,7 @@
     const q = [0, 0, 0, 1], spin = [0, 0, 0], pose = [0, 0, 0], glow = [0, 0], copies = [];
     let THREE = null, heart = null, sight = null, right = null;
     // What the checks read. clock: seconds the scene has been live, which the axis wanders by.
-    const s = { flame: 0, kick: 0, clock: 0, live: false, orbit: 0, colorT: 0, high: 0, apart: 0, bright: 0, kicks: 0 };
+    const s = { flame: 0, kick: 0, clock: 0, live: false, orbit: 0, colorT: 0, high: 0, apart: 0, bright: 0, kicks: 0, drawnFor: 1 };
 
     function build(k) {
       THREE = k.THREE;
@@ -208,7 +212,7 @@
       for (let c = 0; c < 3; c++) {
         const mat = k.addLight(new THREE.ShaderMaterial({
           vertexShader: VERT, fragmentShader: FRAG, side: THREE.DoubleSide, depthTest: false,
-          uniforms: { uColor: { value: new THREE.Color() }, uBright: { value: 0 }, uBands: { value: shown } },
+          uniforms: { uColor: { value: new THREE.Color() }, uBright: { value: 0 }, uScale: { value: 1 }, uBands: { value: shown } },
         }));
         const mesh = new THREE.Mesh(geo, mat);
         mesh.frustumCulled = false;
@@ -256,6 +260,7 @@
       const colorT = ((now * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
       s.colorT = colorT;
       s.bright = brightOf(flame, kick);
+      s.drawnFor = TimbreScene.renderScale(canvas3d.height);   // how many pixels of the kit's picture make one of the page
       k.camera.getWorldDirection(sight);
       right.setFromMatrixColumn(k.camera.matrixWorld, 0);
       for (let c = 0; c < 3; c++) {
@@ -267,6 +272,7 @@
         m.position.copy(right).multiplyScalar(pose[2]);
         palette(u.uColor.value, colorT + c);
         u.uBright.value = s.bright;
+        u.uScale.value = s.drawnFor;
       }
       heartOf(glow, flame, kick);
       palette(heart.material.color, colorT + 1).multiplyScalar(glow[0]);
@@ -277,7 +283,7 @@
       frame: { width: FRAME.width, height: FRAME.height, center: FRAME.center.slice() },
       fov: FOV,
       pitch: PITCH,
-      cooling: [Infinity, Infinity, Infinity],   // fading light keeps its colour
+      cooling: [LINGER, LINGER, LINGER],   // the light it leaves is soon gone, all colours alike: a fast tumble stays a crystal
       build,
       update,
       debug() {
@@ -299,7 +305,7 @@
   }
 
   globalThis.TimbreGlassPrism = {
-    FACETS, BANDS, R, RISE, FALL, KICK, KICK_FALL, APART_RATE, FOV, PITCH, FRAME, VERT, FRAG,
+    FACETS, BANDS, R, RISE, FALL, KICK, KICK_FALL, APART_RATE, LINGER, FOV, PITCH, FRAME, VERT, FRAG,
     bandOf, loudness, idle, highOf, settle, apartOf, copyAt, brightOf, heartOf, turnRate, axisAt, kickAt, kickAngle, turn, tumble, definition,
   };
 })();

@@ -14,7 +14,8 @@ Scene placement sliders. On the small overlay page its edges are coarse.
 ## What it becomes
 
 A twenty-sided crystal floats in the box and tumbles. It is drawn in light only, so it reads
-as glass over any backdrop:
+as glass over a dark or mid-toned backdrop (light adds to what is behind it, so over white
+it cannot show):
 
 - its ridges glow, with a little light bleeding in from each ridge;
 - a facet flashes as it turns to mirror one of two lamps toward the eye;
@@ -25,17 +26,17 @@ as glass over any backdrop:
 Like light through a prism, its colours come apart. The crystal is drawn three times, in
 three neighbouring palette colours, and the three copies drift apart (in size, in roll and
 sideways) with the high end of the sound and on a beat, so its edges split into coloured
-fringes. In silence the copies all but coincide and the crystal is nearly one colour of
-light.
+fringes. In silence the copies are close together, a few pixels apart, and where they lie on
+one another their three colours add up to one pale light.
 
 The voice turns it faster. A beat kicks its tumble about a new axis each time, and the kick
 dies away. With the mic off and Idle animation on it tumbles slowly and the facets take
-turns. With both off it stops turning and is still (its colours still move through the
-palette).
+turns. With both off it stops turning (the camera still drifts, as in the other scenes, and
+its colours still move through the palette).
 
 ## Decided by the builder
 
-- **Scene kit.** It is the thirteenth scene on the scene kit (`TimbreScene.factory`), so it
+- **Scene kit.** It is a scene on the scene kit (`TimbreScene.factory`), so it
   gets the kit's renderer, smoothing, afterglow, Scene placement and camera for nothing. The
   old factory and its renderer go.
 - **Arithmetic apart from the scene.** `overlay/glass-prism.js` assigns
@@ -59,8 +60,15 @@ palette).
 - **Settings.** `chroma` stays (0 to 100, default 50): how far the colours come apart; at 0
   they do not. `cameraDrift` is new (default 50), as in the other scenes. No Rotate sliders:
   the crystal tumbles through every side by itself.
-- **Stillness.** A level within a ten-thousandth of nothing is nothing (as in Metaball), so
-  with the mic and Idle animation off the picture comes to rest.
+- **Stillness.** A level within a ten-thousandth of nothing is nothing, so with the mic and
+  Idle animation off every number in the scene comes to rest.
+- **The light it leaves behind** is gone in 0.06 s, all colours alike (changed after the
+  review). With the kit's usual afterglow a fast tumble left every frame's ridges behind
+  it, and on a beat or a loud voice the crystal smeared into a blob of light.
+- **Ridges are drawn for the page's pixels**, never thinner than three quarters of one
+  (changed after the review). On the small page the kit draws into a picture four times the
+  page and shows only the middle of each block of sixteen, so a ridge two of those pixels
+  wide came out in dashes.
 
 ## Not in this change
 

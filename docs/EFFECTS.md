@@ -696,6 +696,14 @@ Worth knowing before making another thing that turns freely:
   across frame rates to a few ten-thousandths of a radian over two seconds.
 - A spin that dies away turns through an angle that can be worked out exactly
   (`kickAngle`); multiplying the speed by the step would depend on the frame rate.
+- The kit's afterglow keeps every frame's light for a third of a second. Thin bright lines
+  that move fast leave a comb of themselves behind, and a tumbling crystal smears into a
+  blob. A scene's `cooling` shortens it: this one gives 0.06 s for all three colours.
+- On a small page the kit draws into a picture several times the page, and a page pixel
+  shows only the middle four of each block of sixteen. Anything a shader draws thinner than
+  a page pixel (a ridge sized with `fwidth`, say) comes out in dashes that crawl. Multiply
+  the `fwidth` by `TimbreScene.renderScale(canvas3d.height)` and keep the line at least
+  three quarters of a page pixel wide.
 - three.js builds an icosahedron with no shared corners, three to a facet in order, so a
   facet's number is its first corner's index over three. Each corner carries one of
   1,0,0 / 0,1,0 / 0,0,1, and the least of the three at a point says how near a ridge it
