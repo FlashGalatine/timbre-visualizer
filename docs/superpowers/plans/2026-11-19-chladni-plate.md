@@ -94,3 +94,61 @@ the sand while talking.
 
 Changed by the builder after looking at the built effect: a figure is kept for 3 s within a
 phrase (was 1.8), and throws are at least 2.5 s apart (was 1.2).
+
+## Asked for by the owner after seeing it in OBS
+
+Three settings to turn the plate, so that the old effect's view from straight above can be
+had again: `rotateX`, `rotateY` and `rotateZ`, 0 to 360 degrees, all 0 by default. The
+plate, its skirt and the sand are one group that the settings turn; a plate turned so that
+it would leave the frame is drawn smaller and moved to the middle. Checks first, as for the
+rest.
+
+## Breaking it on purpose
+
+Each rule was broken in a separate copy, one at a time, and the checks run against it,
+after one run with nothing broken.
+
+- **The arithmetic: 228 breaks, against the Node suite.** Of the first 130, eight failed no
+  check: sideways flight on one axis, the upper limit of the walk's pull, the jostle on each
+  axis and the two axes sharing one number, a hop whatever the plate's motion there, and a
+  glow by the figure's value instead of its square. Each has a check. They were run again
+  with 76 breaks of what the review's fixes had changed and 22 of the Rotate settings, and
+  every one of those failed a check.
+- **The scene: 87 breaks, against the scene's own block of the render suite.** 71 failed a
+  check. One makes no difference (the grain count set at build, which the first frame sets
+  again). Fifteen failed none: the blend given to the plate and to the sand; the beat left
+  out of the shake, and the level taken for it instead of the followed voice; the three
+  parts of noticing a beat's rise, and the count of time since the last throw; the length of
+  a step at a frame rate that is no multiple of 60; the plate's bend left out of where a
+  grain is drawn; the skirt's foot not following the bent edge; the plate's points not sent
+  to the GPU; and sand seeded from the clock. Fourteen have checks, and each was run again
+  and fails its check. The fifteenth was a guard that could never matter (nothing is thrown
+  with the mic and Idle animation off, because the level is then nothing), and it was taken
+  out.
+
+Most of the fifteen were checks that read a number at a moment when the thing was at rest:
+the bend was read at a whole second, when the plate is flat; the blend was read from the
+voice's record and not from what the frame used.
+
+## Found during the build
+
+- The render checks were written before the scene but could not be run before it existed.
+  On their first run all passed but four: three expectations of mine that were wrong (the
+  sand gathers within a tenth of a second at a loud voice, and after two seconds of silence
+  the voice has not quite died away), and the suite's table of textures a scene makes, which
+  needed an entry.
+- **A still picture that is not still, now and then.** The check "muted in the middle of a
+  throw ... then nothing moves" failed once in the first four runs of the suite, and
+  Phosphor's "the picture holds still" once later. Sunburst's and Mountains 3D's had done
+  the same during Phosphor's break runs. In the failing run the scene's own numbers were
+  the same before and after, and the same sequence run thirty times outside the suite never
+  differed. Both failures came while live WebGL pages were open in another browser; the
+  runs since those were closed have been clean. The cause is not known. The plate's
+  stillness checks now report how many pixels differed, by how much and where.
+- A run of the render suite takes five minutes, so 87 breaks of the scene would have taken
+  seven hours. They were run against a cut of the suite made for the purpose, outside the
+  repository: the suite's setup, the helpers the scene blocks share, and the plate's own
+  block, 46 checks in half a minute. The suite-wide checks are not in it, so it is for
+  break runs only; the whole suite was run on every commit.
+- The first break run of the arithmetic was started before the review came back, and the
+  review changed much of what it had broken. The second list covers what changed.
