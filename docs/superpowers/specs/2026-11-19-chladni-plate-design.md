@@ -122,6 +122,8 @@ it. The display name does not change.
   and within a phrase the figure moves only when the tone has.
 - The tone was the first reading of a phrase, weighed plainly, with each bin followed. It is
   the mean over a tenth of a second, weighed by squares, and the bins are read as they are.
+  Weighed by squares a voice sits lower, so the tone now runs from bin 0.4 to bin 3 (it ran
+  from 1.3 to 5.5).
 - With the mic off the tone sat on the last figure for a third of the time and jumped from
   it to the first. It now drifts between the two ends and stops at neither.
 - A step of the sand could be as long as a fortieth of a second, and a grain near its place

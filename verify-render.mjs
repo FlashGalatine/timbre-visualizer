@@ -1799,8 +1799,8 @@ async function main() {
     const gap = (a, b) => top(a.map((v, i) => Math.abs(v - b[i])));
     const smooth = (t) => { const u = Math.min(1, Math.max(0, t)); return u * u * (3 - 2 * u); };
     const close = (a, b) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= 2);
-    // A voice sitting low: its weight is at bin 2.5, which asks for the third figure.
-    const low = [[2, 0.8], [3, 0.8]];
+    // A voice sitting low: its weight is at bin 1, which asks for the third figure.
+    const low = [[1, 0.8]];
     const talk = [{ level: 0.8, bins: low, secs: 3 }];
     // Thresholds are 60% of what the scene gives after 3 s at a steady 0.8: about 244,000 solid pixels
     // (the plate) and 12,200 of them bright with sand.
@@ -1829,8 +1829,8 @@ async function main() {
       && Math.abs(loud.state.first[0]) <= 1 && Math.abs(loud.state.first[1]) <= 1 && Math.abs(loud.state.size - 0.085) < 1e-9, JSON.stringify({ size: loud.state.size, drawn: loud.state.drawn0, lies: loud.state.first.slice(0, 3), f: loud.state.f0, flex: loud.state.flex }));
 
     // The tone picks the figure.
-    const [deep] = await plateRun([{ level: 0.8, bins: [[0, 1]], secs: 0.5 }]), [mid] = await plateRun([{ level: 0.8, bins: [[3, 1]], secs: 0.5 }]), [high] = await plateRun([{ level: 0.8, bins: [[9, 1]], secs: 0.5 }]);
-    check('chladni: a low voice draws a simple figure and a high one an intricate one', deep.state.figure === 0 && deep.state.changes === 0 && mid.state.figure === 4 && high.state.figure === 9 && deep.state.tone === 0 && Math.abs(mid.state.tone - 1.7 / 4.2) < 1e-3 && high.state.tone === 1,
+    const [deep] = await plateRun([{ level: 0.8, bins: [[0, 1]], secs: 0.5 }]), [mid] = await plateRun([{ level: 0.8, bins: [[1, 1], [2, 1]], secs: 0.5 }]), [high] = await plateRun([{ level: 0.8, bins: [[9, 1]], secs: 0.5 }]);
+    check('chladni: a low voice draws a simple figure and a high one an intricate one', deep.state.figure === 0 && deep.state.changes === 0 && mid.state.figure === 4 && high.state.figure === 9 && deep.state.tone === 0 && Math.abs(mid.state.tone - 1.1 / 2.6) < 1e-3 && high.state.tone === 1,
       JSON.stringify({ figure: [deep.state.figure, mid.state.figure, high.state.figure], tone: [deep.state.tone, mid.state.tone, high.state.tone] }));
     // The plate waits a tenth of a second into a phrase and takes the mean of the tone over it.
     const [snap, onset] = await plateRun([{ level: 0.8, bins: [[9, 1]], secs: 0.05 }, { level: 0.8, bins: [[9, 1]], secs: 0.1 }]);
@@ -1840,14 +1840,14 @@ async function main() {
       && Math.abs(mixed.state.tone - 0.5) < 1e-6 && mixed.state.figure === 5 && mixed.state.asked === 5 && settledOn.state.figure === 5 && settledOn.state.tone < 0.2,
       JSON.stringify({ snap: [snap.state.tone, snap.state.figure, snap.state.phrases], onset: [onset.state.figure, onset.state.since], mixed: [mixed.state.tone, mixed.state.figure], after: [settledOn.state.tone, settledOn.state.figure] }));
     // A voice too faint to have a tone starts no phrase, and the plate keeps its figure; Gain makes it loud enough.
-    const faintly = [{ level: 0.8, bins: [[3, 0.1]], secs: 0.5 }];
-    const [faint] = await plateRun(faintly, { gain: 1 }), [boosted] = await plateRun(faintly, { gain: 2 }), [quietly] = await plateRun([{ level: 0.8, bins: [[3, 0.2]], secs: 0.5 }], { gain: 1 });
+    const faintly = [{ level: 0.8, bins: [[1, 0.08], [2, 0.08]], secs: 0.5 }];
+    const [faint] = await plateRun(faintly, { gain: 1 }), [boosted] = await plateRun(faintly, { gain: 2 }), [quietly] = await plateRun([{ level: 0.8, bins: [[1, 0.16], [2, 0.16]], secs: 0.5 }], { gain: 1 });
     check('chladni: a sound with no tone to speak of leaves the figure alone, and Gain scales the bands the tone is weighed over', faint.state.figure === 0 && faint.state.phrases === 0 && faint.state.tone === 0 && faint.state.settled > 0.5
-      && boosted.state.figure === 4 && boosted.state.phrases === 1 && Math.abs(boosted.state.tone - 1.7 / 4.2) < 1e-3 && quietly.state.figure === 4 && Math.abs(quietly.state.tone - 1.7 / 4.2) < 1e-3,
+      && boosted.state.figure === 4 && boosted.state.phrases === 1 && Math.abs(boosted.state.tone - 1.1 / 2.6) < 1e-3 && quietly.state.figure === 4 && Math.abs(quietly.state.tone - 1.1 / 2.6) < 1e-3,
       JSON.stringify({ figure: [faint.state.figure, boosted.state.figure, quietly.state.figure], tone: [faint.state.tone, boosted.state.tone, quietly.state.tone], phrases: [faint.state.phrases, boosted.state.phrases] }));
     // Within a phrase the figure follows the tone, but keeps a figure for 3 s.
     const [, kept, turned] = await plateRun([{ level: 0.8, bins: low, secs: 0.5 }, { level: 0.8, bins: [[9, 1]], secs: 1.5 }, { level: 0.8, bins: [[9, 1]], secs: 1.5 }]);
-    check('chladni: within a phrase the figure follows the tone, but not within 3 s of the last change', kept.state.figure === 2 && Math.abs(kept.state.tone - (1 - (5 / 7) * Math.exp(-3.75))) < 1e-4 && kept.state.want > 2 && turned.state.figure === 9 && turned.state.from === 2 && turned.state.changes === 2
+    check('chladni: within a phrase the figure follows the tone, but not within 3 s of the last change', kept.state.figure === 2 && Math.abs(kept.state.tone - (1 - (10 / 13) * Math.exp(-3.75))) < 1e-4 && kept.state.want > 2 && turned.state.figure === 9 && turned.state.from === 2 && turned.state.changes === 2
       && Math.abs(turned.state.since - 0.39) < 0.05 && turned.state.asked === 9, JSON.stringify({ figure: [kept.state.figure, turned.state.figure], tone: [kept.state.tone, turned.state.tone], since: turned.state.since }));
     // A new phrase.
     const [said, , again, later] = await plateRun([{ level: 0.8, bins: low, secs: 1.5 }, { level: 0, secs: 0.6 }, { level: 0.8, bins: low, secs: 0.4, trace: true }, { level: 0.8, bins: low, secs: 0.6 }]);
@@ -1914,9 +1914,11 @@ async function main() {
     // The same at any frame rate.
     const fpsSteps = [{ level: 0.8, bins: low, secs: 2 }, { level: 0, secs: 0.6 }, { level: 0.8, bins: low, secs: 0.3 }];
     const [a30, , c30] = await plateRun(fpsSteps, { fps: 30 }), [a60, , c60] = await plateRun(fpsSteps, { fps: 60 });
+    // The tone a second and a half after the voice has gone from low to high, at 30 fps: where following at 2.5 a second puts it.
+    const [, k30] = await plateRun([{ level: 0.8, bins: low, secs: 0.5 }, { level: 0.8, bins: [[9, 1]], secs: 1.5 }], { fps: 30 });
     check('chladni: the same sound gives the same kind of figure at 30 and 60 fps', Math.abs(c30.state.clock - 2.9) < 1e-6 && Math.abs(c60.state.clock - 2.9) < 1e-6 && c30.state.figure === 3 && c60.state.figure === 3 && Math.abs(c30.state.since - c60.state.since) < 0.02
       && Math.abs(c30.state.blend - c60.state.blend) < 0.05 && Math.abs(a30.state.settled - a60.state.settled) < 0.05 && a60.state.settled > 0.7 && Math.abs(a30.state.spread - a60.state.spread) < 0.3 * a60.state.spread
-      && Math.abs(a30.state.shake - a60.state.shake) < 1e-3 && Math.abs(a30.state.air - a60.state.air) < 0.02,
+      && Math.abs(a30.state.shake - a60.state.shake) < 1e-3 && Math.abs(a30.state.air - a60.state.air) < 0.02 && Math.abs(k30.state.tone - (1 - (10 / 13) * Math.exp(-3.75))) < 1e-4,
       JSON.stringify({ clock: [c30.state.clock, c60.state.clock], figure: [c30.state.figure, c60.state.figure], since: [c30.state.since, c60.state.since], settled: [a30.state.settled, a60.state.settled], spread: [a30.state.spread, a60.state.spread], air: [a30.state.air, a60.state.air] }));
 
     // Mic off.
