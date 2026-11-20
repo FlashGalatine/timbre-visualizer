@@ -113,7 +113,7 @@ console.log('\n[1] table consistency');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['thanksgiving-harvest']) === '{"candleGlow":50,"leafDensity":50,"cameraDrift":50}', 'thanksgiving knobs');
   ok(T.VIZ_SCENES.indexOf('winter-aurora') === 1 && T.VIZ_SCENES.indexOf('thanksgiving-harvest') === 0, 'winter-aurora is the second kit scene');
   const FLAG_IDS = ['pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes'];
-  ok(JSON.stringify(T.VIZ_SCENES) === JSON.stringify(['thanksgiving-harvest', 'winter-aurora', ...FLAG_IDS, 'sunburst-3d', 'mountains-3d', 'phosphor']) && FLAG_IDS.every((n) => T.VIZ_USES_3D.includes(n)), 'the five flags are kit scenes, listed after winter-aurora');
+  ok(JSON.stringify(T.VIZ_SCENES) === JSON.stringify(['thanksgiving-harvest', 'winter-aurora', ...FLAG_IDS, 'sunburst-3d', 'mountains-3d', 'phosphor', 'chladni']) && FLAG_IDS.every((n) => T.VIZ_USES_3D.includes(n)), 'the five flags are kit scenes, listed after winter-aurora');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['pride-ribbon']) === '{"wind":50,"heartRate":50,"stripeStyle":0,"cameraDrift":50}'
     && ['bi', 'ace', 'trans'].every((p) => JSON.stringify(T.DEFAULT_PER_VIZ[p + '-pride-ribbon']) === '{"wind":50,"heartRate":50,"cameraDrift":50}'), 'pride flag knobs');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['july-fourth-stripes']) === '{"wind":50,"starTwinkle":50,"burstChance":50,"cameraDrift":50}', 'fourth of july flag knobs');
@@ -2458,7 +2458,7 @@ await import('./overlay/phosphor.js');
     && Math.abs(Ph.idle(1, 0) - Ph.idle(1, 2)) > 0.05, 'with the mic off the bands follow a slow pattern, the higher ones weaker');
 
   // The table.
-  ok(T.VIZ_SCENES[T.VIZ_SCENES.length - 1] === 'phosphor' && T.VIZ_USES_3D.includes('phosphor'), 'phosphor is a kit scene, listed after the mountains');
+  ok(T.VIZ_SCENES[T.VIZ_SCENES.indexOf('mountains-3d') + 1] === 'phosphor' && T.VIZ_USES_3D.includes('phosphor'), 'phosphor is a kit scene, listed after the mountains');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['phosphor']) === '{"depth":50,"cameraDrift":50}', 'phosphor knobs: depth and camera drift');
   const oldDeck = T.sanitizeConfig({ activeViz: 'phosphor', perViz: { 'phosphor': { depth: 80 } } });
   ok(oldDeck.activeViz === 'phosphor' && JSON.stringify(oldDeck.perViz['phosphor']) === '{"depth":80,"cameraDrift":50}', 'a saved pre-redesign phosphor config keeps its depth and gains the new default');
@@ -2474,6 +2474,216 @@ await import('./overlay/phosphor.js');
   ok(order.every(Boolean), 'all three overlay pages load phosphor.js after the scene kit and mountains.js and before the factories');
   const factory = await readFile(resolve(__dirname, 'overlay/factories/phosphor.js'), 'utf8');
   ok(/VIZ_FACTORIES\['phosphor'\] = TimbreScene\.factory\(\(\) => TimbrePhosphor\.definition\(\)\);/.test(factory) && !/WebGLRenderer/.test(factory), 'the effect is the kit\'s factory around the phosphor\'s definition, with no renderer of its own');
+}
+
+console.log('\n[17] chladni');
+await import('./overlay/chladni.js');
+{
+  const C = globalThis.TimbreChladni;
+  const near = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol;
+  const F = C.FIGURES, PI = Math.PI;
+  const exact = (fig, x, z) => Math.cos(fig[0] * PI * x) * Math.cos(fig[1] * PI * z) + fig[2] * Math.cos(fig[1] * PI * x) * Math.cos(fig[0] * PI * z);
+
+  ok(C.GRAINS_MIN === 6000 && C.GRAINS_MAX === 30000 && C.HALF === 2.2 && C.THICK === 0.09 && C.G === 48 && C.T === 2048 && C.BANDS === 16 && C.BLEND === 0.8 && C.PAUSE === 0.45 && C.HOLD === 1.8
+    && C.HUSH === 0.1 && C.LOUD === 0.22 && C.HUM === 0.04 && C.GRAV === 9 && C.REACH === 0.04 && C.SPREAD === 0.024 && C.TONE_LOW === 1.3 && C.TONE_SPAN === 4.2 && C.FLEX === 0.035 && C.BEAT === 4 && C.RIM === 0.16 && C.RISE === 20 && C.FALL === 8 && C.TONE_RATE === 2.5 && C.LIFT === 0.014 && C.SIZE === 0.085 && C.RINGS === 32,
+    'the sizes: 6,000 to 30,000 grains on a plate 4.4 on a side and 0.09 thick, a grid of 48, tables of 2,048, 16 bands, a blend of 0.8 s, a pause of 0.45 s, a hold of 1.8 s');
+  ok(C.grainCount(0) === 6000 && C.grainCount(50) === 18000 && C.grainCount(100) === 30000 && C.grainCount(-9) === 6000 && C.grainCount(500) === 30000 && C.grainCount(NaN) === 18000 && C.grainCount(undefined) === 18000 && C.grainCount(25) === 12000,
+    'Density 0 is 6,000 grains, 50 is 18,000, 100 is 30,000; anything else is held to that range, and no setting at all is the default');
+
+  // The figures.
+  ok(JSON.stringify(F) === '[[1,2,-1],[1,2,1],[1,3,1],[2,3,-1],[2,3,1],[1,4,-1],[3,4,-1],[2,5,1],[3,5,-1],[4,5,1]]' && F.every((f, i) => i === 0 || f[0] + f[1] >= F[i - 1][0] + F[i - 1][1]),
+    'ten figures, the simplest first');
+  ok(C.value(F[0], 0, 0) === 0 && C.value(F[1], 0, 0) === 2 && near(C.value(F[3], 0.3, -0.7), exact(F[3], 0.3, -0.7)) && near(C.value(F[7], -0.81, 0.13), exact(F[7], -0.81, 0.13)),
+    'a figure is the two halves of the plate\'s motion, added or taken from each other');
+  ok(F.every((f) => near(C.value(f, 0.37, 0.61), C.value(f, -0.37, 0.61)) && near(C.value(f, 0.37, 0.61), C.value(f, 0.37, -0.61)) && near(C.value(f, 0.37, 0.61), f[2] * C.value(f, 0.61, 0.37))
+    && (f[2] > 0 || near(C.value(f, 0.44, 0.44), 0))), 'every figure is the same left and right, near and far, and across the diagonals (a line of the figure, where the halves are taken from each other)');
+  ok(C.cell(-1) === 0 && C.cell(1) === 2047 && C.cell(-5) === 0 && C.cell(5) === 2047 && C.cell(0) === 1024 && C.cell(0.5) === Math.floor(1.5 * 0.5 * 2047 + 0.5), 'a place on the plate is one of 2,048 table cells, held to the plate');
+  {
+    const out = [0, 0, 0], e = 1e-5;
+    let worstF = 0, worstS = 0, steep = 0;
+    for (const f of F) for (let i = 0; i < 60; i++) {
+      const x = Math.sin(i * 1.7) * 0.98, z = Math.cos(i * 2.9) * 0.98;
+      C.sample(f, C.cell(x), C.cell(z), out);
+      worstF = Math.max(worstF, Math.abs(out[0] - exact(f, x, z)));
+      const sx = (exact(f, x + e, z) - exact(f, x - e, z)) / (2 * e), sz = (exact(f, x, z + e) - exact(f, x, z - e)) / (2 * e);
+      worstS = Math.max(worstS, Math.abs(out[1] - sx), Math.abs(out[2] - sz));
+      steep = Math.max(steep, Math.abs(sx));
+    }
+    ok(worstF < 0.02 && worstS < 0.3 && steep > 10, 'the tables give a figure\'s value and its slope each way, to within a cell');
+  }
+
+  // The tone, and which figure.
+  {
+    const bands = new Float32Array(16);
+    const none = C.toneOf(bands);
+    bands[3] = 0.1;
+    const faint = C.toneOf(bands);
+    bands.fill(0); bands[0] = 1;
+    const low = C.toneOf(bands);
+    bands.fill(0); bands[9] = 1;
+    const high = C.toneOf(bands);
+    bands.fill(0); bands[2] = 0.5; bands[4] = 0.5;
+    const mid = C.toneOf(bands);
+    bands.fill(0); bands[2] = 0.9; bands[5] = 0.3;
+    const lean = C.toneOf(bands);
+    ok(none === -1 && faint === -1 && low === 0 && high === 1 && near(mid, 1.7 / 4.2) && near(lean, (2.75 - 1.3) / 4.2, 1e-6),
+      'the tone is where the sound\'s weight sits among the 16 lowest bins, 0 to 1; with too little sound there is none');
+    ok(C.wantFigure(0) === 0 && C.wantFigure(0.05) === 0 && C.wantFigure(0.1) === 1 && C.wantFigure(0.45) === 4 && C.wantFigure(0.999) === 9 && C.wantFigure(1) === 9 && C.wantFigure(-1) === 0 && C.wantFigure(NaN) === 0,
+      'a low tone asks for a simple figure and a high one for an intricate one');
+  }
+  {
+    const st = C.voice();
+    ok(st.figure === 0 && st.from === 0 && st.since >= 0.8 && st.quiet > 0.45 && st.changes === 0 && st.phrases === 0, 'a plate starts on the simplest figure, in a pause');
+    const fresh = C.voice();
+    C.listen(fresh, 0.5, 0, 1 / 60);
+    const kept = fresh.figure === 0 && fresh.changes === 0 && fresh.phrases === 1 && fresh.quiet === 0;
+    for (let i = 0; i < 30; i++) C.listen(fresh, 0, 0, 1 / 60);
+    for (let i = 0; i < 30; i++) C.listen(fresh, 0.5, 0, 1 / 60);
+    ok(kept && fresh.figure === 1 && fresh.from === 0 && fresh.phrases === 2, 'a plate\'s first phrase takes the figure its tone asks for, even the one it starts on; the next phrase on that tone moves along');
+    C.listen(st, 0.5, 4, 1 / 60);
+    ok(st.figure === 4 && st.from === 0 && st.since === 0 && st.quiet === 0 && st.changes === 1, 'when the voice comes back after a pause, the plate takes the figure for its tone');
+    C.listen(st, 0.5, 7, 1 / 60);
+    for (let i = 0; i < 60; i++) C.listen(st, 0.5, 7, 1 / 60);
+    const held = st.figure === 4 && st.changes === 1;
+    for (let i = 0; i < 50; i++) C.listen(st, 0.5, 7, 1 / 60);
+    ok(held && st.figure === 7 && st.from === 4 && st.changes === 2 && st.since < 0.1, 'within a phrase the figure follows the tone, but not within 1.8 s of the last change');
+    for (let i = 0; i < 20; i++) C.listen(st, 0.15, 2, 1 / 60);
+    const between = st.figure === 7 && st.quiet === 0;
+    for (let i = 0; i < 30; i++) C.listen(st, 0.05, 2, 1 / 60);
+    ok(between && st.figure === 7 && near(st.quiet, 0.5, 1e-9), 'a voice neither loud nor hushed changes nothing; a hushed one counts as quiet');
+    C.listen(st, 0.5, 7, 1 / 60);
+    ok(st.figure === 8 && st.from === 7 && st.changes === 3, 'a new phrase on the same tone takes the next figure along');
+    const last = C.voice(); last.figure = 9; last.phrases = 1;
+    C.listen(last, 0.5, 9, 1 / 60);
+    ok(last.figure === 0 && last.from === 9, 'after the last figure comes the first');
+    const soon = C.voice(); soon.figure = 3; soon.since = 0.2; soon.quiet = 1;
+    C.listen(soon, 0.5, 5, 0.1);
+    const waited = soon.figure === 3 && soon.quiet === 1;
+    for (let i = 0; i < 6; i++) C.listen(soon, 0.5, 5, 0.1);
+    ok(waited && soon.figure === 5 && soon.changes === 1, 'a change asked for while the plate is still changing waits until it has finished');
+    const gap = C.voice(); gap.figure = 3; gap.since = 1; gap.quiet = 0.3; gap.phrases = 1;
+    C.listen(gap, 0.5, 3, 1 / 60);
+    ok(gap.figure === 3 && gap.changes === 0 && gap.quiet === 0, 'a gap shorter than a pause is not a new phrase');
+    const mute = C.voice(); mute.figure = 3; mute.phrases = 1;
+    for (let i = 0; i < 30; i++) C.listen(mute, 0.5, -1, 1 / 60);
+    const waiting = mute.figure === 3 && mute.quiet === 9 && mute.phrases === 1;
+    C.listen(mute, 0.5, 6, 1 / 60);
+    ok(waiting && mute.figure === 6 && mute.phrases === 2 && mute.quiet === 0, 'a sound with no tone to speak of starts no phrase; the phrase starts when it has one');
+  }
+  ok(C.blendOf(0) === 0 && near(C.blendOf(0.4), 0.5) && C.blendOf(0.8) === 1 && C.blendOf(9) === 1 && near(C.blendOf(0.2), 0.15625), 'the plate changes figure over 0.8 s, easing in and out');
+
+  // How hard the plate shakes, and what that does to a grain.
+  ok(C.shakeOf(0, 0, true) === 0.04 && near(C.shakeOf(0.5, 0, true), 0.54) && near(C.shakeOf(0.5, 0.5, true), 0.74) && C.shakeOf(1, 1, true) === 1.2 && C.shakeOf(0.8, 0.5, false) === 0,
+    'the plate shakes as hard as the voice is loud, a little more on a beat and never less than a hum; with the mic and Idle animation off it does not shake');
+  ok(C.pace(0) === 0.5 && near(C.pace(1), 2.7) && C.jostle(0, 1 / 60) === 0 && near(C.jostle(1, 1 / 60), 0.07 * Math.sqrt(0.2)) && near(C.jostle(0.5, 1 / 30), 0.035 * Math.sqrt(0.4))
+    && near(C.hopChance(1, 1 / 60), 0.1) && near(C.hopChance(0.5, 1 / 30), 0.1) && near(C.hopSpeed(1, 1, 0), 0.6) && near(C.hopSpeed(1, 1, 1), 1.8) && near(C.hopSpeed(0.25, 0.5, 0.5), 0.3),
+    'louder, a grain walks faster, is jostled more, and hops more often and higher');
+  ok(C.thrown(1, true, 9) === 1 && near(C.thrown(0.95, true, 9), 0.5) && C.thrown(0.9, true, 9) === 0 && C.thrown(1, false, 9) === 0 && C.thrown(1, true, 1) === 0 && C.thrown(2, true, 9) === 1,
+    'a beat with the level above 0.9 throws the sand, harder the nearer 1, and not within 1.2 s of the last throw');
+  ok(C.stepsFor(1 / 60) === 1 && C.stepsFor(1 / 30) === 2 && C.stepsFor(1 / 120) === 1 && C.stepsFor(0.1) === 4 && C.stepsFor(0) === 1, 'the sand moves in steps of about a sixtieth of a second, at most four a frame');
+
+  // The sand.
+  {
+    const N = 4000, h = 1 / 60;
+    const a = C.createSand(N, 7), b = C.createSand(N, 7), c = C.createSand(N, 8);
+    let inside = true, quad = 0, offMax = 0, offSum = 0;
+    for (let i = 0; i < N; i++) {
+      if (!(Math.abs(a.x[i]) <= 1 && Math.abs(a.z[i]) <= 1) || a.y[i] !== 0) inside = false;
+      if (a.x[i] > 0 && a.z[i] > 0) quad++;
+      offMax = Math.max(offMax, Math.abs(a.off[i])); offSum += a.off[i];
+    }
+    const same = (p, q) => p.x.every((v, i) => v === q.x[i]) && p.z.every((v, i) => v === q.z[i]) && p.y.every((v, i) => v === q.y[i]);
+    ok(a.n === N && inside && Math.abs(quad / N - 0.25) < 0.03 && offMax <= 1.5 * 0.024 && offMax > 0.02 && Math.abs(offSum / N) < 0.002 && same(a, b) && !same(a, c) && a.rng.every((s) => s !== 0),
+      'sand starts spread evenly over the plate, each grain with its own place beside a line and its own random numbers; the same seed gives the same sand');
+
+    const fig = F[2], first = C.measure(a, N, fig, fig, 1);
+    for (let i = 0; i < 240; i++) { C.stepSand(a, N, fig, fig, 1, 0.5, true, h); C.stepSand(b, N, fig, fig, 1, 0.5, true, h); }
+    const loud = C.measure(a, N, fig, fig, 1);
+    let onPlate = true, finite = true;
+    for (let i = 0; i < N; i++) { if (!(Math.abs(a.x[i]) <= 1 && Math.abs(a.z[i]) <= 1 && a.y[i] >= 0)) onPlate = false; if (!Number.isFinite(a.x[i] + a.z[i] + a.y[i])) finite = false; }
+    ok(first.settled < 0.3 && loud.settled > 0.75 && loud.spread < first.spread / 4 && onPlate && finite && same(a, b),
+      'shaken, the sand gathers on the lines of the figure and stays on the plate; a run is repeatable', JSON.stringify([first, loud]));
+    for (let i = 0; i < 120; i++) C.stepSand(a, N, fig, fig, 1, 0.04, true, h);
+    const hum = C.measure(a, N, fig, fig, 1);
+    ok(hum.settled > 0.93 && hum.spread < loud.spread / 2 && hum.air < 0.01, 'at a hum the sand finishes gathering and the lines are sharp; louder they are fuzzier', JSON.stringify([loud, hum]));
+    // Each grain lies at its own place beside the line: how far it is from the line goes with its own offset.
+    let sxy = 0, sxx = 0;
+    const out = [0, 0, 0];
+    for (let i = 0; i < N; i++) { C.sample(fig, C.cell(a.x[i]), C.cell(a.z[i]), out); const d = out[0] / (Math.hypot(out[1], out[2]) + 1e-3); sxy += d * a.off[i]; sxx += a.off[i] * a.off[i]; }
+    ok(sxy / sxx > 0.8 && sxy / sxx < 1.2, 'a settled grain lies as far from its line as its own place says, so a line is a band of sand', String(sxy / sxx));
+
+    // Not shaken, nothing on the plate moves (once the few grains in mid-hop have landed).
+    for (let i = 0; i < 5; i++) C.stepSand(a, N, fig, fig, 1, 0, false, h);
+    const before ={ x: Float32Array.from(a.x), z: Float32Array.from(a.z), y: Float32Array.from(a.y) };
+    const seeds = Uint32Array.from(a.rng);
+    for (let i = 0; i < 30; i++) C.stepSand(a, N, fig, fig, 1, 0, false, h);
+    ok(same(a, before) && a.rng.every((s, i) => s === seeds[i]), 'with the plate still, sand lying on it does not move');
+
+    // A throw.
+    C.throwSand(a, N, 1);
+    let up = true, vmin = 9, vmax = 0, side = 0;
+    for (let i = 0; i < N; i++) { if (!(a.y[i] > 0)) up = false; vmin = Math.min(vmin, a.vy[i]); vmax = Math.max(vmax, a.vy[i]); side = Math.max(side, Math.abs(a.vx[i]), Math.abs(a.vz[i])); }
+    for (let i = 0; i < 6; i++) C.stepSand(a, N, fig, fig, 1, 0, false, h);
+    const flying = C.measure(a, N, fig, fig, 1);
+    for (let i = 0; i < 40; i++) C.stepSand(a, N, fig, fig, 1, 0, false, h);
+    const landed = C.measure(a, N, fig, fig, 1);
+    let rest = true;
+    for (let i = 0; i < N; i++) if (a.y[i] !== 0 || a.vx[i] !== 0 || a.vy[i] !== 0 || a.vz[i] !== 0) rest = false;
+    ok(up && vmin >= 0.75 && vmax <= 2.25 && vmax > 2 && side <= 0.65 && side > 0.5 && flying.air > 0.95 && flying.top > 0.1 && flying.top < 0.3 && landed.air === 0 && rest && landed.settled < hum.settled - 0.2,
+      'a throw sends every grain up and a little sideways; with the plate still they land scattered and lie where they fall', JSON.stringify({ vmin, vmax, side, flying, landed }));
+    const half = C.createSand(200, 3);
+    C.throwSand(half, 200, 0.5);
+    ok(Math.max(...half.vy) <= 1.125 && Math.max(...half.vy) > 1, 'a weaker throw is lower');
+    C.throwSand(half, 200, 1);
+    ok(Math.max(...half.vy) <= 1.125, 'sand already in the air is not thrown again');
+
+    // The awkward places: a crossing of lines, where there is no slope, and the plate's edge.
+    const odd = C.createSand(4, 5);
+    odd.x[0] = 0; odd.z[0] = 0; odd.x[1] = 1; odd.z[1] = 1; odd.x[2] = -1; odd.z[2] = 0.3; odd.x[3] = 0.5; odd.z[3] = 0.5;
+    for (let i = 0; i < 300; i++) C.stepSand(odd, 4, F[0], F[0], 1, 1.2, true, h);
+    ok([0, 1, 2, 3].every((i) => Number.isFinite(odd.x[i] + odd.z[i] + odd.y[i]) && Math.abs(odd.x[i]) <= 1 && Math.abs(odd.z[i]) <= 1 && odd.y[i] >= 0), 'a grain at a crossing of lines or on the plate\'s edge stays on the plate');
+
+    // The blend: halfway between two figures the sand gathers on neither.
+    const mix = C.createSand(N, 11);
+    for (let i = 0; i < 240; i++) C.stepSand(mix, N, F[0], F[4], 0.5, 0.5, true, h);
+    const onMix = C.measure(mix, N, F[0], F[4], 0.5), onOld = C.measure(mix, N, F[0], F[0], 1), onNew = C.measure(mix, N, F[4], F[4], 1);
+    ok(onMix.settled > 0.75 && onOld.settled < 0.5 && onNew.settled < 0.5, 'while the plate changes figure the sand follows the blend of the two', JSON.stringify([onMix.settled, onOld.settled, onNew.settled]));
+    // Only the grains drawn are stepped.
+    const part = C.createSand(100, 9), kept = Float32Array.from(part.x);
+    for (let i = 0; i < 30; i++) C.stepSand(part, 40, fig, fig, 1, 0.8, true, h);
+    ok(part.x.subarray(40).every((v, i) => v === kept[40 + i]) && !part.x.subarray(0, 40).every((v, i) => v === kept[i]), 'grains beyond the Density setting are left where they lie');
+  }
+
+  // The plate, and the sand's colour.
+  ok(C.bend(1, 0) === 0 && near(C.bend(1, 1 / 16), 0.035) && near(C.bend(0.5, 3 / 16), -0.0175) && C.bend(0, 0.1) === 0, 'the plate bends four times a second, further the harder it shakes');
+  ok(C.glow(0, 1) === 0 && near(C.glow(2, 1), 0.1) && near(C.glow(1, 0.5), 0.025) && near(C.glow(2, 3), 0.1) && near(C.glow(-2, 1), 0.1) && C.glow(2, 0) === 0, 'the plate glows where it moves, more the harder it shakes, and not at all on a line');
+  ok(near(C.sandBright(0, false), 0.55) && near(C.sandBright(1, false), 0.85) && near(C.sandBright(2, false), 0.85) && near(C.sandBright(1, true), 0.595), 'the sand is brighter the harder the plate shakes, and dimmer in the air');
+  {
+    const out = [9, 9, 9];
+    ok(C.pale(out, [0.2, 0.4, 1]) === out && near(out[0], 0.52) && near(out[1], 0.64) && out[2] === 1, 'the sand is its palette colour, 40% of the way to white');
+  }
+  ok(C.radius(0, 0) === 0 && near(C.radius(1, 1), 1) && near(C.radius(1, 0), Math.SQRT1_2) && near(C.radius(-0.5, 0.5), 0.5), 'a grain\'s colour goes by how far it is from the middle of the plate, 1 at a corner');
+  ok(near(C.idle(4, 0), 1) && near(C.idle(7, 0), Math.exp(-9 / 6)) && near(C.idle(2, 10), Math.exp(-Math.pow(2 - (4 + 3.6 * Math.sin(0.8)), 2) / 6)) && [0, 5, 10, 15].every((b) => C.idle(b, 33) >= 0 && C.idle(b, 33) <= 1),
+    'with the mic off the tone drifts slowly up and down through the bands');
+
+  // The table.
+  ok(T.VIZ_SCENES[T.VIZ_SCENES.length - 1] === 'chladni' && T.VIZ_USES_3D.includes('chladni'), 'chladni is a kit scene, listed after phosphor');
+  ok(JSON.stringify(T.DEFAULT_PER_VIZ['chladni']) === '{"density":50,"cameraDrift":50}', 'chladni knobs: density and camera drift');
+  const oldPlate = T.sanitizeConfig({ activeViz: 'chladni', perViz: { 'chladni': { density: 80 } } });
+  ok(oldPlate.activeViz === 'chladni' && JSON.stringify(oldPlate.perViz['chladni']) === '{"density":80,"cameraDrift":50}', 'a saved pre-redesign chladni config keeps its density and gains the new default');
+  ok(!('chladni' in T.VIZ_LABELS), 'chladni keeps the name it is listed by');
+
+  // The files.
+  const order = [];
+  for (const p of ['300x220', '1440x1080', '1920x1080']) {
+    const html = await readFile(resolve(__dirname, `overlay/mic-visualizers-${p}.html`), 'utf8');
+    const pos = html.indexOf('src="chladni.js"');
+    order.push(pos > html.indexOf('src="phosphor.js"') && pos > html.indexOf('src="scene-kit.js"') && pos < html.indexOf('src="factories/'));
+  }
+  ok(order.every(Boolean), 'all three overlay pages load chladni.js after the scene kit and phosphor.js and before the factories');
+  const factory = await readFile(resolve(__dirname, 'overlay/factories/chladni.js'), 'utf8');
+  ok(/VIZ_FACTORIES\['chladni'\] = TimbreScene\.factory\(\(\) => TimbreChladni\.definition\(\)\);/.test(factory) && !/WebGLRenderer/.test(factory) && !/Math\.random/.test(factory), 'the effect is the kit\'s factory around the plate\'s definition, with no renderer of its own');
+  ok(!/Math\.random/.test(await readFile(resolve(__dirname, 'overlay/chladni.js'), 'utf8')), 'the sand takes no numbers from Math.random, so a run is repeatable');
 }
 
 // ── 4. Live transport seam (mock SB + real panel-client-sb.js) ───────────────

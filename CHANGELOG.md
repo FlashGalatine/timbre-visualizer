@@ -20,6 +20,10 @@ traceability.
 - **Scene kit**: `TimbreScene.createHistory(size, hz)` is a memory of a level for things
   that travel, read by sample (`byAge`) or by age in seconds (`heard`). A scene's camera is
   now in place before its first `update`. See `docs/EFFECTS.md` ("Kit scenes").
+- **Chladni setting**: `cameraDrift` (0 to 100, default 50) for the Chladni effect. What
+  the new Chladni is made of is in `overlay/chladni.js` (`TimbreChladni`), loaded by all
+  three overlay pages and by `verify` under Node, and documented in `docs/EFFECTS.md` ("The
+  chladni plate").
 - **Phosphor setting**: `cameraDrift` (0 to 100, default 50) for the Phosphor effect. What
   the new Phosphor is made of is in `overlay/phosphor.js` (`TimbrePhosphor`), loaded by all
   three overlay pages and by `verify` under Node, and documented in `docs/EFFECTS.md` ("The
@@ -133,6 +137,21 @@ traceability.
   `test-render-640.png`.
 
 ### Changed
+
+- **Chladni is now sand on a floating plate**, the eleventh scene on the scene kit. The
+  flat field of hard dots is gone. A square, nearly black plate floats in the box, seen
+  from above at an angle, with pale sand on it. The voice shakes the plate: sand lying where
+  the plate moves hops and walks to where it does not, so it gathers into the lines of a
+  figure. Louder, the lines go fuzzy and the sand dances; in a pause it settles into a sharp
+  figure and lies still. Each phrase draws a new figure, and how high the voice sits picks
+  which of ten: low gives a simple one, high an intricate one. The plate bends and glows
+  where it moves. A yell or a mic thump throws all the sand into the air, and it lands
+  scattered and walks back. The plate is solid, so the sand shows over a bright game. With
+  the mic off and Idle animation on the plate shakes gently and the figures drift; with
+  both off the sand lies where it is (its colours still move through the palette).
+  Colours come from the palette, from the middle of the plate outward. `density` now means
+  how much sand (6,000 to 30,000 grains). It uses the shared Scene placement sliders, and
+  no longer makes a renderer of its own or uses `Math.random`.
 
 - **Phosphor is now glowing traces on a deck of dark slices**, the tenth scene on the scene
   kit. The tape of jittering one-pixel lines is gone. A deck of thin dark slices stands in
