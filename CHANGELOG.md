@@ -20,6 +20,10 @@ traceability.
 - **Scene kit**: `TimbreScene.createHistory(size, hz)` is a memory of a level for things
   that travel, read by sample (`byAge`) or by age in seconds (`heard`). A scene's camera is
   now in place before its first `update`. See `docs/EFFECTS.md` ("Kit scenes").
+- **Glass Prism setting**: `cameraDrift` (0 to 100, default 50) for the Glass Prism effect.
+  What the new Glass Prism is made of is in `overlay/glass-prism.js` (`TimbreGlassPrism`),
+  loaded by all three overlay pages and by `verify` under Node, and documented in
+  `docs/EFFECTS.md` ("The glass prism").
 - **Chladni settings**: `rotateX`, `rotateY` and `rotateZ` (0 to 360 degrees, default 0) turn
   the plate about each axis: Rotate Y spins it in its own plane, Rotate Z rolls it to one
   side, Rotate X tilts its top toward the viewer. Rotate X at 46 turns it to face the
@@ -141,6 +145,21 @@ traceability.
   `test-render-640.png`.
 
 ### Changed
+
+- **Glass Prism is now a cut crystal turning in the light**, a scene on the scene kit. The
+  shaded glass body with its built-in colour map is gone. A twenty-sided crystal floats in
+  the box and tumbles, drawn in light only, so it reads as glass over any backdrop: its
+  ridges glow, a facet flashes as it turns to face a lamp, the far facets show through the
+  near ones, and a soft glow sits inside. Each facet answers one of the ten lowest bands of
+  the sound. Like light through a prism its colours come apart: it is drawn in three
+  neighbouring palette colours that drift apart with the high end of the sound and on a
+  beat, so its edges split into coloured fringes. The voice turns it faster and brightens
+  it, and a beat kicks its tumble about a new axis. With the mic off and Idle animation on
+  it tumbles slowly and its facets take turns; with both off it stops turning and is still
+  (the camera still drifts and its colours still move through the palette).
+  Colours come from the palette, not from a map of its own as before. `chroma` is how far
+  the colours come apart (none at 0). It uses the shared Scene placement sliders, and no
+  longer makes a renderer of its own.
 
 - **Chladni is now sand on a floating plate**, the eleventh scene on the scene kit. The
   flat field of hard dots is gone. A square, nearly black plate floats in the box, seen

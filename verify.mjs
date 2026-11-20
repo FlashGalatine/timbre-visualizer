@@ -113,7 +113,7 @@ console.log('\n[1] table consistency');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['thanksgiving-harvest']) === '{"candleGlow":50,"leafDensity":50,"cameraDrift":50}', 'thanksgiving knobs');
   ok(T.VIZ_SCENES.indexOf('winter-aurora') === 1 && T.VIZ_SCENES.indexOf('thanksgiving-harvest') === 0, 'winter-aurora is the second kit scene');
   const FLAG_IDS = ['pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes'];
-  ok(JSON.stringify(T.VIZ_SCENES) === JSON.stringify(['thanksgiving-harvest', 'winter-aurora', ...FLAG_IDS, 'sunburst-3d', 'mountains-3d', 'phosphor', 'chladni']) && FLAG_IDS.every((n) => T.VIZ_USES_3D.includes(n)), 'the five flags are kit scenes, listed after winter-aurora');
+  ok(JSON.stringify(T.VIZ_SCENES) === JSON.stringify(['thanksgiving-harvest', 'winter-aurora', ...FLAG_IDS, 'sunburst-3d', 'mountains-3d', 'phosphor', 'chladni', 'glass-prism']) && FLAG_IDS.every((n) => T.VIZ_USES_3D.includes(n)), 'the five flags are kit scenes, listed after winter-aurora');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['pride-ribbon']) === '{"wind":50,"heartRate":50,"stripeStyle":0,"cameraDrift":50}'
     && ['bi', 'ace', 'trans'].every((p) => JSON.stringify(T.DEFAULT_PER_VIZ[p + '-pride-ribbon']) === '{"wind":50,"heartRate":50,"cameraDrift":50}'), 'pride flag knobs');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['july-fourth-stripes']) === '{"wind":50,"starTwinkle":50,"burstChance":50,"cameraDrift":50}', 'fourth of july flag knobs');
@@ -2844,7 +2844,7 @@ await import('./overlay/chladni.js');
   }
 
   // The table.
-  ok(T.VIZ_SCENES[T.VIZ_SCENES.length - 1] === 'chladni' && T.VIZ_USES_3D.includes('chladni'), 'chladni is a kit scene, listed after phosphor');
+  ok(T.VIZ_SCENES[T.VIZ_SCENES.indexOf('phosphor') + 1] === 'chladni' && T.VIZ_USES_3D.includes('chladni'), 'chladni is a kit scene, listed after phosphor');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['chladni']) === '{"density":50,"cameraDrift":50,"rotateX":0,"rotateY":0,"rotateZ":0}' && JSON.stringify(T.PER_VIZ_MAX['chladni']) === '{"rotateX":360,"rotateY":360,"rotateZ":360}',
     'chladni knobs: density, camera drift, and three rotations of up to 360 degrees that start at none');
   const turnedPlate = T.sanitizeConfig({ perViz: { 'chladni': { rotateX: 46, rotateY: 400, rotateZ: -5 } } });
@@ -2864,6 +2864,112 @@ await import('./overlay/chladni.js');
   const factory = await readFile(resolve(__dirname, 'overlay/factories/chladni.js'), 'utf8');
   ok(/VIZ_FACTORIES\['chladni'\] = TimbreScene\.factory\(\(\) => TimbreChladni\.definition\(\)\);/.test(factory) && !/WebGLRenderer/.test(factory) && !/Math\.random/.test(factory), 'the effect is the kit\'s factory around the plate\'s definition, with no renderer of its own');
   ok(!/Math\.random/.test(await readFile(resolve(__dirname, 'overlay/chladni.js'), 'utf8')), 'the sand takes no numbers from Math.random, so a run is repeatable');
+}
+
+console.log('\n[19] glass prism');
+await import('./overlay/glass-prism.js');
+{
+  const P = globalThis.TimbreGlassPrism;
+  const near = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol;
+  // A vector turned by a quaternion [x, y, z, w].
+  const spun = (q, v) => { const [x, y, z, w] = q, [a, b, c] = v, tx = 2 * (y * c - z * b), ty = 2 * (z * a - x * c), tz = 2 * (x * b - y * a); return [a + w * tx + (y * tz - z * ty), b + w * ty + (z * tx - x * tz), c + w * tz + (x * ty - y * tx)]; };
+  const same = (a, b, tol = 1e-9) => a.length === b.length && a.every((v, i) => near(v, b[i], tol));
+  const long = (v) => Math.hypot(...v);
+
+  ok(P.FACETS === 20 && P.BANDS === 10 && P.R === 1.3 && P.RISE === 20 && P.FALL === 5 && P.FOV === 30 && P.PITCH === 8 && JSON.stringify(P.FRAME) === '{"width":5.2,"height":4.2,"center":[0,0,0]}',
+    'the sizes: a crystal of twenty facets, its corners 1.3 from its middle, answering ten bands');
+  {
+    const count = new Array(10).fill(0);
+    for (let f = 0; f < 20; f++) count[P.bandOf(f)]++;
+    ok(P.bandOf(0) === 0 && P.bandOf(9) === 9 && P.bandOf(10) === 0 && P.bandOf(17) === 7 && count.every((n) => n === 2), 'a facet answers one band, and each band has two facets');
+  }
+
+  // The sound.
+  {
+    const bins = new Uint8Array(32); bins[0] = 255; bins[1] = 51; bins[9] = 102;
+    ok(near(P.loudness(bins, 0, 1), 1) && near(P.loudness(bins, 1, 1), 0.2) && near(P.loudness(bins, 9, 1), 0.4) && near(P.loudness(bins, 1, 2), 0.4) && P.loudness(bins, 9, 3) === 1 && P.loudness(bins, 1, 0) === 0
+      && P.loudness(null, 0, 1) === 0 && P.loudness(new Uint8Array(4).fill(255), 9, 1) === 0, 'a band is as loud as its bin, times Gain, up to 1; a band there is no bin for is silent');
+  }
+  ok(near(P.idle(0, 0), 0.3) && near(P.idle(2, 3), 0.3 + 0.3 * Math.sin(4.6)) && near(P.idle(0, Math.PI / 1.2), 0.6) && P.idle(1, 2) !== P.idle(4, 2) && P.idle(3, 1) !== P.idle(3, 2),
+    'with the mic off the bands take turns, each rising and falling between nothing and 0.6');
+  ok(P.highOf([1, 1, 1, 1, 1, 0, 0, 0, 0, 0]) === 0 && P.highOf([0, 0, 0, 0, 0, 1, 1, 1, 1, 1]) === 1 && near(P.highOf([0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0]), 0.1) && near(P.highOf([9, 9, 9, 9, 9, 0.2, 0.4, 0, 0, 1]), 0.32),
+    'the high end is the mean of the five highest bands');
+  ok(P.definition().cooling.length === 3 && P.definition().cooling.every((v) => v === Infinity), 'light that lingers keeps its colour');
+  ok(P.settle(0) === 0 && P.settle(9e-5) === 0 && P.settle(1e-4) === 1e-4 && P.settle(0.3) === 0.3 && P.settle(1) === 1, 'a level within a ten-thousandth of nothing is nothing');
+
+  // The colours coming apart.
+  ok(near(P.apartOf(0, 0, 50), 0.018) && near(P.apartOf(1, 0, 50), 0.118) && near(P.apartOf(0, 1, 50), 0.098) && near(P.apartOf(0.5, 0.5, 50), 0.108) && near(P.apartOf(1, 1, 100), 0.396) && P.apartOf(1, 1, 0) === 0 && near(P.apartOf(0, 0, 25), 0.009),
+    'the colours come apart with the high end and on a beat, and by as much as the Chroma setting says: not at all at 0');
+  {
+    const at = (c, apart) => Array.from(P.copyAt([0, 0, 0], c, apart));
+    ok(same(at(1, 0.1), [1, 0, 0]) && same(at(0, 0.1), [0.9, -0.09, -0.05]) && same(at(2, 0.1), [1.1, 0.09, 0.05]) && same(at(2, 0.4), [1.4, 0.36, 0.2]) && same(at(0, 0), [1, 0, 0]),
+      'the middle copy stays put; the first is smaller, rolled one way and moved one way, the third larger and the other way');
+  }
+
+  // Light.
+  ok(near(P.brightOf(0, 0), 0.26) && near(P.brightOf(1, 0), 0.46) && near(P.brightOf(0, 1), 0.44) && near(P.brightOf(0.5, 1), 0.54), 'the crystal is brighter with the voice and on a beat');
+  ok(same(Array.from(P.heartOf([0, 0], 0, 0)), [0.03, 1.8]) && same(Array.from(P.heartOf([0, 0], 1, 0)), [0.13, 2.8]) && same(Array.from(P.heartOf([0, 0], 0, 1)), [0.15, 2.4]) && same(Array.from(P.heartOf([0, 0], 1, 1)), [0.25, 3.4]),
+    'the glow inside is faint in silence, and swells and brightens with the voice and on a beat');
+
+  // The tumble.
+  ok(near(P.turnRate(0), 0.25) && near(P.turnRate(1), 1.75) && near(P.turnRate(0.4), 0.85), 'it turns a quarter of a radian a second in silence and up to seven times as fast with the voice');
+  {
+    const a0 = Array.from(P.axisAt([0, 0, 0], 0)), a5 = Array.from(P.axisAt([0, 0, 0], 5)), l5 = Math.hypot(Math.sin(1.05), 1, 0.6 * Math.cos(0.85));
+    let unit = true;
+    for (let c = 0; c < 60; c += 1.7) if (!near(long(P.axisAt([0, 0, 0], c)), 1)) unit = false;
+    ok(unit && same(a0, [0, 1 / Math.hypot(1, 0.6), 0.6 / Math.hypot(1, 0.6)]) && same(a5, [Math.sin(1.05) / l5, 1 / l5, 0.6 * Math.cos(0.85) / l5]), 'the axis it turns about is mostly upright and wanders slowly');
+    const k1 = Array.from(P.kickAt([0, 0, 0], 1)), k2 = Array.from(P.kickAt([0, 0, 0], 2)), k1b = Array.from(P.kickAt([9, 9, 9], 1));
+    ok(same(k1, [2.2 * Math.cos(2.4), 2.2 * Math.sin(4.08), 2.2 * Math.sin(2.4)]) && same(k2, [2.2 * Math.cos(4.8), 2.2 * Math.sin(8.16), 2.2 * Math.sin(4.8)]) && same(k1, k1b) && Math.abs(k1[0] - k2[0]) > 1,
+      'a beat kicks it about an axis taken from a fixed sequence: the same for the same beat, another for the next');
+    ok(P.kickAngle(2.2, 0) === 0 && near(P.kickAngle(2.2, 0.1), 2.2 * (1 - Math.exp(-0.25)) / 2.5) && near(P.kickAngle(2.2, 0.1), P.kickAngle(2.2, 0.05) + P.kickAngle(2.2 * Math.exp(-0.125), 0.05)) && near(P.kickAngle(2.2, 100), 0.88) && near(P.kickAngle(1, 0.2), (1 - Math.exp(-0.5)) / 2.5),
+      'a kick dies away at 2.5 a second, and the angle it turns in a step is exact: two half steps turn as far as one whole');
+  }
+  {
+    const q = [0, 0, 0, 1], h = Math.SQRT1_2;
+    ok(P.turn(q, 0, 1, 0, Math.PI / 2) === q && same(q, [0, h, 0, h]) && same(spun(q, [0, 0, 1]), [1, 0, 0]), 'a turn about the upright axis carries what faced the viewer round to the side');
+    P.turn(q, 1, 0, 0, Math.PI / 2);
+    ok(same(spun(q, [0, 0, 1]), [1, 0, 0]) && same(spun(q, [0, 1, 0]), [0, 0, 1]) && same(spun(q, [1, 0, 0]), [0, 1, 0]), 'a later turn is about the world\'s axes, not the crystal\'s own');
+    const far = [0.3, 0.1, 0.2, 0.9]; { const l = long(far); for (let i = 0; i < 4; i++) far[i] /= l; }
+    for (let i = 0; i < 20000; i++) P.turn(far, 0.6, 0, 0.8, 0.37);
+    ok(near(long(far), 1, 1e-12) && same(Array.from(P.turn([0, 0, 0, 1], 0, 0, 1, 0)), [0, 0, 0, 1]) && near(long(P.turn([0, 0, 0, 1.5], 0, 1, 0, 0.3)), 1, 1e-12) && same(Array.from(P.turn([0, 0, 0, 1.5], 0, 1, 0, 0.3)), Array.from(P.turn([0, 0, 0, 1], 0, 1, 0, 0.3))),
+      'however many turns it has made it is still a turn and nothing else: one that has drifted is brought back');
+  }
+  {
+    // One step with no kick is a turn about the axis at the step's middle.
+    const q = [0, 0, 0, 1], spin = [0, 0, 0], ax = P.axisAt([0, 0, 0], 3.2), want = P.turn([0, 0, 0, 1], ax[0], ax[1], ax[2], P.turnRate(0.4) * 0.05);
+    ok(P.tumble(q, spin, 3.2, 0.4, 0.05) === q && same(q, want, 1e-12) && spin.every((v) => v === 0), 'with no kick, a step turns it about the wandering axis by its rate times the step');
+    // A kick alone: it turns about the kick's own axis by the exact angle, and the kick dies away.
+    const kicked = [0, 0, 0, 1], k = P.kickAt([0, 0, 0], 3), k0 = k.slice(), w = long(k0);
+    P.tumble(kicked, k, 0, 0, 0.1);
+    const only = P.turn(P.turn(P.turn([0, 0, 0, 1], ...P.axisAt([0, 0, 0], 0), 0.0125), k0[0] / w, k0[1] / w, k0[2] / w, P.kickAngle(w, 0.1)), ...P.axisAt([0, 0, 0], 0), 0.0125);
+    ok(same(kicked, only, 1e-12) && same(k, k0.map((v) => v * Math.exp(-0.25)), 1e-12), 'a kicked step turns it about the kick\'s axis too, between two halves of its own turn, and the kick is weaker after');
+    const dying = [1e-4, 0, 0]; P.tumble([0, 0, 0, 1], dying, 0, 0, 0.1);
+    const dead = [0, 0, 0], rest = [0, 0, 0, 1]; P.tumble(rest, dead, 0, 0, 0.1);
+    ok(dying.every((v) => v === 0) && dead.every((v) => v === 0) && rest.every(Number.isFinite), 'a kick that has all but died is none');
+    // The same two seconds at three frame rates.
+    const run = (fps) => { const qq = [0, 0, 0, 1], sp = P.kickAt([0, 0, 0], 1); let clock = 0; for (let i = 0; i < 2 * fps; i++) { clock += 1 / fps; P.tumble(qq, sp, clock - 0.5 / fps, 0.6, 1 / fps); } return qq; };
+    const slow = run(30), usual = run(60), fast = run(240), dot = (a, b) => Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]);
+    ok(dot(slow, fast) > 1 - 5e-8 && dot(usual, fast) > 1 - 5e-9 && dot(usual, [0, 0, 0, 1]) < 0.9, 'the same sound gives the same tumble at 30, 60 and 240 frames a second');
+  }
+
+  // The table.
+  ok(T.VIZ_SCENES.indexOf('glass-prism') > T.VIZ_SCENES.indexOf('chladni') && T.VIZ_USES_3D.includes('glass-prism'), 'glass-prism is a kit scene, listed after chladni');
+  ok(JSON.stringify(T.DEFAULT_PER_VIZ['glass-prism']) === '{"chroma":50,"cameraDrift":50}' && !('glass-prism' in T.PER_VIZ_MAX), 'glass-prism knobs: chroma and camera drift, both 0 to 100');
+  const oldPrism = T.sanitizeConfig({ activeViz: 'glass-prism', perViz: { 'glass-prism': { chroma: 80 } } });
+  ok(oldPrism.activeViz === 'glass-prism' && JSON.stringify(oldPrism.perViz['glass-prism']) === '{"chroma":80,"cameraDrift":50}', 'a saved pre-redesign glass-prism config keeps its chroma and gains the new default');
+  ok(!('glass-prism' in T.VIZ_LABELS), 'glass-prism keeps the name it is listed by');
+
+  // The files.
+  const order = [];
+  for (const p of ['300x220', '1440x1080', '1920x1080']) {
+    const html = await readFile(resolve(__dirname, `overlay/mic-visualizers-${p}.html`), 'utf8');
+    const pos = html.indexOf('src="glass-prism.js"');
+    order.push(pos > html.indexOf('src="chladni.js"') && pos > html.indexOf('src="scene-kit.js"') && pos < html.indexOf('src="factories/'));
+  }
+  ok(order.every(Boolean), 'all three overlay pages load glass-prism.js after the scene kit and chladni.js and before the factories');
+  const factory = await readFile(resolve(__dirname, 'overlay/factories/glass-prism.js'), 'utf8');
+  ok(/VIZ_FACTORIES\['glass-prism'\] = TimbreScene\.factory\(\(\) => TimbreGlassPrism\.definition\(\)\);/.test(factory) && !/WebGLRenderer/.test(factory), 'the effect is the kit\'s factory around the crystal\'s definition, with no renderer of its own');
+  ok(!/Math\.random/.test(await readFile(resolve(__dirname, 'overlay/glass-prism.js'), 'utf8')), 'the crystal takes no numbers from Math.random, so a run is repeatable');
 }
 
 // ── 4. Live transport seam (mock SB + real panel-client-sb.js) ───────────────
