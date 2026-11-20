@@ -96,3 +96,27 @@ fixed, and each fix has a check that failed first.
 - Left alone and written into the design: the land's sun goes over the top of the picture
   in the map view; the deck seen from its end is slivers; high Camera drift already dipped
   a near corner of the unturned scenes below the picture.
+
+## Breaking it on purpose
+
+Each break is one changed line, run against the checks of the part it is in: the kit's
+section and the three scenes' sections of `verify`, or one scene's block of `verify-render`
+cut out and run alone.
+
+- **The fitting arithmetic and the scenes' use of it: 72 breaks.** 64 caught at once. Of
+  the eight that were not, one is the run with nothing broken. Two were lines no case could
+  reach (a box is never larger than its room, so it never has to be centred in one that is
+  too small): removed. Five got checks that their breaks then failed: a corner behind the
+  camera held in front of it and not flipped to the other side; a box taller than 86% of
+  its frame keeping its height; a box wider than 86% held to the room it had; a move made
+  across the picture and never toward the camera; and a box that comes halfway to the
+  camera, where a move shows twice as large, still settling.
+- That last box showed the fit needed more than 80 rounds in rare cases; it may now take
+  600, and stops as soon as a round changes nothing.
+- **The three scenes: 35 breaks.** 27 caught at once. Of the eight that were not, one is
+  the run with nothing broken, and one line was needless (three.js brings the sky light's
+  matrix up to date when it draws): removed. Six got checks: where the land's underside is
+  and how large; the shadow camera pushed through after a change (three.js sets it up only
+  once, when its map is made); the camera's own swing deciding which side of the deck it
+  sees from the end; and, for the deck and for the plate, a change of Camera drift alone
+  being fitted afresh. Each new check was confirmed by running its break again.

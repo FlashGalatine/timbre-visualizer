@@ -1515,15 +1515,18 @@ async function main() {
     const [landUnder] = await landTurned({ rotateX: 180 }), [landOver] = await landTurned({ rotateZ: 180 });
     check('mountains-3d: its lights, its shadows and its sun turn with it, so it is lit the same whichever way it is turned', [landFace, landDiamond, landRolled, landUnder].every((r) => lit(r) < 1e-5)
       && off3(landFace.state.lights.sky, [0, Math.cos(72 * Math.PI / 180), Math.sin(72 * Math.PI / 180)]) < 1e-6 && off3(landUnder.state.lights.sky, [0, -1, 0]) < 1e-6
-      && [landDiamond, landUnder].every((r) => off3(r.state.shadow, [5, 4, 1, 16, 0.05].map((v) => v * r.state.scale)) < 1e-9) && landDiamond.state.scale < 0.9,
+      && [landDiamond, landUnder].every((r) => off3(r.state.shadow, [5, 4, 1, 16, 0.05].map((v) => v * r.state.scale)) < 1e-9 && Math.abs(r.state.shadowSpan - 5 * r.state.scale) < 1e-6) && landDiamond.state.scale < 0.9
+      && Math.abs(landFlat.state.shadowSpan - 5) < 1e-6,
       JSON.stringify({ lit: [lit(landFace), lit(landDiamond), lit(landRolled), lit(landUnder)], sky: [landFace.state.lights.sky, landUnder.state.lights.sky], shadow: landDiamond.state.shadow, scale: landDiamond.state.scale }));
-    check('mountains-3d: turned right over it is still a solid block, seen from below', [landUnder, landOver].every((r) => landOff(r) < 1e-5 && landIn(r) && r.solid > 0.3 * landFlat.solid && r.solidBox.h > 0.3 * landFlat.solidBox.h) && landUnder.state.under === 4,
+    check('mountains-3d: turned right over it is still a solid block, seen from below', [landUnder, landOver].every((r) => landOff(r) < 1e-5 && landIn(r) && r.solid > 0.3 * landFlat.solid && r.solidBox.h > 0.3 * landFlat.solidBox.h) && off3(landUnder.state.under, [3.5, 2.2, -0.26, -0.26, -1]) < 1e-6,
       JSON.stringify({ solid: [landFlat.solid, landUnder.solid, landOver.solid], box: [landFlat.solidBox, landUnder.solidBox, landOver.solidBox] }));
     const [landSway] = await landRun([{ level: 0.8, all: 0.8, secs: 1 }], { knobs: { cameraDrift: 100, rotateX: 330, rotateY: 315, rotateZ: 180 } }), [landCalm] = await landTurned({ rotateX: 330, rotateY: 315, rotateZ: 180 }), [landSway0] = await landRun([{ level: 0.8, all: 0.8, secs: 1 }], { knobs: { cameraDrift: 50 } });
     check('mountains-3d: the more the camera drifts, the more room a turned block is given for it', Math.abs(landSway.state.sway - 0.56) < 1e-12 && Math.abs(landSway0.state.sway - 0.28) < 1e-12 && landOff(landSway) < 1e-5 && landOff(landCalm) < 1e-5 && landSway.state.scale < landCalm.state.scale - 0.02
       && landSway0.state.scale === 1 && landSway0.state.at.join() === '0,0,0', JSON.stringify({ sway: [landSway0.state.sway, landSway.state.sway], scale: [landCalm.state.scale, landSway.state.scale], off: landOff(landSway) }));
     const landReset = await landRun([{ level: 0.8, all: 0.8, secs: 1 }, { level: 0.8, all: 0.8, secs: 0.02, knobs: { rotateX: 72, rotateY: 90, rotateZ: 10 } }, { level: 0.8, all: 0.8, secs: 0.02, knobs: { rotateX: 0, rotateY: 0, rotateZ: 0 } }], { knobs: { cameraDrift: 0 } });
-    check('mountains-3d: a change of rotation applies at once, both ways', landReset.map((r) => r.state.turned.join()).join(' ') === '0,0,0 72,90,10 0,0,0' && landReset[1].state.scale < 1 && landReset[2].state.scale === 1 && landOff(landReset[1]) < 1e-5 && landOff(landReset[2]) < 1e-6,
+    check('mountains-3d: a change of rotation applies at once, both ways', landReset.map((r) => r.state.turned.join()).join(' ') === '0,0,0 72,90,10 0,0,0' && landReset[1].state.scale < 1 && landReset[2].state.scale === 1 && landOff(landReset[1]) < 1e-5 && landOff(landReset[2]) < 1e-6
+      // (three.js sets a shadow camera up once, when its map is made: a change after that has to be pushed through.)
+      && Math.abs(landReset[1].state.shadowSpan - 5 * landReset[1].state.scale) < 1e-6 && Math.abs(landReset[2].state.shadowSpan - 5) < 1e-6,
       JSON.stringify(landReset.map((r) => [r.state.turned, r.state.scale])));
 
     // Placement and cost.
@@ -1765,6 +1768,12 @@ async function main() {
     const [deckBack] = await deckTurned({ rotateY: 180 }), [deckEnd] = await deckTurned({ rotateY: 80 });
     check('phosphor: seen from behind, its traces lie on the side of their slices that the camera sees', deckFlat.state.behind === false && deckEnd.state.behind === false && deckBack.state.behind === true && deckOff(deckBack) < 1e-5 && deckIn(deckBack)
       && deckBack.lit > BEHIND * deckFlat.lit, JSON.stringify({ behind: [deckFlat.state.behind, deckEnd.state.behind, deckBack.state.behind], lit: [deckFlat.lit, deckEnd.lit, deckBack.lit] }));
+    // From its end, which side the camera sees is down to which way the camera has swung.
+    const [deckSide] = await deckRun([{ level: 0.8, all: 0.8, secs: 1 }], { knobs: { cameraDrift: 100, rotateY: 90 } });
+    check('phosphor: seen from its end, the camera\'s own swing decides which side of the slices it sees', Math.abs(deckSide.state.orbit) > 0.01 && deckSide.state.behind === (deckSide.state.orbit < 0), JSON.stringify({ orbit: deckSide.state.orbit, behind: deckSide.state.behind }));
+    const deckDrifts = await deckRun([{ level: 0.8, all: 0.8, secs: 1 }, { level: 0.8, all: 0.8, secs: 0.02, knobs: { cameraDrift: 100 } }], { knobs: { cameraDrift: 0, rotateX: 60 } });
+    check('phosphor: a change of Camera drift alone is fitted afresh, at once', deckDrifts[0].state.sway === 0 && Math.abs(deckDrifts[1].state.sway - 0.52) < 1e-12 && deckDrifts[1].state.scale < deckDrifts[0].state.scale - 0.005 && deckOff(deckDrifts[1]) < 1e-5,
+      JSON.stringify(deckDrifts.map((r) => [r.state.sway, r.state.scale])));
     const [deckSway] = await deckRun([{ level: 0.8, all: 0.8, secs: 1 }], { knobs: { cameraDrift: 100, rotateX: 60 } }), [deckSway0] = await deckRun([{ level: 0.8, all: 0.8, secs: 1 }], { knobs: { cameraDrift: 50 } });
     check('phosphor: the more the camera drifts, the more room a turned deck is given for it', Math.abs(deckSway.state.sway - 0.52) < 1e-12 && Math.abs(deckSway0.state.sway - 0.26) < 1e-12 && deckOff(deckSway) < 1e-5 && deckSway.state.scale < deckFace.state.scale - 0.005
       && deckSway0.state.scale === 1 && deckSway0.state.at.join() === '0,0,0', JSON.stringify({ sway: [deckSway0.state.sway, deckSway.state.sway], scale: [deckFace.state.scale, deckSway.state.scale], off: deckOff(deckSway) }));
@@ -2007,6 +2016,9 @@ async function main() {
       && diamond.state.facing > 0.9999 && Math.abs(spun.state.facing - flat.state.facing) < 1e-6 && rolled.state.facing < flat.state.facing - 0.02 && diamond.state.scale < 0.8 * face.state.scale
       && Math.abs(diamond.solidBox.w - diamond.solidBox.h) < 0.05 * diamond.solidBox.w && Math.abs(rolled.solidBox.cx - flat.solidBox.cx) < 0.03 * flat.canvas[0] && diamond.solidBox.h < flat.canvas[1],
       JSON.stringify({ facing: [diamond.state.facing, spun.state.facing, rolled.state.facing], scale: [diamond.state.scale, spun.state.scale, rolled.state.scale], box: [diamond.solidBox, spun.solidBox, rolled.solidBox], off: [cornerOff(diamond), cornerOff(spun), cornerOff(rolled)] }));
+    const plateDrifts = await plateRun([talk[0], Object.assign({}, talk[0], { secs: 0.02, knobs: { cameraDrift: 100 } })], { knobs: { cameraDrift: 0, rotateX: 46 } });
+    check('chladni: a change of Camera drift alone is fitted afresh, at once', plateDrifts[0].state.sway === 0 && Math.abs(plateDrifts[1].state.sway - 0.56) < 1e-12 && plateDrifts[1].state.scale < plateDrifts[0].state.scale - 0.03 && gap(plateDrifts[1].state.corner, plateDrifts[1].expectCorner) < 1e-5,
+      JSON.stringify(plateDrifts.map((r) => [r.state.sway, r.state.scale])));
     const [plateSway] = await plateRun(talk, { knobs: { cameraDrift: 100, rotateX: 46 } }), [plateSway0] = await plateRun(talk, { knobs: { cameraDrift: 50 } });
     check('chladni: the more the camera drifts, the more room a turned plate is given for it', Math.abs(plateSway.state.sway - 0.56) < 1e-12 && Math.abs(plateSway0.state.sway - 0.28) < 1e-12 && gap(plateSway.state.corner, plateSway.expectCorner) < 1e-5
       && plateSway.state.scale < face.state.scale - 0.03 && plateSway0.state.scale === 1 && plateSway0.state.at.join() === '0,0,0' && plateSway.edge === 0,
