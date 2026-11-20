@@ -2814,6 +2814,23 @@ await import('./overlay/chladni.js');
     const rest = C.poseFor(0, 0, 0), face = C.poseFor(46, 0, 0), diamond = C.poseFor(46, 45, 0), spun = C.poseFor(0, 45, 0), full = C.poseFor(360, 360, 360);
     ok(rest.scale === 1 && rest.x === 0 && rest.y === 0 && rest.z === 0 && near(full.scale, 1, 1e-9) && Math.abs(full.y) < 1e-9, 'with no rotation the plate is where it was, at full size');
     ok(face.scale < 1 && face.scale > 0.85 && diamond.scale < 0.8 * face.scale && diamond.scale > 0.55 && spun.scale < 1 && spun.scale > 0.6 && near(face.x, 0) && face.y < 0, 'a plate turned so that it would not fit is drawn smaller, and moved to the middle of the frame');
+    // The same bounds worked out here from the camera's own place: each of the eight corners as seen from 9.14 away,
+    // looking down at 44 degrees.
+    {
+      const P = 44 * Math.PI / 180, dist = 2.45 / Math.tan(15 * Math.PI / 180), cam = [0, -0.38 + dist * Math.sin(P), dist * Math.cos(P)];
+      const seen = (rx, ry, rz, scale, at) => {
+        const b = [Infinity, -Infinity, Infinity, -Infinity];
+        for (const x of [-2.2, 2.2]) for (const y of [-0.09, 0.25]) for (const z of [-2.2, 2.2]) {
+          const c = t3(x, y, z, rx, ry, rz).map((v, i) => v * scale + at[i]), d = [c[0] - cam[0], c[1] - cam[1], c[2] - cam[2]];
+          const depth = -(d[1] * Math.sin(P) + d[2] * Math.cos(P)), v = (d[1] * Math.cos(P) - d[2] * Math.sin(P)) * dist / depth, h = d[0] * dist / depth;
+          b[0] = Math.min(b[0], v); b[1] = Math.max(b[1], v); b[2] = Math.min(b[2], h); b[3] = Math.max(b[3], h);
+        }
+        return b;
+      };
+      const cases = [[0, 0, 0, 1, [0, 0, 0]], [46, 0, 0, 1, [0, 0, 0]], [30, 70, 200, 0.7, [0.3, -0.2, 0.1]], [300, 10, 45, 1, [0, 0.4, -0.3]]];
+      ok(cases.every(([rx, ry, rz, scale, at]) => C.bounds(rx, ry, rz, scale, at[0], at[1], at[2]).every((v, i) => near(v, seen(rx, ry, rz, scale, at)[i], 1e-9))),
+        'the plate\'s reach on the picture is that of its eight corners, the top ones raised for sand in the air, as the resting camera sees them');
+    }
     // Whatever the rotation, the plate as posed is inside its room; left as it was, it often is not.
     let inside = true, smallest = 1, over = 0;
     for (let i = 0; i < 400; i++) {

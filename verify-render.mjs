@@ -1789,6 +1789,7 @@ async function main() {
           out.push({ state, solid, sand, lit, light, edge, diff, glowT: s ? s.afterglowT : null, empty: empty / (w * h), cornerAlpha: px[3], solidBox: size(solidBox), canvas: [w, h], trace, hash, kitCam: s ? s.camera : null,
             expectTone: state.grains ? getColor(state.colorT + (state.ring / 32) * 1.4) : null, expectGlow: state.grains ? getColor(state.colorT + 0.7) : null,
             // Where the plate's near right corner should be, from the Rotate settings as the scene read them.
+            expectGrain: state.turned ? (() => { const C = TimbreChladni, r = state.turned, p = C.poseFor(r[0], r[1], r[2]), o = C.turn([0, 0, 0], state.drawn0[0], state.drawn0[1], state.drawn0[2], r[0], r[1], r[2]); return [o[0] * p.scale + p.x, o[1] * p.scale + p.y, o[2] * p.scale + p.z]; })() : null,
             expectCorner: state.turned ? (() => { const C = TimbreChladni, r = state.turned, p = C.poseFor(r[0], r[1], r[2]), o = C.turn([0, 0, 0], C.HALF, 0, C.HALF, r[0], r[1], r[2]); return [o[0] * p.scale + p.x, o[1] * p.scale + p.y, o[2] * p.scale + p.z]; })() : null });
         }
         return out;
@@ -1910,7 +1911,8 @@ async function main() {
     // The three Rotate settings, with the camera held still.
     const turnedBy = (knobs) => plateRun(talk, { knobs: Object.assign({ cameraDrift: 0 }, knobs) });
     const [flat] = await turnedBy({}), [face] = await turnedBy({ rotateX: 46 }), [diamond] = await turnedBy({ rotateX: 46, rotateY: 45 }), [spun] = await turnedBy({ rotateY: 45 }), [rolled] = await turnedBy({ rotateZ: 30 });
-    const cornerOff = (r) => gap(r.state.corner, r.expectCorner);
+    // How far the plate's corner is from where the settings put it; the same for the first grain; and for the skirt, from the plate.
+    const cornerOff = (r) => Math.max(gap(r.state.corner, r.expectCorner), gap(r.state.grainWorld, r.expectGrain), r.state.skirtWorldOff);
     check('chladni: with no rotation the plate is where it always was', flat.state.turned.join() === '0,0,0' && flat.state.scale === 1 && flat.state.at.join() === '0,0,0' && cornerOff(flat) < 1e-6 && Math.abs(flat.state.corner[0] - 2.2) < 1e-6 && Math.abs(flat.state.corner[2] - 2.2) < 1e-6
       && Math.abs(flat.state.facing - Math.cos(46 * Math.PI / 180)) < 1e-4, JSON.stringify({ corner: flat.state.corner, facing: flat.state.facing }));
     check('chladni: Rotate X at 46 turns the plate to face the camera, like the old effect', face.state.facing > 0.9999 && Math.abs(face.solidBox.w - face.solidBox.h) < 0.05 * face.solidBox.w && face.solidBox.h > flat.solidBox.h && cornerOff(face) < 1e-5
