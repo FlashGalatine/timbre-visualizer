@@ -2484,9 +2484,9 @@ await import('./overlay/chladni.js');
   const F = C.FIGURES, PI = Math.PI;
   const exact = (fig, x, z) => Math.cos(fig[0] * PI * x) * Math.cos(fig[1] * PI * z) + fig[2] * Math.cos(fig[1] * PI * x) * Math.cos(fig[0] * PI * z);
 
-  ok(C.GRAINS_MIN === 6000 && C.GRAINS_MAX === 30000 && C.HALF === 2.2 && C.THICK === 0.09 && C.G === 48 && C.T === 2048 && C.BANDS === 16 && C.BLEND === 0.8 && C.PAUSE === 0.45 && C.HOLD === 1.8
-    && C.HUSH === 0.1 && C.LOUD === 0.22 && C.HUM === 0.04 && C.GRAV === 9 && C.REACH === 0.04 && C.SPREAD === 0.024 && C.TONE_LOW === 1.3 && C.TONE_SPAN === 4.2 && C.FLEX === 0.035 && C.BEAT === 4 && C.RIM === 0.16 && C.RISE === 20 && C.FALL === 8 && C.TONE_RATE === 2.5 && C.LIFT === 0.014 && C.SIZE === 0.085 && C.RINGS === 32,
-    'the sizes: 6,000 to 30,000 grains on a plate 4.4 on a side and 0.09 thick, a grid of 48, tables of 2,048, 16 bands, a blend of 0.8 s, a pause of 0.45 s, a hold of 1.8 s');
+  ok(C.GRAINS_MIN === 6000 && C.GRAINS_MAX === 30000 && C.HALF === 2.2 && C.THICK === 0.09 && C.G === 48 && C.T === 2048 && C.BANDS === 16 && C.BLEND === 0.8 && C.PAUSE === 0.45 && C.HOLD === 3 && C.REST === 2.5
+    && C.HUSH === 0.1 && C.LOUD === 0.22 && C.HUM === 0.04 && C.GRAV === 9 && C.REACH === 0.04 && C.SPREAD === 0.024 && C.TONE_LOW === 1.3 && C.TONE_SPAN === 4.2 && C.FLEX === 0.035 && C.BEAT === 4 && C.RIM === 0.16 && C.ONSET === 0.1 && C.STEPS_MAX === 6 && C.TONE_RATE === 2.5 && C.LIFT === 0.014 && C.SIZE === 0.085 && C.RINGS === 32,
+    'the sizes: 6,000 to 30,000 grains on a plate 4.4 on a side and 0.09 thick, a grid of 48, tables of 2,048, 16 bands, a blend of 0.8 s, a pause of 0.45 s, a hold of 3 s, a rest of 2.5 s between throws');
   ok(C.grainCount(0) === 6000 && C.grainCount(50) === 18000 && C.grainCount(100) === 30000 && C.grainCount(-9) === 6000 && C.grainCount(500) === 30000 && C.grainCount(NaN) === 18000 && C.grainCount(undefined) === 18000 && C.grainCount(25) === 12000,
     'Density 0 is 6,000 grains, 50 is 18,000, 100 is 30,000; anything else is held to that range, and no setting at all is the default');
 
@@ -2533,52 +2533,70 @@ await import('./overlay/chladni.js');
     const mid = C.toneOf(bands);
     bands.fill(0); bands[2] = 0.9; bands[5] = 0.3;
     const lean = C.toneOf(bands);
-    ok(none === -1 && faint === -1 && low === 0 && high === 1 && near(mid, 1.7 / 4.2) && near(lean, (2.75 - 1.3) / 4.2, 1e-6),
-      'the tone is where the sound\'s weight sits among the 16 lowest bins, 0 to 1; with too little sound there is none');
+    ok(none === -1 && faint === -1 && low === 0 && high === 1 && near(mid, 1.7 / 4.2) && near(lean, (2.3 - 1.3) / 4.2, 1e-6),
+      'the tone is where the sound\'s weight sits among the 16 lowest bins, each weighing as its square, 0 to 1; with too little sound there is none');
+    // A floor of hiss in every bin under a low voice: the tone stays near the voice's. (Weighed plainly, it would be 0.84.)
+    bands.fill(0); bands[2] = 0.8;
+    const clean = C.toneOf(bands);
+    bands.fill(0.05); bands[2] = 0.8;
+    const hissy = C.toneOf(bands);
+    ok(near(clean, 0.7 / 4.2, 1e-6) && hissy > clean && hissy - clean < 0.1, 'a floor of hiss under the voice barely moves the tone');
+    ok(C.meanOf(0.2, 1, 0, 0.01) === 1 && near(C.meanOf(1, 0, 0.05, 0.05), 0.5) && near(C.meanOf(0.4, 0.4, 0.3, 0.1), 0.4) && near(C.meanOf(0, 1, 0.09, 0.01), 0.1) && C.meanOf(0.7, 0.3, 0, 0) === 0.3,
+      'a running mean: what there was, for as long as it lasted, and the new value for its moment');
     ok(C.wantFigure(0) === 0 && C.wantFigure(0.05) === 0 && C.wantFigure(0.1) === 1 && C.wantFigure(0.45) === 4 && C.wantFigure(0.999) === 9 && C.wantFigure(1) === 9 && C.wantFigure(-1) === 0 && C.wantFigure(NaN) === 0,
       'a low tone asks for a simple figure and a high one for an intricate one');
   }
   {
+    const dt = 1 / 60, run = (st, level, want, secs) => { for (let i = 0, n = Math.round(secs * 60); i < n; i++) C.listen(st, level, want, dt); return st; };
     const st = C.voice();
-    ok(st.figure === 0 && st.from === 0 && st.since >= 0.8 && st.quiet > 0.45 && st.changes === 0 && st.phrases === 0, 'a plate starts on the simplest figure, in a pause');
-    const fresh = C.voice();
-    C.listen(fresh, 0.5, 0, 1 / 60);
-    const kept = fresh.figure === 0 && fresh.changes === 0 && fresh.phrases === 1 && fresh.quiet === 0;
-    for (let i = 0; i < 30; i++) C.listen(fresh, 0, 0, 1 / 60);
-    for (let i = 0; i < 30; i++) C.listen(fresh, 0.5, 0, 1 / 60);
-    ok(kept && fresh.figure === 1 && fresh.from === 0 && fresh.phrases === 2, 'a plate\'s first phrase takes the figure its tone asks for, even the one it starts on; the next phrase on that tone moves along');
-    C.listen(st, 0.5, 4, 1 / 60);
-    ok(st.figure === 4 && st.from === 0 && st.since === 0 && st.quiet === 0 && st.changes === 1, 'when the voice comes back after a pause, the plate takes the figure for its tone');
-    C.listen(st, 0.5, 7, 1 / 60);
-    for (let i = 0; i < 60; i++) C.listen(st, 0.5, 7, 1 / 60);
+    ok(st.figure === 0 && st.from === 0 && st.since >= 0.8 && st.quiet > 0.45 && st.pending === false && st.changes === 0 && st.phrases === 0, 'a plate starts on the simplest figure, in a pause');
+    C.listen(st, 0.5, 4, dt);
+    ok(st.figure === 4 && st.from === 0 && st.asked === 4 && st.since === 0 && st.quiet === 0 && st.pending === false && st.changes === 1 && st.phrases === 1, 'when the voice comes back after a pause, the plate takes the figure for its tone');
+    run(st, 0.5, 7, 2.9);
     const held = st.figure === 4 && st.changes === 1;
-    for (let i = 0; i < 50; i++) C.listen(st, 0.5, 7, 1 / 60);
-    ok(held && st.figure === 7 && st.from === 4 && st.changes === 2 && st.since < 0.1, 'within a phrase the figure follows the tone, but not within 1.8 s of the last change');
-    for (let i = 0; i < 20; i++) C.listen(st, 0.15, 2, 1 / 60);
-    const between = st.figure === 7 && st.quiet === 0;
-    for (let i = 0; i < 30; i++) C.listen(st, 0.05, 2, 1 / 60);
-    ok(between && st.figure === 7 && near(st.quiet, 0.5, 1e-9), 'a voice neither loud nor hushed changes nothing; a hushed one counts as quiet');
-    C.listen(st, 0.5, 7, 1 / 60);
-    ok(st.figure === 8 && st.from === 7 && st.changes === 3, 'a new phrase on the same tone takes the next figure along');
-    const last = C.voice(); last.figure = 9; last.phrases = 1;
-    C.listen(last, 0.5, 9, 1 / 60);
-    ok(last.figure === 0 && last.from === 9, 'after the last figure comes the first');
-    const soon = C.voice(); soon.figure = 3; soon.since = 0.2; soon.quiet = 1;
+    run(st, 0.5, 7, 0.3);
+    ok(held && st.figure === 7 && st.from === 4 && st.asked === 7 && st.changes === 2 && st.since < 0.25, 'within a phrase the figure follows a tone that has moved, but not within 3 s of the last change');
+    const fresh = C.voice();
+    C.listen(fresh, 0.5, 0, dt);
+    ok(fresh.figure === 0 && fresh.changes === 0 && fresh.phrases === 1 && fresh.quiet === 0, 'a plate\'s first phrase takes the figure its tone asks for, even the one it starts on');
+
+    // A voice that keeps its tone.
+    const steady = C.voice();
+    C.listen(steady, 0.5, 3, dt); run(steady, 0, 3, 0.6); run(steady, 0.5, 3, 8);
+    ok(steady.figure === 4 && steady.from === 3 && steady.asked === 3 && steady.changes === 2 && steady.phrases === 2, 'a phrase on the tone the plate already shows takes the next figure along, and keeps it however long the phrase');
+    const seen = [];
+    for (let i = 0; i < 6; i++) { run(steady, 0, 3, 0.6); run(steady, 0.5, 3, 1); seen.push(steady.figure); }
+    ok(seen.join() === '5,3,4,5,3,4', 'a voice that keeps its tone goes round three figures, phrase after phrase');
+    ok(C.phraseFigure(3, 3, 0) === 4 && C.phraseFigure(3, 4, 3) === 5 && C.phraseFigure(3, 5, 4) === 3 && C.phraseFigure(9, 9, 2) === 8 && C.phraseFigure(9, 8, 9) === 7 && C.phraseFigure(8, 8, 7) === 6 && C.phraseFigure(7, 7, 7) === 8
+      && C.phraseFigure(0, 5, 6) === 0 && C.phraseFigure(0, 0, 1) === 2, 'a new phrase takes the figure its tone asks for, or the nearest one along that the plate neither has nor had; from the last two figures it goes down the list');
+
+    // Gaps and pauses.
+    const bursts = C.voice();
+    C.listen(bursts, 0.5, 3, dt);
+    for (let i = 0; i < 16; i++) { run(bursts, 0, 3, 0.3); run(bursts, 0.5, 3, 0.2); }
+    ok(bursts.figure === 3 && bursts.changes === 1 && bursts.phrases === 1 && bursts.pending === false, 'short gaps do not add up to a pause, even while the plate is changing figure');
+    const gap = C.voice(); gap.figure = 3; gap.asked = 3; gap.since = 1; gap.quiet = 0.3; gap.phrases = 1;
+    C.listen(gap, 0.5, 3, dt);
+    ok(gap.figure === 3 && gap.changes === 0 && gap.quiet === 0 && gap.pending === false, 'a gap shorter than a pause is not a new phrase');
+    const murmur = C.voice(); murmur.figure = 3; murmur.asked = 3; murmur.phrases = 1; murmur.quiet = 0;
+    run(murmur, 0.15, 6, 0.5);
+    const unmoved = murmur.figure === 3 && murmur.quiet === 0;
+    run(murmur, 0.05, 6, 0.5);
+    ok(unmoved && murmur.figure === 3 && near(murmur.quiet, 0.5, 1e-9), 'a voice neither loud nor hushed changes nothing; a hushed one counts as quiet');
+    run(murmur, 0.15, 6, 0.5);
+    const noStart = murmur.figure === 3 && murmur.pending === false && near(murmur.quiet, 0.5, 1e-9) && murmur.phrases === 1;
+    C.listen(murmur, 0.5, 6, dt);
+    ok(noStart && murmur.figure === 6 && murmur.phrases === 2 && murmur.quiet === 0, 'after a pause, a voice neither loud nor hushed does not start a phrase; a loud one does');
+    const soon = C.voice(); soon.figure = 3; soon.asked = 3; soon.phrases = 1; soon.since = 0.2; soon.quiet = 1;
     C.listen(soon, 0.5, 5, 0.1);
-    const waited = soon.figure === 3 && soon.quiet === 1;
+    const waited = soon.figure === 3 && soon.pending === true && soon.quiet === 0;
     for (let i = 0; i < 6; i++) C.listen(soon, 0.5, 5, 0.1);
-    ok(waited && soon.figure === 5 && soon.changes === 1, 'a change asked for while the plate is still changing waits until it has finished');
-    const gap = C.voice(); gap.figure = 3; gap.since = 1; gap.quiet = 0.3; gap.phrases = 1;
-    C.listen(gap, 0.5, 3, 1 / 60);
-    ok(gap.figure === 3 && gap.changes === 0 && gap.quiet === 0, 'a gap shorter than a pause is not a new phrase');
-    const murmur = C.voice(); murmur.figure = 3; murmur.phrases = 1; murmur.quiet = 1;
-    for (let i = 0; i < 30; i++) C.listen(murmur, 0.15, 6, 1 / 60);
-    ok(murmur.figure === 3 && murmur.quiet === 1 && murmur.phrases === 1, 'after a pause, a voice neither loud nor hushed does not start a phrase');
-    const mute = C.voice(); mute.figure = 3; mute.phrases = 1;
-    for (let i = 0; i < 30; i++) C.listen(mute, 0.5, -1, 1 / 60);
-    const waiting = mute.figure === 3 && mute.quiet === 9 && mute.phrases === 1;
-    C.listen(mute, 0.5, 6, 1 / 60);
-    ok(waiting && mute.figure === 6 && mute.phrases === 2 && mute.quiet === 0, 'a sound with no tone to speak of starts no phrase; the phrase starts when it has one');
+    ok(waited && soon.figure === 5 && soon.changes === 1 && soon.pending === false, 'a new phrase that comes while the plate is still changing waits until it has finished');
+    const mute = C.voice(); mute.figure = 3; mute.asked = 3; mute.phrases = 1;
+    run(mute, 0.5, -1, 0.5);
+    const waiting = mute.figure === 3 && mute.pending === true && mute.phrases === 1;
+    C.listen(mute, 0.5, 6, dt);
+    ok(waiting && mute.figure === 6 && mute.phrases === 2 && mute.pending === false, 'a sound with no tone to speak of starts no phrase; the phrase starts when it has one');
   }
   ok(C.blendOf(0) === 0 && near(C.blendOf(0.4), 0.5) && C.blendOf(0.8) === 1 && C.blendOf(9) === 1 && near(C.blendOf(0.2), 0.15625), 'the plate changes figure over 0.8 s, easing in and out');
 
@@ -2588,9 +2606,10 @@ await import('./overlay/chladni.js');
   ok(C.pace(0) === 0.5 && near(C.pace(1), 2.7) && C.jostle(0, 1 / 60) === 0 && near(C.jostle(1, 1 / 60), 0.07 * Math.sqrt(0.2)) && near(C.jostle(0.5, 1 / 30), 0.035 * Math.sqrt(0.4))
     && near(C.hopChance(1, 1 / 60), 0.1) && near(C.hopChance(0.5, 1 / 30), 0.1) && near(C.hopSpeed(1, 1, 0), 0.6) && near(C.hopSpeed(1, 1, 1), 1.8) && near(C.hopSpeed(0.25, 0.5, 0.5), 0.3),
     'louder, a grain walks faster, is jostled more, and hops more often and higher');
-  ok(C.thrown(1, true, 9) === 1 && near(C.thrown(0.95, true, 9), 0.5) && C.thrown(0.9, true, 9) === 0 && C.thrown(1, false, 9) === 0 && C.thrown(1, true, 1) === 0 && C.thrown(2, true, 9) === 1,
-    'a beat with the level above 0.9 throws the sand, harder the nearer 1, and not within 1.2 s of the last throw');
-  ok(C.stepsFor(1 / 60) === 1 && C.stepsFor(1 / 30) === 2 && C.stepsFor(1 / 120) === 1 && C.stepsFor(0.1) === 4 && C.stepsFor(0) === 1, 'the sand moves in steps of about a sixtieth of a second, at most four a frame');
+  ok(C.thrown(1, true, 9) === 1 && near(C.thrown(0.95, true, 9), 0.5) && C.thrown(0.9, true, 9) === 0 && C.thrown(1, false, 9) === 0 && C.thrown(1, true, 1) === 0 && C.thrown(1, true, 2.4) === 0 && C.thrown(1, true, 2.6) === 1 && C.thrown(2, true, 9) === 1,
+    'a beat with the level above 0.9 throws the sand, harder the nearer 1, and not within 2.5 s of the last throw');
+  ok(C.stepsFor(1 / 60) === 1 && C.stepsFor(1 / 30) === 2 && C.stepsFor(1 / 120) === 1 && C.stepsFor(1 / 144) === 1 && C.stepsFor(1 / 45) === 2 && C.stepsFor(1 / 50) === 2 && C.stepsFor(0.1) === 6 && C.stepsFor(1) === 6 && C.stepsFor(0) === 1,
+    'the sand moves in steps no longer than a sixtieth of a second, at most six a frame');
 
   // The sand.
   {
@@ -2607,26 +2626,81 @@ await import('./overlay/chladni.js');
     ok(a.n === N && inside && Math.abs(quad / N - 0.25) < 0.03 && offMax <= 1.5 * 0.024 && offMax > 0.02 && Math.abs(offSum / N) < 0.002 && same(a, b) && !same(a, c) && a.rng.every((s) => s !== 0) && new Set(a.rng).size > 0.99 * N,
       'sand starts spread evenly over the plate, each grain with its own place beside a line and its own random numbers; the same seed gives the same sand');
 
+    {
+      const draw = (s) => (Math.imul(s, 1664525) + 1013904223) >>> 0;
+      let shifted = 0;
+      for (let i = 0; i < 200; i++) { let s = a.rng[i], u = a.rng[i + 1]; for (let k = 0; k < 40; k++) { s = draw(s); u = draw(u); if (s === a.rng[i + 1] || u === a.rng[i]) shifted++; } }
+      ok(shifted === 0, 'no grain\'s run of random numbers is its neighbour\'s a few draws on');
+    }
     const fig = F[2], first = C.measure(a, N, fig, fig, 1);
     // One grain, with the plate shaking so little that nothing jostles it: far from its place it walks straight
-    // down the slope at the plate's pace, and within reach of its place it slows.
+    // down the slope at the plate's pace, whichever side of the line it is on; within reach of its place the
+    // distance left dies away at pace / reach a second, whatever the length of the step.
     {
-      const one = C.createSand(1, 2), out = [0, 0, 0], step = 0.01;
-      const walkFrom = (x, z, off) => {
+      const one = C.createSand(1, 2), out = [0, 0, 0];
+      const farAt = (x, z) => { C.sample(fig, C.cell(x), C.cell(z), out); return out[0] / Math.hypot(out[1], out[2]); };
+      const walkFrom = (x, z, off, step) => {
         one.x[0] = x; one.z[0] = z; one.y[0] = 0; one.off[0] = off;
         C.sample(fig, C.cell(x), C.cell(z), out);
         const v = out[0], sx = out[1], sz = out[2], steep = Math.hypot(sx, sz);
         C.stepSand(one, 1, fig, fig, 1, 0, true, step);
         const dx = one.x[0] - x, dz = one.z[0] - z;
-        return { far: v / steep - off, moved: Math.hypot(dx, dz), down: -(dx * sx + dz * sz) * Math.sign(v / steep - off) / (Math.hypot(dx, dz) * steep || 1), f: one.f[0], v };
+        C.sample(fig, C.cell(one.x[0]), C.cell(one.z[0]), out);
+        return { far: v / steep - off, moved: Math.hypot(dx, dz), down: -(dx * sx + dz * sz) * Math.sign(v / steep - off) / (Math.hypot(dx, dz) * steep || 1), f: one.f[0], v, now: out[0] };
       };
-      const far = walkFrom(0.31, 0.12, 0), own = walkFrom(0.31, 0.12, 0.03);
-      // Follow the grain in until it is within reach of its place, and measure the step it takes from there.
-      let nearby = null;
-      for (let i = 0, p = [0.31, 0.12]; i < 400 && !nearby; i++) { const w = walkFrom(p[0], p[1], 0); if (Math.abs(w.far) < 0.03 && Math.abs(w.far) > 0.005) nearby = w; p = [one.x[0], one.z[0]]; }
-      ok(Math.abs(far.far) > 0.05 && near(far.moved, 0.5 * step, 1e-5) && far.down > 0.999 && near(far.f, far.v, 1e-6), 'a grain far from its place walks straight down the slope toward it, at the plate\'s pace, and keeps the plate\'s value under it');
-      ok(!!nearby && near(nearby.moved, 0.5 * step * Math.abs(nearby.far) / 0.04, 2e-5) && nearby.down > 0.99, 'within 0.04 of its place a grain slows in proportion');
-      ok(near(own.moved, 0.5 * step, 1e-5) && Math.abs(own.far - (far.far - 0.03)) < 1e-6, 'a grain\'s place is its own: as far from the line as its offset');
+      // A place well to each side of a line.
+      let above = null, below = null;
+      for (let i = 0; i < 400 && !(above && below); i++) { const x = 0.05 + 0.9 * ((i * 0.618) % 1), z = 0.05 + 0.9 * ((i * 0.377) % 1), d = farAt(x, z); if (!above && d > 0.14 && d < 0.3) above = [x, z]; if (!below && d < -0.14 && d > -0.3) below = [x, z]; }
+      const up = walkFrom(above[0], above[1], 0, 0.01), down = walkFrom(below[0], below[1], 0, 0.01), own = walkFrom(above[0], above[1], 0.03, 0.01), long = walkFrom(above[0], above[1], 0, 0.04);
+      ok(up.far > 0.05 && down.far < -0.05 && near(up.moved, 0.005, 1e-5) && near(down.moved, 0.005, 1e-5) && up.down > 0.999 && down.down > 0.999,
+        'a grain far from its place walks straight down the slope toward it, at the plate\'s pace, from either side of the line');
+      ok(near(own.moved, 0.005, 1e-5) && Math.abs(own.far - (up.far - 0.03)) < 1e-6, 'a grain\'s place is its own: as far from the line as its offset');
+      ok(near(long.moved, 0.02, 1e-5) && Math.abs(long.f - long.now) < 0.02 && Math.abs(long.now - long.v) > 0.04, 'after its step a grain keeps the plate\'s value where it now is');
+      // The same walk in steps of two lengths: as far along its path, and as near its place at the end.
+      const path = (step, secs) => { let p = [above[0], above[1]], length = 0, w = null; for (let i = 0, n = Math.round(secs / step); i < n; i++) { w = walkFrom(p[0], p[1], 0, step); length += w.moved; p = [one.x[0], one.z[0]]; } return { length, left: farAt(p[0], p[1]) }; };
+      const coarse = path(1 / 60, 0.1), fine = path(1 / 240, 0.1);
+      ok(near(coarse.length, 0.05, 1e-4) && near(fine.length, 0.05, 1e-4), 'far from its place a grain goes as far in a tenth of a second whatever the length of the step');
+      // Walk in until the grain is within reach of its place; from there, a twentieth of a second in one step and in
+      // twelve: either way the distance left is what dying away at 0.5 / 0.04 a second leaves of it.
+      let p = [above[0], above[1]];
+      for (let i = 0; i < 400 && !(farAt(p[0], p[1]) < 0.03); i++) { walkFrom(p[0], p[1], 0, 1 / 240); p = [one.x[0], one.z[0]]; }
+      const within = farAt(p[0], p[1]);
+      walkFrom(p[0], p[1], 0, 0.05);
+      const oneStep = farAt(one.x[0], one.z[0]);
+      let q = p;
+      for (let i = 0; i < 12; i++) { walkFrom(q[0], q[1], 0, 0.05 / 12); q = [one.x[0], one.z[0]]; }
+      const twelve = farAt(q[0], q[1]), left = within * Math.exp(-0.625);
+      ok(within > 0.02 && within < 0.03 && Math.abs(oneStep - left) < 0.12 * left && Math.abs(twelve - left) < 0.12 * left,
+        'within reach of its place the distance left dies away at the same rate whatever the length of the step');
+      // In the air: a grain flies on sideways and falls, in the same time whatever the length of the step.
+      const fly = (step) => {
+        one.x[0] = 0.1; one.z[0] = 0.2; one.y[0] = 1e-4; one.vx[0] = 0.3; one.vy[0] = 1.5; one.vz[0] = -0.2;
+        let time = 0, top = 0;
+        while (one.y[0] > 0 && time < 2) { C.stepSand(one, 1, fig, fig, 1, 0, false, step); time += step; top = Math.max(top, one.y[0]); }
+        return { time, top, x: one.x[0] - 0.1, z: one.z[0] - 0.2 };
+      };
+      const f60 = fly(1 / 60), f240 = fly(1 / 240);
+      ok([f60, f240].every((r) => Math.abs(r.time - 1 / 3) < 0.02 && Math.abs(r.top - 0.125) < 0.015 && Math.abs(r.x - 0.3 * r.time) < 1e-4 && Math.abs(r.z + 0.2 * r.time) < 1e-4),
+        'a grain in the air flies on sideways and falls at 9 a second each second, in the same time whatever the length of the step');
+    }
+    // A jostle is as wide each way as jostle() says, and one way has nothing to do with the other; a grain lying
+    // on its line, where the plate hardly moves, hardly ever hops.
+    {
+      const j = C.createSand(N, 31);
+      for (let i = 0; i < 240; i++) C.stepSand(j, N, fig, fig, 1, 0.5, true, h);
+      for (let i = 0; i < 180; i++) C.stepSand(j, N, fig, fig, 1, 0.04, true, h);
+      const x0 = Float32Array.from(j.x), z0 = Float32Array.from(j.z);
+      C.stepSand(j, N, fig, fig, 1, 1, true, h);
+      let n = 0, sx = 0, sz = 0, sxx = 0, szz = 0, sxz = 0, up = 0;
+      for (let i = 0; i < N; i++) {
+        if (j.y[i] > 0) up++;
+        if (Math.abs(j.x[i]) === 1 || Math.abs(j.z[i]) === 1) continue;
+        const dx = j.x[i] - x0[i], dz = j.z[i] - z0[i];
+        n++; sx += dx; sz += dz; sxx += dx * dx; szz += dz * dz; sxz += dx * dz;
+      }
+      const sdx = Math.sqrt(sxx / n - (sx / n) ** 2), sdz = Math.sqrt(szz / n - (sz / n) ** 2), corr = (sxz / n - (sx / n) * (sz / n)) / (sdx * sdz), want = C.jostle(1, h) / Math.sqrt(12);
+      ok(Math.abs(sdx - want) < 0.15 * want && Math.abs(sdz - want) < 0.15 * want && Math.abs(corr) < 0.1, 'a grain is jostled as far each way as the shake says, and one way has nothing to do with the other');
+      ok(up / N < 0.03, 'a grain lying on its line, where the plate hardly moves, hardly ever hops');
     }
     // Sand lying where the plate moves hops, more when the plate shakes harder.
     {
@@ -2641,6 +2715,12 @@ await import('./overlay/chladni.js');
     for (let i = 0; i < N; i++) { if (!(Math.abs(a.x[i]) <= 1 && Math.abs(a.z[i]) <= 1 && a.y[i] >= 0)) onPlate = false; if (!Number.isFinite(a.x[i] + a.z[i] + a.y[i])) finite = false; }
     ok(first.settled < 0.3 && loud.settled > 0.75 && loud.spread < first.spread / 4 && onPlate && finite && same(a, b) && a.rng.every((s, i) => s !== seeds0[i]),
       'shaken, the sand gathers on the lines of the figure and stays on the plate; a run is repeatable', JSON.stringify([first, loud]));
+    {
+      const fine = C.createSand(N, 7);
+      for (let i = 0; i < 960; i++) C.stepSand(fine, N, fig, fig, 1, 0.5, true, h / 4);
+      const finer = C.measure(fine, N, fig, fig, 1);
+      ok(finer.settled > 0.75 && Math.abs(finer.spread - loud.spread) < 0.3 * loud.spread && Math.abs(finer.air - loud.air) < 0.02, 'in steps a quarter as long the sand gathers into the same kind of figure');
+    }
     for (let i = 0; i < 120; i++) C.stepSand(a, N, fig, fig, 1, 0.04, true, h);
     const hum = C.measure(a, N, fig, fig, 1);
     ok(hum.settled > 0.93 && hum.spread < loud.spread / 2 && hum.air < 0.01, 'at a hum the sand finishes gathering and the lines are sharp; louder they are fuzzier', JSON.stringify([loud, hum]));
@@ -2680,7 +2760,7 @@ await import('./overlay/chladni.js');
     const odd = C.createSand(4, 5);
     odd.x[0] = 0; odd.z[0] = 0; odd.x[1] = 1; odd.z[1] = 1; odd.x[2] = -1; odd.z[2] = 0.3; odd.x[3] = 0.5; odd.z[3] = 0.5;
     for (let i = 0; i < 300; i++) C.stepSand(odd, 4, F[0], F[0], 1, 1.2, true, h);
-    ok([0, 1, 2, 3].every((i) => Number.isFinite(odd.x[i] + odd.z[i] + odd.y[i]) && Math.abs(odd.x[i]) <= 1 && Math.abs(odd.z[i]) <= 1 && odd.y[i] >= 0), 'a grain at a crossing of lines or on the plate\'s edge stays on the plate');
+    ok([0, 1, 2, 3].every((i) => Number.isFinite(odd.x[i] + odd.z[i] + odd.y[i]) && Math.abs(odd.x[i]) <= 1 && Math.abs(odd.z[i]) <= 1 && odd.y[i] >= 0), 'a grain beside a crossing of lines, where the slope is all but nothing, or on the plate\'s edge stays on the plate');
 
     // The blend: halfway between two figures the sand gathers on neither.
     const mix = C.createSand(N, 11);
@@ -2697,15 +2777,21 @@ await import('./overlay/chladni.js');
 
   // The plate, and the sand's colour.
   ok(C.bend(1, 0) === 0 && near(C.bend(1, 1 / 16), 0.035) && near(C.bend(0.5, 3 / 16), -0.0175) && C.bend(0, 0.1) === 0, 'the plate bends four times a second, further the harder it shakes');
-  ok(C.glow(0, 1) === 0 && near(C.glow(2, 1), 0.1) && near(C.glow(1, 0.5), 0.025) && near(C.glow(2, 3), 0.1) && near(C.glow(-2, 1), 0.1) && C.glow(2, 0) === 0, 'the plate glows where it moves, more the harder it shakes, and not at all on a line');
+  ok(C.glow(0, 1) === 0 && near(C.glow(2, 1), 0.1) && near(C.glow(1, 0.5), 0.025) && near(C.glow(0.5, 1), 0.0125) && near(C.glow(2, 3), 0.1) && near(C.glow(-2, 1), 0.1) && C.glow(2, 0) === 0, 'the plate glows where it moves, more the harder it shakes, and not at all on a line');
   ok(near(C.sandBright(0, false), 0.55) && near(C.sandBright(1, false), 0.85) && near(C.sandBright(2, false), 0.85) && near(C.sandBright(1, true), 0.595), 'the sand is brighter the harder the plate shakes, and dimmer in the air');
   {
     const out = [9, 9, 9];
     ok(C.pale(out, [0.2, 0.4, 1]) === out && near(out[0], 0.52) && near(out[1], 0.64) && out[2] === 1, 'the sand is its palette colour, 40% of the way to white');
   }
   ok(C.radius(0, 0) === 0 && near(C.radius(1, 1), 1) && near(C.radius(1, 0), Math.SQRT1_2) && near(C.radius(-0.5, 0.5), 0.5), 'a grain\'s colour goes by how far it is from the middle of the plate, 1 at a corner');
-  ok(near(C.idle(4, 0), 1) && near(C.idle(7, 0), Math.exp(-9 / 6)) && near(C.idle(2, 10), Math.exp(-Math.pow(2 - (4 + 3.6 * Math.sin(0.8)), 2) / 6)) && [0, 5, 10, 15].every((b) => C.idle(b, 33) >= 0 && C.idle(b, 33) <= 1),
-    'with the mic off the tone drifts slowly up and down through the bands');
+  {
+    const centre = (s) => 1.3 + 4.2 * (0.5 + 0.5 * Math.sin(0.08 * s)), toneAt = (s) => { const b = new Float32Array(16); for (let i = 0; i < 16; i++) b[i] = C.idle(i, s); return C.toneOf(b); };
+    const quarter = Math.PI / 2 / 0.08;
+    ok(near(C.idle(3, 0), Math.exp(-0.16 / 6)) && near(C.idle(7, 10), Math.exp(-Math.pow(7 - centre(10), 2) / 6)) && [0, 5, 10, 15].every((b) => C.idle(b, 33) >= 0 && C.idle(b, 33) <= 1)
+      && Math.abs(toneAt(0) - 0.5) < 0.05 && toneAt(quarter) > 0.95 && toneAt(3 * quarter) < 0.1 && toneAt(quarter / 2) > toneAt(0) && toneAt(quarter / 2) < 0.95 && toneAt(2.5 * quarter) < toneAt(2 * quarter) && toneAt(2.5 * quarter) > 0.05,
+      'with the mic off the tone drifts slowly from one end of the figures to the other and back, without stopping at either');
+  }
+  ok(C.grainSize(1, 1) === 0.085 && near(C.grainSize(4, 1), 0.34) && near(C.grainSize(1, 0.5), 0.0425) && near(C.grainSize(2, 2), 0.34), 'a grain is drawn larger by as much as the picture it is drawn into is larger than the canvas, and by the camera\'s zoom');
 
   // The table.
   ok(T.VIZ_SCENES[T.VIZ_SCENES.length - 1] === 'chladni' && T.VIZ_USES_3D.includes('chladni'), 'chladni is a kit scene, listed after phosphor');

@@ -1787,7 +1787,7 @@ async function main() {
           last = px;
           const s = window.__timbre.scene, state = (s && s.state) || {};
           out.push({ state, solid, sand, lit, light, edge, diff, glowT: s ? s.afterglowT : null, empty: empty / (w * h), cornerAlpha: px[3], solidBox: size(solidBox), canvas: [w, h], trace, hash, kitCam: s ? s.camera : null,
-            expectTone: state.grains ? getColor(state.colorT + (state.ring / 32) * 1.4) : null });
+            expectTone: state.grains ? getColor(state.colorT + (state.ring / 32) * 1.4) : null, expectGlow: state.grains ? getColor(state.colorT + 0.7) : null });
         }
         return out;
       } finally {
@@ -1798,12 +1798,14 @@ async function main() {
     const top = (a) => Math.max(...a);
     const gap = (a, b) => top(a.map((v, i) => Math.abs(v - b[i])));
     const smooth = (t) => { const u = Math.min(1, Math.max(0, t)); return u * u * (3 - 2 * u); };
+    const close = (a, b) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= 2);
     // A voice sitting low: its weight is at bin 2.5, which asks for the third figure.
     const low = [[2, 0.8], [3, 0.8]];
     const talk = [{ level: 0.8, bins: low, secs: 3 }];
     // Thresholds are 60% of what the scene gives after 3 s at a steady 0.8: about 244,000 solid pixels
     // (the plate) and 12,200 of them bright with sand.
-    const PLATE_SOLID = 146000, PLATE_SAND = 7300;
+    // PLATE_AIR is 60% of the pixels of light over the background a tenth of a second into a throw: about 4,550.
+    const PLATE_SOLID = 146000, PLATE_SAND = 7300, PLATE_AIR = 2700;
 
     await activate(PLATE);
     const plateState = await sceneState();
@@ -1824,30 +1826,45 @@ async function main() {
     check('chladni: the louder the voice, the fuzzier the lines', full.state.spread > 1.5 * soft.state.spread && soft.state.settled > 0.7 && Math.abs(soft.state.shake - 0.34) < 0.01 && Math.abs(full.state.shake - 1.04) < 0.01,
       JSON.stringify({ spread: [soft.state.spread, full.state.spread], settled: [soft.state.settled, full.state.settled] }));
     check('chladni: a grain is drawn where it lies on the plate, a hair above it', [0, 1, 2].every((i) => Math.abs(loud.state.drawn0[i] - [loud.state.first[0] * 2.2, loud.state.flex * loud.state.f0 + loud.state.first[2] + 0.014, loud.state.first[1] * 2.2][i]) < 1e-5)
-      && Math.abs(loud.state.first[0]) <= 1 && Math.abs(loud.state.first[1]) <= 1, JSON.stringify({ drawn: loud.state.drawn0, lies: loud.state.first.slice(0, 3), f: loud.state.f0, flex: loud.state.flex }));
+      && Math.abs(loud.state.first[0]) <= 1 && Math.abs(loud.state.first[1]) <= 1 && Math.abs(loud.state.size - 0.085) < 1e-9, JSON.stringify({ size: loud.state.size, drawn: loud.state.drawn0, lies: loud.state.first.slice(0, 3), f: loud.state.f0, flex: loud.state.flex }));
 
     // The tone picks the figure.
     const [deep] = await plateRun([{ level: 0.8, bins: [[0, 1]], secs: 0.5 }]), [mid] = await plateRun([{ level: 0.8, bins: [[3, 1]], secs: 0.5 }]), [high] = await plateRun([{ level: 0.8, bins: [[9, 1]], secs: 0.5 }]);
-    const [snap] = await plateRun([{ level: 0.8, bins: [[9, 1]], secs: 0.05 }]);
-    check('chladni: a low voice draws a simple figure and a high one an intricate one', deep.state.figure === 0 && deep.state.changes === 0 && mid.state.figure === 4 && high.state.figure === 9 && deep.state.tone === 0 && Math.abs(mid.state.tone - 1.7 / 4.2) < 1e-3 && high.state.tone === 1
-      && snap.state.tone === 1 && snap.state.figure === 9, JSON.stringify({ figure: [deep.state.figure, mid.state.figure, high.state.figure], tone: [deep.state.tone, mid.state.tone, high.state.tone, snap.state.tone] }));
+    check('chladni: a low voice draws a simple figure and a high one an intricate one', deep.state.figure === 0 && deep.state.changes === 0 && mid.state.figure === 4 && high.state.figure === 9 && deep.state.tone === 0 && Math.abs(mid.state.tone - 1.7 / 4.2) < 1e-3 && high.state.tone === 1,
+      JSON.stringify({ figure: [deep.state.figure, mid.state.figure, high.state.figure], tone: [deep.state.tone, mid.state.tone, high.state.tone] }));
+    // The plate waits a tenth of a second into a phrase and takes the mean of the tone over it.
+    const [snap, onset] = await plateRun([{ level: 0.8, bins: [[9, 1]], secs: 0.05 }, { level: 0.8, bins: [[9, 1]], secs: 0.1 }]);
+    const [, mixed, settledOn] = await plateRun([{ level: 0.8, bins: [[9, 1]], secs: 0.05 }, { level: 0.8, bins: [[0, 1]], secs: 0.05 }, { level: 0.8, bins: [[0, 1]], secs: 0.5 }]);
+    check('chladni: a phrase takes its figure from the tone of its first tenth of a second', snap.state.tone === 1 && snap.state.figure === 0 && snap.state.phrases === 0 && snap.state.cold === true && snap.state.pending === true
+      && onset.state.figure === 9 && onset.state.phrases === 1 && onset.state.cold === false && Math.abs(onset.state.since - 0.05) < 0.02
+      && Math.abs(mixed.state.tone - 0.5) < 1e-6 && mixed.state.figure === 5 && mixed.state.asked === 5 && settledOn.state.figure === 5 && settledOn.state.tone < 0.2,
+      JSON.stringify({ snap: [snap.state.tone, snap.state.figure, snap.state.phrases], onset: [onset.state.figure, onset.state.since], mixed: [mixed.state.tone, mixed.state.figure], after: [settledOn.state.tone, settledOn.state.figure] }));
     // A voice too faint to have a tone starts no phrase, and the plate keeps its figure; Gain makes it loud enough.
     const faintly = [{ level: 0.8, bins: [[3, 0.1]], secs: 0.5 }];
     const [faint] = await plateRun(faintly, { gain: 1 }), [boosted] = await plateRun(faintly, { gain: 2 }), [quietly] = await plateRun([{ level: 0.8, bins: [[3, 0.2]], secs: 0.5 }], { gain: 1 });
     check('chladni: a sound with no tone to speak of leaves the figure alone, and Gain scales the bands the tone is weighed over', faint.state.figure === 0 && faint.state.phrases === 0 && faint.state.tone === 0 && faint.state.settled > 0.5
       && boosted.state.figure === 4 && boosted.state.phrases === 1 && Math.abs(boosted.state.tone - 1.7 / 4.2) < 1e-3 && quietly.state.figure === 4 && Math.abs(quietly.state.tone - 1.7 / 4.2) < 1e-3,
       JSON.stringify({ figure: [faint.state.figure, boosted.state.figure, quietly.state.figure], tone: [faint.state.tone, boosted.state.tone, quietly.state.tone], phrases: [faint.state.phrases, boosted.state.phrases] }));
-    // Within a phrase the figure follows the tone, but keeps a figure for 1.8 s.
-    const [, kept, turned] = await plateRun([{ level: 0.8, bins: low, secs: 0.5 }, { level: 0.8, bins: [[9, 1]], secs: 1 }, { level: 0.8, bins: [[9, 1]], secs: 1 }]);
-    check('chladni: within a phrase the figure follows the tone, but not within 1.8 s of the last change', kept.state.figure === 2 && kept.state.tone > 0.6 && kept.state.tone < 0.999 && kept.state.want > 2 && turned.state.figure === 9 && turned.state.from === 2 && turned.state.changes === 2
-      && Math.abs(turned.state.since - 0.7) < 0.05, JSON.stringify({ figure: [kept.state.figure, turned.state.figure], tone: [kept.state.tone, turned.state.tone], since: turned.state.since }));
+    // Within a phrase the figure follows the tone, but keeps a figure for 3 s.
+    const [, kept, turned] = await plateRun([{ level: 0.8, bins: low, secs: 0.5 }, { level: 0.8, bins: [[9, 1]], secs: 1.5 }, { level: 0.8, bins: [[9, 1]], secs: 1.5 }]);
+    check('chladni: within a phrase the figure follows the tone, but not within 3 s of the last change', kept.state.figure === 2 && Math.abs(kept.state.tone - (1 - (5 / 7) * Math.exp(-3.75))) < 1e-4 && kept.state.want > 2 && turned.state.figure === 9 && turned.state.from === 2 && turned.state.changes === 2
+      && Math.abs(turned.state.since - 0.39) < 0.05 && turned.state.asked === 9, JSON.stringify({ figure: [kept.state.figure, turned.state.figure], tone: [kept.state.tone, turned.state.tone], since: turned.state.since }));
     // A new phrase.
     const [said, , again, later] = await plateRun([{ level: 0.8, bins: low, secs: 1.5 }, { level: 0, secs: 0.6 }, { level: 0.8, bins: low, secs: 0.4, trace: true }, { level: 0.8, bins: low, secs: 0.6 }]);
     const [, , short] = await plateRun([{ level: 0.8, bins: low, secs: 1.5 }, { level: 0, secs: 0.3 }, { level: 0.8, bins: low, secs: 0.4 }]);
     check('chladni: each phrase draws a new figure; a gap shorter than a pause does not', said.state.figure === 2 && again.state.figure === 3 && again.state.from === 2 && again.state.changes === 2 && short.state.figure === 2 && short.state.changes === 1,
       JSON.stringify({ figure: [said.state.figure, again.state.figure, short.state.figure], changes: [again.state.changes, short.state.changes] }));
-    check('chladni: the plate changes figure over 0.8 s, and the sand follows', Math.abs(again.state.since - 0.4) < 0.02 && Math.abs(again.state.blend - smooth(again.state.since / 0.8)) < 1e-6 && again.state.blend > 0.3 && again.state.blend < 0.7 && later.state.blend === 1
-      && again.trace.every((t, i) => i === 0 || t[9] >= again.trace[i - 1][9]) && later.state.settled > 0.6 && later.state.figure === 3,
+    const pause = { level: 0, secs: 0.6 }, word = { level: 0.8, bins: low, secs: 1 };
+    const rounds = await plateRun([word, pause, word, pause, word, pause, word, pause, word]);
+    const burst = { level: 0.8, bins: low, secs: 0.2 }, breath = { level: 0, secs: 0.3 };
+    const bursts = await plateRun([burst, breath, burst, breath, burst, breath, burst, breath, burst, breath, burst, breath, burst, breath, burst]);
+    check('chladni: a voice that keeps its tone goes round three figures, and short gaps between words are not pauses', rounds.map((r) => r.state.figure).join() === '2,2,3,3,4,4,2,2,3' && rounds[8].state.phrases === 5
+      && bursts[14].state.figure === 2 && bursts[14].state.phrases === 1 && bursts[14].state.changes === 1,
+      JSON.stringify({ rounds: rounds.map((r) => r.state.figure), bursts: [bursts[14].state.figure, bursts[14].state.phrases, bursts[14].state.changes] }));
+    // The blend from the frame the plate takes its new figure (a tenth of a second into the phrase).
+    const blendTrace = again.trace.map((t) => t[9]).slice(again.trace.findIndex((t) => t[9] === 0));
+    check('chladni: the plate changes figure over 0.8 s, and the sand follows', Math.abs(again.state.since - 0.3) < 0.02 && Math.abs(again.state.blend - smooth(again.state.since / 0.8)) < 1e-6 && again.state.blend > 0.15 && again.state.blend < 0.6 && later.state.blend === 1
+      && blendTrace.length > 10 && blendTrace[0] === 0 && blendTrace.every((b, i) => i === 0 || b > blendTrace[i - 1]) && later.state.settled > 0.6 && later.state.figure === 3,
       JSON.stringify({ since: again.state.since, blend: [again.state.blend, later.state.blend], settled: [again.state.settled, later.state.settled] }));
 
     // The plate bends and glows where it moves.
@@ -1862,8 +1879,8 @@ async function main() {
       && Math.abs(bent.state.flex - 0.035 * bent.state.shake * Math.sin(2 * Math.PI * 4 * bent.state.clock)) < 1e-6,
       JSON.stringify({ swing: [swing(bent), swing(humming)], relief: [relief(bent), relief(humming)], turns: turns(bent) }));
     check('chladni: the plate glows where it moves, more the louder the voice, and has a lit rim', Math.abs(loud.state.glowMax - 0.1 * loud.state.shake) < 1e-6 && Math.abs(hush.state.glowMax - 0.1 * hush.state.shake) < 1e-6 && hush.state.glowMax < 0.005 && loud.state.plateLit > 1.5 * hush.state.plateLit
-      && loud.state.plateDark < 0.03 && hush.state.rimLit > 2 * hush.state.plateLit && loud.lit > 1.5 * hush.lit,
-      JSON.stringify({ glow: [loud.state.glowMax, hush.state.glowMax], lit: [loud.state.plateLit, hush.state.plateLit], dark: loud.state.plateDark, rim: hush.state.rimLit, px: [loud.lit, hush.lit] }));
+      && loud.state.plateDark < 0.03 && hush.state.rimLit > 2 * hush.state.plateLit && loud.lit > 1.5 * hush.lit && close(loud.state.glowTint, loud.expectGlow),
+      JSON.stringify({ glow: [loud.state.glowMax, hush.state.glowMax], lit: [loud.state.plateLit, hush.state.plateLit], dark: loud.state.plateDark, rim: hush.state.rimLit, px: [loud.lit, hush.lit], tint: [loud.state.glowTint, loud.expectGlow] }));
     check('chladni: the plate has its thickness all round, and its skirt hangs from its edge', Math.abs(bent.state.thick[0] - 0.09) < 1e-6 && Math.abs(bent.state.thick[1] - 0.09) < 1e-6 && bent.state.skirtOff < 1e-6 && bent.state.relief > 0,
       JSON.stringify({ thick: bent.state.thick, off: bent.state.skirtOff, relief: bent.state.relief }));
 
@@ -1871,11 +1888,12 @@ async function main() {
     const settle = { level: 0.3, bins: low, secs: 2.5 };
     const [calm, hit, fell, back] = await plateRun([settle, { level: 1, bins: low, secs: 0.1 }, { level: 0.3, bins: low, secs: 0.6 }, { level: 0.3, bins: low, secs: 2 }]);
     const [, nearly] = await plateRun([settle, { level: 0.88, bins: low, secs: 0.1 }]);
-    const [, , , twice] = await plateRun([settle, { level: 1, bins: low, secs: 0.1 }, { level: 0.05, bins: low, secs: 0.5 }, { level: 1, bins: low, secs: 0.1 }]);
+    const [, , , twice] = await plateRun([settle, { level: 1, bins: low, secs: 0.1 }, { level: 0.05, bins: low, secs: 1.5 }, { level: 1, bins: low, secs: 0.1 }]);
     check('chladni: a yell or a mic thump throws all the sand into the air, and it lands scattered and walks back', calm.state.hits === 0 && calm.state.settled > 0.7 && hit.state.hits === 1 && hit.state.strength === 1 && hit.state.air > 0.9 && hit.state.top > 0.1 && hit.state.top < 0.35
-      && fell.state.air < 0.15 && gap(calm.state.first, fell.state.first) > 0.03 && back.state.settled > 0.7 && back.state.hits === 1 && hit.edge === 0,
-      JSON.stringify({ hits: [calm.state.hits, hit.state.hits, back.state.hits], air: [hit.state.air, fell.state.air], top: hit.state.top, settled: [calm.state.settled, fell.state.settled, back.state.settled], moved: gap(calm.state.first, fell.state.first) }));
-    check('chladni: a beat below a level of 0.9 throws nothing, and neither does a second hit within 1.2 s', nearly.state.hits === 0 && nearly.state.kick > 0.5 && nearly.state.air < 0.05 && twice.state.hits === 1 && twice.state.kick > 0.5,
+      && fell.state.air < 0.15 && gap(calm.state.first, fell.state.first) > 0.03 && back.state.settled > 0.7 && back.state.hits === 1 && hit.edge === 0
+      && hit.light > PLATE_AIR && Math.abs(hit.solid - calm.solid) < 0.02 * calm.solid && hit.state.first[2] > 0 && close(hit.state.tint, hit.expectTone),
+      JSON.stringify({ hits: [calm.state.hits, hit.state.hits, back.state.hits], air: [hit.state.air, fell.state.air], top: hit.state.top, settled: [calm.state.settled, fell.state.settled, back.state.settled], moved: gap(calm.state.first, fell.state.first), light: [calm.light, hit.light], solid: [calm.solid, hit.solid], tint: [hit.state.tint, hit.expectTone] }));
+    check('chladni: a beat below a level of 0.9 throws nothing, and neither does a second hit within 2.5 s', nearly.state.hits === 0 && nearly.state.kick > 0.5 && nearly.state.air < 0.05 && twice.state.hits === 1 && twice.state.kick > 0.5,
       JSON.stringify({ nearly: [nearly.state.hits, nearly.state.kick, nearly.state.air], twice: [twice.state.hits, twice.state.kick] }));
 
     // Density.
@@ -1904,7 +1922,7 @@ async function main() {
     // Mic off.
     const [idle1, idle2] = await plateRun([{ level: null, idle: true, secs: 3 }, { level: null, idle: true, secs: 1.5, trace: true }]);
     check('chladni: with the mic off and Idle animation on, the plate shakes and the sand moves', idle1.state.live === true && Math.abs(idle2.state.clock - 4.5) < 1e-6 && idle2.state.shake > 0.08 && idle2.state.shake < 0.7 && gap(idle1.state.first, idle2.state.first) > 0.001
-      && relief(idle2) > 0.002 && idle2.state.tone > 0.8 && idle2.state.tone < 1,
+      && relief(idle2) > 0.002 && idle2.state.tone > 0.55 && idle2.state.tone < 0.8,
       JSON.stringify({ clock: [idle1.state.clock, idle2.state.clock], shake: idle2.state.shake, moved: gap(idle1.state.first, idle2.state.first), relief: relief(idle2), tone: idle2.state.tone, figure: idle2.state.figure }));
     // Camera drift 0 and a palette that stands still, so that nothing but the scene could move the picture.
     const [off1, off2] = await plateRun([{ level: null, off: true, secs: 3 }, { level: null, off: true, secs: 1, trace: true }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
@@ -1919,7 +1937,6 @@ async function main() {
 
     // Colour.
     const [hued] = await plateRun(talk, { hue: 2 });
-    const close = (a, b) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= 2);
     check('chladni: a grain takes its colour from the palette by how far it is from the middle of the plate, and the hue setting moves it', close(loud.state.tint, loud.expectTone) && close(hued.state.tint, hued.expectTone) && !close(hued.state.tint, loud.state.tint)
       && loud.state.ring === Math.min(32, Math.floor(Math.hypot(loud.state.first[0], loud.state.first[1]) / Math.SQRT2 * 32)),
       JSON.stringify({ tint: loud.state.tint, expect: loud.expectTone, hued: hued.state.tint, hueExpect: hued.expectTone, ring: loud.state.ring }));
@@ -1931,6 +1948,13 @@ async function main() {
     await wide.waitForTimeout(400);
     const plateP1 = await probe();
     check('chladni: Scene placement slides it', plateP1.centroidX - plateP0.centroidX > 150, `${plateP0.centroidX.toFixed(0)} → ${plateP1.centroidX.toFixed(0)}`);
+    await pushConfig((c) => { c.activeViz = 'chladni'; c.placement.size = 50; });
+    await wide.waitForTimeout(400);
+    const halfSize = await wide.evaluate(() => { currentViz.draw(performance.now(), 1 / 60); currentViz.draw(performance.now() + 17, 1 / 60); return window.__timbre.scene.state.size; });
+    // The small page draws into a picture several times taller than its canvas.
+    const smallSand = await page.evaluate(() => { currentViz.draw(performance.now(), 1 / 60); currentViz.draw(performance.now() + 17, 1 / 60); const s = window.__timbre.scene; return { name: window.__timbre.currentVizName, scale: s && s.renderScale, size: s && s.state.size }; });
+    check('chladni: a grain keeps its size against the plate under the Size slider and on the small page', Math.abs(halfSize - 0.0425) < 1e-9 && smallSand.name === 'chladni' && smallSand.scale >= 2 && Math.abs(smallSand.size - 0.085 * smallSand.scale * 0.5) < 1e-9,
+      JSON.stringify({ half: halfSize, small: smallSand }));
     await pushConfig((c) => { c.placement.x = 0; });
     await wide.waitForTimeout(300);
     await activate(PLATE);
