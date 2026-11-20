@@ -3262,6 +3262,8 @@ await import('./overlay/metaball.js');
     // The sphere the surface is drawn on: no larger than it has to be.
     set(none);
     ok(near(M.boundOf(balls), 0.9, 1e-6), 'in a pause the sphere the surface is drawn on is only a little larger than the ball');
+    set([0, 0, 0, 0, 0, 0, 0, 1]);
+    ok(near(M.boundOf(balls), Math.hypot(balls[32], balls[33], balls[34]) + balls[35] + 0.16, 1e-9) && M.boundOf(balls) > 1.9, 'the smallest droplet, alone and right out, is inside it too');
     {
       let inside = true, most = 0, least = 9;
       for (let n = 0; n < 60; n++) {

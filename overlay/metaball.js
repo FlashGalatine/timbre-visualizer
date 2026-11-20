@@ -182,7 +182,7 @@
       vec3 ro = cameraPosition, rd = normalize(vWorld - cameraPosition);
       float b = dot(ro, rd), tOut = -b + sqrt(max(b * b - dot(ro, ro) + uBound * uBound, 0.0));   // where the ray leaves the sphere
       float t = max(0.0, length(vWorld - ro) - 0.01);
-      // graze: the nearest the ray came to metal that it then left behind (or never reached).
+      // graze: the nearest the ray came to metal that it then left behind.
       float graze = 1e9, tGraze = t, was = 1e9, tWas = t;
       bool hit = false;
       for (int i = 0; i < 128; i++) {
@@ -193,9 +193,8 @@
         t += d * 0.9;
         if (t > tOut) break;
       }
-      if (!hit && was < graze) { graze = was; tGraze = tWas; }
       float edge = cover(graze, tGraze);
-      if (!hit && edge <= 0.02) discard;        // (so faint an edge would linger as light)
+      if (!hit && edge <= 0.0) discard;
       vec3 col = edge > 0.0 ? shade(ro + rd * tGraze, rd) : vec3(0.0);
       if (hit) col = mix(shade(ro + rd * t, rd), col, edge);
       gl_FragColor = vec4(col, hit ? 1.0 : edge);

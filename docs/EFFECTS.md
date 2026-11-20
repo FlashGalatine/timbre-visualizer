@@ -796,8 +796,6 @@ Worth knowing before drawing another surface in a shader:
 - A ray that passes close to a droplet creeps past it in small steps. With too few steps
   it gives up before it reaches the metal behind, and leaves a see-through hole along the
   droplet's outline. The march has 128 steps, and ends where the ray leaves the sphere.
-- An edge fainter than 2% is not drawn: the kit's afterglow takes anything that faint for
-  light, and it would linger behind a retreating edge.
 - `verify-render` compares the picture with the arithmetic: it sends a ray through every
   fourth pixel (and every pixel of the soft edge) and asks `field()` whether the metal is
   there. That is what holds the GLSL to the JavaScript.
