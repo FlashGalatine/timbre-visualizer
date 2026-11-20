@@ -44,6 +44,11 @@
   const SIZE = 0.085;                       // how wide a grain's light is
   const RINGS = 32;                         // steps of colour from the middle of the plate to a corner
   const STEPS_MAX = 6;                      // the most steps the sand takes in one frame
+  const PITCH = 44, FOV = 30;               // the camera: how far it looks down, and how wide it sees, in degrees
+  const FRAME = { width: 6.8, height: 4.9, center: [0, -0.38, 0] };   // what the camera frames
+  const AIR = 0.25;                         // room kept above the plate for sand in the air
+  const V_ROOM = (FRAME.height / 2) * 0.86, H_ROOM = (FRAME.width / 2) * 0.86;   // how far from the middle of the frame a turned plate may reach, up and across
+  const RAD = Math.PI / 180;
   const SEED = 20261119;
 
   // How many grains a Density setting means. No setting is the default, 50.
@@ -319,6 +324,51 @@
     return SIZE * scale * zoom;
   }
 
+  // A point of the plate (x, y, z; y is up off the plate) turned by the three Rotate
+  // settings, in degrees, into out. The plate spins in its own plane first (about y), then
+  // rolls to one side (about z, the axis from back to front), then tilts its top toward the
+  // viewer (about x, the axis from left to right).
+  function turn(out, x, y, z, rx, ry, rz) {
+    const ca = Math.cos(rx * RAD), sa = Math.sin(rx * RAD), cb = Math.cos(ry * RAD), sb = Math.sin(ry * RAD), cc = Math.cos(rz * RAD), sc = Math.sin(rz * RAD);
+    const x1 = x * cb + z * sb, z1 = -x * sb + z * cb;
+    const x2 = x1 * cc - y * sc, y2 = x1 * sc + y * cc;
+    out[0] = x2; out[1] = y2 * ca - z1 * sa; out[2] = y2 * sa + z1 * ca;
+    return out;
+  }
+
+  // How the turned plate lies on the picture, seen from where the camera rests: how far its
+  // eight corners (the top ones raised by AIR, for sand in the air) reach from the middle of
+  // the frame, as [lowest, highest, leftmost, rightmost], in the scene's units there. The
+  // plate is drawn at `scale` with its middle at (px, py, pz).
+  const SIN_P = Math.sin(PITCH * RAD), COS_P = Math.cos(PITCH * RAD), DIST = FRAME.height / 2 / Math.tan((FOV * RAD) / 2), CORNER = [0, 0, 0];
+  function bounds(rx, ry, rz, scale, px, py, pz) {
+    const b = [Infinity, -Infinity, Infinity, -Infinity];
+    for (let i = 0; i < 8; i++) {
+      turn(CORNER, i & 1 ? HALF : -HALF, i & 2 ? AIR : -THICK, i & 4 ? HALF : -HALF, rx, ry, rz);
+      const qx = CORNER[0] * scale + px - FRAME.center[0], qy = CORNER[1] * scale + py - FRAME.center[1], qz = CORNER[2] * scale + pz - FRAME.center[2];
+      const near = DIST / (DIST - (qy * SIN_P + qz * COS_P)), v = (qy * COS_P - qz * SIN_P) * near, h = qx * near;
+      if (v < b[0]) b[0] = v; if (v > b[1]) b[1] = v; if (h < b[2]) b[2] = h; if (h > b[3]) b[3] = h;
+    }
+    return b;
+  }
+
+  // Where to put the turned plate and how large to draw it, so that it stays in the frame:
+  // { scale, x, y, z }. With no rotation it is where it always was, at full size. Turned, it
+  // is drawn smaller if it would reach past its room, and moved so that it sits in the frame
+  // where the unturned plate does.
+  const UNTURNED = bounds(0, 0, 0, 1, 0, 0, 0);
+  function poseFor(rx, ry, rz) {
+    const pose = { scale: 1, x: 0, y: 0, z: 0 };
+    // Three rounds of the same two corrections bring it home: nearer things look larger, so one is not exact.
+    for (let round = 0; round < 3; round++) {
+      const b = bounds(rx, ry, rz, pose.scale, pose.x, pose.y, pose.z);
+      const up = (UNTURNED[0] + UNTURNED[1]) / 2 - (b[0] + b[1]) / 2, across = -(b[2] + b[3]) / 2;
+      pose.x += across; pose.y += up * COS_P; pose.z -= up * SIN_P;
+      pose.scale = Math.min(1, pose.scale * Math.min(V_ROOM / ((b[1] - b[0]) / 2), H_ROOM / ((b[3] - b[2]) / 2)));
+    }
+    return pose;
+  }
+
   // How far a place on the plate is from its middle: 0 there, 1 at a corner.
   function radius(x, z) {
     return Math.min(1, Math.sqrt(x * x + z * z) / Math.SQRT2);
@@ -340,9 +390,9 @@
   function definition() {
     const ID = 'chladni';
     // A setting, read live so the control panel's sliders apply at once.
-    const knob = (name) => {
+    const knob = (name, unset = 50) => {
       const v = typeof perViz !== 'undefined' && perViz[ID];
-      return v && typeof v[name] === 'number' ? v[name] : 50;
+      return v && typeof v[name] === 'number' ? v[name] : unset;
     };
     const V = G + 1;                                  // points along a side of the plate's grid
     const bands = new Float32Array(BANDS), ramp = new Float32Array((RINGS + 1) * 3), rgb = [0, 0, 0], tint = [0, 0, 0];
@@ -353,7 +403,9 @@
     for (let r = 1; r < V; r++) rim.push(r * V + G);
     for (let c = G - 1; c >= 0; c--) rim.push(G * V + c);
     for (let r = G - 1; r >= 1; r--) rim.push(r * V);
-    let THREE = null, plate = null, skirt = null, grains = null, colour = null, sand = null, count = 0;
+    let THREE = null, whole = null, plate = null, skirt = null, grains = null, colour = null, sand = null, camera = null, count = 0;
+    let pose = poseFor(0, 0, 0);
+    const turned = [0, 0, 0];
     const st = voice();
     // What the checks read. clock: seconds the scene has been live, which the plate bends by;
     // cold: no tone has been heard since the last pause; hits: how many throws there have been.
@@ -367,8 +419,13 @@
 
     function build(k) {
       THREE = k.THREE;
+      camera = k.camera;
       colour = new THREE.Color();
       sand = createSand(GRAINS_MAX, SEED);
+      // The plate, its skirt and the sand turn together, by the three Rotate settings.
+      whole = new THREE.Group();
+      whole.rotation.order = 'XZY';   // spin (y) first, then roll (z), then tilt (x): as turn() does
+      k.scene.add(whole);
       const attribute = (n) => { const a = new THREE.BufferAttribute(new Float32Array(n * 3), 3); a.setUsage(THREE.DynamicDrawUsage); return a; };
 
       // The plate: a sheet that bends, solid and nearly black.
@@ -380,7 +437,7 @@
       pg.setIndex(sheet);
       plate = new THREE.Mesh(pg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
       plate.frustumCulled = false;   // its points move every frame
-      k.scene.add(plate);
+      whole.add(plate);
 
       // Its skirt: two points under each point of the edge, the plate's thickness apart.
       const sg = new THREE.BufferGeometry();
@@ -391,7 +448,7 @@
       sg.setIndex(round);
       skirt = new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
       skirt.frustumCulled = false;
-      k.scene.add(skirt);
+      whole.add(skirt);
 
       // The sand: soft grains of added light.
       const gg = new THREE.BufferGeometry();
@@ -399,7 +456,7 @@
       gg.setAttribute('color', attribute(GRAINS_MAX));
       grains = new THREE.Points(gg, k.addLight(new THREE.PointsMaterial({ size: SIZE, sizeAttenuation: true, map: k.glowTexture(255, 255, 255), vertexColors: true })));
       grains.frustumCulled = false;
-      k.scene.add(grains);
+      whole.add(grains);
 
       setGrains(grainCount(knob('density')));
     }
@@ -416,6 +473,12 @@
       s.orbit = k.orbit = (0.22 * Math.sin(0.13 * t) + 0.06 * Math.sin(0.37 * t + 2)) * knob('cameraDrift') / 50;
       const n = grainCount(knob('density'));
       if (n !== count) setGrains(n);
+      // The plate as the Rotate settings turn it, kept in the frame.
+      const rx = knob('rotateX', 0), ry = knob('rotateY', 0), rz = knob('rotateZ', 0);
+      if (rx !== turned[0] || ry !== turned[1] || rz !== turned[2]) { turned[0] = rx; turned[1] = ry; turned[2] = rz; pose = poseFor(rx, ry, rz); }
+      whole.rotation.set(rx * RAD, ry * RAD, rz * RAD);
+      whole.scale.setScalar(pose.scale);
+      whole.position.set(pose.x, pose.y, pose.z);
 
       // With the mic and Idle animation both off, the plate is still.
       s.live = !!(micActive || cfgIdleAnim);
@@ -465,7 +528,7 @@
       }
       // Only the grains drawn are sent to the GPU.
       for (const a of [grains.geometry.attributes.position, grains.geometry.attributes.color]) { a.addUpdateRange(0, count * 3); a.needsUpdate = true; }
-      grains.material.size = grainSize(TimbreScene.renderScale(canvas3d.height), k.camera.zoom);
+      grains.material.size = grainSize(TimbreScene.renderScale(canvas3d.height), k.camera.zoom * pose.scale);
 
       // The plate: bent by the figure, glowing where it moves, with a lit rim.
       palette(colorT + 0.7);
@@ -494,9 +557,9 @@
     }
 
     return {
-      frame: { width: 6.8, height: 4.9, center: [0, -0.38, 0] },
-      fov: 30,
-      pitch: 44,
+      frame: { width: FRAME.width, height: FRAME.height, center: FRAME.center.slice() },
+      fov: FOV,
+      pitch: PITCH,
       cooling: [Infinity, Infinity, Infinity],   // fading light keeps its colour
       build,
       update,
@@ -523,6 +586,10 @@
         }
         const first = [];
         for (let i = 0; i < 8; i++) first.push(sand.x[i], sand.z[i], sand.y[i]);
+        // The plate as it stands in the scene: where its near right corner is, and how squarely its top faces the camera.
+        whole.updateMatrixWorld(true);
+        const corner = plate.localToWorld(new THREE.Vector3(HALF, 0, HALF)), middle = plate.localToWorld(new THREE.Vector3(0, 0, 0)), top = plate.localToWorld(new THREE.Vector3(0, 1, 0)).sub(middle).normalize();
+        const toCamera = camera.position.clone().sub(new THREE.Vector3().fromArray(FRAME.center)).normalize();
         // The first grain's own colour as its buffer holds it, with its brightness and its paleness taken back out.
         const b = sandBright(s.shake, sand.y[0] > 0), un = (v) => (v / b - 0.4) / 0.6, out = { r: 0, g: 0, b: 0 };
         colour.setRGB(un(gc.getX(0)), un(gc.getY(0)), un(gc.getZ(0))).getRGB(out, THREE.SRGBColorSpace);
@@ -531,7 +598,8 @@
         colour.setRGB((pc[ga] - 0.006) / gm, (pc[ga + 1] - 0.006) / gm, (pc[ga + 2] - 0.009) / gm).getRGB(lit, THREE.SRGBColorSpace);
         return Object.assign(voiced, m, {
           glowTint: [Math.round(lit.r * 255), Math.round(lit.g * 255), Math.round(lit.b * 255)],
-          drawn: grains.geometry.drawRange.count, size: grains.material.size, first, drawn0: [pos[0], pos[1], pos[2]], f0: sand.f[0],
+          drawn: grains.geometry.drawRange.count, size: grains.material.size, first,
+          turned: turned.slice(), scale: pose.scale, at: [pose.x, pose.y, pose.z], corner: corner.toArray(), facing: top.dot(toCamera), drawn0: [pos[0], pos[1], pos[2]], f0: sand.f[0],
           ring: (radius(sand.x[0], sand.z[0]) * RINGS) | 0, tint: [Math.round(out.r * 255), Math.round(out.g * 255), Math.round(out.b * 255)],
           relief, plateLit, plateDark, rimLit: pc[0] + pc[1] + pc[2], thick, skirtOff,
         }, s);
@@ -540,8 +608,8 @@
   }
 
   globalThis.TimbreChladni = {
-    GRAINS_MIN, GRAINS_MAX, HALF, THICK, G, T, BANDS, TONE_LOW, TONE_SPAN, BLEND, PAUSE, HOLD, HUSH, LOUD, HUM, REST, GRAV, REACH, SPREAD, FLEX, BEAT, RIM, ONSET, TONE_RATE, LIFT, SIZE, RINGS, STEPS_MAX, SEED,
+    GRAINS_MIN, GRAINS_MAX, HALF, THICK, G, T, BANDS, TONE_LOW, TONE_SPAN, BLEND, PAUSE, HOLD, HUSH, LOUD, HUM, REST, GRAV, REACH, SPREAD, FLEX, BEAT, RIM, ONSET, TONE_RATE, LIFT, SIZE, RINGS, STEPS_MAX, PITCH, FOV, FRAME, AIR, V_ROOM, H_ROOM, SEED,
     FIGURES, grainCount, value, cell, sample, loudness, toneOf, meanOf, wantFigure, voice, phraseFigure, listen, blendOf, shakeOf, pace, jostle, hopChance, hopSpeed, thrown, stepsFor,
-    createSand, stepSand, throwSand, measure, bend, glow, sandBright, pale, grainSize, radius, idle, definition,
+    createSand, stepSand, throwSand, measure, bend, glow, sandBright, pale, grainSize, turn, bounds, poseFor, radius, idle, definition,
   };
 })();

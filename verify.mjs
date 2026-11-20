@@ -2799,11 +2799,41 @@ await import('./overlay/chladni.js');
   }
   ok(C.grainSize(1, 1) === 0.085 && near(C.grainSize(4, 1), 0.34) && near(C.grainSize(1, 0.5), 0.0425) && near(C.grainSize(2, 2), 0.34), 'a grain is drawn larger by as much as the picture it is drawn into is larger than the canvas, and by the camera\'s zoom');
 
+  // The three Rotate settings.
+  {
+    const p = [0, 0, 0], t3 = (x, y, z, rx, ry, rz) => Array.from(C.turn(p, x, y, z, rx, ry, rz)), eq = (a, b) => a.every((v, i) => near(v, b[i], 1e-9));
+    ok(eq(t3(1, 2, 3, 0, 0, 0), [1, 2, 3]) && eq(t3(0, 1, 0, 90, 0, 0), [0, 0, 1]) && eq(t3(0, 0, 1, 90, 0, 0), [0, -1, 0]) && eq(t3(1, 0, 0, 0, 90, 0), [0, 0, -1]) && eq(t3(0, 0, 1, 0, 90, 0), [1, 0, 0])
+      && eq(t3(1, 0, 0, 0, 0, 90), [0, 1, 0]) && eq(t3(0, 1, 0, 0, 0, 90), [-1, 0, 0]) && eq(t3(1, 2, 3, 360, 360, 360), [1, 2, 3]) && C.turn(p, 1, 0, 0, 0, 0, 0) === p,
+      'Rotate X tilts the plate\'s top toward the viewer, Rotate Y spins it in its own plane, Rotate Z rolls it to one side');
+    ok(eq(t3(1, 0, 0, 90, 90, 0), [0, 1, 0]) && eq(t3(1, 0, 0, 0, 90, 90), [0, 0, -1]) && eq(t3(0, 1, 0, 90, 0, 90), [-1, 0, 0]), 'the plate spins first, then rolls, then tilts');
+    ok(C.PITCH === 44 && C.FOV === 30 && JSON.stringify(C.FRAME) === '{"width":6.8,"height":4.9,"center":[0,-0.38,0]}' && C.AIR === 0.25 && near(C.V_ROOM, 2.45 * 0.86) && near(C.H_ROOM, 3.4 * 0.86),
+      'the camera looks down at 44 degrees on a frame 6.8 by 4.9, and the plate is kept within 86% of it');
+    // Rotate X at 46 turns the plate's face to the camera, which looks down at 44 degrees.
+    const up = t3(0, 1, 0, 46, 0, 0);
+    ok(near(up[1] * Math.sin(44 * Math.PI / 180) + up[2] * Math.cos(44 * Math.PI / 180), 1), 'Rotate X at 46 turns the plate to face the camera');
+    const rest = C.poseFor(0, 0, 0), face = C.poseFor(46, 0, 0), diamond = C.poseFor(46, 45, 0), spun = C.poseFor(0, 45, 0), full = C.poseFor(360, 360, 360);
+    ok(rest.scale === 1 && rest.x === 0 && rest.y === 0 && rest.z === 0 && near(full.scale, 1, 1e-9) && Math.abs(full.y) < 1e-9, 'with no rotation the plate is where it was, at full size');
+    ok(face.scale < 1 && face.scale > 0.85 && diamond.scale < 0.8 * face.scale && diamond.scale > 0.55 && spun.scale < 1 && spun.scale > 0.6 && near(face.x, 0) && face.y < 0, 'a plate turned so that it would not fit is drawn smaller, and moved to the middle of the frame');
+    // Whatever the rotation, the plate as posed is inside its room; left as it was, it often is not.
+    let inside = true, smallest = 1, over = 0;
+    for (let i = 0; i < 400; i++) {
+      const rx = (i * 37) % 360, ry = (i * 101) % 360, rz = (i * 173) % 360, pose = C.poseFor(rx, ry, rz), b = C.bounds(rx, ry, rz, pose.scale, pose.x, pose.y, pose.z), raw = C.bounds(rx, ry, rz, 1, 0, 0, 0);
+      if (!(b[0] >= -C.V_ROOM * 1.04 && b[1] <= C.V_ROOM * 1.04 && b[2] >= -C.H_ROOM * 1.04 && b[3] <= C.H_ROOM * 1.04 && pose.scale <= 1 && pose.scale > 0.5)) inside = false;
+      smallest = Math.min(smallest, pose.scale);
+      if (raw[0] < -2.45 || raw[1] > 2.45) over++;
+    }
+    const b0 = C.bounds(0, 0, 0, 1, 0, 0, 0);
+    ok(inside && over > 100 && smallest < 0.7 && b0[1] < C.V_ROOM && b0[0] > -C.V_ROOM && b0[3] < C.H_ROOM && near(b0[2], -b0[3]), 'however the plate is turned it stays inside the frame, with room for sand in the air');
+  }
+
   // The table.
   ok(T.VIZ_SCENES[T.VIZ_SCENES.length - 1] === 'chladni' && T.VIZ_USES_3D.includes('chladni'), 'chladni is a kit scene, listed after phosphor');
-  ok(JSON.stringify(T.DEFAULT_PER_VIZ['chladni']) === '{"density":50,"cameraDrift":50}', 'chladni knobs: density and camera drift');
+  ok(JSON.stringify(T.DEFAULT_PER_VIZ['chladni']) === '{"density":50,"cameraDrift":50,"rotateX":0,"rotateY":0,"rotateZ":0}' && JSON.stringify(T.PER_VIZ_MAX['chladni']) === '{"rotateX":360,"rotateY":360,"rotateZ":360}',
+    'chladni knobs: density, camera drift, and three rotations of up to 360 degrees that start at none');
+  const turnedPlate = T.sanitizeConfig({ perViz: { 'chladni': { rotateX: 46, rotateY: 400, rotateZ: -5 } } });
+  ok(JSON.stringify(turnedPlate.perViz['chladni']) === '{"density":50,"cameraDrift":50,"rotateX":46,"rotateY":360,"rotateZ":0}', 'a rotation is held to 0 to 360');
   const oldPlate = T.sanitizeConfig({ activeViz: 'chladni', perViz: { 'chladni': { density: 80 } } });
-  ok(oldPlate.activeViz === 'chladni' && JSON.stringify(oldPlate.perViz['chladni']) === '{"density":80,"cameraDrift":50}', 'a saved pre-redesign chladni config keeps its density and gains the new default');
+  ok(oldPlate.activeViz === 'chladni' && JSON.stringify(oldPlate.perViz['chladni']) === '{"density":80,"cameraDrift":50,"rotateX":0,"rotateY":0,"rotateZ":0}', 'a saved pre-redesign chladni config keeps its density and gains the new defaults');
   ok(!('chladni' in T.VIZ_LABELS), 'chladni keeps the name it is listed by');
 
   // The files.
