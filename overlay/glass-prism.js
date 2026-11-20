@@ -168,9 +168,11 @@
   }
 
   // A blast of `strength`: every facet is pushed and spun, on top of what it has. outward:
-  // the push is away from the middle, give or take (else any way at all, as a jostle must be:
-  // pushes outward again and again would pin every facet to its limit). fresh: the crystal
-  // was whole, so each facet takes a new axis to turn about.
+  // the push is away from the middle, give or take. Else it is any way at all, as a jostle
+  // must be (pushes outward again and again would pin every facet to its limit), but for a
+  // facet that has flown beyond FLY_MAX, which is pushed back toward its place: through a long
+  // din they would all wander out there otherwise. fresh: the crystal was whole, so each
+  // facet takes a new axis to turn about.
   const WAY = [0, 0, 0];
   function blast(sh, normals, strength, random, outward, fresh) {
     for (let i = 0; i < FACETS; i++) {
@@ -179,6 +181,8 @@
       if (outward) {
         const x = normals[j] + SCATTER * WAY[0], y = normals[j + 1] + SCATTER * WAY[1], z = normals[j + 2] + SCATTER * WAY[2], long = Math.hypot(x, y, z);
         WAY[0] = x / long; WAY[1] = y / long; WAY[2] = z / long;
+      } else if (Math.hypot(sh.off[j], sh.off[j + 1], sh.off[j + 2]) > FLY_MAX && sh.off[j] * WAY[0] + sh.off[j + 1] * WAY[1] + sh.off[j + 2] * WAY[2] > 0) {
+        WAY[0] = -WAY[0]; WAY[1] = -WAY[1]; WAY[2] = -WAY[2];
       }
       const speed = (SPEED_MIN + SPEED_RANGE * random()) * strength;
       sh.spin[i] += (random() - 0.5) * SHARD_SPIN * strength;
@@ -289,12 +293,20 @@
     return 1 + HEAD * clamp01((reach - R) / HEAD_OVER);
   }
 
+  // How far from the middle anything may be drawn: ROOM, less by as much as the Scene Size
+  // slider has enlarged the picture (`enlarged`: 1 is as it comes), but never less than the
+  // whole crystal takes with its colours `apart`. Enlarged until the crystal fills the
+  // picture, its pieces have no more room than it had.
+  function limitFor(enlarged, apart) {
+    return Math.max(ROOM / Math.max(1, enlarged), R * (1 + apart) + 0.5 * apart);
+  }
+
   // How much smaller everything must be drawn to fit: with its corners `reach` from the
   // middle, at `size`, its colours `apart`. The largest copy is 1 + apart times the size
-  // and half of apart to one side, and none of it may be further than ROOM from the middle.
-  function roomFor(reach, size, apart) {
+  // and half of apart to one side, and none of it may be further than `limit` from the middle.
+  function roomFor(reach, size, apart, limit = ROOM) {
     const most = reach * Math.max(size, headFor(reach)) * (1 + apart) + 0.5 * apart;
-    return most > ROOM ? ROOM / most : 1;
+    return most > limit ? limit / most : 1;
   }
 
   // How much smaller it is drawn dt seconds on: at once as small as it must be, and back
@@ -423,9 +435,11 @@
     let HX = null, machine = null, random = null, geo = null, whole = null, wholeN = null, lay = null, sinceReturn = 0;
     // What the checks read. clock: seconds the scene has been live, which the axis wanders by.
     // swell, size: the pulse. phase: whole, pieces or returning. reach: how far its furthest
-    // corner is from its middle. room, zoom: how much smaller it must be and is drawn to fit.
+    // corner is from its middle. limit: how far anything may be drawn. room: how much smaller
+    // it must be drawn to fit. held: the same with the pulse aside, kept while it grows back.
+    // zoom: how much smaller it is drawn.
     const s = { flame: 0, kick: 0, clock: 0, live: false, orbit: 0, colorT: 0, high: 0, apart: 0, bright: 0, kicks: 0, drawnFor: 1,
-      swell: 0, size: 1, phase: 'whole', shatters: 0, jostles: 0, flash: 0, reach: R, room: 1, zoom: 1 };
+      swell: 0, size: 1, phase: 'whole', shatters: 0, jostles: 0, flash: 0, reach: R, limit: ROOM, room: 1, held: 1, zoom: 1 };
 
     // The crystal's corners go back where they belong.
     function mend() {
@@ -524,7 +538,8 @@
         home(sh);
         mend();
         s.flash = event === 'whole' ? Math.max(s.flash, 0.55) : 0;
-      } else if (was === 'returning') sinceReturn += dt;   // in step with the machine's own progress through the return
+        if (event === 'reset') s.held = 1;   // the page had stopped drawing: it resumes whole, and its own size
+      } else sinceReturn += dt;   // during the return, in step with the machine's own progress through it (it starts from nothing at each)
       s.phase = machine.state;
       if (s.phase === 'pieces') fly(sh, dt);
       else if (s.phase === 'returning') place(sh, Math.min(1, sinceReturn / HX.RETURN_S), HX.returnShare);
@@ -540,9 +555,13 @@
       s.colorT = colorT;
       s.bright = brightOf(flame, kick, s.flash);
       s.drawnFor = TimbreScene.renderScale(canvas3d.height);   // how many pixels of the kit's picture make one of the page
-      // Swollen by a beat or flown apart, it is drawn smaller by as much as keeps all of it in the picture.
-      s.room = roomFor(s.reach, s.size, s.apart);
-      s.zoom = zoomAfter(s.zoom, s.room, dt);
+      // Swollen by a beat or flown apart, it is drawn smaller by as much as keeps all of it in the
+      // picture. What its pieces need is held, shrinking at once and growing back slowly (followed
+      // both ways it would quiver as they spin); what a beat's swell needs on top is taken as it comes.
+      s.limit = limitFor(k.camera.zoom, s.apart);
+      s.room = roomFor(s.reach, s.size, s.apart, s.limit);
+      s.held = zoomAfter(s.held, roomFor(s.reach, 1, s.apart, s.limit), dt);
+      s.zoom = Math.min(s.held, s.room);
       k.camera.getWorldDirection(sight);
       right.setFromMatrixColumn(k.camera.matrixWorld, 0);
       for (let c = 0; c < 3; c++) {
@@ -582,7 +601,8 @@
           heart: { size: heart.scale.x, light: [heart.material.color.r, heart.material.color.g, heart.material.color.b], shown: heart.visible && !!heart.parent && heart.parent.type === 'Scene' },
           right: right.toArray(), sight: sight.toArray(),
           corners: Array.from(geo.attributes.position.array), faces: Array.from(geo.attributes.normal.array), wholeCorners: Array.from(whole),
-          shards: { shown: Array.from(sh.shown), turned: Array.from(sh.turned), axis: Array.from(sh.axis), lag: Array.from(sh.lag) },
+          shards: { shown: Array.from(sh.shown), turned: Array.from(sh.turned), axis: Array.from(sh.axis), lag: Array.from(sh.lag), from: Array.from(sh.from), fromAng: Array.from(sh.fromAng) },
+          uploads: [geo.attributes.position.version, geo.attributes.normal.version],   // how often its corners, and the ways they face, have been sent to be drawn
         }, s);
       },
     };
@@ -593,6 +613,6 @@
     PULSE_RATE, PULSE_DAMP, PULSE_PUSH, SMALLEST, LARGEST, SPEED_MIN, SPEED_RANGE, SCATTER, SHARD_SPIN, SLOW_S, DRIFT_MIN, DRIFT_RANGE, DRIFT_SPIN,
     FLY_MAX, REBLAST, JOSTLE, ROOM, HEAD, HEAD_OVER, ZOOM_BACK, FLASH_S,
     bandOf, loudness, idle, highOf, settle, apartOf, copyAt, brightOf, heartOf, turnRate, axisAt, kickAt, kickAngle, turn, tumble,
-    pushOf, swing, sizeOf, shortWay, layout, createShards, blast, show, fly, startReturn, place, resume, home, shape, headFor, roomFor, zoomAfter, definition,
+    pushOf, swing, sizeOf, shortWay, layout, createShards, anyWay, blast, show, fly, startReturn, place, resume, home, shape, headFor, limitFor, roomFor, zoomAfter, definition,
   };
 })();

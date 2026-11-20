@@ -2966,6 +2966,9 @@ await import('./overlay/glass-prism.js');
     for (let i = 1; i <= 240 * 3; i++) { P.swing(sw, 1 / 240); if (sw[0] > top) { top = sw[0]; topAt = i / 240; } if (sw[0] < low) { low = sw[0]; lowAt = i / 240; } if (restAt === null && sw[0] === 0 && sw[1] === 0) restAt = i / 240; }
     ok(top > 0.17 && top < 0.19 && topAt > 0.08 && topAt < 0.11 && low < -0.045 && low > -0.07 && lowAt > 0.3 && lowAt < 0.37 && restAt !== null && restAt > 0.5 && restAt < 2,
       'a beat swells it by about 18% in a tenth of a second, then it shrinks to about 5% under its size, and within two seconds it is at rest');
+    // Three quarters of a second on it is still swinging, by a third of a hundredth: it does not stop before it has all but stopped.
+    const late = [0, 4]; for (let i = 0; i < 45; i++) P.swing(late, 1 / 60);
+    ok(near(late[0], at(0.75), 1e-9) && Math.abs(late[0]) > 0.002, 'the swing goes on until it has all but stopped, not before');
     ok(P.sizeOf(0) === 1 && near(P.sizeOf(0.18), 1.18) && near(P.sizeOf(-0.05), 0.95) && P.sizeOf(-0.9) === 0.7 && P.sizeOf(2) === 1.6 && P.SMALLEST === 0.7 && P.LARGEST === 1.6, 'its size is one and the swing, and never under 0.7 or over 1.6');
     // Beats as fast as the kit gives them (every 13 frames is 217 ms), at Pulse 100, for ten seconds.
     const quick = [0, 0]; let most = 0, least = 0;
@@ -3008,8 +3011,19 @@ await import('./overlay/glass-prism.js');
       if (!(Math.abs(sh.spin[i]) <= 4.5 && Math.abs(sh.dspin[i]) <= 0.35)) spins = false;
       if (!(long(d) >= 0.05 - 1e-9 && long(d) <= 0.15 + 1e-9 && near(dot(d, v), long(d) * sp, 1e-9))) drifts = false;
     }
+    // Give or take: most are pushed well off straight out, none by more than the scatter allows (30 degrees).
+    let off5 = 0, off30 = 0;
+    for (let i = 0; i < N; i++) { const v = at(sh.vel, i), cos = dot(v, at(lay.normals, i)) / long(v); if (cos < Math.cos(5 * Math.PI / 180)) off5++; if (cos < Math.cos(30.01 * Math.PI / 180)) off30++; }
+    ok(off5 >= 12 && off30 === 0, 'a blast pushes a facet up to 30 degrees off straight out, and most of them well off it');
+    {
+      // Any way at all: one long, to every side alike.
+      const rnd = HX.rng(3), sum = [0, 0, 0], w = [0, 0, 0]; let unit = true, low = 0;
+      for (let i = 0; i < 4000; i++) { P.anyWay(w, rnd); if (!near(long(w), 1, 1e-12)) unit = false; if (w[2] < 0) low++; for (let a = 0; a < 3; a++) sum[a] += w[a] / 4000; }
+      ok(unit && sum.every((v) => Math.abs(v) < 0.04) && low > 1850 && low < 2150 && P.anyWay(w, rnd) === w, 'a direction taken any way at all is one long and as likely to any side as another');
+    }
     const spread = (k) => Math.max(...Array.from(sh[k])) - Math.min(...Array.from(sh[k]));
-    ok(out && speeds && axes && spins && drifts && spread('spin') > 4 && same(Array.from(sh.vel), Array.from(sh2.vel)) && same(Array.from(sh.axis), Array.from(sh2.axis)) && sh.off.every((v) => v === 0),
+    const fastest = Math.max(...Array.from({ length: N }, (_, i) => long(at(sh.vel, i)))), slowest = Math.min(...Array.from({ length: N }, (_, i) => long(at(sh.vel, i))));
+    ok(out && speeds && axes && spins && drifts && spread('spin') > 4 && fastest - slowest > 2.5 && same(Array.from(sh.vel), Array.from(sh2.vel)) && same(Array.from(sh.axis), Array.from(sh2.axis)) && sh.off.every((v) => v === 0),
       'a blast pushes every facet outward, give or take, at its own speed and with its own spin about its own axis; the same blast is the same again');
     const other = P.createShards(); P.blast(other, lay.normals, 1, HX.rng(1002), true, true);
     const half = P.createShards(); P.blast(half, lay.normals, 0.5, HX.rng(1001), true, true);
@@ -3035,7 +3049,26 @@ await import('./overlay/glass-prism.js');
     const j = P.createShards(); P.blast(j, lay.normals, 1, HX.rng(1001), true, true); P.fly(j, 0.5);
     const axis0 = Array.from(j.axis), vel0 = Array.from(j.vel); P.blast(j, lay.normals, 0.4, HX.rng(5), false, false);
     let inward = 0; for (let i = 0; i < N; i++) if (dot([j.vel[i * 3] - vel0[i * 3], j.vel[i * 3 + 1] - vel0[i * 3 + 1], j.vel[i * 3 + 2] - vel0[i * 3 + 2]], at(lay.normals, i)) < 0) inward++;
-    ok(same(Array.from(j.axis), axis0) && inward >= 4 && inward <= 16, 'a jostle pushes each facet any way at all, on top of the speed it has, and its axis stays as it was');
+    // The same jostle on facets at rest: what it adds is the same, whatever they had.
+    const bare = P.createShards(); P.blast(bare, lay.normals, 0.4, HX.rng(5), false, false);
+    const j2 = P.createShards(); P.blast(j2, lay.normals, 1, HX.rng(1001), true, true); P.fly(j2, 0.5); const spin0 = Array.from(j2.spin); P.blast(j2, lay.normals, 0.4, HX.rng(5), false, false);
+    ok(same(Array.from(j.axis), axis0) && inward >= 4 && inward <= 16 && same(Array.from(j.vel), vel0.map((v, i) => v + bare.vel[i]), 1e-12) && same(Array.from(j2.spin), spin0.map((v, i) => v + bare.spin[i]), 1e-12) && Math.max(...spin0.map(Math.abs)) > 0.5
+      && same(Array.from(j.drift), Array.from(bare.drift), 1e-12) && same(Array.from(j.dspin), Array.from(bare.dspin), 1e-12) && bare.axis.every((v) => v === 0),
+      'a jostle pushes each facet any way at all, on top of the speed and spin it has; the drift that lasts is the jostle\'s own, and its axis stays as it was');
+
+    // A long din: a jostle every 0.7 s for a minute. A facet far out is pushed back in, so they are not all pinned at their limit.
+    {
+      const din = P.createShards(), rnd = HX.rng(1001); P.blast(din, lay.normals, 1, rnd, true, true);
+      let sum = 0, n = 0, furthest = 0;
+      for (let k = 0; k < 86; k++) { for (let i = 0; i < 42; i++) P.fly(din, 1 / 60); P.blast(din, lay.normals, 0.4, rnd, false, false);
+        if (k >= 40) for (let i = 0; i < N; i++) { sum += long(at(din.shown, i)); n++; furthest = Math.max(furthest, long(at(din.off, i))); } }
+      ok(sum / n < 2.7 && sum / n > 1.2 && furthest < 3.2 + 2, 'through a long din the facets stay spread through their room: one far out is pushed back in, not pinned at its limit');
+      // Such a push: a facet beyond its limit, jostled, is pushed inward whatever way the jostle was going.
+      let inwards = 0;
+      for (let seed = 1; seed <= 40; seed++) { const far = P.createShards(); far.off[0] = 4; far.off[3] = 1; P.blast(far, lay.normals, 0.4, HX.rng(seed), false, false); if (far.vel[0] < 0) inwards++; if (far.drift[0] > 0) inwards = -99; }
+      let either = 0; for (let seed = 1; seed <= 40; seed++) { const mid = P.createShards(); mid.off[3] = 1; P.blast(mid, lay.normals, 0.4, HX.rng(seed), false, false); if (mid.vel[3] < 0) either++; }
+      ok(inwards === 40 && either > 8 && either < 32, 'a facet beyond its limit is jostled back toward its place, and one within it any way at all');
+    }
 
     // The return.
     const r = P.createShards(); P.blast(r, lay.normals, 1, HX.rng(1001), true, true); for (let i = 0; i < 90; i++) P.fly(r, 1 / 60);
@@ -3056,8 +3089,9 @@ await import('./overlay/glass-prism.js');
     const far = P.createShards(); far.shown[0] = 3.2; P.resume(far);
     P.place(r, 1, HX.returnShare);
     ok(start && part && resumed && Number.isFinite(far.off[0]) && far.off[0] > 10 && r.shown.every((v) => Math.abs(v) < 1e-12) && r.turned.every((v) => Math.abs(v) < 1e-12), 'the return carries each facet home by its share of the way; broken off, the flight takes up where it had got to; at its end every facet is home');
+    for (const k of Object.keys(r)) if (k !== 'axis') r[k].fill(0.5);
     P.home(r);
-    ok(['off', 'vel', 'drift', 'from', 'shown', 'ang', 'spin', 'dspin', 'fromAng', 'turned'].every((k) => r[k].every((v) => v === 0)) && r.lag.every((v) => v === 1), 'home, the facets are at rest again');
+    ok(['off', 'vel', 'drift', 'from', 'shown', 'ang', 'spin', 'dspin', 'fromAng', 'turned'].every((k) => r[k].every((v) => v === 0)) && r.lag.every((v) => v === 1), 'home, the facets are at rest again, whatever they were doing');
 
     // What is drawn.
     const pos = new Float32Array(N * 9), nor = new Float32Array(N * 9), whole = P.createShards();
@@ -3083,36 +3117,45 @@ await import('./overlay/glass-prism.js');
     // Room: nothing is drawn further than 2 from the middle, and the picture takes that at any page shape.
     ok(P.HEAD === 0.2 && P.HEAD_OVER === 0.5 && P.headFor(1.3) === 1 && P.headFor(1) === 1 && near(P.headFor(1.55), 1.1) && near(P.headFor(1.8), 1.2) && near(P.headFor(3.5), 1.2),
       'once it is in pieces, room is kept for a beat to swell it by a fifth: none while it is whole, all of it once the pieces are half a unit out');
-    ok(P.roomFor(1.3, 1, 0.118) === 1 && P.roomFor(1.3, 1.18, 0.118) === 1 && near(P.roomFor(1.3, 1, 0.396), 2 / (1.3 * 1.396 + 0.198)) && near(P.roomFor(3, 1.1, 0.1), 2 / (3 * 1.2 * 1.1 + 0.05)) && near(P.roomFor(3, 1.4, 0.1), 2 / (3 * 1.4 * 1.1 + 0.05)) && P.roomFor(0, 1, 0) === 1,
+    ok(P.roomFor(1.3, 1, 0.118) === 1 && P.roomFor(1.3, 1.18, 0.118) === 1 && near(P.roomFor(1.3, 1, 0.396), 2 / (1.3 * 1.396 + 0.198)) && near(P.roomFor(3, 1.1, 0.1), 2 / (3 * 1.2 * 1.1 + 0.05)) && near(P.roomFor(3, 1.4, 0.1), 2 / (3 * 1.4 * 1.1 + 0.05)) && P.roomFor(0, 1, 0) === 1
+      && near(P.roomFor(3, 1.1, 0.1, 1.5), 1.5 / (3 * 1.2 * 1.1 + 0.05)) && P.roomFor(1.3, 1, 0.1, 1.5) === 1 && P.roomFor(3, 1.1, 0.1, 2) === P.roomFor(3, 1.1, 0.1),
       'the crystal is drawn smaller when it would not fit: by just enough that its largest copy stays within 2 of the middle, swollen by a beat or not');
+    ok(P.limitFor(1, 0.1) === 2 && P.limitFor(0.5, 0.1) === 2 && near(P.limitFor(1.25, 0.03), 1.6) && near(P.limitFor(1.5, 0.03), 1.3 * 1.03 + 0.015) && near(P.limitFor(2, 0), 1.3) && near(P.limitFor(1, 0.396), 1.3 * 1.396 + 0.198) && P.limitFor(1, 0.396) > 2,
+      'the room is less by as much as the Scene Size slider enlarges the picture, but never less than the whole crystal takes with its colours where they are');
     let fits = true;
     for (const aspect of [300 / 220, 1440 / 1080, 1728 / 1080, 1920 / 1080]) {
       const d = globalThis.TimbreScene.fitDistance(P.FRAME.width, P.FRAME.height, P.FOV, aspect), up = Math.tan((P.FOV * Math.PI) / 360), cone = Math.tan(Math.asin(P.ROOM / d));
       if (!(cone < 0.99 * up && cone < 0.99 * up * aspect)) fits = false;
+      // And the whole crystal with its colours as far apart as they go, which is a little more.
+      if (!(Math.tan(Math.asin(P.limitFor(1, 0.396) / d)) < up)) fits = false;
     }
     ok(fits, 'a ball of that size about the middle is inside the picture on every page, wherever the camera has drifted to');
     ok(P.zoomAfter(1, 0.6, 1 / 60) === 0.6 && near(P.zoomAfter(0.6, 1, 0.5), 0.6 + 0.4 * (1 - Math.exp(-1))) && P.zoomAfter(0.6, 0.8, 100) === 0.8 && P.zoomAfter(0.99995, 1, 1 / 60) === 1 && P.zoomAfter(1, 1, 1 / 60) === 1 && P.zoomAfter(0.9, 0.95, 0) === 0.9
       && near(P.zoomAfter(P.zoomAfter(0.5, 1, 0.1), 1, 0.1), P.zoomAfter(0.5, 1, 0.2), 1e-12), 'it is drawn smaller at once when it must be, and comes back to its size over about a second: exactly, and all the way');
 
     // A whole shatter, start to end, with the worst the sound can do: nothing is ever drawn outside the room.
-    let inside = true, smallest = 1, widest = 0;
+    let inside = true, smallest = 1, widest = 0, dipped = 0;
     for (let seed = 1; seed <= 12; seed++) {
-      const rnd = HX.rng(1000 + seed), s = P.createShards(), swing = [0, 0]; let zoom = 1;
+      const rnd = HX.rng(1000 + seed), s = P.createShards(), swing = [0, 0], enlarged = seed % 3 === 0 ? 1.4 : 1; let zoom = 1, held = 1;
       P.blast(s, lay.normals, 1, rnd, true, true);
       const step = (returning, u, dt, i) => {
         if (i % 13 === 0) swing[1] += P.pushOf(100);
         P.swing(swing, dt);
         if (returning) P.place(s, u, HX.returnShare); else P.fly(s, dt);
         const reach = P.shape(pos, nor, home, homeN, lay.centres, s), size = P.sizeOf(swing[0]), apart = 0.396;
-        zoom = P.zoomAfter(zoom, P.roomFor(reach, size, apart), dt);
-        if (zoom * (reach * size * (1 + apart) + 0.5 * apart) > 2 + 1e-9) inside = false;
+        // As the scene does: the room with the pulse aside is held, shrinking at once and growing back slowly; the pulse's share is taken as it comes.
+        const limit = P.limitFor(enlarged, apart), room = P.roomFor(reach, size, apart, limit);
+        held = P.zoomAfter(held, P.roomFor(reach, 1, apart, limit), dt);
+        zoom = Math.min(held, room);
+        if (zoom * (reach * size * (1 + apart) + 0.5 * apart) > limit + 1e-9 || limit > 2.02) inside = false;
+        if (zoom < held) dipped++;
         smallest = Math.min(smallest, zoom); widest = Math.max(widest, reach);
       };
       for (let i = 0; i < 240; i++) { if (i === 60) P.blast(s, lay.normals, 0.4, rnd, false, false); if (i === 150) P.blast(s, lay.normals, 0.7, rnd, true, false); step(false, 0, 1 / 60, i); }
       P.startReturn(s, rnd);
       for (let i = 0; i <= 90; i++) step(true, i / 90, 1 / 60, i);
     }
-    ok(inside && smallest < 0.35 && smallest > 0.2 && widest > 3.5 && widest < 1.033 + 3.2 + 0.789 + 1e-6, 'through a whole shatter with jostles, beats and the colours as far apart as they go, nothing is ever drawn outside the room');
+    ok(inside && dipped > 50 && smallest < 0.35 && smallest > 0.15 && widest > 3.5 && widest < 1.033 + 3.2 + 0.789 + 1e-6, 'through a whole shatter with jostles, beats and the colours as far apart as they go, nothing is ever drawn outside the room');
   }
 
   // Light.

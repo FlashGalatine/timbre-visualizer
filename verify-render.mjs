@@ -2017,11 +2017,13 @@ async function main() {
     // the scene after each step. A step gives level (null: whatever the kit hears), secs, and
     // either all (every bin, 0..1) or bins ([[bin, 0..1], ...]); idle: true has the mic off,
     // off: true has the mic and Idle animation off. peak is the mic's raw peak (0..1; none unless
-    // given), which is what shatters the crystal.
+    // given), which is what shatters the crystal; wave ('loud' or 'flat') has the capture give no peak
+    // and a wave to take it from. gap is milliseconds in which the page drew nothing, before the step.
+    // keep: true keeps the step's picture, and versus: true says how another step's differs from it.
     const PRISM = 'glass-prism';
     const prismRun = (steps, { fps = 60, knobs = null, hue = null, colorSpeed = null, gain = null } = {}) => wide.evaluate(({ id, steps, fps, knobs, hue, colorSpeed, gain }) => {
       window.frame = function () {};
-      const saved = { frequencies, micActive, cfgIdleAnim, cfgColorHue, cfgColorSpeed, cfgGain, micPeak }, knobs0 = Object.assign({}, perViz[id]);
+      const saved = { frequencies, micActive, cfgIdleAnim, cfgColorHue, cfgColorSpeed, cfgGain, micPeak, waveform }, knobs0 = Object.assign({}, perViz[id]);
       try {
         if (knobs) Object.assign(perViz[id], knobs);
         if (hue !== null) cfgColorHue = hue;
@@ -2037,6 +2039,8 @@ async function main() {
           micActive = !st.idle && !st.off;
           cfgIdleAnim = st.off ? false : saved.cfgIdleAnim;
           micPeak = st.peak === undefined ? 0 : st.peak;
+          if (st.wave) { micPeak = null; const wv = new Uint8Array(256).fill(128); if (st.wave === 'loud') wv[40] = 255; waveform = wv; } else waveform = saved.waveform;
+          if (st.gap) now += st.gap;
           if (st.knobs) Object.assign(perViz[id], st.knobs);
           f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
           if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
@@ -2075,17 +2079,28 @@ async function main() {
           const diff = { n: 0, max: 0 };
           if (last) for (let i = 0; i < px.length; i++) { const d = Math.abs(px[i] - last[i]); if (d) { diff.n++; if (d > diff.max) diff.max = d; } }
           last = px;
+          if (st.keep) window.__prismKept = px;
+          // far: the furthest any corner of any of the three copies is drawn from the middle of the picture, across and up, where 1 is
+          // its edge. From the corners as they stand and each mesh's own size, turn and place, through a camera made here where the
+          // kit's is, with the Size slider at 100.
+          const far = { x: 0, y: 0 };
+          { const st0 = (window.__timbre.scene && window.__timbre.scene.state) || {}, at0 = window.__timbre.scene && window.__timbre.scene.camera;
+            if (st0.copies && st0.corners && at0) { const cam = new THREE.PerspectiveCamera(30, w / h, 0.1, 100); cam.position.fromArray(at0); cam.lookAt(0, 0, 0); cam.updateMatrixWorld(); cam.updateProjectionMatrix();
+              const v = new THREE.Vector3(), qq = new THREE.Quaternion(), p0 = new THREE.Vector3();
+              for (const c of st0.copies) { qq.fromArray(c.turned); p0.fromArray(c.at); for (let i = 0; i < st0.corners.length; i += 3) { v.set(st0.corners[i], st0.corners[i + 1], st0.corners[i + 2]).multiplyScalar(c.scale).applyQuaternion(qq).add(p0).project(cam); far.x = Math.max(far.x, Math.abs(v.x)); far.y = Math.max(far.y, Math.abs(v.y)); } } } }
+          const versus = { n: -1, max: 0 };
+          if (st.versus && window.__prismKept && window.__prismKept.length === px.length) { versus.n = 0; for (let i = 0; i < px.length; i++) { const d = Math.abs(px[i] - window.__prismKept[i]); if (d) { versus.n++; if (d > versus.max) versus.max = d; } } }
           const s = window.__timbre.scene, state = (s && s.state) || {};
           // Which way each facet faces, by three.js's own geometry and the crystal's turn: 1 straight at the camera, -1 straight away.
           const facing = [];
           if (state.q) { const g = new THREE.IcosahedronGeometry(1, 0), p = g.attributes.position, q = new THREE.Quaternion().fromArray(state.q), to = new THREE.Vector3().fromArray(state.sight).negate(), v = new THREE.Vector3();
             for (let fc = 0; fc < 20; fc++) { v.set(0, 0, 0); for (let c = 0; c < 3; c++) v.add(new THREE.Vector3().fromBufferAttribute(p, fc * 3 + c)); facing.push(v.normalize().applyQuaternion(q).dot(to)); } g.dispose(); }
-          out.push({ state, solid, light, sum, edge, beats, white, facing, rim: rim[3] ? [rim[0] / rim[3], rim[1] / rim[3], rim[2] / rim[3]] : [0, 0, 0], empty: empty / (w * h), cornerAlpha: px[3], box: size(box), core: size(core), centroidX: light ? sx / light : 0, canvas: [w, h], hash, diff, kitCam: s ? s.camera : null,
+          out.push({ state, solid, light, sum, edge, beats, white, facing, rim: rim[3] ? [rim[0] / rim[3], rim[1] / rim[3], rim[2] / rim[3]] : [0, 0, 0], empty: empty / (w * h), cornerAlpha: px[3], box: size(box), core: size(core), centroidX: light ? sx / light : 0, canvas: [w, h], hash, diff, versus, far, kitCam: s ? s.camera : null,
             expect: state.copies ? [getColor(state.colorT), getColor(state.colorT + 1), getColor(state.colorT + 2)] : null });
         }
         return out;
       } finally {
-        frequencies = saved.frequencies; micActive = saved.micActive; cfgIdleAnim = saved.cfgIdleAnim; cfgColorHue = saved.cfgColorHue; cfgColorSpeed = saved.cfgColorSpeed; cfgGain = saved.cfgGain; micPeak = saved.micPeak;
+        frequencies = saved.frequencies; micActive = saved.micActive; cfgIdleAnim = saved.cfgIdleAnim; cfgColorHue = saved.cfgColorHue; cfgColorSpeed = saved.cfgColorSpeed; cfgGain = saved.cfgGain; micPeak = saved.micPeak; waveform = saved.waveform;
         Object.assign(perViz[id], knobs0); TimbreScene.testLevel = null;
       }
     }, { id: PRISM, steps, fps, knobs, hue, colorSpeed, gain });
@@ -2118,6 +2133,12 @@ async function main() {
     const RIM = 0.95;
     // How much of its own box the crystal's light fills: whole, at least this much; in pieces, at most that. Measured.
     const PRISM_WHOLE = 0.5, PRISM_APART = 0.4;
+    // How far the furthest facet is moved by a jostle a twentieth of a second on: measured, and held to a seventh either way. (A blast's strength would move it 1.75 times as far.)
+    const JOSTLED = [0.1, 0.135];
+    // How much further the crystal reaches a quarter of a second after a blast during the return: measured, and held to a seventh either way.
+    const REBLOWN = [0.43, 0.575];
+    // How far apart a shatter may be at 30 and at 60 frames a second, two seconds on. Measured: the same to fifteen places.
+    const FPS_SHOWN = 1e-9, FPS_TURNED = 1e-9, FPS_ZOOM = 1e-9;
     // How much light the crystal gives on the small page in a pause, all told: between what whole ridges and dashed ones give.
     const SMALL_LIT = 290000;
     // How much light the crystal gives in a pause, all told: measured, and held to a tenth either way.
@@ -2209,40 +2230,80 @@ async function main() {
     const [level0, swollen, drawnIn, rested] = await prismRun(oneBeat, { gain: 1 }), [, flat, flatIn] = await prismRun(oneBeat, { gain: 1, knobs: { pulse: 0 } }), [, hard] = await prismRun(oneBeat, { gain: 1, knobs: { pulse: 100 } });
     check('glass-prism: a beat swells it, then it draws in a little, then it is its own size again', level0.state.size === 1 && level0.state.swell === 0 && swollen.beats === 1 && Math.abs(swollen.state.size - (1 + swingAt(0.1))) < 1e-9 && swollen.state.size > 1.17
       && Math.abs(drawnIn.state.size - (1 + swingAt(0.4))) < 1e-9 && drawnIn.state.size < 0.97 && drawnIn.beats === 0 && rested.state.size === 1 && rested.state.swell === 0 && rested.state.zoom === 1 && [swollen, drawnIn, rested].every(placed)
-      && swollen.state.copies[1].scale === swollen.state.size && swollen.state.room === 1 && swollen.edge === 0,
+      && swollen.state.copies[1].scale === swollen.state.size && swollen.state.room === 1 && swollen.edge === 0 && Math.abs(swollen.state.swell - swingAt(0.1)) < 1e-9 && Math.abs(drawnIn.state.swell - swingAt(0.4)) < 1e-9,
       JSON.stringify({ size: [level0.state.size, swollen.state.size, drawnIn.state.size, rested.state.size], want: [1 + swingAt(0.1), 1 + swingAt(0.4)], beats: [swollen.beats, drawnIn.beats] }));
-    check('glass-prism: in the picture it is larger on the beat and smaller after, by the Pulse setting: not at all at 0, twice as far at 100', flat.state.size === 1 && flatIn.state.size === 1 && flat.beats === 1 && swollen.box.h > 1.1 * flat.box.h && swollen.box.w > 1.1 * flat.box.w
-      && drawnIn.core.h < 0.985 * flatIn.core.h && drawnIn.core.w < 0.985 * flatIn.core.w && Math.abs(hard.state.size - (1 + swingAt(0.1, 8))) < 1e-9 && hard.box.h > 1.1 * swollen.box.h && hard.edge === 0 && placed(hard) && placed(flat),
+    // A second beat fifteen frames after the first, read six frames on: the two swings, added.
+    const pair = await prismRun([{ level: 0.05, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, secs: 0.1 }, { level: 0.05, all: 0.5, secs: 0.15 }, { level: 0.95, all: 0.5, secs: 0.05 }, { level: 0.05, all: 0.5, secs: 0.05 }], { gain: 1 });
+    check('glass-prism: a beat while it is still swinging adds its push to the swing', pair[1].beats === 1 && pair[2].beats === 0 && pair[3].beats === 1 && pair[4].beats === 0 && Math.abs(pair[4].state.swell - (swingAt(0.35) + swingAt(0.1))) < 1e-9
+      && Math.abs(swingAt(0.35)) > 0.03 && placed(pair[4]), JSON.stringify({ beats: pair.map((r) => r.beats), swell: pair[4].state.swell, want: swingAt(0.35) + swingAt(0.1), one: swingAt(0.1) }));
+    // Pulse and Chroma both at 100, the high end loud: the swell is more than the picture has room for, so it is drawn smaller for as long as it
+    // is swollen and no longer. (Held as the pieces' room is, it would sit a quarter small after every beat.)
+    const [, tight, loose] = await prismRun([{ level: 0.05, all: 1, secs: 1 }, { level: 0.9, all: 1, secs: 0.1 }, { level: 0.05, all: 1, secs: 0.3 }], { knobs: { pulse: 100, chroma: 100 } });
+    check('glass-prism: a swell too large for the picture is drawn smaller while it lasts, and not after', tight.state.size > 1.3 && tight.state.room < 0.95 && tight.state.zoom === tight.state.room && tight.state.held === 1 && tight.far.y <= 0.99 && tight.far.x <= 0.99 && tight.far.y > 0.75 && tight.far.y > loose.far.y + 0.03
+      && loose.state.size < 1 && loose.state.room === 1 && loose.state.zoom === 1 && loose.state.held === 1 && placed(tight) && placed(loose),
+      JSON.stringify({ size: [tight.state.size, loose.state.size], room: [tight.state.room, loose.state.room], zoom: [tight.state.zoom, loose.state.zoom], held: [tight.state.held, loose.state.held], far: [tight.far, loose.far] }));
+    check('glass-prism: in the picture it is larger on the beat and smaller after, by the Pulse setting: not at all at 0, twice as hard at 100', flat.state.size === 1 && flatIn.state.size === 1 && flat.beats === 1 && swollen.box.h > 1.1 * flat.box.h && swollen.box.w > 1.1 * flat.box.w
+      && drawnIn.core.h < 0.985 * flatIn.core.h && drawnIn.core.w < 0.985 * flatIn.core.w && Math.abs(hard.state.size - (1 + swingAt(0.1, 8))) < 1e-9 && hard.box.h > 1.1 * swollen.box.h && hard.edge === 0 && hard.far.y <= 0.99 && hard.far.y > swollen.far.y + 0.05 && swollen.far.y > flat.far.y + 0.05 && flat.far.y > 0.55 && flat.far.y < 0.75 && placed(hard) && placed(flat),
       JSON.stringify({ box: [flat.box, swollen.box, hard.box], core: [flatIn.core, drawnIn.core], size: [flat.state.size, swollen.state.size, hard.state.size] }));
 
     // The shatter: a hard peak on the mic, then calm.
     const hum = { level: 0.3, all: 0.4 }, same3 = (a, b) => a.length === b.length && gap(a, b) === 0;
     // How much of its own box the light fills: a whole crystal most of it, twenty facets apart far less.
     const fill = (r) => r.light / (r.box.w * r.box.h || 1);
+    const units = (a) => { for (let i = 0; i < a.length; i += 3) if (Math.abs(Math.hypot(a[i], a[i + 1], a[i + 2]) - 1) > 1e-9) return false; return a.length === 60; };
     const [before, struck, flying, hanging] = await prismRun([{ ...hum, secs: 1 }, { ...hum, secs: 0.05, peak: 1 }, { ...hum, secs: 0.45 }, { ...hum, secs: 1 }], { gain: 1 });
     check('glass-prism: until a peak it is whole', before.state.phase === 'whole' && before.state.shatters === 0 && before.state.reach === 1.3 && before.state.zoom === 1 && before.state.flash === 0 && same3(before.state.corners, before.state.wholeCorners)
       && before.state.corners.length === 180 && before.state.shards.shown.every((v) => v === 0), JSON.stringify({ phase: before.state.phase, reach: before.state.reach, zoom: before.state.zoom }));
     check('glass-prism: a hard peak on the mic shatters it, in a flash', struck.state.phase === 'pieces' && struck.state.shatters === 1 && struck.state.flash > 0.7 && struck.state.flash < 1 && Math.abs(struck.state.bright - (0.26 + 0.2 * struck.state.flame + 0.18 * struck.state.kick + 0.25 * struck.state.flash)) < 1e-9
       && struck.state.reach > 1.4 && !same3(struck.state.corners, struck.state.wholeCorners) && struck.sum > 1.2 * before.sum && Math.abs(struck.state.heart.size - (1.8 + struck.state.flame + 0.6 * struck.state.kick + 0.5 * struck.state.flash) * struck.state.zoom) < 1e-9,
       JSON.stringify({ phase: struck.state.phase, flash: struck.state.flash, reach: struck.state.reach, zoom: struck.state.zoom, sum: [before.sum, struck.sum] }));
-    check('glass-prism: its facets fly apart, and it is drawn smaller so that all of them stay in the picture', flying.state.phase === 'pieces' && flying.state.reach > 3 && flying.state.reach < 5.03 && flying.state.zoom < 0.6 && flying.state.zoom <= flying.state.room && flying.state.room < 0.6
+    check('glass-prism: its facets fly apart, and it is drawn smaller so that all of them stay in the picture', flying.state.phase === 'pieces' && flying.state.reach > 3 && flying.state.zoom < 0.6 && flying.state.zoom <= flying.state.room && flying.state.room < 0.6
       && flying.state.zoom * (flying.state.reach * flying.state.size * (1 + flying.state.apart) + 0.5 * flying.state.apart) <= 2 + 1e-9 && flying.edge === 0 && hanging.edge === 0 && flying.solid === 0 && placed(flying) && placed(hanging)
-      && hanging.state.phase === 'pieces' && hanging.state.reach >= flying.state.reach && hanging.state.jostles === 0 && hanging.state.flash < 0.01 && Math.max(...flying.state.shards.shown.map(Math.abs)) < 3.2,
-      JSON.stringify({ phase: flying.state.phase, reach: [flying.state.reach, hanging.state.reach], zoom: [flying.state.zoom, hanging.state.zoom], room: flying.state.room, edge: [flying.edge, hanging.edge] }));
+      && units(flying.state.shards.axis) && Math.max(...flying.state.shards.turned.map(Math.abs)) > 0.5 && flying.state.uploads[0] > before.state.uploads[0] + 20 && flying.state.uploads[1] > before.state.uploads[1] + 20
+      && hanging.state.uploads[0] > flying.state.uploads[0] + 50 && hanging.state.uploads[1] > flying.state.uploads[1] + 50
+      && hanging.state.phase === 'pieces' && hanging.state.reach >= flying.state.reach && hanging.state.jostles === 0 && hanging.state.flash < 0.01 && [flying, hanging].every((r) => r.far.y <= 0.99 && r.far.x <= 0.99 && r.far.y > 0.7) && before.far.y < 0.75 && flying.state.zoom === flying.state.held && flying.state.limit === 2,
+      JSON.stringify({ phase: flying.state.phase, reach: [flying.state.reach, hanging.state.reach], zoom: [flying.state.zoom, hanging.state.zoom], room: flying.state.room, edge: [flying.edge, hanging.edge], far: [before.far, flying.far, hanging.far] }));
+    // The first shatter again, made here: its blast (strength 1, outward, the first shatter's own numbers) and the thirty steps since.
+    const flown = await wide.evaluate(({ corners, steps }) => steps.map((n) => { const P = TimbreGlassPrism, sh = P.createShards(); P.blast(sh, P.layout(corners).normals, 1, TimbreHelix.rng(1001), true, true); for (let i = 0; i < n; i++) P.fly(sh, 1 / 60); return { shown: Array.from(sh.shown), turned: Array.from(sh.turned), axis: Array.from(sh.axis) }; }), { corners: flying.state.wholeCorners, steps: [29, 30, 31] });
+    check('glass-prism: in flight each facet is exactly where the arithmetic puts it', gap(flying.state.shards.shown, flown[1].shown) < 1e-9 && gap(flying.state.shards.turned, flown[1].turned) < 1e-9 && gap(flying.state.shards.axis, flown[1].axis) < 1e-12
+      && gap(flying.state.shards.shown, flown[0].shown) > 1e-4 && gap(flying.state.shards.shown, flown[2].shown) > 1e-4, JSON.stringify({ off: flown.map((f) => gap(flying.state.shards.shown, f.shown)), turned: gap(flying.state.shards.turned, flown[1].turned) }));
     check('glass-prism: in the picture, the pieces are apart: the light fills far less of its box, and the box is larger', fill(before) > PRISM_WHOLE && fill(hanging) < PRISM_APART && hanging.box.h > 1.1 * before.box.h && hanging.box.w > 1.1 * before.box.w && hanging.light > 0.1 * before.light,
       JSON.stringify({ fill: [fill(before), fill(flying), fill(hanging)], box: [before.box, flying.box, hanging.box], light: [before.light, flying.light, hanging.light] }));
 
     // Coming back: after Reconnect seconds of calm, a second and a half of return.
-    const mend = [{ ...hum, secs: 1 }, { ...hum, secs: 0.05, peak: 1 }, { ...hum, secs: 0.85 }, { ...hum, secs: 0.6 }, { ...hum, secs: 0.6 }, { ...hum, secs: 0.6 }, { ...hum, secs: 4 }];
-    const [, , waiting, coming, nearer, healed, long1] = await prismRun(mend, { gain: 1, knobs: { reconnectSeconds: 1 } }), [, , , stay3] = await prismRun(mend.slice(0, 4), { gain: 1, knobs: { reconnectSeconds: 3 } });
+    const mend = [{ ...hum, secs: 1 }, { ...hum, secs: 0.05, peak: 1 }, { ...hum, secs: 0.85 }, { ...hum, secs: 0.6 }, { ...hum, secs: 0.6 }, { ...hum, secs: 0.6 }, { ...hum, secs: 0.3 }, { ...hum, secs: 4 }];
+    const [mend0, , waiting, coming, nearer, healed, healedOn, long1] = await prismRun(mend, { gain: 1, knobs: { reconnectSeconds: 1 } }), [, , , stay3] = await prismRun(mend.slice(0, 4), { gain: 1, knobs: { reconnectSeconds: 3 } });
+    // The return began 60 or 61 frames after the peak (a second of calm), and this is read 87 after it: 26 or 27 frames of a return of 90.
+    const onTheWay = await wide.evaluate(({ sh }) => [25, 26, 27, 28].map((n) => { let worst = 0; for (let i = 0; i < 20; i++) { const left = 1 - TimbreHelix.returnShare(n / 90, sh.lag[i]).e;
+      for (let a = 0; a < 3; a++) worst = Math.max(worst, Math.abs(sh.shown[i * 3 + a] - sh.from[i * 3 + a] * left)); worst = Math.max(worst, Math.abs(sh.turned[i] - sh.fromAng[i] * left)); } return worst; }), { sh: coming.state.shards });
+    check('glass-prism: on its way home each facet is exactly where its share of the way puts it, in step with the machine', Math.min(onTheWay[1], onTheWay[2]) < 1e-9 && onTheWay[0] > 1e-4 && onTheWay[3] > 1e-4 && Math.max(...coming.state.shards.from.map(Math.abs)) > 0.8,
+      JSON.stringify({ off: onTheWay }));
     check('glass-prism: after Reconnect seconds of calm the facets come home, the short way and each in its own time', waiting.state.phase === 'pieces' && coming.state.phase === 'returning' && nearer.state.phase === 'returning' && stay3.state.phase === 'pieces'
       && coming.state.reach < waiting.state.reach && nearer.state.reach < coming.state.reach && nearer.state.zoom > coming.state.zoom && coming.state.zoom <= coming.state.room && coming.edge === 0 && nearer.edge === 0
       && coming.state.shards.turned.every((v) => Math.abs(v) <= Math.PI) && Math.max(...coming.state.shards.lag) - Math.min(...coming.state.shards.lag) > 0.15 && placed(coming),
       JSON.stringify({ phase: [waiting.state.phase, coming.state.phase, nearer.state.phase, stay3.state.phase], reach: [waiting.state.reach, coming.state.reach, nearer.state.reach], zoom: [coming.state.zoom, nearer.state.zoom] }));
     check('glass-prism: home, it is the crystal it was, corner for corner, with a flash, and grows back to its size', healed.state.phase === 'whole' && same3(healed.state.corners, healed.state.wholeCorners) && same3(healed.state.faces, before.state.faces) && healed.state.reach === 1.3
       && healed.state.shards.shown.every((v) => v === 0) && healed.state.shards.turned.every((v) => v === 0) && healed.state.flash > 0.05 && healed.state.flash < 0.55 && healed.state.zoom > nearer.state.zoom && healed.state.zoom < 1 && healed.state.room === 1
+      && healed.state.zoom === healed.state.held && Math.abs((1 - healedOn.state.held) - (1 - healed.state.held) * Math.exp(-0.6)) < 1e-9 && healedOn.state.zoom === healedOn.state.held
+      && [waiting, coming, nearer, healed, long1].every((r) => r.state.uploads[1] - r.state.uploads[0] === mend0.state.uploads[1] - mend0.state.uploads[0]) && healed.state.uploads[1] > nearer.state.uploads[1] && long1.state.uploads[0] === healed.state.uploads[0]
       && long1.state.zoom === 1 && long1.state.flash === 0 && long1.state.phase === 'whole' && long1.state.shatters === 1 && Math.abs(fill(long1) - fill(before)) < 0.1 && placed(long1) && long1.state.copies[1].scale === long1.state.size,
-      JSON.stringify({ phase: [healed.state.phase, long1.state.phase], flash: [healed.state.flash, long1.state.flash], zoom: [nearer.state.zoom, healed.state.zoom, long1.state.zoom], fill: [fill(before), fill(long1)] }));
+      JSON.stringify({ phase: [healed.state.phase, long1.state.phase], flash: [healed.state.flash, long1.state.flash], zoom: [nearer.state.zoom, healed.state.zoom, healedOn.state.zoom, long1.state.zoom], held: [healed.state.held, healedOn.state.held], uploads: [nearer.state.uploads, healed.state.uploads, long1.state.uploads], fill: [fill(before), fill(long1)] }));
+
+    // A second shatter, once it is whole again.
+    const twice = await prismRun([{ ...hum, secs: 1 }, { ...hum, secs: 0.05, peak: 1 }, { ...hum, secs: 0.45 }, { ...hum, secs: 3.5 }, { ...hum, secs: 0.05, peak: 1 }, { ...hum, secs: 0.45 }, { ...hum, secs: 1.2 }], { gain: 1, knobs: { reconnectSeconds: 1 } });
+    check('glass-prism: the next shatter is another, and it too comes home in its own time', twice[2].state.phase === 'pieces' && twice[2].state.shatters === 1 && twice[3].state.phase === 'whole' && twice[5].state.phase === 'pieces' && twice[5].state.shatters === 2
+      && units(twice[5].state.shards.axis) && gap(twice[5].state.shards.axis, twice[2].state.shards.axis) > 0.3 && gap(twice[5].state.shards.shown, twice[2].state.shards.shown) > 0.3 && twice[6].state.phase === 'returning' && twice[6].state.reach > 1.5 && twice[6].state.reach < twice[5].state.reach,
+      JSON.stringify({ phase: twice.map((r) => r.state.phase), shatters: twice.map((r) => r.state.shatters), reach: [twice[5].state.reach, twice[6].state.reach] }));
+    // The page stops drawing for three seconds (the source hidden) while it is in pieces.
+    const skippedRun = await prismRun([{ ...hum, secs: 1 }, { ...hum, secs: 0.05, peak: 1 }, { ...hum, secs: 0.5 }, { ...hum, secs: 0.1, gap: 3000 }, { ...hum, secs: 0.5 }], { gain: 1 }), skippedOn = skippedRun[4], skipped = skippedRun[3];
+    check('glass-prism: when the page has not drawn for a while it is whole again at once, without a flash', skipped.state.phase === 'whole' && skipped.state.shatters === 1 && same3(skipped.state.corners, skipped.state.wholeCorners) && skipped.state.shards.shown.every((v) => v === 0)
+      && skipped.state.shards.turned.every((v) => v === 0) && skipped.state.flash === 0 && skipped.state.reach === 1.3 && skipped.state.zoom === 1 && placed(skipped) && skipped.state.copies[1].scale === skipped.state.size && fill(skippedOn) > PRISM_WHOLE && skippedOn.state.zoom === 1,
+      JSON.stringify({ phase: skipped.state.phase, flash: skipped.state.flash, zoom: skipped.state.zoom, fill: [fill(skipped), fill(skippedOn)] }));
+    // Where the capture gives no peak of its own, the wave's is taken.
+    const heard = (wave) => prismRun([{ ...hum, secs: 1 }, { ...hum, secs: 0.05, wave }, { ...hum, secs: 0.3 }], { gain: 1 }).then((r) => r[2]);
+    const heardLoud = await heard('loud'), heardFlat = await heard('flat');
+    check('glass-prism: where the capture gives no peak, the peak of the wave is taken', heardLoud.state.phase === 'pieces' && heardLoud.state.shatters === 1 && heardFlat.state.phase === 'whole' && heardFlat.state.shatters === 0,
+      JSON.stringify({ phase: [heardLoud.state.phase, heardFlat.state.phase] }));
 
     // What sets it off, and what does not.
     const strike = (peak, opts, more = {}) => prismRun([{ ...hum, secs: 1, ...more }, { ...hum, secs: 0.05, peak, ...more }, { ...hum, secs: 0.3, ...more }], opts).then((r) => r[2]);
@@ -2252,28 +2313,46 @@ async function main() {
       && gained.state.phase === 'whole' && asleep.state.phase === 'whole' && asleep.state.shatters === 0 && dark.state.phase === 'whole' && dark.state.shatters === 0 && same3(never.state.corners, never.state.wholeCorners),
       JSON.stringify({ phase: [soft.state.phase, keen.state.phase, never.state.phase, gained.state.phase, asleep.state.phase, dark.state.phase] }));
     // A peak while it is in pieces jostles them; one while they are coming home blows them out again.
-    const [, , , jolted, , , again] = await prismRun([{ ...hum, secs: 1 }, { ...hum, secs: 0.05, peak: 1 }, { ...hum, secs: 0.7 }, { ...hum, secs: 0.05, peak: 1 }, { ...hum, secs: 1.3 }, { ...hum, secs: 0.05, peak: 1 }, { ...hum, secs: 0.2 }], { gain: 1, knobs: { reconnectSeconds: 1 } });
+    const [, , , jolted, backing, , again] = await prismRun([{ ...hum, secs: 1 }, { ...hum, secs: 0.05, peak: 1 }, { ...hum, secs: 0.7 }, { ...hum, secs: 0.05, peak: 1 }, { ...hum, secs: 1.3 }, { ...hum, secs: 0.05, peak: 1 }, { ...hum, secs: 0.2 }], { gain: 1, knobs: { reconnectSeconds: 1 } });
     const [, , , unjolted, calmBack] = await prismRun([{ ...hum, secs: 1 }, { ...hum, secs: 0.05, peak: 1 }, { ...hum, secs: 0.7 }, { ...hum, secs: 0.05 }, { ...hum, secs: 1.3 }], { gain: 1, knobs: { reconnectSeconds: 1 } });
+    // One frame after a peak in the middle of the return, and the same frame without it: the facets are where the return had got to, not where they once flew to.
+    const reSteps = (peak) => [{ ...hum, secs: 1 }, { ...hum, secs: 0.05, peak: 1 }, { ...hum, secs: 0.7 }, { ...hum, secs: 0.05 }, { ...hum, secs: 1.3 }, { ...hum, secs: 1 / 60, peak }];
+    const blown = (await prismRun(reSteps(1), { gain: 1, knobs: { reconnectSeconds: 1 } }))[5], unblown = (await prismRun(reSteps(0), { gain: 1, knobs: { reconnectSeconds: 1 } }))[5];
+    // What the jostle did to each facet, a twentieth of a second on: which way, against where it was, and how far.
+    let jostledIn = 0, jostledFar = 0;
+    for (let i = 0; i < 20; i++) { const a = jolted.state.shards.shown, b = unjolted.state.shards.shown, d = [a[i * 3] - b[i * 3], a[i * 3 + 1] - b[i * 3 + 1], a[i * 3 + 2] - b[i * 3 + 2]];
+      if (d[0] * b[i * 3] + d[1] * b[i * 3 + 1] + d[2] * b[i * 3 + 2] < 0) jostledIn++; jostledFar = Math.max(jostledFar, long(d)); }
+    // What the blast during the return did, a quarter of a second on: nearly every facet is further out than it was, and the crystal reaches further by a blast's worth.
+    let blownOut = 0; const blownGrew = again.state.reach - backing.state.reach;
+    for (let i = 0; i < 20; i++) { const a = again.state.shards.shown, b = backing.state.shards.shown; if (Math.hypot(a[i * 3], a[i * 3 + 1], a[i * 3 + 2]) > Math.hypot(b[i * 3], b[i * 3 + 1], b[i * 3 + 2])) blownOut++; }
+    check('glass-prism: a peak while they are coming home pushes the pieces outward, and by its own strength', blownOut >= 18 && blownGrew > REBLOWN[0] && blownGrew < REBLOWN[1], JSON.stringify({ outward: blownOut, grew: blownGrew }));
+    check('glass-prism: a jostle pushes the pieces any way at all, some of them inward, and less hard than a blast', jostledIn >= 4 && jostledIn <= 16 && jostledFar > JOSTLED[0] && jostledFar < JOSTLED[1], JSON.stringify({ inward: jostledIn, furthest: jostledFar }));
     check('glass-prism: a peak while it is in pieces jostles them, and one while they are coming home blows them out again', jolted.state.jostles === 1 && jolted.state.phase === 'pieces' && unjolted.state.jostles === 0 && gap(jolted.state.shards.shown, unjolted.state.shards.shown) > 0.02
-      && jolted.state.flash > unjolted.state.flash + 0.1 && calmBack.state.phase === 'returning' && again.state.jostles === 2 && again.state.phase === 'pieces' && again.state.shatters === 1 && again.state.reach > calmBack.state.reach && again.edge === 0
+      && jolted.state.flash > unjolted.state.flash + 0.1 && calmBack.state.phase === 'returning' && backing.state.phase === 'returning' && again.state.jostles === 2 && again.state.phase === 'pieces' && again.state.shatters === 1
+      && again.state.reach > backing.state.reach + 0.15 && again.far.y <= 0.99 && again.far.x <= 0.99 && again.state.flash > 0.1 && backing.state.flash < 0.01 && again.edge === 0 && blown.state.phase === 'pieces' && unblown.state.phase === 'returning' && gap(blown.state.shards.shown, unblown.state.shards.shown) < 0.25
+      && gap(blown.state.shards.turned, unblown.state.shards.turned) < 0.25 && same3(blown.state.shards.axis, unblown.state.shards.axis) && units(blown.state.shards.axis)
       && same3(jolted.state.shards.axis, unjolted.state.shards.axis),
-      JSON.stringify({ jostles: [jolted.state.jostles, unjolted.state.jostles, again.state.jostles], phase: [jolted.state.phase, calmBack.state.phase, again.state.phase], reach: [calmBack.state.reach, again.state.reach], moved: gap(jolted.state.shards.shown, unjolted.state.shards.shown) }));
+      JSON.stringify({ jostles: [jolted.state.jostles, unjolted.state.jostles, again.state.jostles], phase: [jolted.state.phase, calmBack.state.phase, again.state.phase], reach: [backing.state.reach, again.state.reach], flash: [backing.state.flash, again.state.flash], took: gap(blown.state.shards.shown, unblown.state.shards.shown), moved: gap(jolted.state.shards.shown, unjolted.state.shards.shown) }));
     // The worst the sound can do while it is in pieces: beats one after another, Pulse and Chroma at 100, the camera as far round as it goes.
     const din = { level: 0.05, all: 1 }, loudly = { level: 0.95, all: 1 };
     const worst = await prismRun([{ ...din, secs: 1 }, { ...loudly, secs: 0.05, peak: 1 }, { ...loudly, secs: 0.2 }, { ...din, secs: 0.2 }, { ...loudly, secs: 0.15 }, { ...din, secs: 0.3 }, { ...loudly, secs: 0.1 }, { ...din, secs: 0.6 }], { knobs: { pulse: 100, chroma: 100, cameraDrift: 100 } });
-    check('glass-prism: in pieces, with beats, Pulse and Chroma at 100 and the camera far round, nothing reaches the edge of the picture', worst.slice(1).every((r) => r.state.phase === 'pieces' && r.edge === 0 && r.solid === 0 && r.state.zoom <= r.state.room && placed(r))
+    check('glass-prism: in pieces, with beats, Pulse and Chroma at 100 and the camera far round, nothing reaches the edge of the picture', worst.slice(1).every((r) => r.state.phase === 'pieces' && r.edge === 0 && r.solid === 0 && r.state.zoom <= r.state.room && placed(r) && r.state.zoom * (r.state.reach * r.state.size * (1 + r.state.apart) + 0.5 * r.state.apart) <= 2 + 1e-9)
+      && worst.every((r) => r.far.y <= 0.99 && r.far.x <= 0.99) && Math.max(...worst.map((r) => r.far.y)) > 0.8 && Math.max(...worst.map((r) => r.state.apart)) > 0.2
       && worst[7].state.kicks >= 3 && Math.max(...worst.map((r) => r.state.size)) > 1.2 && Math.min(...worst.map((r) => r.state.zoom)) < 0.4 && Math.max(...worst.map((r) => r.box.h)) > 0.7 * worst[0].canvas[1],
-      JSON.stringify(worst.map((r) => ({ phase: r.state.phase, edge: r.edge, size: r.state.size, zoom: r.state.zoom, boxH: r.box.h, kicks: r.state.kicks }))));
+      JSON.stringify(worst.map((r) => ({ phase: r.state.phase, edge: r.edge, size: r.state.size, zoom: r.state.zoom, boxH: r.box.h, kicks: r.state.kicks, far: r.far }))));
     // The same shatter at 30 and 60 frames a second (in silence, so that no beat falls on another frame).
     const quietCrack = [{ level: 0, secs: 1 }, { level: 0, secs: 0.1, peak: 1 }, { level: 0, secs: 1.9 }];
     const [, , s30] = await prismRun(quietCrack, { fps: 30 }), [, , s60] = await prismRun(quietCrack, { fps: 60 }), [, , sAgain] = await prismRun(quietCrack, { fps: 60 });
-    check('glass-prism: the same peak gives the same shatter at 30 and 60 fps, and the same again the next time', s30.state.phase === 'pieces' && s60.state.phase === 'pieces' && gap(s30.state.shards.shown, s60.state.shards.shown) < 0.05 && gap(s30.state.shards.turned, s60.state.shards.turned) < 0.12
-      && same3(s30.state.shards.axis, s60.state.shards.axis) && Math.abs(s30.state.zoom - s60.state.zoom) < 0.01 && same3(sAgain.state.shards.shown, s60.state.shards.shown) && Math.max(...s60.state.shards.shown.map(Math.abs)) > 0.8,
+    check('glass-prism: the same peak gives the same shatter at 30 and 60 fps, and the same again the next time', s30.state.phase === 'pieces' && s60.state.phase === 'pieces' && gap(s30.state.shards.shown, s60.state.shards.shown) < FPS_SHOWN && gap(s30.state.shards.turned, s60.state.shards.turned) < FPS_TURNED
+      && same3(s30.state.shards.axis, s60.state.shards.axis) && Math.abs(s30.state.zoom - s60.state.zoom) < FPS_ZOOM && same3(sAgain.state.shards.shown, s60.state.shards.shown) && Math.max(...s60.state.shards.shown.map(Math.abs)) > 0.8,
       JSON.stringify({ shown: gap(s30.state.shards.shown, s60.state.shards.shown), turned: gap(s30.state.shards.turned, s60.state.shards.turned), zoom: [s30.state.zoom, s60.state.zoom] }));
     // Muted while it is in pieces: the facets still come home, and then nothing moves.
-    const [, , apartNow, mutedHome, mutedStill] = await prismRun([{ ...hum, secs: 1 }, { ...hum, secs: 0.05, peak: 1 }, { ...hum, secs: 0.5 }, { level: null, off: true, secs: 8 }, { level: null, off: true, secs: 1 }], { knobs: { cameraDrift: 0, reconnectSeconds: 1 }, colorSpeed: 0 });
+    const lifeOf = (peak, last) => [{ ...hum, secs: 1 }, { ...hum, secs: 0.05, peak }, { ...hum, secs: 0.5 }, { level: null, off: true, secs: 8 }, { level: null, off: true, secs: 1, ...last }];
+    const [, , , , unbroken] = await prismRun(lifeOf(0, { keep: true }), { knobs: { cameraDrift: 0, reconnectSeconds: 1 }, colorSpeed: 0 });
+    const [, , apartNow, mutedHome, mutedStill] = await prismRun(lifeOf(1, { versus: true }), { knobs: { cameraDrift: 0, reconnectSeconds: 1 }, colorSpeed: 0 });
     check('glass-prism: muted while it is in pieces, it still comes home, and then the picture holds still', apartNow.state.phase === 'pieces' && mutedHome.state.phase === 'whole' && mutedHome.state.zoom === 1 && mutedHome.state.flash === 0 && mutedHome.state.size === 1
-      && same3(mutedHome.state.corners, mutedHome.state.wholeCorners) && same(mutedStill) && mutedHome.diff.n > 1000, JSON.stringify({ phase: [apartNow.state.phase, mutedHome.state.phase], zoom: mutedHome.state.zoom, differs: mutedStill.diff }));
+      && same3(mutedHome.state.corners, mutedHome.state.wholeCorners) && same(mutedStill) && mutedHome.diff.n > 1000 && unbroken.state.shatters === 0 && mutedStill.state.shatters === 1 && mutedStill.versus.n >= 0 && mutedStill.versus.n <= 8 && mutedStill.versus.max <= 1 && mutedStill.light > 0.2 * PRISM_LIGHT,
+      JSON.stringify({ phase: [apartNow.state.phase, mutedHome.state.phase], zoom: mutedHome.state.zoom, differs: mutedStill.diff, fromOneThatNeverBroke: mutedStill.versus }));
 
     // Camera.
     const [still] = await prismRun(talk, { knobs: { cameraDrift: 0 } }), [drift] = await prismRun(talk, { knobs: { cameraDrift: 100 } });
@@ -2304,6 +2383,7 @@ async function main() {
     const [, live1, muted1, muted2, muted3] = await prismRun([{ level: 0.05, all: 0.8, secs: 1.5 }, { level: 0.9, all: 0.8, secs: 0.5 }, { level: null, off: true, secs: 0.5 }, { level: null, off: true, secs: 7.5 }, { level: null, off: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
     check('glass-prism: muted in the middle of a stream, it stops turning where it is, dims, and then nothing moves', muted1.state.live === false && muted1.state.clock === live1.state.clock && muted2.state.clock === live1.state.clock && turned(live1.state.q) > 1
       && gap(muted1.state.q, live1.state.q) === 0 && gap(muted2.state.q, live1.state.q) === 0 && long(live1.state.spin) > 0.3 && live1.state.kick > 0.01 && muted1.state.kick > 0 && long(muted1.state.spin) === 0 && muted1.state.bands[0] > 0.01 && muted1.state.bands[0] < live1.state.bands[0]
+      && muted1.state.swell !== 0 && muted2.state.swell === 0 && muted2.state.size === 1 && muted2.state.zoom === 1
       && muted2.state.bands.every((b) => b === 0) && muted2.state.flame === 0 && muted2.state.kick === 0 && muted2.state.bright === 0.26 && Math.abs(muted2.state.apart - 0.018) < 1e-12 && same(muted3) && muted2.diff.n > 1000,
       JSON.stringify({ clock: [live1.state.clock, muted1.state.clock, muted2.state.clock], bands: [live1.state.bands[0], muted1.state.bands[0], muted2.state.bands[0]], apart: muted2.state.apart, differs: muted3.diff }));
 
@@ -2341,6 +2421,21 @@ async function main() {
     check('glass-prism: on the small page its ridges are whole lines', smallLit.sum > SMALL_LIT, JSON.stringify(smallLit));
     check('glass-prism: the Size slider halves it, and the small page draws it too', halved.box.w < 0.62 * placed0.box.w && halved.box.w > 0.38 * placed0.box.w && halved.solid === 0 && smallPrism.name === PRISM && smallPrism.scale >= 2 && smallPrism.copies === 3 && smallPrism.drawnFor === smallPrism.scale && loud.state.drawnFor === 1,
       JSON.stringify({ box: [placed0.box.w, halved.box.w], small: smallPrism }));
+    // The Size slider at 140: the picture is enlarged, so the pieces must keep closer in.
+    await pushConfig((c) => { c.activeViz = PRISM; c.placement.size = 140; });
+    await wide.waitForTimeout(400);
+    const [bigWhole, , bigFlying, bigHanging] = await prismRun([{ ...hum, secs: 1 }, { ...hum, secs: 0.05, peak: 1 }, { ...hum, secs: 0.45 }, { ...hum, secs: 1 }], { gain: 1 });
+    const [, bigSwollen] = await prismRun(oneBeat, { gain: 1 });
+    check('glass-prism: enlarged with the Size slider, its pieces still stay in the picture', bigWhole.state.zoom === 1 && bigWhole.far.y * 1.4 > 0.85 && bigWhole.far.y * 1.4 < 1 && Math.abs(bigFlying.state.limit - 2 / 1.4) < 1e-9
+      && [bigFlying, bigHanging].every((r) => r.state.phase === 'pieces' && r.far.y * 1.4 <= 0.99 && r.far.x * 1.4 <= 0.99 && r.far.y * 1.4 > 0.7) && bigFlying.state.zoom < 0.75 * flying.state.zoom && bigFlying.state.zoom > 0.65 * flying.state.zoom && bigFlying.state.zoom === bigFlying.state.held
+      && bigSwollen.state.size > 1.17 && bigSwollen.state.room < 0.95 && bigSwollen.state.zoom === bigSwollen.state.room && bigSwollen.state.held === 1 && bigSwollen.far.y * 1.4 <= 0.99 && bigSwollen.far.y * 1.4 > 0.85,
+      JSON.stringify({ far: [bigWhole.far, bigFlying.far, bigHanging.far, bigSwollen.far].map((f) => [f.x * 1.4, f.y * 1.4]), limit: bigFlying.state.limit, zoom: [flying.state.zoom, bigFlying.state.zoom, bigSwollen.state.zoom], room: bigSwollen.state.room }));
+    // The Size slider at 200: the crystal itself is more than the picture takes, which is the streamer's to choose. It is not drawn smaller for it, however far apart its colours.
+    await pushConfig((c) => { c.activeViz = PRISM; c.placement.size = 200; });
+    await wide.waitForTimeout(400);
+    const [huge] = await prismRun([{ level: 0.6, bins: highs, secs: 2 }], { gain: 1, knobs: { chroma: 100 } });
+    check('glass-prism: enlarged until it fills the picture, the whole crystal is not drawn smaller, however far apart its colours', huge.state.apart > 0.2 && huge.state.size === 1 && huge.state.zoom === 1 && huge.state.room === 1
+      && Math.abs(huge.state.limit - (1.3 * (1 + huge.state.apart) + 0.5 * huge.state.apart)) < 1e-9 && huge.state.limit > 1.5 && placed(huge), JSON.stringify({ apart: huge.state.apart, limit: huge.state.limit, zoom: huge.state.zoom, room: huge.state.room }));
     await pushConfig((c) => { c.placement.size = 100; });
     await wide.waitForTimeout(300);
     await activate(PRISM);

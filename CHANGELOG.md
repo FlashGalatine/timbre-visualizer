@@ -25,7 +25,10 @@ traceability.
   is still. A hard peak (a thump on the mic, a yell) breaks it into its twenty facets,
   which fly apart spinning, hang and drift, and after a calm wait come home and are the
   crystal again. It breaks by the rule DNA and Pulse Rings break by. While it is in
-  pieces it is drawn smaller, so that no facet leaves the picture. New settings: `pulse`
+  pieces it is drawn smaller, so that no facet leaves the picture (with Scene placement
+  in the middle; the Size slider above 100 leaves the pieces less room). At a high Pulse
+  with the colours far apart a swell can be more than the picture has room for, and is
+  drawn smaller while it lasts. New settings: `pulse`
   (0 to 100, default 50; none at 0), `shatterSensitivity` (0 to 100, default 50; never at
   0) and `reconnectSeconds` (0 to 10, default 3).
 - **Glass Prism setting**: `cameraDrift` (0 to 100, default 50) for the Glass Prism effect.

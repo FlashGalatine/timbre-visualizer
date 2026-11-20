@@ -95,10 +95,23 @@ after a while." The choices below are the builder's.
   in 3D and in the crystal's own frame, so the pieces go on tumbling together.
 - **Nothing leaves the picture.** No facet is drawn further than 3.2 from its place. The
   whole crystal is drawn smaller by just as much as keeps its largest copy within 2 of the
-  middle (the picture takes a ball that size on every page, wherever the camera is): at
-  once when it must be, and back to its size at 2 a second. So a shatter looks like the
-  camera pulling back, and in pieces the facets are about four tenths of their size. Once
-  it is in pieces a fifth of the room is kept for the pulse, so a beat still swells it.
+  middle (the picture takes a ball that size on every page, wherever the camera is). So a
+  shatter looks like the camera pulling back, and in pieces the facets are about four
+  tenths of their size. Once it is in pieces a fifth of the room is kept for the pulse, so
+  a beat still swells it. What the pieces need is held: it shrinks at once and grows back
+  at 2 a second. What a beat's swell needs on top of that is taken as it comes, both ways.
+  This holds with Scene placement in the middle. The Size slider enlarges the picture, so
+  above 100 the room is less by as much (2 over the enlargement), but never less than the
+  whole crystal itself takes: enlarged until the crystal fills the picture, its pieces have
+  no more room than it had. Slid to one side with the placement sliders, it can be cut off
+  as any scene can. The kit also dims light near the edges of the picture (the bottom
+  fifth, the top tenth, a seventh at each side), so the outermost pieces are fainter.
+- **A long din.** A peak while it is in pieces pushes each facet any way at all, but one
+  that has flown beyond 3.2 is pushed back toward its place, so that minutes of loud music
+  do not gather every facet at its limit.
+- **The source hidden.** If the page stops drawing for a second or more while it is in
+  pieces (the source hidden in OBS), it is whole and its own size at once when it draws
+  again, without a flash.
 - **Settings.** `pulse` (0 to 100, default 50; 0 is none), `shatterSensitivity` (0 to 100,
   default 50; 0 never shatters) and `reconnectSeconds` (0 to 10, default 3), the last two
   named and scaled as DNA's are.
