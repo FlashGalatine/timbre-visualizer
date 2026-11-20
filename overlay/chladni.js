@@ -47,7 +47,6 @@
   const PITCH = 44, FOV = 30;               // the camera: how far it looks down, and how wide it sees, in degrees
   const FRAME = { width: 6.8, height: 4.9, center: [0, -0.38, 0] };   // what the camera frames
   const AIR = 0.25;                         // room kept above the plate for sand in the air
-  const V_ROOM = (FRAME.height / 2) * 0.86, H_ROOM = (FRAME.width / 2) * 0.86;   // how far from the middle of the frame a turned plate may reach, up and across
   const RAD = Math.PI / 180;
   const SEED = 20261119;
 
@@ -324,49 +323,20 @@
     return SIZE * scale * zoom;
   }
 
-  // A point of the plate (x, y, z; y is up off the plate) turned by the three Rotate
-  // settings, in degrees, into out. The plate spins in its own plane first (about y), then
-  // rolls to one side (about z, the axis from back to front), then tilts its top toward the
-  // viewer (about x, the axis from left to right).
+  // The three Rotate settings turn the plate as the scene kit turns anything (TimbreScene.turn,
+  // reach and poseFor: spin about y first, then roll about z, then tilt about x). The plate
+  // is this box: its slab, and room above it for sand in the air.
+  const BOX = { min: [-HALF, -THICK, -HALF], max: [HALF, AIR, HALF] }, VIEW = { frame: FRAME, fov: FOV, pitch: PITCH };
   function turn(out, x, y, z, rx, ry, rz) {
-    const ca = Math.cos(rx * RAD), sa = Math.sin(rx * RAD), cb = Math.cos(ry * RAD), sb = Math.sin(ry * RAD), cc = Math.cos(rz * RAD), sc = Math.sin(rz * RAD);
-    const x1 = x * cb + z * sb, z1 = -x * sb + z * cb;
-    const x2 = x1 * cc - y * sc, y2 = x1 * sc + y * cc;
-    out[0] = x2; out[1] = y2 * ca - z1 * sa; out[2] = y2 * sa + z1 * ca;
-    return out;
+    return TimbreScene.turn(out, x, y, z, rx, ry, rz);
   }
-
-  // How the turned plate lies on the picture, seen from where the camera rests: how far its
-  // eight corners (the top ones raised by AIR, for sand in the air) reach from the middle of
-  // the frame, as [lowest, highest, leftmost, rightmost], in the scene's units there. The
-  // plate is drawn at `scale` with its middle at (px, py, pz).
-  const SIN_P = Math.sin(PITCH * RAD), COS_P = Math.cos(PITCH * RAD), DIST = FRAME.height / 2 / Math.tan((FOV * RAD) / 2), CORNER = [0, 0, 0];
+  // How far the turned plate reaches from the middle of the frame: [lowest, highest, leftmost, rightmost].
   function bounds(rx, ry, rz, scale, px, py, pz) {
-    const b = [Infinity, -Infinity, Infinity, -Infinity];
-    for (let i = 0; i < 8; i++) {
-      turn(CORNER, i & 1 ? HALF : -HALF, i & 2 ? AIR : -THICK, i & 4 ? HALF : -HALF, rx, ry, rz);
-      const qx = CORNER[0] * scale + px - FRAME.center[0], qy = CORNER[1] * scale + py - FRAME.center[1], qz = CORNER[2] * scale + pz - FRAME.center[2];
-      const near = DIST / (DIST - (qy * SIN_P + qz * COS_P)), v = (qy * COS_P - qz * SIN_P) * near, h = qx * near;
-      if (v < b[0]) b[0] = v; if (v > b[1]) b[1] = v; if (h < b[2]) b[2] = h; if (h > b[3]) b[3] = h;
-    }
-    return b;
+    return TimbreScene.reach(BOX, VIEW, rx, ry, rz, scale, px, py, pz);
   }
-
-  // Where to put the turned plate and how large to draw it, so that it stays in the frame:
-  // { scale, x, y, z }. With no rotation it is where it always was, at full size. Turned, it
-  // is drawn smaller if it would reach past its room, and moved so that it sits in the frame
-  // where the unturned plate does.
-  const UNTURNED = bounds(0, 0, 0, 1, 0, 0, 0);
+  // Where to put the turned plate and how large to draw it so that it stays in the frame.
   function poseFor(rx, ry, rz) {
-    const pose = { scale: 1, x: 0, y: 0, z: 0 };
-    // Three rounds of the same two corrections bring it home: nearer things look larger, so one is not exact.
-    for (let round = 0; round < 3; round++) {
-      const b = bounds(rx, ry, rz, pose.scale, pose.x, pose.y, pose.z);
-      const up = (UNTURNED[0] + UNTURNED[1]) / 2 - (b[0] + b[1]) / 2, across = -(b[2] + b[3]) / 2;
-      pose.x += across; pose.y += up * COS_P; pose.z -= up * SIN_P;
-      pose.scale = Math.min(1, pose.scale * Math.min(V_ROOM / ((b[1] - b[0]) / 2), H_ROOM / ((b[3] - b[2]) / 2)));
-    }
-    return pose;
+    return TimbreScene.poseFor(BOX, VIEW, rx, ry, rz);
   }
 
   // How far a place on the plate is from its middle: 0 there, 1 at a corner.
@@ -612,7 +582,7 @@
   }
 
   globalThis.TimbreChladni = {
-    GRAINS_MIN, GRAINS_MAX, HALF, THICK, G, T, BANDS, TONE_LOW, TONE_SPAN, BLEND, PAUSE, HOLD, HUSH, LOUD, HUM, REST, GRAV, REACH, SPREAD, FLEX, BEAT, RIM, ONSET, TONE_RATE, LIFT, SIZE, RINGS, STEPS_MAX, PITCH, FOV, FRAME, AIR, V_ROOM, H_ROOM, SEED,
+    GRAINS_MIN, GRAINS_MAX, HALF, THICK, G, T, BANDS, TONE_LOW, TONE_SPAN, BLEND, PAUSE, HOLD, HUSH, LOUD, HUM, REST, GRAV, REACH, SPREAD, FLEX, BEAT, RIM, ONSET, TONE_RATE, LIFT, SIZE, RINGS, STEPS_MAX, PITCH, FOV, FRAME, AIR, BOX, SEED,
     FIGURES, grainCount, value, cell, sample, loudness, toneOf, meanOf, wantFigure, voice, phraseFigure, listen, blendOf, shakeOf, pace, jostle, hopChance, hopSpeed, thrown, stepsFor,
     createSand, stepSand, throwSand, measure, bend, glow, sandBright, pale, grainSize, turn, bounds, poseFor, radius, idle, definition,
   };

@@ -31,6 +31,11 @@
   const PINNED = 0.16;                      // a trace is held down over this share of its length at each end
   const FRONT = 0.006;                      // how far in front of its slice a trace lies
   const RISE = 20, FALL = 8;                // how fast a band is followed, up and down, a second
+  const FOV = 30, PITCH = 30;               // the camera: how wide it sees and how far it looks down, in degrees
+  const FRAME = { width: 7.6, height: 4.4, center: [0, 0.55, 0] };   // what the camera frames
+  // The deck as a box, for the Rotate settings to keep in the frame: its feet, and its tallest trace on a beat.
+  const BOX = { min: [-W / 2, 0, -D / 2], max: [W / 2, LOW + TALL * 1.25, D / 2] }, VIEW = { frame: FRAME, fov: FOV, pitch: PITCH };
+  const RAD = Math.PI / 180;
   const REACH = 23;                         // a beat and the white heat reach as deep as they would in a deck of 24 slices
 
   // How many slices a Depth setting means. No setting is the default, 50.
@@ -184,20 +189,23 @@
   function definition() {
     const ID = 'phosphor';
     // A setting, read live so the control panel's sliders apply at once.
-    const knob = (name) => {
+    const knob = (name, unset = 50) => {
       const v = typeof perViz !== 'undefined' && perViz[ID];
-      return v && typeof v[name] === 'number' ? v[name] : 50;
+      return v && typeof v[name] === 'number' ? v[name] : unset;
     };
     const xs = new Float32Array(P), us = new Float32Array(P), pins = new Float32Array(P), tips = new Float32Array(P), ys = new Float32Array(P);
     for (let j = 0; j < P; j++) { us[j] = j / (P - 1); xs[j] = xOf(j); pins[j] = pin(us[j]); tips[j] = ends(us[j]); }
     const amps = new Float32Array(K), heardNow = new Float32Array(K), phases = new Float64Array(K), rgb = [0, 0, 0], tone = [0, 0, 0];
     const stands = new Float32Array(SLICES_MAX), peaks = new Float32Array(SLICES_MAX), brights = new Float32Array(SLICES_MAX), widths = new Float32Array(SLICES_MAX);
     const front = new Float32Array(P), mid = new Float32Array(P), lag = new Float64Array(K), heards = new Float32Array(SLICES_MAX);
-    let THREE = null, walls = null, lines = null, level = null, colour = null, n = 0;
+    let THREE = null, whole = null, walls = null, lines = null, level = null, colour = null, n = 0;
+    let pose = { scale: 1, x: 0, y: 0, z: 0 };
+    const turned = [0, 0, 0];
     const bands = [];
     // What the checks read. clock: seconds the scene has been live, which the waves run by;
     // slices: how many are drawn; ref: the slice whose colour debug() reports.
-    const s = { flame: 0, kick: 0, clock: 0, live: false, orbit: 0, colorT: 0, slices: 0, ref: 0 };
+    const s = { flame: 0, kick: 0, clock: 0, live: false, orbit: 0, colorT: 0, slices: 0, ref: 0, turned: [0, 0, 0], scale: 1, at: [0, 0, 0], corner: [0, 0, 0] };
+    let cornerAt = null;
 
     function setSlices(count) {
       n = count;
@@ -210,6 +218,11 @@
     function build(k) {
       THREE = k.THREE;
       colour = new THREE.Color();
+      // The slices and their traces turn together, by the three Rotate settings.
+      whole = new THREE.Group();
+      cornerAt = new THREE.Vector3();
+      whole.rotation.order = 'XZY';   // spin (y) first, then roll (z), then tilt (x): as TimbreScene.turn does
+      k.scene.add(whole);
       level = TimbreScene.createHistory(HIST, HZ);
       for (let b = 0; b < K; b++) bands.push(TimbreScene.createHistory(HIST, HZ));
 
@@ -228,7 +241,7 @@
       wg.setIndex(wallIndex);
       walls = new THREE.Mesh(wg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
       walls.frustumCulled = false;   // its points move every frame
-      k.scene.add(walls);
+      whole.add(walls);
 
       // The traces: soft strips of added light along the top edges.
       const lg = new THREE.BufferGeometry();
@@ -247,7 +260,7 @@
       const across = k.keep(new THREE.CanvasTexture(c));
       lines = new THREE.Mesh(lg, k.addLight(new THREE.MeshBasicMaterial({ map: across, vertexColors: true, side: THREE.DoubleSide })));
       lines.frustumCulled = false;
-      k.scene.add(lines);
+      whole.add(lines);
 
       setSlices(sliceCount(knob('depth')));
     }
@@ -262,6 +275,16 @@
     function update(k, audio, now, dt) {
       const t = now / 1000, follow = TimbreScene.follow;
       s.orbit = k.orbit = (0.2 * Math.sin(0.16 * t) + 0.06 * Math.sin(0.4 * t + 2)) * knob('cameraDrift') / 50;
+      // The deck as the Rotate settings turn it, kept in the frame.
+      const rx = knob('rotateX', 0), ry = knob('rotateY', 0), rz = knob('rotateZ', 0);
+      if (rx !== turned[0] || ry !== turned[1] || rz !== turned[2]) { turned[0] = rx; turned[1] = ry; turned[2] = rz; pose = TimbreScene.poseFor(BOX, VIEW, rx, ry, rz); }
+      whole.rotation.set(rx * RAD, ry * RAD, rz * RAD);
+      whole.scale.setScalar(pose.scale);
+      whole.position.set(pose.x, pose.y, pose.z);
+      // How it stands, for the checks: the settings as read, its size and place, and where one corner is in the scene.
+      whole.updateMatrixWorld(true);
+      walls.localToWorld(cornerAt.set(W / 2, 0, D / 2));
+      s.turned[0] = rx; s.turned[1] = ry; s.turned[2] = rz; s.scale = pose.scale; s.at[0] = pose.x; s.at[1] = pose.y; s.at[2] = pose.z; s.corner[0] = cornerAt.x; s.corner[1] = cornerAt.y; s.corner[2] = cornerAt.z;
       const count = sliceCount(knob('depth'));
       if (count !== n) setSlices(count);
 
@@ -316,9 +339,9 @@
     }
 
     return {
-      frame: { width: 7.6, height: 4.4, center: [0, 0.55, 0] },
-      fov: 30,
-      pitch: 30,
+      frame: { width: FRAME.width, height: FRAME.height, center: FRAME.center.slice() },
+      fov: FOV,
+      pitch: PITCH,
       cooling: [Infinity, Infinity, Infinity],   // fading light keeps its colour
       build,
       update,
@@ -346,13 +369,13 @@
           tone: [Math.round(out.r * 255), Math.round(out.g * 255), Math.round(out.b * 255)],
           span: Math.hypot(lp[fa + 3] - lp[fa], lp[fa + 4] - lp[fa + 1], lp[fa + 5] - lp[fa + 2]),   // the front trace's width as drawn
           drawn: [lines.geometry.drawRange.count, walls.geometry.drawRange.count],
-        }, s);
+        }, s, { turned: s.turned.slice(), at: s.at.slice(), corner: s.corner.slice() });   // as they are now, not as they will be
       },
     };
   }
 
   globalThis.TimbrePhosphor = {
-    SLICES_MIN, SLICES_MAX, P, K, W, D, SPAN, HZ, HIST, LOW, TALL, GLOW, FRONT, RISE, FALL,
+    SLICES_MIN, SLICES_MAX, P, K, W, D, SPAN, HZ, HIST, LOW, TALL, GLOW, FRONT, RISE, FALL, FOV, PITCH, FRAME, BOX,
     sliceCount, backOf, ageOf, zOf, xOf, waves, pace, weight, loudness, shape, stand, heightOf, pin, ends, strip, wall,
     fade, bright, hot, halfWidth, under, tint, idle, definition,
   };

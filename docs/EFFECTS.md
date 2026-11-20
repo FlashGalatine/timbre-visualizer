@@ -589,6 +589,29 @@ trace from the frequency bins instead. And nothing in this deck moves from place
 only in shape, so the kit's afterglow gives the traces a little persistence where they rise
 and fall, not the filled wake it leaves behind something that travels.
 
+## Turning what a scene shows
+
+Three scenes have Rotate X, Rotate Y and Rotate Z settings (0 to 360 degrees): Chladni,
+Mountains 3D and Phosphor. They turn the thing the scene shows, not the camera, and the
+scene kit has the arithmetic so that all turn the same way:
+
+- `TimbreScene.turn(out, x, y, z, rx, ry, rz)` turns a point: it spins about its upright
+  axis first (y), then rolls to one side (z), then tilts its top toward the viewer (x).
+  three.js calls that order `'XZY'`, and a scene gives it to the group it turns.
+- `TimbreScene.reach(box, view, rx, ry, rz, scale, px, py, pz)` is how far a turned box
+  reaches from the middle of the frame as the resting camera sees it. `box` is
+  `{ min, max }` and `view` is `{ frame, fov, pitch }` as in the scene's definition.
+- `TimbreScene.poseFor(box, view, rx, ry, rz)` is where to put the turned box and how
+  large to draw it so that it stays in the frame: `{ scale, x, y, z }`. With no rotation
+  it is exactly `{ scale: 1, x: 0, y: 0, z: 0 }`.
+
+To give a scene the settings: put everything it shows (its lights too, if it has any) in
+one `THREE.Group` with `rotation.order = 'XZY'`; describe its solid part as a box; each
+frame set the group's rotation from the settings, and its scale and position from
+`poseFor`; add `rotateX`, `rotateY` and `rotateZ` (default 0) to its entry in
+`DEFAULT_PER_VIZ` and their limit of 360 to `PER_VIZ_MAX`. A scene that sizes anything in
+pixels has to take the pose's scale into account as well (Chladni's grains do).
+
 ## The chladni plate (`TimbreChladni`)
 
 `overlay/chladni.js` is the Chladni effect, as `globalThis.TimbreChladni`: a dark plate
@@ -630,12 +653,11 @@ offers:
   inAir)`, `pale(out, rgb)` and `radius(x, z)` are how bright and what colour a grain is,
   and `grainSize(scale, zoom)` how wide it is drawn.
   `idle(b, t)` is what a band pretends to hear with the mic off.
-- **The Rotate settings.** `turn(out, x, y, z, rx, ry, rz)` turns a point of the plate by
-  the three settings, in degrees: spin about y first, then roll about z, then tilt about x
-  (three.js's `'XZY'` order, which the scene gives the group that holds the plate).
-  `bounds(...)` is how far the turned plate reaches from the middle of the frame as the
-  camera sees it at rest, and `poseFor(rx, ry, rz)` is where to put it and how large to draw
-  it so that it stays inside.
+- **The Rotate settings.** `turn(out, x, y, z, rx, ry, rz)`, `bounds(...)` and
+  `poseFor(rx, ry, rz)` turn the plate, say how far it then reaches from the middle of the
+  frame, and say where to put it and how large to draw it so that it stays inside. They are
+  the scene kit's `turn`, `reach` and `poseFor` (see "Turning what a scene shows"), given
+  the plate's box (`BOX`: its slab, and room above it for sand in the air).
 - **The scene.** `definition()` returns the kit scene definition: the plate (a grid of 48
   by 48 cells with a skirt round its edge) and the sand (points of added light), in one
   group that the Rotate settings turn.

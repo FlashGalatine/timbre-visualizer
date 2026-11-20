@@ -294,6 +294,53 @@ await import('./overlay/scene-kit.js');
   for (let i = 0; i < 50; i++) o = big.step(i % 2 ? 1 : 0, i * 100, 0.1, true);
   ok([o.flame, o.slow, o.kick, o.burst].every((v) => Number.isFinite(v) && v >= 0 && v <= 1), 'envelope survives a 0.1 s step');
 
+  // Turning what a scene shows.
+  {
+    const p = [0, 0, 0], t3 = (x, y, z, rx, ry, rz) => Array.from(K.turn(p, x, y, z, rx, ry, rz)), eq = (a, b) => a.every((v, i) => near(v, b[i], 1e-9));
+    ok(eq(t3(1, 2, 3, 0, 0, 0), [1, 2, 3]) && eq(t3(0, 1, 0, 90, 0, 0), [0, 0, 1]) && eq(t3(0, 0, 1, 90, 0, 0), [0, -1, 0]) && eq(t3(1, 0, 0, 0, 90, 0), [0, 0, -1]) && eq(t3(0, 0, 1, 0, 90, 0), [1, 0, 0])
+      && eq(t3(1, 0, 0, 0, 0, 90), [0, 1, 0]) && eq(t3(0, 1, 0, 0, 0, 90), [-1, 0, 0]) && eq(t3(1, 2, 3, 360, 360, 360), [1, 2, 3]) && K.turn(p, 1, 0, 0, 0, 0, 0) === p,
+      'turn: about x the top tilts toward the viewer, about y the thing spins in its own plane, about z it rolls to one side');
+    ok(eq(t3(1, 0, 0, 90, 90, 0), [0, 1, 0]) && eq(t3(1, 0, 0, 0, 90, 90), [0, 0, -1]) && eq(t3(0, 1, 0, 90, 0, 90), [-1, 0, 0]), 'turn: the spin comes first, then the roll, then the tilt');
+    // A box and a view, and its reach worked out here from the camera's own place.
+    const box = { min: [-2.5, -0.5, -1.5], max: [2.5, 1.5, 1.5] }, view = { frame: { width: 8, height: 5, center: [0.2, 0.7, -0.1] }, fov: 30, pitch: 20 };
+    const P = 20 * Math.PI / 180, dist = 2.5 / Math.tan(15 * Math.PI / 180), cam = [0.2, 0.7 + dist * Math.sin(P), -0.1 + dist * Math.cos(P)];
+    const seen = (rx, ry, rz, scale, at) => {
+      const b = [Infinity, -Infinity, Infinity, -Infinity];
+      for (const x of [-2.5, 2.5]) for (const y of [-0.5, 1.5]) for (const z of [-1.5, 1.5]) {
+        const c = t3(x, y, z, rx, ry, rz).map((v, i) => v * scale + at[i]), d = [c[0] - cam[0], c[1] - cam[1], c[2] - cam[2]];
+        const depth = -(d[1] * Math.sin(P) + d[2] * Math.cos(P)), v = (d[1] * Math.cos(P) - d[2] * Math.sin(P)) * dist / depth, h = d[0] * dist / depth;
+        b[0] = Math.min(b[0], v); b[1] = Math.max(b[1], v); b[2] = Math.min(b[2], h); b[3] = Math.max(b[3], h);
+      }
+      return b;
+    };
+    const cases = [[0, 0, 0, 1, [0, 0, 0]], [70, 0, 0, 1, [0, 0, 0]], [30, 70, 200, 0.7, [0.3, -0.2, 0.1]], [300, 10, 45, 1, [0, 0.4, -0.3]]];
+    ok(cases.every(([rx, ry, rz, scale, at]) => K.reach(box, view, rx, ry, rz, scale, at[0], at[1], at[2]).every((v, i) => near(v, seen(rx, ry, rz, scale, at)[i], 1e-9))),
+      'reach: how far a turned box reaches on the picture is that of its eight corners as the resting camera sees them');
+    // This box fits its frame at rest, so it has 86% of the frame for room; a larger one keeps the room it had.
+    const rest = K.reach(box, view, 0, 0, 0, 1, 0, 0, 0), still = K.poseFor(box, view, 0, 0, 0);
+    const big = { min: [-3.9, -0.5, -2], max: [3.9, 2, 2] }, bigRest = K.reach(big, view, 0, 0, 0, 1, 0, 0, 0), bigStill = K.poseFor(big, view, 0, 0, 0);
+    ok(K.FILL === 0.86 && still.scale === 1 && still.x === 0 && still.y === 0 && still.z === 0 && bigStill.scale === 1 && bigStill.x === 0 && bigStill.y === 0 && (bigRest[3] - bigRest[2]) / 2 > 0.86 * 4 && (rest[3] - rest[2]) / 2 < 0.86 * 4,
+      'poseFor: with no rotation a box is where it was at full size, even one that already reaches past 86% of its frame');
+    let inside = true, smallest = 1;
+    const vRoom = Math.max(0.86 * 2.5, (rest[1] - rest[0]) / 2) * 1.04, hRoom = Math.max(0.86 * 4, (rest[3] - rest[2]) / 2) * 1.04, mid = (rest[0] + rest[1]) / 2, across = (rest[2] + rest[3]) / 2;
+    for (let i = 0; i < 300; i++) {
+      const rx = (i * 37) % 360, ry = (i * 101) % 360, rz = (i * 173) % 360, pose = K.poseFor(box, view, rx, ry, rz), b = K.reach(box, view, rx, ry, rz, pose.scale, pose.x, pose.y, pose.z);
+      if (!(b[0] >= mid - vRoom && b[1] <= mid + vRoom && b[2] >= across - hRoom && b[3] <= across + hRoom && pose.scale <= 1 && pose.scale > 0.4)) inside = false;
+      smallest = Math.min(smallest, pose.scale);
+    }
+    ok(inside && smallest < 0.8, 'poseFor: however a box is turned it is drawn small enough, and placed, to stay within its room');
+  }
+  // A scene's own box, turned every way: it never passes the top or the bottom of its frame, and is never drawn tiny.
+  globalThis.__turnedInFrame = (M) => {
+    const view = { frame: M.FRAME, fov: M.FOV, pitch: M.PITCH };
+    let worst = 0, smallest = 1;
+    for (let i = 0; i < 600; i++) {
+      const rx = (i * 37) % 360, ry = (i * 101) % 360, rz = (i * 173) % 360, pose = K.poseFor(M.BOX, view, rx, ry, rz), b = K.reach(M.BOX, view, rx, ry, rz, pose.scale, pose.x, pose.y, pose.z);
+      worst = Math.max(worst, -b[0] / (M.FRAME.height / 2), b[1] / (M.FRAME.height / 2));
+      smallest = Math.min(smallest, pose.scale);
+    }
+    return worst < 1 && smallest > 0.4 && smallest < 0.9;
+  };
   ok(near(K.fitDistance(6.8, 3.1, 30, 2.77), 5.785, 0.01), 'fit: wide canvas is height-limited');
   ok(near(K.fitDistance(6.8, 3.1, 30, 2.0), 6.344, 0.01), 'fit: 2:1 canvas is width-limited');
   ok(near(K.fitDistance(6.8, 3.1, 30, 4 / 3), 9.517, 0.01), 'fit: 4:3 canvas backs off further');
@@ -2335,9 +2382,16 @@ await import('./overlay/mountains.js');
 
   // The table.
   ok(T.VIZ_SCENES.indexOf('mountains-3d') === T.VIZ_SCENES.indexOf('sunburst-3d') + 1 && T.VIZ_USES_3D.includes('mountains-3d'), 'mountains-3d is a kit scene, listed after the sunburst');
-  ok(JSON.stringify(T.DEFAULT_PER_VIZ['mountains-3d']) === '{"speed":50,"cameraDrift":50}', 'mountains knobs: speed and camera drift');
+  ok(JSON.stringify(T.DEFAULT_PER_VIZ['mountains-3d']) === '{"speed":50,"cameraDrift":50,"rotateX":0,"rotateY":0,"rotateZ":0}' && JSON.stringify(T.PER_VIZ_MAX['mountains-3d']) === '{"rotateX":360,"rotateY":360,"rotateZ":360}',
+    'mountains knobs: speed, camera drift, and three rotations of up to 360 degrees that start at none');
+  {
+    const Mo = globalThis.TimbreMountains, K = globalThis.TimbreScene, view = { frame: Mo.FRAME, fov: Mo.FOV, pitch: Mo.PITCH }, still = K.poseFor(Mo.BOX, view, 0, 0, 0), over = K.poseFor(Mo.BOX, view, 72, 45, 0);
+    ok(Mo.FOV === 30 && Mo.PITCH === 18 && JSON.stringify(Mo.FRAME) === '{"width":8.8,"height":5.4,"center":[0,0.8,0.2]}' && JSON.stringify(Mo.BOX) === JSON.stringify({ min: [-3.5, -0.26, -2.2], max: [3.5, 2.15 * 1.2, 2.2] })
+      && still.scale === 1 && still.x === 0 && still.y === 0 && still.z === 0 && over.scale < 0.9 && over.scale > 0.4 && globalThis.__turnedInFrame(Mo),
+      'the block of land is a box the Rotate settings keep in the frame: unturned it is where it was, seen from above as a diamond it is drawn smaller, and however it is turned it stays between the top and bottom of the frame');
+  }
   const oldLand = T.sanitizeConfig({ activeViz: 'mountains-3d', perViz: { 'mountains-3d': { speed: 80 } } });
-  ok(oldLand.activeViz === 'mountains-3d' && JSON.stringify(oldLand.perViz['mountains-3d']) === '{"speed":80,"cameraDrift":50}', 'a saved pre-redesign mountains config keeps its speed and gains the new default');
+  ok(oldLand.activeViz === 'mountains-3d' && JSON.stringify(oldLand.perViz['mountains-3d']) === '{"speed":80,"cameraDrift":50,"rotateX":0,"rotateY":0,"rotateZ":0}', 'a saved pre-redesign mountains config keeps its speed and gains the new defaults');
   ok(!('mountains-3d' in T.VIZ_LABELS), 'mountains keeps the name it is listed by');
 
   // The files.
@@ -2459,9 +2513,16 @@ await import('./overlay/phosphor.js');
 
   // The table.
   ok(T.VIZ_SCENES[T.VIZ_SCENES.indexOf('mountains-3d') + 1] === 'phosphor' && T.VIZ_USES_3D.includes('phosphor'), 'phosphor is a kit scene, listed after the mountains');
-  ok(JSON.stringify(T.DEFAULT_PER_VIZ['phosphor']) === '{"depth":50,"cameraDrift":50}', 'phosphor knobs: depth and camera drift');
+  ok(JSON.stringify(T.DEFAULT_PER_VIZ['phosphor']) === '{"depth":50,"cameraDrift":50,"rotateX":0,"rotateY":0,"rotateZ":0}' && JSON.stringify(T.PER_VIZ_MAX['phosphor']) === '{"rotateX":360,"rotateY":360,"rotateZ":360}',
+    'phosphor knobs: depth, camera drift, and three rotations of up to 360 degrees that start at none');
+  {
+    const K = globalThis.TimbreScene, view = { frame: Ph.FRAME, fov: Ph.FOV, pitch: Ph.PITCH }, still = K.poseFor(Ph.BOX, view, 0, 0, 0), over = K.poseFor(Ph.BOX, view, 60, 45, 0);
+    ok(Ph.FOV === 30 && Ph.PITCH === 30 && JSON.stringify(Ph.FRAME) === '{"width":7.6,"height":4.4,"center":[0,0.55,0]}' && JSON.stringify(Ph.BOX) === JSON.stringify({ min: [-3.2, 0, -1.8], max: [3.2, 0.14 + 1.5 * 1.25, 1.8] })
+      && still.scale === 1 && still.x === 0 && still.y === 0 && still.z === 0 && over.scale < 0.9 && over.scale > 0.4 && globalThis.__turnedInFrame(Ph),
+      'the deck is a box the Rotate settings keep in the frame: unturned it is where it was, seen from above as a diamond it is drawn smaller, and however it is turned it stays between the top and bottom of the frame');
+  }
   const oldDeck = T.sanitizeConfig({ activeViz: 'phosphor', perViz: { 'phosphor': { depth: 80 } } });
-  ok(oldDeck.activeViz === 'phosphor' && JSON.stringify(oldDeck.perViz['phosphor']) === '{"depth":80,"cameraDrift":50}', 'a saved pre-redesign phosphor config keeps its depth and gains the new default');
+  ok(oldDeck.activeViz === 'phosphor' && JSON.stringify(oldDeck.perViz['phosphor']) === '{"depth":80,"cameraDrift":50,"rotateX":0,"rotateY":0,"rotateZ":0}', 'a saved pre-redesign phosphor config keeps its depth and gains the new defaults');
   ok(!('phosphor' in T.VIZ_LABELS), 'phosphor keeps the name it is listed by');
 
   // The files.
@@ -2806,7 +2867,7 @@ await import('./overlay/chladni.js');
       && eq(t3(1, 0, 0, 0, 0, 90), [0, 1, 0]) && eq(t3(0, 1, 0, 0, 0, 90), [-1, 0, 0]) && eq(t3(1, 2, 3, 360, 360, 360), [1, 2, 3]) && C.turn(p, 1, 0, 0, 0, 0, 0) === p,
       'Rotate X tilts the plate\'s top toward the viewer, Rotate Y spins it in its own plane, Rotate Z rolls it to one side');
     ok(eq(t3(1, 0, 0, 90, 90, 0), [0, 1, 0]) && eq(t3(1, 0, 0, 0, 90, 90), [0, 0, -1]) && eq(t3(0, 1, 0, 90, 0, 90), [-1, 0, 0]), 'the plate spins first, then rolls, then tilts');
-    ok(C.PITCH === 44 && C.FOV === 30 && JSON.stringify(C.FRAME) === '{"width":6.8,"height":4.9,"center":[0,-0.38,0]}' && C.AIR === 0.25 && near(C.V_ROOM, 2.45 * 0.86) && near(C.H_ROOM, 3.4 * 0.86),
+    ok(C.PITCH === 44 && C.FOV === 30 && JSON.stringify(C.FRAME) === '{"width":6.8,"height":4.9,"center":[0,-0.38,0]}' && C.AIR === 0.25 && JSON.stringify(C.BOX) === JSON.stringify({ min: [-2.2, -0.09, -2.2], max: [2.2, 0.25, 2.2] }) && globalThis.TimbreScene.FILL === 0.86,
       'the camera looks down at 44 degrees on a frame 6.8 by 4.9, and the plate is kept within 86% of it');
     // Rotate X at 46 turns the plate's face to the camera, which looks down at 44 degrees.
     const up = t3(0, 1, 0, 46, 0, 0);
@@ -2832,15 +2893,16 @@ await import('./overlay/chladni.js');
         'the plate\'s reach on the picture is that of its eight corners, the top ones raised for sand in the air, as the resting camera sees them');
     }
     // Whatever the rotation, the plate as posed is inside its room; left as it was, it often is not.
+    const V_ROOM = 2.45 * 0.86, H_ROOM = 3.4 * 0.86;   // 86% of the way to the frame's edge
     let inside = true, smallest = 1, over = 0;
     for (let i = 0; i < 400; i++) {
       const rx = (i * 37) % 360, ry = (i * 101) % 360, rz = (i * 173) % 360, pose = C.poseFor(rx, ry, rz), b = C.bounds(rx, ry, rz, pose.scale, pose.x, pose.y, pose.z), raw = C.bounds(rx, ry, rz, 1, 0, 0, 0);
-      if (!(b[0] >= -C.V_ROOM * 1.04 && b[1] <= C.V_ROOM * 1.04 && b[2] >= -C.H_ROOM * 1.04 && b[3] <= C.H_ROOM * 1.04 && pose.scale <= 1 && pose.scale > 0.5)) inside = false;
+      if (!(b[0] >= -V_ROOM * 1.04 && b[1] <= V_ROOM * 1.04 && b[2] >= -H_ROOM * 1.04 && b[3] <= H_ROOM * 1.04 && pose.scale <= 1 && pose.scale > 0.5)) inside = false;
       smallest = Math.min(smallest, pose.scale);
       if (raw[0] < -2.45 || raw[1] > 2.45) over++;
     }
     const b0 = C.bounds(0, 0, 0, 1, 0, 0, 0);
-    ok(inside && over > 100 && smallest < 0.7 && b0[1] < C.V_ROOM && b0[0] > -C.V_ROOM && b0[3] < C.H_ROOM && near(b0[2], -b0[3]), 'however the plate is turned it stays inside the frame, with room for sand in the air');
+    ok(inside && over > 100 && smallest < 0.7 && b0[1] < V_ROOM && b0[0] > -V_ROOM && b0[3] < H_ROOM && near(b0[2], -b0[3]), 'however the plate is turned it stays inside the frame, with room for sand in the air');
   }
 
   // The table.
