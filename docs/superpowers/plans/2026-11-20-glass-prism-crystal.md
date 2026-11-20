@@ -135,5 +135,59 @@ the same heading. Built check-first on this branch:
   Facets now go up to 3.2. The "still a crystal, not a blob" measure is now taken at the
   crystal's own size, since a swollen crystal gives more light by its size squared.
 
-Still owed before it is merged: an independent review of this addition and its deliberate
-breaks.
+### What the review found
+
+One independent review (it ran the scene's own code under Node against three.js, with the
+kit's camera, and projected every corner of all three copies; no suite, no browser). No
+defect in the pulse, the flight or the use of the shatter machine. What it did find:
+
+- **With the Scene Size slider above about 104 a shatter threw facets out of the picture.**
+  The room was worked out as if the picture were never enlarged. The room is now 2 over
+  the enlargement, and never less than the whole crystal itself takes (`limitFor`).
+- **Through a long din every facet ended at its limit.** Jostles any way at all are a random
+  walk. A facet beyond its limit is now jostled back toward its place.
+- **At a high Pulse with the colours far apart the crystal sat a quarter small after every
+  beat.** The room a swell needs was held like the room the pieces need, which grows back
+  slowly. Now only the pieces' room is held (`held`); a swell's is taken as it comes.
+- **Hidden while in pieces, the source came back whole but small.** It is its own size at
+  once. (Found here too, by the check written for it, before the review came back.)
+- **Paths with no check**, each of which now has one: the page not drawing for a while;
+  a peak in the middle of the return taking up from where the return had got to; a second
+  shatter and its return; the return's timing against the machine's, facet by facet; the
+  wave's peak where the capture gives none; and a jostle's own strength and direction.
+- **"No light at the edge" says little**: the kit dims light near the edges of the picture.
+  Every reading in pieces now works out where each corner of each copy is drawn, from the
+  meshes' own sizes, turns and places through a camera made by the check, and holds the
+  furthest to 0.99 of the way to the edge.
+- **The 30 against 60 frames a second check allowed 0.05.** The two agree to fifteen places,
+  and are now held to a billionth.
+- Two tests that could not fail were taken out. The documents now say what the fit does not
+  cover: placement to one side, and the kit's dimming at the edges.
+
+Left as it is: at Pulse 100 the swell can be more than the picture has room for, and is
+then drawn smaller for as long as it lasts.
+
+### Breaking it on purpose
+
+Every line of the addition was broken, one at a time, in a separate copy of the branch,
+each against its own section of the checks (the baseline run, with nothing broken, said
+that nothing failed).
+
+- **Arithmetic: 133 breaks.** Three were caught by nothing at first, and each now has a
+  check that its break fails: the swing stopping while it was still a hundredth out; every
+  facet pushed at the same speed; and a facet keeping its spin when sent home.
+- **The scene: 90 breaks.** Twelve were caught by nothing at first:
+  - a beat's push put in place of the swing instead of added to it;
+  - the swing left frozen when the mic is muted;
+  - a peak during the return giving each facet a new axis, by which it would jump;
+  - flight at twice the speed (each facet in flight is now held to where the arithmetic
+    puts it, to a billionth);
+  - the ways the corners face not sent to be drawn when the crystal is mended;
+  - the pieces' room growing back at twice the rate;
+  - a guard on the count of the return's seconds that made no difference, which was taken
+    out;
+  - the strength and the direction of the blast during the return;
+  - and three ways of losing the Size slider's share of the room, which showed only with
+    the picture enlarged: a beat's swell, the pieces' room held, and the whole crystal's
+    own room with its colours apart.
+  Each new check was confirmed by running its break again.

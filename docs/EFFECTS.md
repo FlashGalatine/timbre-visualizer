@@ -683,9 +683,11 @@ It offers:
   and `place(sh, u, share)` bring them home, `resume(sh)` takes up the flight when a
   return is broken off, and `home(sh)` puts them at rest. `shape(pos, nor, corners,
   normals, centres, sh)` writes the crystal as drawn and returns how far its furthest
-  corner is from the middle. `roomFor(reach, size, apart)` is how much smaller it must be
-  drawn to fit, `headFor(reach)` the room kept for a beat while it is in pieces, and
-  `zoomAfter(zoom, room, dt)` how much smaller it is drawn a step later. When it breaks
+  corner is from the middle. `limitFor(enlarged, apart)` is how far from the middle
+  anything may be drawn (less when the Size slider enlarges the picture),
+  `roomFor(reach, size, apart, limit)` how much smaller it must be drawn to fit,
+  `headFor(reach)` the room kept for a beat while it is in pieces, and
+  `zoomAfter(zoom, room, dt)` what is held of that a step later. When it breaks
   and when it comes back is `TimbreHelix.createShatter`, as for DNA.
 - **The tumble.** `turnRate(flame)` is how fast it turns by itself, `axisAt(out, clock)` the
   wandering axis it turns about, `kickAt(out, n)` the spin the nth beat gives it and
@@ -719,13 +721,23 @@ Worth knowing before making another thing that turns freely:
   three quarters of a page pixel wide.
 - A thing that springs is better worked out than stepped: `swing` is where a damped
   spring would be after `dt`, so thirty steps a second and two hundred and forty agree to
-  the last digit, and a beat is only a push added to its speed.
+  fourteen places, and a beat is only a push added to its speed.
 - A scene whose frame its subject nearly fills has no room to throw pieces about. This
   one works out each frame how far its furthest corner is from the middle and draws the
   whole of itself smaller by just enough (`roomFor`), which looks like the camera pulling
   back. The bound is a ball about the middle, which is inside the picture wherever the
-  camera drifts, so it needs no projection. It shrinks at once and grows back slowly
-  (`zoomAfter`): following it both ways would make the crystal quiver as its pieces spin.
+  camera drifts, so it needs no projection. What the pieces need shrinks at once and grows
+  back slowly (`zoomAfter`): following it both ways would make the crystal quiver as its
+  pieces spin. What a beat's swell needs on top is followed both ways: held like the
+  rest, the crystal sat a quarter small after every beat at a high Pulse.
+- That ball is inside the picture only as the kit frames it. The Scene Size slider is the
+  camera's zoom (`k.camera.zoom`, 0.4 to 2), which a scene that fits itself to the picture
+  must divide its room by; and the kit's output pass dims light in the bottom fifth, the
+  top tenth and a seventh at each side, so "no light at the very edge" says little about
+  where a thing is drawn. The checks work out where each corner lands from the meshes.
+- Pushes any way at all, one after another, are a random walk: without something to bring
+  them back the pieces all end up at their limit. Here a jostle pushes a piece that is
+  beyond its limit back toward its place.
 - The shatter machine in `helix.js` counts and moves flat pieces of its own. A scene in 3D
   can use it for the rule alone: hand it stand-in pieces, read its state and its events,
   and count the seconds of the return yourself, in step with it, as Pulse Rings does.
