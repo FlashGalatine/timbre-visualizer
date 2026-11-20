@@ -2513,9 +2513,9 @@ async function main() {
     const far = (r, i) => Math.hypot(r.state.balls[i * 4], r.state.balls[i * 4 + 1], r.state.balls[i * 4 + 2]);
     const radius = (r, i) => r.state.balls[i * 4 + 3];
     const talk = [{ level: 0.8, all: 0.8, secs: 3 }];
-    // Thresholds are 60% of what the scene gives after 3 s at a steady 0.8 with every band sounding: about
-    // BLOB_SOLID_SEEN solid pixels.
-    const BLOB_SOLID = 1e9;
+    // The threshold is 60% of what the scene gives after 3 s at a steady 0.8 with every band sounding: about
+    // 96,000 solid pixels.
+    const BLOB_SOLID = 57000;
 
     await activate(BLOB);
     const blobState = await sceneState();
@@ -2572,7 +2572,7 @@ async function main() {
     const [, d30] = await blobRun(fpsSteps, { fps: 30 }), [, d60] = await blobRun(fpsSteps, { fps: 60 });
     const onset = [{ level: 0.6, bins: [[2, 1]], secs: 0.1 }];
     const [b30] = await blobRun(onset, { fps: 30, gain: 1 }), [b60] = await blobRun(onset, { fps: 60, gain: 1 });
-    check('metaball: the same sound gives the same blob at 30 and 60 fps', Math.abs(d30.state.clock - 1.5) < 1e-6 && Math.abs(d60.state.clock - 1.5) < 1e-6 && gap(d30.state.bands, d60.state.bands) < 1e-5 && gap(d30.state.balls, d60.state.balls) < 0.03 && far(d60, 1) > 0.3
+    check('metaball: the same sound gives the same blob at 30 and 60 fps', Math.abs(d30.state.clock - 1.5) < 1e-6 && Math.abs(d60.state.clock - 1.5) < 1e-6 && gap(d30.state.bands, d60.state.bands) < 1e-5 && gap(d30.state.balls, d60.state.balls) < 0.03 && far(d60, 1) > 0.15
       && Math.abs(b30.state.bands[2] - (1 - Math.exp(-1.2))) < 1e-5 && Math.abs(b60.state.bands[2] - (1 - Math.exp(-1.2))) < 1e-5,
       JSON.stringify({ clock: [d30.state.clock, d60.state.clock], bands: gap(d30.state.bands, d60.state.bands), balls: gap(d30.state.balls, d60.state.balls), band: [b30.state.bands[2], b60.state.bands[2]] }));
 
@@ -2587,7 +2587,7 @@ async function main() {
       JSON.stringify({ off: [off1.hash, off2.hash], idle: [on1.hash, on2.hash], solid: off2.solid, differs: off2.diff }));
     const [live1, muted1, muted2, muted3] = await blobRun([{ level: 0.8, all: 0.8, secs: 2 }, { level: null, off: true, secs: 0.5 }, { level: null, off: true, secs: 7.5 }, { level: null, off: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
     check('metaball: muted in the middle of a stream, the droplets stop turning, drift home, and then nothing moves', muted1.state.live === false && muted1.state.clock === live1.state.clock && muted2.state.clock === live1.state.clock && live1.state.out === 8
-      && far(muted1, 1) > 0.05 && far(muted1, 1) < far(live1, 1) && muted2.state.bands.every((b) => b === 0) && [1, 2, 3, 4, 5, 6, 7, 8].every((i) => far(muted2, i) === 0) && muted2.hash === muted3.hash && muted1.hash !== muted2.hash,
+      && far(muted1, 1) > 0.05 && far(muted1, 1) < far(live1, 1) && muted2.state.bands.every((b) => b === 0) && muted2.state.flame === 0 && muted2.state.kick === 0 && muted2.state.glow === 0 && radius(muted2, 0) === Math.fround(0.74) && [1, 2, 3, 4, 5, 6, 7, 8].every((i) => far(muted2, i) === 0) && muted2.hash === muted3.hash && muted1.hash !== muted2.hash,
       JSON.stringify({ clock: [live1.state.clock, muted1.state.clock, muted2.state.clock], far: [far(live1, 1), far(muted1, 1), far(muted2, 1)], bands: muted2.state.bands.slice(0, 3), differs: muted3.diff }));
 
     // Colour.

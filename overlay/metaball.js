@@ -94,6 +94,12 @@
     return d;
   }
 
+  // A level that has all but died away is none. The voice and a beat die away for ever and
+  // never arrive, and a picture that should be still would go on changing by a hair.
+  function settle(v) {
+    return v < 1e-4 ? 0 : v;
+  }
+
   // How much the metal glows in its own colour: with the voice, and more on a beat.
   function glowOf(flame, kick) {
     return 0.25 * flame + 0.5 * kick;
@@ -217,18 +223,18 @@
       // With the mic and Idle animation both off, the droplets stop turning (and drift home).
       s.live = !!(micActive || cfgIdleAnim);
       if (s.live) s.clock += dt;
-      s.flame = audio.flame; s.kick = audio.kick;
+      const flame = s.flame = settle(audio.flame), kick = s.kick = settle(audio.kick);
 
       // The ball, and each band's droplet. A band is followed: quick out, slow home.
-      coreAt(places, 0, audio.flame, audio.kick, s.clock);
+      coreAt(places, 0, flame, kick, s.clock);
       let out = 0;
       for (let b = 0; b < DROPS; b++) {
         let v = 0;
         if (micActive) v = loudness(frequencies, b, cfgGain);
         else if (cfgIdleAnim) v = idle(b, s.clock);
         bands[b] = follow(bands[b], v, v > bands[b] ? RISE : FALL, dt);
-        if (v === 0 && bands[b] < 1e-4) bands[b] = 0;   // all but home is home: a muted blob comes to rest
-        dropAt(places, 4 + b * 4, b, bands[b], audio.kick, s.clock);
+        if (v === 0) bands[b] = settle(bands[b]);   // all but home is home: a muted blob comes to rest
+        dropAt(places, 4 + b * 4, b, bands[b], kick, s.clock);
         if (ease(bands[b]) > 0.45) out++;
       }
       s.out = out;
@@ -239,7 +245,7 @@
       const u = mat.uniforms;
       palette(u.uBody.value, colorT); palette(u.uHorizon.value, colorT + 1); palette(u.uSky.value, colorT + 2);
       s.chrome = u.uChrome.value = clamp01(knob('chrome') / 100);
-      s.glow = u.uGlow.value = glowOf(audio.flame, audio.kick);
+      s.glow = u.uGlow.value = glowOf(flame, kick);
       s.pixel = u.uPixel.value = pixelOf(TimbreScene.renderScale(canvas3d.height) * canvas3d.height, k.camera.zoom);
     }
 
@@ -267,6 +273,6 @@
 
   globalThis.TimbreMetaball = {
     DROPS, REACH, BOUND, CORE, SMOOTH, RISE, FALL, FOV, PITCH, FRAME, VERT, FRAG,
-    ease, direction, swing, reach, dropSize, dropAt, coreAt, smin, field, glowOf, pixelOf, loudness, idle, definition,
+    ease, direction, swing, reach, dropSize, dropAt, coreAt, smin, field, settle, glowOf, pixelOf, loudness, idle, definition,
   };
 })();

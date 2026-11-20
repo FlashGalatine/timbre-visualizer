@@ -63,3 +63,14 @@ Final stills; offer to switch the live overlay. Merge only after the owner has s
 - The branch was started on top of the Chladni branch, before that had landed, and while
   its deliberate-break run held the suites' ports. The arithmetic checks were run on their
   own, outside the suite, until the ports were free.
+- The render checks were written before the suite could be run, and their first run came
+  some hours after the scene existed. All passed but two: the threshold left to be measured
+  (solid pixels) and one expectation (how far a droplet has drifted home half a second into
+  a silence).
+- **A still picture that was not still.** "Muted in the middle of a stream ... then nothing
+  moves" passed once and then failed twice running, with one pixel different by one step.
+  The voice's level and a beat die away for ever and never reach nothing, so the ball's
+  size and the metal's glow went on changing by amounts far too small to see, and now and
+  then one pixel fell the other side of a rounding. The scene now counts a level within a
+  ten-thousandth of nothing as nothing, and the check has passed every time since. This may
+  be part of why the same kind of check fails now and then in the older scenes.

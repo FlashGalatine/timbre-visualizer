@@ -44,8 +44,9 @@ One ball of liquid metal floats in the box, built on the scene kit (`overlay/sce
 - **A beat** (the kit's) makes everything jump outward (every droplet 18% further, the ball
   0.07 larger) and the metal glow more.
 - **Mic off, Idle animation on:** the bands follow a slow pattern, so droplets come and go.
-  **Mic off, Idle animation off:** the droplets drift home (a band within a ten-thousandth
-  of silent is silent) and the ball is still. (The
+  **Mic off, Idle animation off:** the droplets drift home and the ball is still. (A band,
+  the voice or a beat within a ten-thousandth of nothing counts as nothing: they die away
+  for ever and never arrive, and the picture would go on changing by a hair.) (The
   camera still drifts, as in the other scenes, and the colours still move through the
   palette, as they did in the old effect.)
 

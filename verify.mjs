@@ -3257,6 +3257,7 @@ await import('./overlay/metaball.js');
 
   // Light, the edge, and the bands.
   ok(M.glowOf(0, 0) === 0 && near(M.glowOf(1, 0), 0.25) && near(M.glowOf(0.4, 1), 0.6), 'the metal glows with the voice, and more on a beat');
+  ok(M.settle(0) === 0 && M.settle(9e-5) === 0 && M.settle(1e-4) === 1e-4 && M.settle(0.3) === 0.3 && M.settle(1) === 1, 'a level within a ten-thousandth of nothing is nothing');
   ok(near(M.pixelOf(624, 1), (2 * Math.tan(15 * Math.PI / 180) / 624) * 1.5) && near(M.pixelOf(520, 1), M.pixelOf(1040, 1) * 2) && near(M.pixelOf(624, 2), M.pixelOf(624, 1) / 2) && M.pixelOf(0, 1) === M.pixelOf(1, 1),
     'the soft edge is a pixel and a half wide: narrower in a taller picture, and with the camera zoomed in');
   {
