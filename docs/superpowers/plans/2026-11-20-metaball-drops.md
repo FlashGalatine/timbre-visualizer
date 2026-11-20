@@ -74,3 +74,35 @@ Final stills; offer to switch the live overlay. Merge only after the owner has s
   then one pixel fell the other side of a rounding. The scene now counts a level within a
   ten-thousandth of nothing as nothing, and the check has passed every time since. This may
   be part of why the same kind of check fails now and then in the older scenes.
+
+## What the review found
+
+One independent review (it read the code and ran the arithmetic, with its own copy of the
+shader's ray march in JavaScript; it ran no suite and no browser). Each finding below was
+confirmed here before it was fixed, and each fix has a check that failed first.
+
+- **See-through holes along droplet outlines.** A ray that passed close to a droplet crept
+  past it in small steps and ran out of its 64 before it reached the metal behind. A new
+  check sends a ray through every fourth pixel and every pixel of the soft edge and asks
+  the arithmetic whether the metal is there: on the old shader it found 16 to 146 holes in
+  a frame. The march now has 128 steps and ends where the ray leaves the sphere, and the
+  check finds none.
+- **A droplet cut by the canvas on a beat.** With its band full, a beat threw the lowest
+  droplet to 1.06 of the picture's half-height. The frame is now 4.8 tall (0.92). The check
+  is in Node, over every clock and the widest camera drift, because a render run only sees
+  one moment.
+- **Hard outlines inside the blob.** Where a droplet passes in front of the ball the outline
+  was a hard step. Such a pixel is now a blend of the two, by how nearly its ray missed the
+  droplet. The check measures how far each outline pixel is from the nearer of the two
+  colours it parts: 0.08 to 0.10 of the step without the blend, 0.30 to 0.38 with it.
+- **A step on the inside of the soft edge**, a faint edge that lingered as light, and a
+  march that gave up 30 from the camera whatever the page: all three went with the same
+  rewrite of the shader's ending.
+- **The shader ran on a sphere of radius 2.5 whatever the blob was doing**, so in a pause
+  nine tenths of its work was on empty pixels. The sphere is now 0.16 past the blob.
+- **Checks that read numbers where they should read the picture.** The ball's width in
+  pixels is pinned to what the arithmetic gives; the glow and the body's colour are
+  measured in the picture; the ball's bob is measured in the picture; the camera's place
+  and pitch are checked; a frame is timed with the GPU's work included (about 2 ms).
+- Left alone, and written down in the design: the soft edge comes out a little brighter
+  than a true blend over mid-tone footage, as the kit's own edges do.

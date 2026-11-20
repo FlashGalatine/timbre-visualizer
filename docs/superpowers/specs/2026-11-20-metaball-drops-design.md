@@ -48,7 +48,7 @@ One ball of liquid metal floats in the box, built on the scene kit (`overlay/sce
   the voice or a beat within a ten-thousandth of nothing counts as nothing: they die away
   for ever and never arrive, and the picture would go on changing by a hair.) (The
   camera still drifts, as in the other scenes, and the colours still move through the
-  palette, as they did in the old effect.)
+  palette.)
 
 ## Settings
 
@@ -68,12 +68,14 @@ for it. The display name does not change.
   large, the ball, the smooth union and the surface it makes, the glow, the idle pattern),
   then `definition()` for `TimbreScene.factory()`. `overlay/factories/metaball.js` becomes
   one line.
-- **The surface is drawn by marching rays in a shader**, on a sphere of radius 2.5 that
-  holds the ball and every droplet at its furthest. So it is smooth at any size, where a
+- **The surface is drawn by marching rays in a shader**, on a sphere that reaches 0.16 past
+  the ball and its droplets wherever they are, so the shader runs on little more than the
+  blob. So it is smooth at any size, where a
   mesh would show its facets. The shader's union is the module's own, written once in
   JavaScript for the checks and once in GLSL from the same numbers.
 - A ray that only just misses the surface gives a soft edge a pixel and a half wide, since
-  a surface drawn in a shader has no edge for the kit's multisampling to smooth.
+  a surface drawn in a shader has no edge for the kit's multisampling to smooth. The
+  outlines inside the blob (a droplet in front of the ball) are blended the same way.
 - The effect no longer makes a renderer of its own.
 
 ## Tried in the spike and changed
@@ -81,7 +83,10 @@ for it. The display name does not change.
 - A sky and a body one palette step apart: the ball read as glossy plastic of one colour.
   They are a whole palette colour apart, with a dark floor and a bright horizon line.
 - A reach of 1.75 in a frame 5.6 wide: the ball was small. The reach is 1.6 and the frame
-  5.2 by 4.2.
+  5.2 wide.
+- A frame 4.2 tall (changed after the review): with its band full, a beat threw the lowest
+  droplet past the bottom of the picture, where the canvas cut it. The frame is 4.8 tall,
+  which holds every droplet at its furthest at any camera drift.
 
 ## Known and left alone
 
@@ -90,7 +95,10 @@ for it. The display name does not change.
 - A voice reaches the three or four lowest bands, so speech pulls out the large drops;
   the small ones come out with music and sibilants.
 - The surface's soft edge is fractional alpha, so along the edge the stream shows through
-  by a pixel.
+  by a pixel. Over mid-tone footage that edge comes out a little brighter than a true
+  blend, as the kit's own smoothed edges do, because the kit tone-maps the blended colour.
+- On the small page the edge is a pixel and a half of the picture the kit draws into, which
+  is several times finer than the canvas.
 - The droplets pass in front of and behind the ball as they turn; one behind it is hidden.
 
 ## Checks
@@ -98,9 +106,12 @@ for it. The display name does not change.
 Node (`npm run verify`): the table and the saved-config case; where a droplet leaves the
 ball; how far it goes and how large it is; the ball; the smooth union; that a droplet
 inside the ball leaves the ball round, one half out is joined to it and one right out is
-apart; that nothing reaches past the sphere it is drawn on; the glow; the edge's width; the
+apart; that the surface is inside the sphere it is drawn on; that nothing reaches the top
+or bottom of the picture with every band full on a beat; the glow; the edge's width; the
 idle pattern; page order. Render (`npm run verify:render`): the ball is solid with a
-transparent corner; a pause is one round ball; a band pulls its own droplet out, quick out
+transparent corner; a pause is one round ball of the width the arithmetic gives; the
+picture against the arithmetic, ray by ray, with no holes; the outlines inside the blob are
+blends; a band pulls its own droplet out, quick out
 and slow home; Gain; louder swells the ball; a beat; the Chrome setting; Camera drift; the
 same at 30 and 60 fps; idle, and nothing moving with the mic and idle off; palette colours;
 placement; cost. Every check is confirmed by breaking the code on purpose.

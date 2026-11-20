@@ -765,23 +765,42 @@ offers:
   `field(x, y, z, balls)` how far a point is from the one surface the ball and its droplets
   make (negative inside). `VERT` and `FRAG` are the shader that draws it: `field` again in
   GLSL, built from the same numbers, with a ray marched to it from the sphere it is drawn
-  on.
+  on. `boundOf(balls)` is that sphere's radius: 0.16 (`ROOM`) past the furthest reach of the
+  ball or any droplet.
 - **Light.** `glowOf(flame, kick)` is how much the metal glows in its own colour, and
   `pixelOf(height, zoom)` the width of the surface's soft edge. `loudness(bins, band, gain)`
   reads a band, and `idle(b, t)` is what a band pretends to hear with the mic off.
-- **The scene.** `definition()` returns the kit scene definition: one sphere of radius 2.5
-  with the shader on it. It follows each band (out at 12 a second, home at 2.2).
+  `settle(v)` makes nothing of a level within a ten-thousandth of nothing, so that a muted
+  blob comes to rest.
+- **The scene.** `definition()` returns the kit scene definition: one sphere with the
+  shader on it, scaled each frame to `boundOf` (and 2% over, `SKIN`, because the sphere is
+  drawn flat-sided), so that in a pause the shader runs on little more than the ball. It
+  follows each band (out at 12 a second, home at 2.2).
 
 All its timing comes from `dt`. The arithmetic touches nothing at load, and the file must
 stay loadable under Node, because `npm run verify` imports it; the scene looks up `THREE`,
 `TimbreScene` and the core.js globals only when it is built. It must be loaded after
 `scene-kit.js` and before the factories.
 
-Worth knowing before drawing another surface in a shader: the kit's multisampling smooths
-the edges of meshes, and a surface found by a ray inside a shader has none, so the shader
-makes its own soft edge from how nearly a ray missed, and it has to know the height of the
-picture the kit draws into and the camera's zoom to make it a pixel wide. The material is
-transparent only for that edge; everywhere else the metal is solid.
+Worth knowing before drawing another surface in a shader:
+
+- The kit's multisampling smooths the edges of meshes, and a surface found by a ray inside
+  a shader has none. So the shader makes its own soft edge from how nearly a ray missed,
+  and it has to know the height of the picture the kit draws into and the camera's zoom to
+  make it a pixel and a half of that picture wide. (On the small page that picture is
+  several times the canvas, so on the canvas the edge is finer.) The material is
+  transparent only for that edge; everywhere else the metal is solid.
+- The outlines inside the surface need the same care: where a ray only just misses a
+  droplet and then meets the ball behind it, the pixel is a blend of the two, by how nearly
+  it missed. Without that those outlines are hard steps that crawl as the droplets turn.
+- A ray that passes close to a droplet creeps past it in small steps. With too few steps
+  it gives up before it reaches the metal behind, and leaves a see-through hole along the
+  droplet's outline. The march has 128 steps, and ends where the ray leaves the sphere.
+- An edge fainter than 2% is not drawn: the kit's afterglow takes anything that faint for
+  light, and it would linger behind a retreating edge.
+- `verify-render` compares the picture with the arithmetic: it sends a ray through every
+  fourth pixel (and every pixel of the soft edge) and asks `field()` whether the metal is
+  there. That is what holds the GLSL to the JavaScript.
 
 ## Wire format (for driving Timbre from elsewhere)
 
