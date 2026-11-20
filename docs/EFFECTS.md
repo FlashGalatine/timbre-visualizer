@@ -607,7 +607,7 @@ offers:
   for. `voice()` is what the plate remembers (its figure, the one before, how long since it
   changed, how long the voice has been quiet) and `listen(st, level, want, dt)` is one
   moment of listening: a new phrase draws a new figure, and within a phrase the figure
-  follows the tone but is kept for 1.8 s. `blendOf(since)` is how far a change has got.
+  follows the tone but is kept for 3 s. `blendOf(since)` is how far a change has got.
 - **The shake.** `shakeOf(flame, kick, live)` is how hard the plate shakes. `pace(shake)`,
   `jostle(shake, h)`, `hopChance(shake, h)` and `hopSpeed(shake, moved, r)` are what that
   does to a grain. `thrown(level, rose, sinceHit)` is how hard a beat throws the sand.

@@ -28,20 +28,22 @@
   const TONE_LOW = 1.3, TONE_SPAN = 4.2;    // the tone is 0 with the sound's weight at bin 1.3 and 1 at bin 5.5
   const BLEND = 0.8;                        // seconds the plate takes to change figure
   const PAUSE = 0.45;                       // seconds of quiet that make the next sound a new phrase
-  const HOLD = 1.8;                         // seconds a figure is kept within a phrase
+  const HOLD = 3;                           // seconds a figure is kept within a phrase
   const HUSH = 0.1, LOUD = 0.22;            // the voice is quiet below the one and sounding above the other
   const HUM = 0.04;                         // how hard the plate shakes with no sound at all
+  const REST = 2.5;                         // seconds between one throw and the next, at least
   const GRAV = 9;                           // how fast sand in the air falls
   const REACH = 0.04;                       // within this of its place a grain slows down
   const SPREAD = 0.024;                     // how far from a line a grain's own place may be: up to 1.5 times this
   const FLEX = 0.035;                       // how far the plate bends, for a figure's value of 1 at full shake
   const BEAT = 4;                           // bends a second
   const RIM = 0.16;                         // how bright the plate's rim is
-  const RISE = 20, FALL = 8;                // how fast a band is followed, up and down, a second
+  const ONSET = 0.1;                        // seconds of a phrase's tone that are weighed before the plate picks its figure
   const TONE_RATE = 2.5;                    // how fast the tone is followed within a phrase, a second
   const LIFT = 0.014;                       // how far above the plate a lying grain is drawn
   const SIZE = 0.085;                       // how wide a grain's light is
   const RINGS = 32;                         // steps of colour from the middle of the plate to a corner
+  const STEPS_MAX = 6;                      // the most steps the sand takes in one frame
   const SEED = 20261119;
 
   // How many grains a Density setting means. No setting is the default, 50.
@@ -87,13 +89,19 @@
     return clamp01((bins[band] / 255) * gain);
   }
 
-  // The tone, 0..1: where the sound's weight sits among the bands (each 0..1). With too
-  // little sound to tell, -1.
+  // The tone, 0..1: where the sound's weight sits among the bands (each 0..1). A band weighs
+  // as its square, so the bands that sound decide it and a floor of hiss under them does not.
+  // With too little sound to tell, -1.
   function toneOf(bands) {
     let sum = 0, moment = 0;
-    for (let b = 0; b < BANDS; b++) { sum += bands[b]; moment += b * bands[b]; }
-    if (!(sum > 0.15)) return -1;
+    for (let b = 0; b < BANDS; b++) { const w = bands[b] * bands[b]; sum += w; moment += b * w; }
+    if (!(sum > 0.02)) return -1;
     return clamp01((moment / sum - TONE_LOW) / TONE_SPAN);
+  }
+
+  // A running mean: `mean` over `weight` seconds so far, with `value` for dt more.
+  function meanOf(mean, value, weight, dt) {
+    return weight + dt > 0 ? (mean * weight + value * dt) / (weight + dt) : value;
   }
 
   // The figure a tone asks for: low, a simple one; high, an intricate one.
@@ -102,26 +110,36 @@
     return Math.min(FIGURES.length - 1, Math.floor(tone * FIGURES.length));
   }
 
-  // What the plate remembers of the voice: the figure it has and the one it had, how long
-  // ago it changed, and how long the voice has been quiet.
+  // What the plate remembers of the voice: the figure it has and the one it had, the figure
+  // the tone asked for when it last chose, how long ago it changed, how long the voice has
+  // been quiet in one stretch, and whether a new phrase is waiting to start.
   function voice() {
-    return { figure: 0, from: 0, since: 9, quiet: 9, changes: 0, phrases: 0 };
+    return { figure: 0, from: 0, asked: 0, since: 9, quiet: 9, pending: false, changes: 0, phrases: 0 };
+  }
+
+  // The figure a new phrase takes: the one its tone asks for or, if the plate has that one
+  // or had it last, the nearest one along that it neither has nor had (up the list, or down
+  // it from the last two). So a voice that keeps its tone goes round three figures.
+  function phraseFigure(want, has, had) {
+    const step = want + 2 < FIGURES.length ? 1 : -1;
+    for (let i = 0; i < 3; i++) { const fig = want + i * step; if (fig !== has && fig !== had) return fig; }
+    return want;
   }
 
   // One moment of listening (level: how loud the voice is just now). When the voice comes
-  // back after a pause the plate takes the figure its tone asks for (`want`), or the next one
-  // along if it has that one already (but a plate's first phrase takes what the tone asks).
-  // Within a phrase it follows the tone, but keeps a figure for HOLD seconds. Nothing
-  // changes while the last change is still running, or while the sound has no tone to speak
-  // of (want below 0): then the phrase starts when it has one.
+  // back after a pause (PAUSE seconds of quiet in one stretch) a new phrase is waiting, and
+  // starts as soon as the last change has finished and the sound has a tone (want is not
+  // below 0): the plate takes phraseFigure() (but its first phrase takes what the tone asks).
+  // Within a phrase the figure is kept, unless the tone comes to ask for another than it
+  // asked for when the plate last chose, and then not within HOLD seconds of the last change.
   function listen(st, level, want, dt) {
     st.since += dt;
     if (level < HUSH) st.quiet += dt;
-    else if (level > LOUD && st.since >= BLEND && want >= 0) {
+    else if (level > LOUD) { if (st.quiet > PAUSE) st.pending = true; st.quiet = 0; }
+    if (level > LOUD && st.since >= BLEND && want >= 0) {
       let to = st.figure;
-      if (st.quiet > PAUSE) { to = want === st.figure && st.phrases > 0 ? (st.figure + 1) % FIGURES.length : want; st.phrases++; }
-      else if (st.since > HOLD) to = want;
-      st.quiet = 0;
+      if (st.pending) { to = st.phrases > 0 ? phraseFigure(want, st.figure, st.from) : want; st.pending = false; st.phrases++; st.asked = want; }
+      else if (st.since > HOLD && want !== st.asked) { to = want; st.asked = want; }
       if (to !== st.figure) { st.from = st.figure; st.figure = to; st.since = 0; st.changes++; }
     }
     return st;
@@ -157,14 +175,15 @@
   }
 
   // How hard a beat throws the sand, 0..1: nothing unless the level is above 0.9, and not
-  // within 1.2 s of the last throw.
+  // within REST seconds of the last throw.
   function thrown(level, rose, sinceHit) {
-    return rose && sinceHit > 1.2 ? clamp01(level * 10 - 9) : 0;
+    return rose && sinceHit > REST ? clamp01(level * 10 - 9) : 0;
   }
 
-  // How many steps the sand takes in a frame of dt seconds: about a sixtieth of a second each.
+  // How many steps the sand takes in a frame of dt seconds: none longer than a sixtieth of a
+  // second (but no more than STEPS_MAX of them, for a frame that took a tenth of a second).
   function stepsFor(dt) {
-    return Math.max(1, Math.min(4, Math.round(dt * 60)));
+    return Math.max(1, Math.min(STEPS_MAX, Math.ceil(dt * 60 - 1e-6)));
   }
 
   // n grains, spread evenly over the plate. Each has its place on the plate (x and z, -1 to
@@ -178,10 +197,12 @@
     };
     let s = seed >>> 0;
     const r = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
+    // A grain's own run starts from a scramble of its number, so that no grain's run is another's a few draws on.
+    const scramble = (v) => { v = Math.imul(v ^ (v >>> 16), 0x7feb352d); v = Math.imul(v ^ (v >>> 15), 0x846ca68b); return (v ^ (v >>> 16)) >>> 0; };
     for (let i = 0; i < n; i++) {
       sand.x[i] = r() * 2 - 1; sand.z[i] = r() * 2 - 1;
       sand.off[i] = (r() + r() + r() - 1.5) * SPREAD;
-      sand.rng[i] = ((r() * 4294967296) >>> 0) | 1;
+      sand.rng[i] = scramble((seed >>> 0) + Math.imul(i + 1, 0x9e3779b9)) | 1;
     }
     return sand;
   }
@@ -190,41 +211,45 @@
   // figures (figA, figB; blend 0 is all figA, 1 all figB) and shakes by `shake`. A grain on
   // the plate walks toward its place beside the nearest line, is jostled, and may hop; a
   // grain in the air flies on and falls. With the plate still (live false) only the grains
-  // in the air move.
+  // in the air move. Far from its place a grain walks at the plate's pace; within REACH of
+  // it the distance left dies away at pace / REACH a second, whatever the length of the
+  // step. sand.f is left as the plate's value under each grain where it is after the step.
   const SA = [0, 0, 0], SB = [0, 0, 0];
   function stepSand(sand, count, figA, figB, blend, shake, live, h) {
     const X = sand.x, Z = sand.z, Y = sand.y, VX = sand.vx, VY = sand.vy, VZ = sand.vz, OFF = sand.off, FV = sand.f, RNG = sand.rng;
     const speed = pace(shake), jit = jostle(shake, h), chance = hopChance(shake, h), mixed = blend < 1;
+    const far = speed * h, ease = 1 - Math.exp(-far / REACH), perSecond = h > 0 ? 1 / h : 0;
     for (let i = 0; i < count; i++) {
       let x = X[i], z = Z[i], y = Y[i];
       const ix = cell(x), iz = cell(z);
       sample(figB, ix, iz, SB);
       let f = SB[0], fx = SB[1], fz = SB[2];
       if (mixed) { sample(figA, ix, iz, SA); f = SA[0] + (f - SA[0]) * blend; fx = SA[1] + (fx - SA[1]) * blend; fz = SA[2] + (fz - SA[2]) * blend; }
-      FV[i] = f;
+      let dx = 0, dz = 0;
       if (y > 0) {
-        x += VX[i] * h; z += VZ[i] * h;
+        dx = VX[i] * h; dz = VZ[i] * h;
         VY[i] -= GRAV * h; y += VY[i] * h;
         if (y <= 0) { y = 0; VX[i] = 0; VY[i] = 0; VZ[i] = 0; }
       } else if (live) {
         const steep = Math.sqrt(fx * fx + fz * fz) + 1e-3;
-        let pull = (f / steep - OFF[i]) / REACH;
-        pull = pull < -1 ? -1 : pull > 1 ? 1 : pull;
-        const walk = (pull * speed) / steep;
+        const err = f / steep - OFF[i];                     // how far the grain is from its place, down the slope
+        const walk = (err > REACH ? far : err < -REACH ? -far : err * ease) / steep;
         let s = RNG[i];
         s = (Math.imul(s, 1664525) + 1013904223) >>> 0; const r1 = s / 4294967296;
         s = (Math.imul(s, 1664525) + 1013904223) >>> 0; const r2 = s / 4294967296;
         s = (Math.imul(s, 1664525) + 1013904223) >>> 0; const r3 = s / 4294967296;
-        x -= fx * walk * h + (r1 - 0.5) * jit;
-        z -= fz * walk * h + (r2 - 0.5) * jit;
+        dx = -(fx * walk + (r1 - 0.5) * jit);
+        dz = -(fz * walk + (r2 - 0.5) * jit);
         const moved = f < 0 ? (f < -1 ? 1 : -f) : (f > 1 ? 1 : f);
         if (r3 < chance * moved) {
           s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
-          VY[i] = hopSpeed(shake, moved, s / 4294967296); VX[i] = -fx * walk; VZ[i] = -fz * walk;
+          VY[i] = hopSpeed(shake, moved, s / 4294967296); VX[i] = -fx * walk * perSecond; VZ[i] = -fz * walk * perSecond;
           y = 1e-4;
         }
         RNG[i] = s;
       }
+      x += dx; z += dz;
+      FV[i] = f + fx * dx + fz * dz;
       X[i] = x < -1 ? -1 : x > 1 ? 1 : x; Z[i] = z < -1 ? -1 : z > 1 ? 1 : z; Y[i] = y;
     }
   }
@@ -287,15 +312,23 @@
     return out;
   }
 
+  // The size to give the sand's points. three.js sizes a point by the canvas's height and
+  // not by the height of what the kit draws into (`scale` times taller) or the camera's zoom
+  // (the Size placement), so both are put back here: a grain keeps its size against the plate.
+  function grainSize(scale, zoom) {
+    return SIZE * scale * zoom;
+  }
+
   // How far a place on the plate is from its middle: 0 there, 1 at a corner.
   function radius(x, z) {
     return Math.min(1, Math.sqrt(x * x + z * z) / Math.SQRT2);
   }
 
   // With the mic off and Idle animation on: how loud band b pretends to be at t seconds.
-  // The weight drifts slowly up and down the bands, and the tone with it.
+  // The weight drifts slowly up and down the bands, between the two ends of the tone, and
+  // the tone with it.
   function idle(b, t) {
-    const d = b - (4 + 3.6 * Math.sin(0.08 * t));
+    const d = b - (TONE_LOW + TONE_SPAN * (0.5 + 0.5 * Math.sin(0.08 * t)));
     return Math.exp(-(d * d) / 6);
   }
 
@@ -324,7 +357,7 @@
     const st = voice();
     // What the checks read. clock: seconds the scene has been live, which the plate bends by;
     // cold: no tone has been heard since the last pause; hits: how many throws there have been.
-    const s = { flame: 0, kick: 0, level: 0, clock: 0, live: false, orbit: 0, colorT: 0, grains: 0, tone: 0, want: 0, cold: true, shake: 0, flex: 0, glowMax: 0, hits: 0, strength: 0, sinceHit: 9, lastKick: 0 };
+    const s = { flame: 0, kick: 0, level: 0, clock: 0, live: false, orbit: 0, colorT: 0, grains: 0, tone: 0, want: 0, cold: true, heardFor: 0, shake: 0, flex: 0, glowMax: 0, glowAt: 0, size: 0, hits: 0, strength: 0, sinceHit: 9, lastKick: 0 };
 
     function setGrains(n) {
       count = n;
@@ -389,17 +422,18 @@
       if (s.live) s.clock += dt;
       s.flame = audio.flame; s.kick = audio.kick; s.level = audio.level;
 
-      // The tone. Each band is followed, not read raw (the bins are read 30 times a second).
-      // After a pause the tone is taken as it is heard; within a phrase it is followed.
-      for (let b = 0; b < BANDS; b++) {
-        let v = 0;
-        if (micActive) v = loudness(frequencies, b, cfgGain);
-        else if (cfgIdleAnim) v = idle(b, s.clock);
-        bands[b] = follow(bands[b], v, v > bands[b] ? RISE : FALL, dt);
-      }
-      if (st.quiet > PAUSE) s.cold = true;
+      // The tone. After a pause it is the mean of what is heard over the first ONSET seconds
+      // of the voice, and the phrase waits for that; within a phrase the tone is followed.
+      for (let b = 0; b < BANDS; b++) bands[b] = micActive ? loudness(frequencies, b, cfgGain) : cfgIdleAnim ? idle(b, s.clock) : 0;
+      if (st.quiet > PAUSE) { s.cold = true; s.heardFor = 0; }
       const heard = toneOf(bands);
-      if (heard >= 0) { s.tone = s.cold ? heard : follow(s.tone, heard, TONE_RATE, dt); s.cold = false; }
+      if (heard >= 0) {
+        if (s.cold) {
+          s.tone = meanOf(s.tone, heard, s.heardFor, dt);
+          s.heardFor += dt;
+          if (s.heardFor >= ONSET - 1e-9) s.cold = false;
+        } else s.tone = follow(s.tone, heard, TONE_RATE, dt);
+      }
       s.want = wantFigure(s.tone);
       listen(st, audio.level, s.cold ? -1 : s.want, dt);
       const mix = blendOf(st.since), figA = FIGURES[st.from], figB = FIGURES[st.figure];
@@ -429,7 +463,9 @@
         const ring = ((radius(x, z) * RINGS) | 0) * 3, b = y > 0 ? flying : lying;
         col[p] = ramp[ring] * b; col[p + 1] = ramp[ring + 1] * b; col[p + 2] = ramp[ring + 2] * b;
       }
-      grains.geometry.attributes.position.needsUpdate = true; grains.geometry.attributes.color.needsUpdate = true;
+      // Only the grains drawn are sent to the GPU.
+      for (const a of [grains.geometry.attributes.position, grains.geometry.attributes.color]) { a.addUpdateRange(0, count * 3); a.needsUpdate = true; }
+      s.size = grains.material.size = grainSize(TimbreScene.renderScale(canvas3d.height), k.camera.zoom);
 
       // The plate: bent by the figure, glowing where it moves, with a lit rim.
       palette(colorT + 0.7);
@@ -441,7 +477,7 @@
         let f = PB[0];
         if (mix < 1) { sample(figA, cells[c], cells[r], PA); f = PA[0] + (f - PA[0]) * mix; }
         const edge = r === 0 || c === 0 || r === G || c === G, g = glow(f, s.shake), light = g + (edge ? RIM : 0);
-        if (g > glowMax) glowMax = g;
+        if (g > glowMax && !edge) { glowMax = g; s.glowAt = p; }
         pp[p] = ((c / G) * 2 - 1) * HALF; pp[p + 1] = flex * f; pp[p + 2] = ((r / G) * 2 - 1) * HALF;
         pc[p] = 0.006 + rgb[0] * light; pc[p + 1] = 0.006 + rgb[1] * light; pc[p + 2] = 0.009 + rgb[2] * light;
       }
@@ -465,7 +501,7 @@
       build,
       update,
       debug() {
-        const voiced = { figure: st.figure, from: st.from, since: st.since, quiet: st.quiet, changes: st.changes, phrases: st.phrases, blend: blendOf(st.since) };
+        const voiced = { figure: st.figure, from: st.from, asked: st.asked, since: st.since, quiet: st.quiet, pending: st.pending, changes: st.changes, phrases: st.phrases, blend: blendOf(st.since) };
         if (!grains) return Object.assign(voiced, s);
         // How the sand lies, and what is drawn, read back from the buffers.
         const m = measure(sand, count, FIGURES[st.from], FIGURES[st.figure], voiced.blend);
@@ -490,7 +526,11 @@
         // The first grain's own colour as its buffer holds it, with its brightness and its paleness taken back out.
         const b = sandBright(s.shake, sand.y[0] > 0), un = (v) => (v / b - 0.4) / 0.6, out = { r: 0, g: 0, b: 0 };
         colour.setRGB(un(gc.getX(0)), un(gc.getY(0)), un(gc.getZ(0))).getRGB(out, THREE.SRGBColorSpace);
+        // The plate's glow where it is brightest, with the plate's own darkness and the glow's strength taken back out.
+        const lit = { r: 0, g: 0, b: 0 }, ga = s.glowAt, gm = s.glowMax || 1;
+        colour.setRGB((pc[ga] - 0.006) / gm, (pc[ga + 1] - 0.006) / gm, (pc[ga + 2] - 0.009) / gm).getRGB(lit, THREE.SRGBColorSpace);
         return Object.assign(voiced, m, {
+          glowTint: [Math.round(lit.r * 255), Math.round(lit.g * 255), Math.round(lit.b * 255)],
           drawn: grains.geometry.drawRange.count, first, drawn0: [pos[0], pos[1], pos[2]], f0: sand.f[0],
           ring: (radius(sand.x[0], sand.z[0]) * RINGS) | 0, tint: [Math.round(out.r * 255), Math.round(out.g * 255), Math.round(out.b * 255)],
           relief, plateLit, plateDark, rimLit: pc[0] + pc[1] + pc[2], thick, skirtOff,
@@ -500,8 +540,8 @@
   }
 
   globalThis.TimbreChladni = {
-    GRAINS_MIN, GRAINS_MAX, HALF, THICK, G, T, BANDS, TONE_LOW, TONE_SPAN, BLEND, PAUSE, HOLD, HUSH, LOUD, HUM, GRAV, REACH, SPREAD, FLEX, BEAT, RIM, RISE, FALL, TONE_RATE, LIFT, SIZE, RINGS, SEED,
-    FIGURES, grainCount, value, cell, sample, loudness, toneOf, wantFigure, voice, listen, blendOf, shakeOf, pace, jostle, hopChance, hopSpeed, thrown, stepsFor,
-    createSand, stepSand, throwSand, measure, bend, glow, sandBright, pale, radius, idle, definition,
+    GRAINS_MIN, GRAINS_MAX, HALF, THICK, G, T, BANDS, TONE_LOW, TONE_SPAN, BLEND, PAUSE, HOLD, HUSH, LOUD, HUM, REST, GRAV, REACH, SPREAD, FLEX, BEAT, RIM, ONSET, TONE_RATE, LIFT, SIZE, RINGS, STEPS_MAX, SEED,
+    FIGURES, grainCount, value, cell, sample, loudness, toneOf, meanOf, wantFigure, voice, phraseFigure, listen, blendOf, shakeOf, pace, jostle, hopChance, hopSpeed, thrown, stepsFor,
+    createSand, stepSand, throwSand, measure, bend, glow, sandBright, pale, grainSize, radius, idle, definition,
   };
 })();
