@@ -598,19 +598,43 @@ scene kit has the arithmetic so that all turn the same way:
 - `TimbreScene.turn(out, x, y, z, rx, ry, rz)` turns a point: it spins about its upright
   axis first (y), then rolls to one side (z), then tilts its top toward the viewer (x).
   three.js calls that order `'XZY'`, and a scene gives it to the group it turns.
-- `TimbreScene.reach(box, view, rx, ry, rz, scale, px, py, pz)` is how far a turned box
-  reaches from the middle of the frame as the resting camera sees it. `box` is
-  `{ min, max }` and `view` is `{ frame, fov, pitch }` as in the scene's definition.
-- `TimbreScene.poseFor(box, view, rx, ry, rz)` is where to put the turned box and how
-  large to draw it so that it stays in the frame: `{ scale, x, y, z }`. With no rotation
-  it is exactly `{ scale: 1, x: 0, y: 0, z: 0 }`.
+- `TimbreScene.reach(box, view, rx, ry, rz, scale, px, py, pz, orbit)` is how far a turned
+  box reaches from the middle of the frame: `[lowest, highest, leftmost, rightmost]`, as
+  the camera sees it from where it rests, or swung `orbit` radians round the frame's
+  middle as `k.orbit` swings it. `box` is `{ min, max }` and `view` is
+  `{ frame, fov, pitch }` as in the scene's definition. `TimbreScene.sweep(..., sway)` is
+  the same over everywhere a camera that sways `sway` radians each way comes to.
+- `TimbreScene.poseFor(box, view, rx, ry, rz, sway)` is where to put the turned box and
+  how large to draw it so that it stays in the frame: `{ scale, x, y, z }`. Seen from
+  where the camera rests, the box may be as tall and as wide as it was unturned, or 86% of
+  the frame if that is more; it sits where the unturned box does, but never reaches
+  further out than that did (or 86% of the way to the frame's edge). Wherever a camera
+  that sways `sway` radians each way comes to, the box is inside the frame (or reaches no
+  further than the unturned box does from there). With no rotation it is exactly
+  `{ scale: 1, x: 0, y: 0, z: 0 }`. It allocates, so call it when a setting changes, not
+  every frame.
 
-To give a scene the settings: put everything it shows (its lights too, if it has any) in
-one `THREE.Group` with `rotation.order = 'XZY'`; describe its solid part as a box; each
-frame set the group's rotation from the settings, and its scale and position from
-`poseFor`; add `rotateX`, `rotateY` and `rotateZ` (default 0) to its entry in
+The fit takes the camera to be as far away as the frame's height asks, which it is on any
+page at least as wide as the frame.
+
+To give a scene the settings: put everything it shows in one `THREE.Group` with
+`rotation.order = 'XZY'`; describe its solid part as a box; each frame set the group's
+rotation from the settings, and its scale and position from `poseFor` (give it the
+furthest the scene's own `k.orbit` swings at the present Camera drift); add `rotateX`, `rotateY` and `rotateZ` (default 0) to its entry in
 `DEFAULT_PER_VIZ` and their limit of 360 to `PER_VIZ_MAX`. A scene that sizes anything in
 pixels has to take the pose's scale into account as well (Chladni's grains do).
+
+Lights need care (Mountains 3D has them):
+
+- A `DirectionalLight` turns with the group only if its `target` is in the group too. A
+  target that is not in the scene stays at the origin.
+- A `HemisphereLight` takes its direction from its place in the scene, so inside the group
+  the group's own position leaks into it. Keep it in the scene and set its position to the
+  group's up each frame.
+- A shadow camera's reach and `normalBias` are in the scene's units: scale them with the
+  pose.
+- A thing that can now be seen from behind or below needs a back and an underside: the
+  land has a base, and the deck's traces move to the side of their slices the camera sees.
 
 ## The chladni plate (`TimbreChladni`)
 

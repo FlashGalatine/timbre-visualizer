@@ -1343,7 +1343,11 @@ async function main() {
           out.push({ state, textures: s ? s.memory.textures : -1, solid, white, light, lightSum, edge, empty: empty / (w * h), cornerAlpha: px[3],
             box: size(box), solidBox: size(solidBox), canvas: [w, h], trace, hash, kitCam: s ? s.camera : null, foot,
             // Where the near right corner should be, from the Rotate settings as the scene read them.
-            expectCorner: state.turned ? (() => { const K = TimbreScene, M = TimbreMountains, r = state.turned, p = K.poseFor(M.BOX, { frame: M.FRAME, fov: M.FOV, pitch: M.PITCH }, r[0], r[1], r[2]), o = K.turn([0, 0, 0], M.W / 2, 0, M.D / 2, r[0], r[1], r[2]); return [o[0] * p.scale + p.x, o[1] * p.scale + p.y, o[2] * p.scale + p.z]; })() : null,
+            expectCorner: state.turned ? (() => { const K = TimbreScene, M = TimbreMountains, r = state.turned, D = Math.PI / 180, p = K.poseFor(M.BOX, { frame: M.FRAME, fov: M.FOV, pitch: M.PITCH }, r[0], r[1], r[2], state.sway), o = new THREE.Vector3(M.W / 2, 0, M.D / 2).applyEuler(new THREE.Euler(r[0] * D, r[1] * D, r[2] * D, 'XZY')); return [o.x * p.scale + p.x, o.y * p.scale + p.y, o.z * p.scale + p.z]; })() : null,
+            // Where each light should come from and where the sun should be, turned as the land is.
+            expectLights: state.lights ? (() => { const r = state.turned, D = Math.PI / 180, e = new THREE.Euler(r[0] * D, r[1] * D, r[2] * D, 'XZY'), dir = (x, y, z) => new THREE.Vector3(x, y, z).normalize().applyEuler(e).toArray();
+              const sunAt = new THREE.Vector3().fromArray(state.sunLocal).applyEuler(e).multiplyScalar(state.scale).add(new THREE.Vector3().fromArray(state.at)).toArray();
+              return { key: dir(-5.5, 4.1, -2.8), fill: dir(2.5, 3, 6), sky: dir(0, 1, 0), sunAt }; })() : null,
             expectRock: state.amps ? getColor(state.colorT + 0.3) : null,
             expectFar: state.amps ? TimbreMountains.heightAt(0, state.travel, state.amps[40]) : null });
         }
@@ -1496,12 +1500,28 @@ async function main() {
     const [landFlat] = await landTurned({}), [landFace] = await landTurned({ rotateX: 72 }), [landDiamond] = await landTurned({ rotateX: 72, rotateY: 45 }), [landRolled] = await landTurned({ rotateY: 200, rotateZ: 30 });
     const landOff = (r) => Math.max(...r.state.corner.map((v, i) => Math.abs(v - r.expectCorner[i])));
     const landIn = (r) => r.solidBox.cx - r.solidBox.w / 2 > 4 && r.solidBox.cx + r.solidBox.w / 2 < r.canvas[0] - 4 && r.solidBox.cy - r.solidBox.h / 2 > 4 && r.solidBox.cy + r.solidBox.h / 2 < r.canvas[1] - 4;
-    check('mountains-3d: with no rotation it is where it always was', landFlat.state.turned.join() === '0,0,0' && landFlat.state.scale === 1 && landFlat.state.at.join() === '0,0,0' && landOff(landFlat) < 1e-6
-      && Math.abs(landFlat.state.corner[0] - 3.5) < 1e-6 && Math.abs(landFlat.state.corner[2] - 2.2) < 1e-6 && landIn(landFlat), JSON.stringify({ corner: landFlat.state.corner, box: landFlat.solidBox }));
+    const off3 = (a, b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
+    const lit = (r) => Math.max(off3(r.state.lights.key, r.expectLights.key), off3(r.state.lights.fill, r.expectLights.fill), off3(r.state.lights.sky, r.expectLights.sky), off3(r.state.sunAt, r.expectLights.sunAt));
+    const L = landFlat.state.lights;
+    check('mountains-3d: with no rotation it is where it always was, and so are its lights', landFlat.state.turned.join() === '0,0,0' && landFlat.state.scale === 1 && landFlat.state.at.join() === '0,0,0' && landOff(landFlat) < 1e-6
+      && Math.abs(landFlat.state.corner[0] - 3.5) < 1e-6 && Math.abs(landFlat.state.corner[2] - 2.2) < 1e-6 && landIn(landFlat)
+      && off3(L.keyAt, [-5.2, 4.4, -2.6]) < 1e-6 && off3(L.keyAim, [0.3, 0.3, 0.2]) < 1e-6 && off3(L.fillAt, [2.5, 3, 6]) < 1e-6 && off3(L.fillAim, [0, 0, 0]) < 1e-6 && off3(L.sky, [0, 1, 0]) < 1e-9 && lit(landFlat) < 1e-6
+      && landFlat.state.shadow.join() === '5,4,1,16,0.05' && landFlat.state.sway === 0,
+      JSON.stringify({ corner: landFlat.state.corner, box: landFlat.solidBox, lights: L, shadow: landFlat.state.shadow }));
     check('mountains-3d: Rotate X, Y and Z turn it, and however it is turned it stays in the frame', [landFace, landDiamond, landRolled].every((r) => landOff(r) < 1e-5 && landIn(r) && r.solidBox.w > 100 && r.solidBox.h > 100 && r.state.scale <= 1 && r.state.scale > 0.4)
       && landFace.state.turned.join() === '72,0,0' && landDiamond.state.scale < landFace.state.scale && Math.abs(landFace.state.corner[1] - landFlat.state.corner[1]) > 0.5 && landRolled.state.turned.join() === '0,200,30'
       && landFace.hash !== landFlat.hash,
       JSON.stringify({ off: [landOff(landFace), landOff(landDiamond), landOff(landRolled)], scale: [landFace.state.scale, landDiamond.state.scale, landRolled.state.scale], box: [landFlat.solidBox, landFace.solidBox, landDiamond.solidBox, landRolled.solidBox] }));
+    const [landUnder] = await landTurned({ rotateX: 180 }), [landOver] = await landTurned({ rotateZ: 180 });
+    check('mountains-3d: its lights, its shadows and its sun turn with it, so it is lit the same whichever way it is turned', [landFace, landDiamond, landRolled, landUnder].every((r) => lit(r) < 1e-5)
+      && off3(landFace.state.lights.sky, [0, Math.cos(72 * Math.PI / 180), Math.sin(72 * Math.PI / 180)]) < 1e-6 && off3(landUnder.state.lights.sky, [0, -1, 0]) < 1e-6
+      && [landDiamond, landUnder].every((r) => off3(r.state.shadow, [5, 4, 1, 16, 0.05].map((v) => v * r.state.scale)) < 1e-9) && landDiamond.state.scale < 0.9,
+      JSON.stringify({ lit: [lit(landFace), lit(landDiamond), lit(landRolled), lit(landUnder)], sky: [landFace.state.lights.sky, landUnder.state.lights.sky], shadow: landDiamond.state.shadow, scale: landDiamond.state.scale }));
+    check('mountains-3d: turned right over it is still a solid block, seen from below', [landUnder, landOver].every((r) => landOff(r) < 1e-5 && landIn(r) && r.solid > 0.3 * landFlat.solid && r.solidBox.h > 0.3 * landFlat.solidBox.h) && landUnder.state.under === 4,
+      JSON.stringify({ solid: [landFlat.solid, landUnder.solid, landOver.solid], box: [landFlat.solidBox, landUnder.solidBox, landOver.solidBox] }));
+    const [landSway] = await landRun([{ level: 0.8, all: 0.8, secs: 1 }], { knobs: { cameraDrift: 100, rotateX: 330, rotateY: 315, rotateZ: 180 } }), [landCalm] = await landTurned({ rotateX: 330, rotateY: 315, rotateZ: 180 }), [landSway0] = await landRun([{ level: 0.8, all: 0.8, secs: 1 }], { knobs: { cameraDrift: 50 } });
+    check('mountains-3d: the more the camera drifts, the more room a turned block is given for it', Math.abs(landSway.state.sway - 0.56) < 1e-12 && Math.abs(landSway0.state.sway - 0.28) < 1e-12 && landOff(landSway) < 1e-5 && landOff(landCalm) < 1e-5 && landSway.state.scale < landCalm.state.scale - 0.02
+      && landSway0.state.scale === 1 && landSway0.state.at.join() === '0,0,0', JSON.stringify({ sway: [landSway0.state.sway, landSway.state.sway], scale: [landCalm.state.scale, landSway.state.scale], off: landOff(landSway) }));
     const landReset = await landRun([{ level: 0.8, all: 0.8, secs: 1 }, { level: 0.8, all: 0.8, secs: 0.02, knobs: { rotateX: 72, rotateY: 90, rotateZ: 10 } }, { level: 0.8, all: 0.8, secs: 0.02, knobs: { rotateX: 0, rotateY: 0, rotateZ: 0 } }], { knobs: { cameraDrift: 0 } });
     check('mountains-3d: a change of rotation applies at once, both ways', landReset.map((r) => r.state.turned.join()).join(' ') === '0,0,0 72,90,10 0,0,0' && landReset[1].state.scale < 1 && landReset[2].state.scale === 1 && landOff(landReset[1]) < 1e-5 && landOff(landReset[2]) < 1e-6,
       JSON.stringify(landReset.map((r) => [r.state.turned, r.state.scale])));
@@ -1584,10 +1604,13 @@ async function main() {
             }
           }
           const s = window.__timbre.scene, state = (s && s.state) || {};
-          out.push({ state, solid, light, lightSum, edge, foot, empty: empty / (w * h), cornerAlpha: px[3],
+          // lit: how much light lies on the slices themselves (a trace over its own slice and the one behind it).
+          let lit = 0;
+          for (let i = 0; i < px.length; i += 4) if (px[i + 3] > 250 && px[i] + px[i + 1] + px[i + 2] > 150) lit += px[i] + px[i + 1] + px[i + 2];
+          out.push({ state, solid, light, lightSum, lit, edge, foot, empty: empty / (w * h), cornerAlpha: px[3],
             box: size(box), solidBox: size(solidBox), canvas: [w, h], trace, hash, kitCam: s ? s.camera : null,
             // Where the near right corner should be, from the Rotate settings as the scene read them.
-            expectCorner: state.turned ? (() => { const K = TimbreScene, M = TimbrePhosphor, r = state.turned, p = K.poseFor(M.BOX, { frame: M.FRAME, fov: M.FOV, pitch: M.PITCH }, r[0], r[1], r[2]), o = K.turn([0, 0, 0], M.W / 2, 0, M.D / 2, r[0], r[1], r[2]); return [o[0] * p.scale + p.x, o[1] * p.scale + p.y, o[2] * p.scale + p.z]; })() : null,
+            expectCorner: state.turned ? (() => { const K = TimbreScene, M = TimbrePhosphor, r = state.turned, D = Math.PI / 180, p = K.poseFor(M.BOX, { frame: M.FRAME, fov: M.FOV, pitch: M.PITCH }, r[0], r[1], r[2], state.sway), o = new THREE.Vector3(M.W / 2, 0, M.D / 2).applyEuler(new THREE.Euler(r[0] * D, r[1] * D, r[2] * D, 'XZY')); return [o.x * p.scale + p.x, o.y * p.scale + p.y, o.z * p.scale + p.z]; })() : null,
             expectTone: state.slices ? getColor(state.colorT + TimbrePhosphor.backOf(state.ref, state.slices) * 0.8) : null });
         }
         return out;
@@ -1727,6 +1750,8 @@ async function main() {
       JSON.stringify({ tone: loud.state.tone, expect: loud.expectTone, hued: hued.state.tone, hueExpect: hued.expectTone }));
 
     // The three Rotate settings, with the camera held still.
+    // How much of the light that lies on the unturned deck's slices a deck seen from behind must show on its own.
+    const BEHIND = 0.43;
     const deckTurned = (knobs) => deckRun([{ level: 0.8, all: 0.8, secs: 1 }], { knobs: Object.assign({ cameraDrift: 0 }, knobs) });
     const [deckFlat] = await deckTurned({}), [deckFace] = await deckTurned({ rotateX: 60 }), [deckDiamond] = await deckTurned({ rotateX: 60, rotateY: 45 }), [deckRolled] = await deckTurned({ rotateY: 200, rotateZ: 30 });
     const deckOff = (r) => Math.max(...r.state.corner.map((v, i) => Math.abs(v - r.expectCorner[i])));
@@ -1737,6 +1762,12 @@ async function main() {
       && deckFace.state.turned.join() === '60,0,0' && deckDiamond.state.scale < deckFace.state.scale && Math.abs(deckFace.state.corner[1] - deckFlat.state.corner[1]) > 0.5 && deckRolled.state.turned.join() === '0,200,30'
       && deckFace.hash !== deckFlat.hash,
       JSON.stringify({ off: [deckOff(deckFace), deckOff(deckDiamond), deckOff(deckRolled)], scale: [deckFace.state.scale, deckDiamond.state.scale, deckRolled.state.scale], box: [deckFlat.solidBox, deckFace.solidBox, deckDiamond.solidBox, deckRolled.solidBox] }));
+    const [deckBack] = await deckTurned({ rotateY: 180 }), [deckEnd] = await deckTurned({ rotateY: 80 });
+    check('phosphor: seen from behind, its traces lie on the side of their slices that the camera sees', deckFlat.state.behind === false && deckEnd.state.behind === false && deckBack.state.behind === true && deckOff(deckBack) < 1e-5 && deckIn(deckBack)
+      && deckBack.lit > BEHIND * deckFlat.lit, JSON.stringify({ behind: [deckFlat.state.behind, deckEnd.state.behind, deckBack.state.behind], lit: [deckFlat.lit, deckEnd.lit, deckBack.lit] }));
+    const [deckSway] = await deckRun([{ level: 0.8, all: 0.8, secs: 1 }], { knobs: { cameraDrift: 100, rotateX: 60 } }), [deckSway0] = await deckRun([{ level: 0.8, all: 0.8, secs: 1 }], { knobs: { cameraDrift: 50 } });
+    check('phosphor: the more the camera drifts, the more room a turned deck is given for it', Math.abs(deckSway.state.sway - 0.52) < 1e-12 && Math.abs(deckSway0.state.sway - 0.26) < 1e-12 && deckOff(deckSway) < 1e-5 && deckSway.state.scale < deckFace.state.scale - 0.005
+      && deckSway0.state.scale === 1 && deckSway0.state.at.join() === '0,0,0', JSON.stringify({ sway: [deckSway0.state.sway, deckSway.state.sway], scale: [deckFace.state.scale, deckSway.state.scale], off: deckOff(deckSway) }));
     const deckReset = await deckRun([{ level: 0.8, all: 0.8, secs: 1 }, { level: 0.8, all: 0.8, secs: 0.02, knobs: { rotateX: 60, rotateY: 90, rotateZ: 10 } }, { level: 0.8, all: 0.8, secs: 0.02, knobs: { rotateX: 0, rotateY: 0, rotateZ: 0 } }], { knobs: { cameraDrift: 0 } });
     check('phosphor: a change of rotation applies at once, both ways', deckReset.map((r) => r.state.turned.join()).join(' ') === '0,0,0 60,90,10 0,0,0' && deckReset[1].state.scale < 1 && deckReset[2].state.scale === 1 && deckOff(deckReset[1]) < 1e-5 && deckOff(deckReset[2]) < 1e-6,
       JSON.stringify(deckReset.map((r) => [r.state.turned, r.state.scale])));
@@ -1826,7 +1857,7 @@ async function main() {
             // The figure's value at the plate's point (16, 12) of 48: blended as the plate should have it, and each figure's own.
             expectMid: state.grains ? (() => { const C = TimbreChladni, ix = C.cell((16 / 48) * 2 - 1), iz = C.cell((12 / 48) * 2 - 1), fb = C.sample(C.FIGURES[state.figure], ix, iz, [0, 0, 0])[0], fa = C.sample(C.FIGURES[state.from], ix, iz, [0, 0, 0])[0], m = C.blendOf(state.since); return [fa + (fb - fa) * m, fa, fb]; })() : null,
             expectGrain: state.turned ? (() => { const C = TimbreChladni, r = state.turned, p = C.poseFor(r[0], r[1], r[2]), o = C.turn([0, 0, 0], state.drawn0[0], state.drawn0[1], state.drawn0[2], r[0], r[1], r[2]); return [o[0] * p.scale + p.x, o[1] * p.scale + p.y, o[2] * p.scale + p.z]; })() : null,
-            expectCorner: state.turned ? (() => { const C = TimbreChladni, r = state.turned, p = C.poseFor(r[0], r[1], r[2]), o = C.turn([0, 0, 0], C.HALF, 0, C.HALF, r[0], r[1], r[2]); return [o[0] * p.scale + p.x, o[1] * p.scale + p.y, o[2] * p.scale + p.z]; })() : null });
+            expectCorner: state.turned ? (() => { const C = TimbreChladni, r = state.turned, D = Math.PI / 180, p = C.poseFor(r[0], r[1], r[2], state.sway), o = new THREE.Vector3(C.HALF, 0, C.HALF).applyEuler(new THREE.Euler(r[0] * D, r[1] * D, r[2] * D, 'XZY')); return [o.x * p.scale + p.x, o.y * p.scale + p.y, o.z * p.scale + p.z]; })() : null });
         }
         return out;
       } finally {
@@ -1976,6 +2007,10 @@ async function main() {
       && diamond.state.facing > 0.9999 && Math.abs(spun.state.facing - flat.state.facing) < 1e-6 && rolled.state.facing < flat.state.facing - 0.02 && diamond.state.scale < 0.8 * face.state.scale
       && Math.abs(diamond.solidBox.w - diamond.solidBox.h) < 0.05 * diamond.solidBox.w && Math.abs(rolled.solidBox.cx - flat.solidBox.cx) < 0.03 * flat.canvas[0] && diamond.solidBox.h < flat.canvas[1],
       JSON.stringify({ facing: [diamond.state.facing, spun.state.facing, rolled.state.facing], scale: [diamond.state.scale, spun.state.scale, rolled.state.scale], box: [diamond.solidBox, spun.solidBox, rolled.solidBox], off: [cornerOff(diamond), cornerOff(spun), cornerOff(rolled)] }));
+    const [plateSway] = await plateRun(talk, { knobs: { cameraDrift: 100, rotateX: 46 } }), [plateSway0] = await plateRun(talk, { knobs: { cameraDrift: 50 } });
+    check('chladni: the more the camera drifts, the more room a turned plate is given for it', Math.abs(plateSway.state.sway - 0.56) < 1e-12 && Math.abs(plateSway0.state.sway - 0.28) < 1e-12 && gap(plateSway.state.corner, plateSway.expectCorner) < 1e-5
+      && plateSway.state.scale < face.state.scale - 0.03 && plateSway0.state.scale === 1 && plateSway0.state.at.join() === '0,0,0' && plateSway.edge === 0,
+      JSON.stringify({ sway: [plateSway0.state.sway, plateSway.state.sway], scale: [face.state.scale, plateSway.state.scale] }));
     const reset = await plateRun([{ level: 0.8, bins: low, secs: 1.5 }, { level: 0.8, bins: low, secs: 0.02, knobs: { rotateX: 46, rotateY: 90, rotateZ: 10 } }, { level: 0.8, bins: low, secs: 0.02, knobs: { rotateX: 0, rotateY: 0, rotateZ: 0 } }], { knobs: { cameraDrift: 0 } });
     check('chladni: a change of rotation applies at once, both ways, and the sand keeps its figure', reset.map((r) => r.state.turned.join()).join(' ') === '0,0,0 46,90,10 0,0,0' && reset[1].state.scale < 1 && reset[2].state.scale === 1 && cornerOff(reset[1]) < 1e-5 && cornerOff(reset[2]) < 1e-6
       && gap(reset[0].state.first, reset[1].state.first) < 0.1 && reset[1].state.settled > 0.7 && reset[1].state.figure === reset[0].state.figure,

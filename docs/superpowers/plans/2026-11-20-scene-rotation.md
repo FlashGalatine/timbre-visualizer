@@ -64,3 +64,35 @@ has seen it in OBS.
 - The placement did not settle for a box wider than its frame: placing it after sizing it
   changed its size on the picture again. It now sizes first and then places, four times.
   The three real scenes stay inside their frames over two thousand rotations each.
+
+## What the review found
+
+One independent review (it read the code and ran the arithmetic and three.js's own math
+under Node; it ran no suite and no browser). Each finding was confirmed here before it was
+fixed, and each fix has a check that failed first.
+
+- **The block of land was hollow from below.** It had no underside, so over half of Rotate
+  X and Rotate Z it showed one thin wall. It has a base now.
+- **Two of the land's three lights did not turn with it.** three.js takes a hemisphere
+  light's direction from its place in the scene, and the fill light's target was not in
+  the scene at all. The sky's light was up to 148 degrees out. Nothing checked the lights;
+  now the checks read where three.js will take each light to come from.
+- **"Stays in the frame" was not true.** The four rounds did not always settle (each round
+  overshot for a box nearer than the frame), the room was centred on the unturned box
+  instead of bounded by the frame, and the camera's sway was not allowed for. The fit now
+  runs until a round changes nothing, never puts the box further out than the unturned box
+  or 86% of the frame, and keeps it inside the frame wherever the camera sways to. The
+  checks ask every rotation on a 30-degree grid, with the camera at seventeen places
+  across its sway.
+- A first go at the sway held the swaying box to the same 86%, which drew Chladni's plate
+  12% smaller in the view the owner had approved (Rotate X at 46). The 86% is for the
+  camera at rest; the sway only has to stay inside the frame.
+- **The deck's traces were hidden from behind** by their own slices. They lie on the side
+  the camera sees.
+- **The corner check was circular** (it used the kit's own turn to say where the corner
+  should be). It uses three.js's Euler angles now.
+- The sun's shadows keep their sharpness when the block is drawn small: their reach and
+  bias shrink with it.
+- Left alone and written into the design: the land's sun goes over the top of the picture
+  in the map view; the deck seen from its end is slivers; high Camera drift already dipped
+  a near corner of the unturned scenes below the picture.

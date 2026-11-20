@@ -316,30 +316,108 @@ await import('./overlay/scene-kit.js');
     const cases = [[0, 0, 0, 1, [0, 0, 0]], [70, 0, 0, 1, [0, 0, 0]], [30, 70, 200, 0.7, [0.3, -0.2, 0.1]], [300, 10, 45, 1, [0, 0.4, -0.3]]];
     ok(cases.every(([rx, ry, rz, scale, at]) => K.reach(box, view, rx, ry, rz, scale, at[0], at[1], at[2]).every((v, i) => near(v, seen(rx, ry, rz, scale, at)[i], 1e-9))),
       'reach: how far a turned box reaches on the picture is that of its eight corners as the resting camera sees them');
+    // The same with the camera swung round the middle of the frame, worked out from where the camera then is.
+    const swung = (o, rx, ry, rz, scale, at) => {
+      const cm = [0.2 + dist * Math.sin(o) * Math.cos(P), 0.7 + dist * Math.sin(P), -0.1 + dist * Math.cos(o) * Math.cos(P)], f = [(0.2 - cm[0]) / dist, (0.7 - cm[1]) / dist, (-0.1 - cm[2]) / dist];
+      const sl = Math.hypot(f[0], f[2]), side = [-f[2] / sl, 0, f[0] / sl], upv = [side[1] * f[2] - side[2] * f[1], side[2] * f[0] - side[0] * f[2], side[0] * f[1] - side[1] * f[0]];
+      const b = [Infinity, -Infinity, Infinity, -Infinity];
+      for (const x of [-2.5, 2.5]) for (const y of [-0.5, 1.5]) for (const z of [-1.5, 1.5]) {
+        const c = t3(x, y, z, rx, ry, rz).map((v, i) => v * scale + at[i]), d = [c[0] - cm[0], c[1] - cm[1], c[2] - cm[2]];
+        const depth = d[0] * f[0] + d[1] * f[1] + d[2] * f[2], v = (d[0] * upv[0] + d[1] * upv[1] + d[2] * upv[2]) * dist / depth, h = (d[0] * side[0] + d[1] * side[1] + d[2] * side[2]) * dist / depth;
+        b[0] = Math.min(b[0], v); b[1] = Math.max(b[1], v); b[2] = Math.min(b[2], h); b[3] = Math.max(b[3], h);
+      }
+      return b;
+    };
+    const swings = [[0.3, 30, 70, 200, 0.7, [0.3, -0.2, 0.1]], [-0.5, 300, 10, 45, 1, [0, 0.4, -0.3]], [0, 70, 0, 0, 1, [0, 0, 0]], [0.28, 0, 0, 0, 1, [0, 0, 0]]];
+    ok(swings.every(([o, rx, ry, rz, scale, at]) => K.reach(box, view, rx, ry, rz, scale, at[0], at[1], at[2], o).every((v, i) => near(v, swung(o, rx, ry, rz, scale, at)[i], 1e-9)))
+      && !K.reach(box, view, 30, 70, 200, 0.7, 0.3, -0.2, 0.1, 0.3).every((v, i) => near(v, K.reach(box, view, 30, 70, 200, 0.7, 0.3, -0.2, 0.1)[i], 0.01)),
+      'reach: with the camera swung round the middle of the frame, it is as the camera sees the box from there');
+    {
+      const all = [-0.4, -0.3, -0.2, -0.1, 0, 0.1, 0.2, 0.3, 0.4].map((o) => K.reach(box, view, 30, 70, 200, 0.7, 0.3, -0.2, 0.1, o)), swept = K.sweep(box, view, 30, 70, 200, 0.7, 0.3, -0.2, 0.1, 0.4);
+      const want = [Math.min(...all.map((r) => r[0])), Math.max(...all.map((r) => r[1])), Math.min(...all.map((r) => r[2])), Math.max(...all.map((r) => r[3]))];
+      ok(swept.every((v, i) => v === want[i]) && K.sweep(box, view, 30, 70, 200, 0.7, 0.3, -0.2, 0.1, 0).every((v, i) => v === all[4][i]) && K.sweep(box, view, 30, 70, 200, 0.7, 0.3, -0.2, 0.1).every((v, i) => v === all[4][i]) && swept[3] > all[4][3] + 0.1,
+        'sweep: the reach of a box over a camera that sways is the furthest it reaches from anywhere the camera comes to');
+      // A corner at the camera, or behind it, has no place on the picture; the arithmetic must not fall over.
+      const through = { min: [-1, -1, -1], max: [1, 1, dist + 3] }, onPlane = { min: [-1, -1, -1], max: [1, 1, dist * Math.cos(P)] };
+      const finite = (p) => [p.scale, p.x, p.y, p.z].every(Number.isFinite) && p.scale > 0;
+      // (Held just in front of the camera, a corner off to one side is far off to that side, not flipped to the other.)
+      ok(K.reach(through, view, 0, 0, 0, 1, 0, 0, 0)[3] > 10 && K.reach(through, view, 0, 0, 0, 1, 0, 0, 0)[2] < -10 && K.reach(through, view, 0, 0, 0, 1, 0, 0, 0).every(Number.isFinite) && K.reach(onPlane, view, 0, 0, 0, 1, 0, 0, 0).every(Number.isFinite) && finite(K.poseFor(through, view, 0, 0, 0)) && finite(K.poseFor(onPlane, view, 20, 30, 40)) && finite(K.poseFor(through, view, 80, 30, 40, 0.3)),
+        'reach and poseFor: a box that reaches the camera still gets numbers');
+    }
+    // What a turned box is held to. At rest: `size` is how tall and wide it may be (what it was unturned, or 86% of
+    // the frame), `home` where its middle belongs (where the unturned box's is), `room` how far out it may reach
+    // (as far as it did unturned, or 86% of the way to the edge). `swayed`: how far out it may reach wherever a
+    // camera that sways comes to (the frame's edge, or as far as the unturned box reaches from there).
+    const heldTo = (bx, vw, sway) => {
+      const r = K.reach(bx, vw, 0, 0, 0, 1, 0, 0, 0), s = K.sweep(bx, vw, 0, 0, 0, 1, 0, 0, 0, sway), hv = vw.frame.height / 2, hh = vw.frame.width / 2;
+      return { size: [Math.max(1.72 * hv, r[1] - r[0]), Math.max(1.72 * hh, r[3] - r[2])], home: [(r[0] + r[1]) / 2, (r[2] + r[3]) / 2],
+        room: [Math.min(r[0], -0.86 * hv), Math.max(r[1], 0.86 * hv), Math.min(r[2], -0.86 * hh), Math.max(r[3], 0.86 * hh)],
+        swayed: [Math.min(s[0], -hv), Math.max(s[1], hv), Math.min(s[2], -hh), Math.max(s[3], hh)] };
+    };
+    // Every rotation on a grid (every `step` degrees each way, off the round numbers). All of these should be nothing:
+    // big: how much taller or wider than its size a box as posed is. outside: how far it passes its room at rest, or
+    // (swayed) passes the frame from any of the nine places the sway is measured at. between: the same from
+    // seventeen places. slack: of the boxes drawn smaller, the most that one could still have grown. astray: how
+    // far a box's middle is from home when the camera is still and it had room to be there.
+    const fits = (bx, vw, sway, step) => {
+      const h = heldTo(bx, vw, sway), out = { big: 0, outside: 0, between: 0, slack: 0, astray: 0, smallest: 1, shrunk: 0, n: 0, held: h };
+      const past = (r, w) => Math.max(w[0] - r[0], r[1] - w[1], w[2] - r[2], r[3] - w[3]);
+      for (let rx = 7; rx < 360; rx += step) for (let ry = 3; ry < 360; ry += step) for (let rz = 11; rz < 360; rz += step) {
+        const p = K.poseFor(bx, vw, rx, ry, rz, sway), r = K.reach(bx, vw, rx, ry, rz, p.scale, p.x, p.y, p.z), s = K.sweep(bx, vw, rx, ry, rz, p.scale, p.x, p.y, p.z, sway);
+        out.n++; out.smallest = Math.min(out.smallest, p.scale);
+        if (!(p.scale <= 1 && p.scale > 0)) out.big = Infinity;
+        out.big = Math.max(out.big, r[1] - r[0] - h.size[0], r[3] - r[2] - h.size[1]);
+        out.outside = Math.max(out.outside, past(s, h.swayed), sway > 0 ? 0 : past(r, h.room));
+        for (let i = -8; i <= 8; i++) out.between = Math.max(out.between, past(K.reach(bx, vw, rx, ry, rz, p.scale, p.x, p.y, p.z, sway * i / 8), h.swayed));
+        if (p.scale < 1) { out.shrunk++; out.slack = Math.max(out.slack, Math.min(h.size[0] - (r[1] - r[0]), h.size[1] - (r[3] - r[2]), sway > 0 ? h.swayed[1] - h.swayed[0] - (s[1] - s[0]) : Infinity, sway > 0 ? h.swayed[3] - h.swayed[2] - (s[3] - s[2]) : Infinity)); }
+        if (!(sway > 0)) {
+          const halfV = (r[1] - r[0]) / 2, halfH = (r[3] - r[2]) / 2;
+          if (h.home[0] - halfV >= h.room[0] && h.home[0] + halfV <= h.room[1]) out.astray = Math.max(out.astray, Math.abs((r[0] + r[1]) / 2 - h.home[0]));
+          if (h.home[1] - halfH >= h.room[2] && h.home[1] + halfH <= h.room[3]) out.astray = Math.max(out.astray, Math.abs((r[2] + r[3]) / 2 - h.home[1]));
+        }
+      }
+      return out;
+    };
+    const sound = (r) => r.big < 1e-6 && r.outside < 1e-6 && r.between < 0.02 && r.slack < 1e-6 && r.astray < 1e-6;
     // This box fits its frame at rest, so it has 86% of the frame for room; a larger one keeps the room it had.
-    const rest = K.reach(box, view, 0, 0, 0, 1, 0, 0, 0), still = K.poseFor(box, view, 0, 0, 0);
-    const big = { min: [-3.9, -0.5, -2], max: [3.9, 2, 2] }, bigRest = K.reach(big, view, 0, 0, 0, 1, 0, 0, 0), bigStill = K.poseFor(big, view, 0, 0, 0);
-    ok(K.FILL === 0.86 && still.scale === 1 && still.x === 0 && still.y === 0 && still.z === 0 && bigStill.scale === 1 && bigStill.x === 0 && bigStill.y === 0 && (bigRest[3] - bigRest[2]) / 2 > 0.86 * 4 && (rest[3] - rest[2]) / 2 < 0.86 * 4,
-      'poseFor: with no rotation a box is where it was at full size, even one that already reaches past 86% of its frame');
-    let inside = true, smallest = 1;
-    const vRoom = Math.max(0.86 * 2.5, (rest[1] - rest[0]) / 2) * 1.04, hRoom = Math.max(0.86 * 4, (rest[3] - rest[2]) / 2) * 1.04, mid = (rest[0] + rest[1]) / 2, across = (rest[2] + rest[3]) / 2;
-    for (let i = 0; i < 300; i++) {
-      const rx = (i * 37) % 360, ry = (i * 101) % 360, rz = (i * 173) % 360, pose = K.poseFor(box, view, rx, ry, rz), b = K.reach(box, view, rx, ry, rz, pose.scale, pose.x, pose.y, pose.z);
-      if (!(b[0] >= mid - vRoom && b[1] <= mid + vRoom && b[2] >= across - hRoom && b[3] <= across + hRoom && pose.scale <= 1 && pose.scale > 0.4)) inside = false;
-      smallest = Math.min(smallest, pose.scale);
+    const rest = K.reach(box, view, 0, 0, 0, 1, 0, 0, 0), still = K.poseFor(box, view, 0, 0, 0), swayed = K.poseFor(box, view, 0, 0, 0, 0.5);
+    const big = { min: [-3.9, -0.5, -2], max: [3.9, 2, 2] }, bigRest = K.reach(big, view, 0, 0, 0, 1, 0, 0, 0), bigStill = K.poseFor(big, view, 0, 0, 0), bigSwayed = K.poseFor(big, view, 0, 0, 0, 0.5);
+    const exact = (p) => Object.is(p.scale, 1) && Object.is(p.x, 0) && Object.is(p.y, 0) && Object.is(p.z, 0);
+    ok(K.FILL === 0.86 && exact(still) && exact(swayed) && exact(bigStill) && exact(bigSwayed) && bigRest[3] > 0.86 * 4 && rest[3] < 0.86 * 4 && near(heldTo(box, view, 0).room[1], 0.86 * 2.5, 1e-9) && near(heldTo(big, view, 0).room[3], bigRest[3], 1e-9),
+      'poseFor: with no rotation a box is where it was at full size, even one that already reaches past 86% of its frame, and whether or not the camera sways');
+    const plain = fits(box, view, 0, 24), drifting = fits(box, view, 0.3, 24);
+    // A box taller than 86% of its frame unturned, one wider, and one that comes halfway to the camera.
+    const tallBox = { min: [-1, -1.6, -0.5], max: [1, 3, 0.5] }, tallRest = K.reach(tallBox, view, 0, 0, 0, 1, 0, 0, 0), deep = { min: [-0.5, -0.5, -0.5], max: [1.5, 0.5, 5.5] };
+    ok(tallRest[1] - tallRest[0] > 1.72 * 2.5 && tallRest[1] < 2.5 && tallRest[0] > -2.5 && exact(K.poseFor(tallBox, view, 0, 0, 0)) && exact(K.poseFor(tallBox, view, 0, 0, 0, 0.3)) && sound(fits(tallBox, view, 0, 45)),
+      'poseFor: a box taller than 86% of its frame keeps the height it had');
+    {
+      const wideFits = fits(big, view, 0, 40), wideSway = fits(big, view, 0.3, 40), deepFits = fits(deep, view, 0, 40), deepSway = fits(deep, view, 0.3, 40);
+      ok(sound(wideFits) && sound(wideSway) && wideFits.shrunk > 100, 'poseFor: a box wider than 86% of its frame is held to the room it had, and no more: ' + JSON.stringify([wideFits.outside, wideFits.astray, wideSway.outside]));
+      ok(sound(deepFits) && sound(deepSway) && deepFits.shrunk > 100, 'poseFor: a box that comes halfway to the camera, where a move shows twice as large, still settles: ' + JSON.stringify([deepFits.outside, deepFits.big, deepFits.astray, deepSway.outside, deepSway.between]));
     }
-    ok(inside && smallest < 0.8, 'poseFor: however a box is turned it is drawn small enough, and placed, to stay within its room');
+    {
+      // A box is moved across the picture, never toward the camera or away from it.
+      let along = 0, moved = 0;
+      for (const [rx, ry, rz] of [[72, 45, 0], [30, 70, 200], [300, 10, 45], [159, 54, 0], [10, 20, 30]]) { const p = K.poseFor(box, view, rx, ry, rz); along = Math.max(along, Math.abs(p.y * Math.sin(P) + p.z * Math.cos(P))); moved = Math.max(moved, Math.abs(p.y)); }
+      ok(along < 1e-9 && moved > 0.3, 'poseFor: a box is moved across the picture, never toward the camera or away from it');
+    }
+    ok(sound(plain) && plain.smallest < 0.8 && plain.smallest > 0.4 && plain.shrunk > 0.5 * plain.n && plain.n === 3375, 'poseFor: however a box is turned it is no larger than it may be, as large as that lets it be, where the unturned box sits, and inside its room: ' + JSON.stringify(plain));
+    ok(sound(drifting) && drifting.smallest <= plain.smallest && drifting.smallest > 0.3 && drifting.held.swayed[1] === 2.5, 'poseFor: with a camera that sways it is inside the frame wherever the camera comes to: ' + JSON.stringify(drifting));
+    {
+      // A turn the old four rounds left a long way from home: the answer is one that a further round does not change.
+      const p = K.poseFor(box, view, 72, 45, 0), h = heldTo(box, view, 0), r = K.reach(box, view, 72, 45, 0, p.scale, p.x, p.y, p.z);
+      ok(p.scale < 0.95 && Math.abs(r[1] - r[0] - h.size[0]) < 1e-8 && Math.abs(r[0] - h.room[0]) < 1e-8 && Math.abs(r[1] - h.room[1]) < 1e-8 && Math.abs((r[2] + r[3]) / 2 - h.home[1]) < 1e-8 && h.home[0] < -0.3,
+        'poseFor: it goes on until a round changes nothing; this box fills its room from top to bottom, so it cannot sit as low as the unturned box does');
+    }
+    globalThis.__fits = fits; globalThis.__sound = sound;
   }
-  // A scene's own box, turned every way: it never passes the top or the bottom of its frame, and is never drawn tiny.
-  globalThis.__turnedInFrame = (M) => {
-    const view = { frame: M.FRAME, fov: M.FOV, pitch: M.PITCH };
-    let worst = 0, smallest = 1;
-    for (let i = 0; i < 600; i++) {
-      const rx = (i * 37) % 360, ry = (i * 101) % 360, rz = (i * 173) % 360, pose = K.poseFor(M.BOX, view, rx, ry, rz), b = K.reach(M.BOX, view, rx, ry, rz, pose.scale, pose.x, pose.y, pose.z);
-      worst = Math.max(worst, -b[0] / (M.FRAME.height / 2), b[1] / (M.FRAME.height / 2));
-      smallest = Math.min(smallest, pose.scale);
-    }
-    return worst < 1 && smallest > 0.4 && smallest < 0.9;
+  // A scene's own box, turned every way, with the camera still and with it swaying as far as Camera drift at 100
+  // takes it: at rest it is inside its room, which is inside the frame; swaying, it is inside the frame (or reaches
+  // no further than the unturned box does).
+  globalThis.__turnedInFrame = (M, sway) => {
+    const view = { frame: M.FRAME, fov: M.FOV, pitch: M.PITCH }, calm = globalThis.__fits(M.BOX, view, 0, 30), swaying = globalThis.__fits(M.BOX, view, sway, 30);
+    const H = M.FRAME.height / 2;
+    return globalThis.__sound(calm) && globalThis.__sound(swaying) && calm.held.room[0] > -H && calm.held.room[1] < H && calm.smallest > 0.4 && calm.smallest < 0.9 && swaying.smallest > 0.3 && swaying.smallest <= calm.smallest && swaying.n === 1728;
   };
   ok(near(K.fitDistance(6.8, 3.1, 30, 2.77), 5.785, 0.01), 'fit: wide canvas is height-limited');
   ok(near(K.fitDistance(6.8, 3.1, 30, 2.0), 6.344, 0.01), 'fit: 2:1 canvas is width-limited');
@@ -2386,9 +2464,10 @@ await import('./overlay/mountains.js');
     'mountains knobs: speed, camera drift, and three rotations of up to 360 degrees that start at none');
   {
     const Mo = globalThis.TimbreMountains, K = globalThis.TimbreScene, view = { frame: Mo.FRAME, fov: Mo.FOV, pitch: Mo.PITCH }, still = K.poseFor(Mo.BOX, view, 0, 0, 0), over = K.poseFor(Mo.BOX, view, 72, 45, 0);
-    ok(Mo.FOV === 30 && Mo.PITCH === 18 && JSON.stringify(Mo.FRAME) === '{"width":8.8,"height":5.4,"center":[0,0.8,0.2]}' && JSON.stringify(Mo.BOX) === JSON.stringify({ min: [-3.5, -0.26, -2.2], max: [3.5, 2.15 * 1.2, 2.2] })
-      && still.scale === 1 && still.x === 0 && still.y === 0 && still.z === 0 && over.scale < 0.9 && over.scale > 0.4 && globalThis.__turnedInFrame(Mo),
-      'the block of land is a box the Rotate settings keep in the frame: unturned it is where it was, seen from above as a diamond it is drawn smaller, and however it is turned it stays between the top and bottom of the frame');
+    ok(Mo.FOV === 30 && Mo.PITCH === 18 && JSON.stringify(Mo.FRAME) === '{"width":8.8,"height":5.4,"center":[0,0.8,0.2]}' && JSON.stringify(Mo.BOX) === JSON.stringify({ min: [-3.5, -0.26, -2.2], max: [3.5, 2.15 * 1.26, 2.2] })
+      && still.scale === 1 && still.x === 0 && still.y === 0 && still.z === 0 && over.scale < 0.9 && over.scale > 0.4 && globalThis.__turnedInFrame(Mo, 0.56)
+      && Mo.SWAY === 0.28 && Mo.lift(1, 1) <= 1.26 && Mo.lift(1, 1) > 1.2,
+      'the block of land is a box the Rotate settings keep in the frame: unturned it is where it was, seen from above as a diamond it is drawn smaller, and however it is turned, wherever the camera drifts to, it reaches no further than it did unturned or 86% of the way to the edge of the frame');
   }
   const oldLand = T.sanitizeConfig({ activeViz: 'mountains-3d', perViz: { 'mountains-3d': { speed: 80 } } });
   ok(oldLand.activeViz === 'mountains-3d' && JSON.stringify(oldLand.perViz['mountains-3d']) === '{"speed":80,"cameraDrift":50,"rotateX":0,"rotateY":0,"rotateZ":0}', 'a saved pre-redesign mountains config keeps its speed and gains the new defaults');
@@ -2518,9 +2597,12 @@ await import('./overlay/phosphor.js');
   {
     const K = globalThis.TimbreScene, view = { frame: Ph.FRAME, fov: Ph.FOV, pitch: Ph.PITCH }, still = K.poseFor(Ph.BOX, view, 0, 0, 0), over = K.poseFor(Ph.BOX, view, 60, 45, 0);
     ok(Ph.FOV === 30 && Ph.PITCH === 30 && JSON.stringify(Ph.FRAME) === '{"width":7.6,"height":4.4,"center":[0,0.55,0]}' && JSON.stringify(Ph.BOX) === JSON.stringify({ min: [-3.2, 0, -1.8], max: [3.2, 0.14 + 1.5 * 1.25, 1.8] })
-      && still.scale === 1 && still.x === 0 && still.y === 0 && still.z === 0 && over.scale < 0.9 && over.scale > 0.4 && globalThis.__turnedInFrame(Ph),
-      'the deck is a box the Rotate settings keep in the frame: unturned it is where it was, seen from above as a diamond it is drawn smaller, and however it is turned it stays between the top and bottom of the frame');
+      && still.scale === 1 && still.x === 0 && still.y === 0 && still.z === 0 && over.scale < 0.9 && over.scale > 0.4 && globalThis.__turnedInFrame(Ph, 0.52) && Ph.SWAY === 0.26,
+      'the deck is a box the Rotate settings keep in the frame: unturned it is where it was, seen from above as a diamond it is drawn smaller, and however it is turned, wherever the camera drifts to, it reaches no further than it did unturned or 86% of the way to the edge of the frame');
   }
+  ok(Ph.behind(0, 0, 0, 0) === false && Ph.behind(0, 180, 0, 0) === true && Ph.behind(0, 170, 0, 0) === true && Ph.behind(0, 80, 0, 0) === false && Ph.behind(0, 100, 0, 0) === true
+    && Ph.behind(0, 90, 0, 0.1) === false && Ph.behind(0, 90, 0, -0.1) === true && Ph.behind(180, 0, 0, 0) === true && Ph.behind(50, 0, 0, 0) === false && Ph.behind(70, 0, 0, 0) === true && Ph.behind(250, 0, 0, 0) === false && Ph.behind(0, 0, 180, 0) === false,
+    'the camera sees the deck from behind when the deck has been turned round, tipped forward past 60 degrees (it looks down at 30), or the camera has swung past its end');
   const oldDeck = T.sanitizeConfig({ activeViz: 'phosphor', perViz: { 'phosphor': { depth: 80 } } });
   ok(oldDeck.activeViz === 'phosphor' && JSON.stringify(oldDeck.perViz['phosphor']) === '{"depth":80,"cameraDrift":50,"rotateX":0,"rotateY":0,"rotateZ":0}', 'a saved pre-redesign phosphor config keeps its depth and gains the new defaults');
   ok(!('phosphor' in T.VIZ_LABELS), 'phosphor keeps the name it is listed by');
@@ -2903,6 +2985,12 @@ await import('./overlay/chladni.js');
     }
     const b0 = C.bounds(0, 0, 0, 1, 0, 0, 0);
     ok(inside && over > 100 && smallest < 0.7 && b0[1] < V_ROOM && b0[0] > -V_ROOM && b0[3] < H_ROOM && near(b0[2], -b0[3]), 'however the plate is turned it stays inside the frame, with room for sand in the air');
+    {
+      const swayed = C.poseFor(46, 0, 0, 0.28), facing = C.poseFor(46, 0, 0), calm = C.poseFor(46, 45, 0), seen = C.bounds(46, 45, 0, calm.scale, calm.x, calm.y, calm.z, 0.5), K = globalThis.TimbreScene;
+      ok(C.SWAY === 0.28 && globalThis.__turnedInFrame(C, 0.56) && swayed.scale < facing.scale && swayed.scale > 0.97 * facing.scale && seen.every((v, i) => v === K.reach(C.BOX, { frame: C.FRAME, fov: C.FOV, pitch: C.PITCH }, 46, 45, 0, calm.scale, calm.x, calm.y, calm.z, 0.5)[i])
+        && seen[3] !== C.bounds(46, 45, 0, calm.scale, calm.x, calm.y, calm.z)[3],
+        'with a camera that sways the plate is kept in wherever the camera is: turned to face the camera, it is drawn a hair smaller for it');
+    }
   }
 
   // The table.

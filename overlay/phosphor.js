@@ -35,6 +35,16 @@
   const FRAME = { width: 7.6, height: 4.4, center: [0, 0.55, 0] };   // what the camera frames
   // The deck as a box, for the Rotate settings to keep in the frame: its feet, and its tallest trace on a beat.
   const BOX = { min: [-W / 2, 0, -D / 2], max: [W / 2, LOW + TALL * 1.25, D / 2] }, VIEW = { frame: FRAME, fov: FOV, pitch: PITCH };
+  const SWAY = 0.26;                        // how far the camera swings each way at Camera drift 50, in radians
+
+  // Whether the camera sees the deck from behind: the deck turned by the three Rotate settings
+  // (degrees), the camera swung `orbit` radians round it and looking down at PITCH.
+  const FACING = [0, 0, 0];
+  function behind(rx, ry, rz, orbit) {
+    TimbreScene.turn(FACING, 0, 0, 1, rx, ry, rz);
+    const p = (PITCH * Math.PI) / 180;
+    return FACING[0] * Math.sin(orbit) * Math.cos(p) + FACING[1] * Math.sin(p) + FACING[2] * Math.cos(orbit) * Math.cos(p) < 0;
+  }
   const RAD = Math.PI / 180;
   const REACH = 23;                         // a beat and the white heat reach as deep as they would in a deck of 24 slices
 
@@ -122,8 +132,8 @@
   // `at`. xs and ys are the trace's points. Each pair is centred on the trace, `half` either
   // side of it, across the trace, the lower point first. The strip lies flat at depth z, in
   // the plane of its slice: a strip turned to face the camera would, on a steep flank, put
-  // half of itself behind its own slice. The camera is always in front of the deck, so a
-  // flat strip is seen nearly full on.
+  // half of itself behind its own slice. It lies just in front of its slice, on whichever
+  // side the camera is (see behind()), so its slice never hides it.
   function strip(out, at, xs, ys, z, half) {
     for (let j = 0; j < P; j++) {
       const j0 = j > 0 ? j - 1 : 0, j1 = j < P - 1 ? j + 1 : P - 1;
@@ -201,6 +211,7 @@
     let THREE = null, whole = null, walls = null, lines = null, level = null, colour = null, n = 0;
     let pose = { scale: 1, x: 0, y: 0, z: 0 };
     const turned = [0, 0, 0];
+    let swayWas = -1;
     const bands = [];
     // What the checks read. clock: seconds the scene has been live, which the waves run by;
     // slices: how many are drawn; ref: the slice whose colour debug() reports.
@@ -277,7 +288,11 @@
       s.orbit = k.orbit = (0.2 * Math.sin(0.16 * t) + 0.06 * Math.sin(0.4 * t + 2)) * knob('cameraDrift') / 50;
       // The deck as the Rotate settings turn it, kept in the frame.
       const rx = knob('rotateX', 0), ry = knob('rotateY', 0), rz = knob('rotateZ', 0);
-      if (rx !== turned[0] || ry !== turned[1] || rz !== turned[2]) { turned[0] = rx; turned[1] = ry; turned[2] = rz; pose = TimbreScene.poseFor(BOX, VIEW, rx, ry, rz); }
+      const sway = (SWAY * knob('cameraDrift')) / 50;
+      if (rx !== turned[0] || ry !== turned[1] || rz !== turned[2] || sway !== swayWas) { turned[0] = rx; turned[1] = ry; turned[2] = rz; swayWas = sway; pose = TimbreScene.poseFor(BOX, VIEW, rx, ry, rz, sway); }
+      // A trace lies on the side of its slice that the camera sees.
+      const ahead = behind(rx, ry, rz, s.orbit) ? -FRONT : FRONT;
+      s.behind = ahead < 0; s.sway = sway;
       whole.rotation.set(rx * RAD, ry * RAD, rz * RAD);
       whole.scale.setScalar(pose.scale);
       whole.position.set(pose.x, pose.y, pose.z);
@@ -317,7 +332,7 @@
         let peak = 0;
         for (let j = 0; j < P; j++) { const y = heightOf(A, pins[j], shape(us[j], amps, phases)); ys[j] = y; if (y > peak) peak = y; }
         const half = halfWidth(A, audio.kick, back);
-        strip(lp, i * P * 2, xs, ys, z + FRONT, half);
+        strip(lp, i * P * 2, xs, ys, z + ahead, half);
         wall(wp, i * P * 3, xs, ys, z);
 
         palette(colorT + back * 0.8);
@@ -375,7 +390,7 @@
   }
 
   globalThis.TimbrePhosphor = {
-    SLICES_MIN, SLICES_MAX, P, K, W, D, SPAN, HZ, HIST, LOW, TALL, GLOW, FRONT, RISE, FALL, FOV, PITCH, FRAME, BOX,
+    SLICES_MIN, SLICES_MAX, P, K, W, D, SPAN, HZ, HIST, LOW, TALL, GLOW, FRONT, RISE, FALL, FOV, PITCH, FRAME, BOX, SWAY, behind,
     sliceCount, backOf, ageOf, zOf, xOf, waves, pace, weight, loudness, shape, stand, heightOf, pin, ends, strip, wall,
     fade, bright, hot, halfWidth, under, tint, idle, definition,
   };

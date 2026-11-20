@@ -42,10 +42,15 @@ traceability.
 - **Mountains 3D and Phosphor settings**: `rotateX`, `rotateY` and `rotateZ` (0 to 360 degrees,
   default 0), as on Chladni: Rotate Y spins the block of land or the deck in its own plane,
   Rotate Z rolls it to one side, Rotate X tilts its top toward the viewer. However it is
-  turned it stays in the frame. With all three at 0 nothing changes.
+  turned it stays in the frame, wherever the camera drifts to (it reaches no further than
+  it did unturned). With all three at 0 nothing changes. The block of
+  land has an underside, its lights and shadows turn with it, and the deck's traces show
+  from behind.
 - **Scene kit**: `TimbreScene.turn`, `TimbreScene.reach` and `TimbreScene.poseFor` turn what a
-  scene shows and keep it in the frame; Chladni's rotation now uses them. See
-  `docs/EFFECTS.md` ("Turning what a scene shows").
+  scene shows and keep it in the frame, with `TimbreScene.sweep` for a camera that sways;
+  Chladni's rotation now uses them. The fit now runs until it settles and allows for
+  Camera drift, so a turned plate's size differs by up to 0.05 and its place by up to 0.2
+  from before at the worst rotations (turned to face the camera, by 0.8% and 0.03). See `docs/EFFECTS.md` ("Turning what a scene shows").
 - **Chladni settings**: `rotateX`, `rotateY` and `rotateZ` (0 to 360 degrees, default 0) turn
   the plate about each axis: Rotate Y spins it in its own plane, Rotate Z rolls it to one
   side, Rotate X tilts its top toward the viewer. Rotate X at 46 turns it to face the
