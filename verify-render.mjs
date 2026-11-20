@@ -1787,7 +1787,9 @@ async function main() {
           last = px;
           const s = window.__timbre.scene, state = (s && s.state) || {};
           out.push({ state, solid, sand, lit, light, edge, diff, glowT: s ? s.afterglowT : null, empty: empty / (w * h), cornerAlpha: px[3], solidBox: size(solidBox), canvas: [w, h], trace, hash, kitCam: s ? s.camera : null,
-            expectTone: state.grains ? getColor(state.colorT + (state.ring / 32) * 1.4) : null, expectGlow: state.grains ? getColor(state.colorT + 0.7) : null });
+            expectTone: state.grains ? getColor(state.colorT + (state.ring / 32) * 1.4) : null, expectGlow: state.grains ? getColor(state.colorT + 0.7) : null,
+            // Where the plate's near right corner should be, from the Rotate settings as the scene read them.
+            expectCorner: state.turned ? (() => { const C = TimbreChladni, r = state.turned, p = C.poseFor(r[0], r[1], r[2]), o = C.turn([0, 0, 0], C.HALF, 0, C.HALF, r[0], r[1], r[2]); return [o[0] * p.scale + p.x, o[1] * p.scale + p.y, o[2] * p.scale + p.z]; })() : null });
         }
         return out;
       } finally {
@@ -1904,6 +1906,24 @@ async function main() {
     check('chladni: a change of Density applies at once, both ways, and the sand already lying stays', moved.map((r) => r.state.grains).join() === '18000,30000,6000' && moved.map((r) => r.state.drawn).join() === '18000,30000,6000'
       && gap(moved[0].state.first, moved[1].state.first) < 0.1 && gap(moved[1].state.first, moved[2].state.first) < 0.1 && moved[2].state.settled > 0.7 && moved[1].state.settled < moved[0].state.settled,
       JSON.stringify(moved.map((r) => [r.state.grains, r.state.settled, r.sand])));
+
+    // The three Rotate settings, with the camera held still.
+    const turnedBy = (knobs) => plateRun(talk, { knobs: Object.assign({ cameraDrift: 0 }, knobs) });
+    const [flat] = await turnedBy({}), [face] = await turnedBy({ rotateX: 46 }), [diamond] = await turnedBy({ rotateX: 46, rotateY: 45 }), [spun] = await turnedBy({ rotateY: 45 }), [rolled] = await turnedBy({ rotateZ: 30 });
+    const cornerOff = (r) => gap(r.state.corner, r.expectCorner);
+    check('chladni: with no rotation the plate is where it always was', flat.state.turned.join() === '0,0,0' && flat.state.scale === 1 && flat.state.at.join() === '0,0,0' && cornerOff(flat) < 1e-6 && Math.abs(flat.state.corner[0] - 2.2) < 1e-6 && Math.abs(flat.state.corner[2] - 2.2) < 1e-6
+      && Math.abs(flat.state.facing - Math.cos(46 * Math.PI / 180)) < 1e-4, JSON.stringify({ corner: flat.state.corner, facing: flat.state.facing }));
+    check('chladni: Rotate X at 46 turns the plate to face the camera, like the old effect', face.state.facing > 0.9999 && Math.abs(face.solidBox.w - face.solidBox.h) < 0.05 * face.solidBox.w && face.solidBox.h > flat.solidBox.h && cornerOff(face) < 1e-5
+      && face.state.scale < 1 && face.state.scale > 0.85 && face.state.settled > 0.7 && face.edge === 0 && face.sand > PLATE_SAND && Math.abs(face.state.size - 0.085 * face.state.scale) < 1e-9,
+      JSON.stringify({ facing: face.state.facing, box: [face.solidBox, flat.solidBox], scale: face.state.scale, corner: [face.state.corner, face.expectCorner], sand: face.sand }));
+    check('chladni: Rotate Y spins the plate in its own plane, Rotate Z rolls it to one side, and however it is turned it stays in the frame', [diamond, spun, rolled].every((r) => r.edge === 0 && cornerOff(r) < 1e-5 && r.state.scale < 1 && r.solid > 0.25 * flat.solid && r.state.settled > 0.7)
+      && diamond.state.facing > 0.9999 && Math.abs(spun.state.facing - flat.state.facing) < 1e-6 && rolled.state.facing < flat.state.facing - 0.02 && diamond.state.scale < 0.8 * face.state.scale
+      && Math.abs(diamond.solidBox.w - diamond.solidBox.h) < 0.05 * diamond.solidBox.w && Math.abs(rolled.solidBox.cx - flat.solidBox.cx) < 0.03 * flat.canvas[0] && diamond.solidBox.h < flat.canvas[1],
+      JSON.stringify({ facing: [diamond.state.facing, spun.state.facing, rolled.state.facing], scale: [diamond.state.scale, spun.state.scale, rolled.state.scale], box: [diamond.solidBox, spun.solidBox, rolled.solidBox], off: [cornerOff(diamond), cornerOff(spun), cornerOff(rolled)] }));
+    const reset = await plateRun([{ level: 0.8, bins: low, secs: 1.5 }, { level: 0.8, bins: low, secs: 0.02, knobs: { rotateX: 46, rotateY: 90, rotateZ: 10 } }, { level: 0.8, bins: low, secs: 0.02, knobs: { rotateX: 0, rotateY: 0, rotateZ: 0 } }], { knobs: { cameraDrift: 0 } });
+    check('chladni: a change of rotation applies at once, both ways, and the sand keeps its figure', reset.map((r) => r.state.turned.join()).join(' ') === '0,0,0 46,90,10 0,0,0' && reset[1].state.scale < 1 && reset[2].state.scale === 1 && cornerOff(reset[1]) < 1e-5 && cornerOff(reset[2]) < 1e-6
+      && gap(reset[0].state.first, reset[1].state.first) < 0.1 && reset[1].state.settled > 0.7 && reset[1].state.figure === reset[0].state.figure,
+      JSON.stringify(reset.map((r) => [r.state.turned, r.state.scale, r.state.settled])));
 
     // Camera.
     const [still] = await plateRun(talk, { knobs: { cameraDrift: 0 } }), [drift] = await plateRun(talk, { knobs: { cameraDrift: 100 } });

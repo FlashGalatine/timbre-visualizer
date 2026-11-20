@@ -20,6 +20,10 @@ traceability.
 - **Scene kit**: `TimbreScene.createHistory(size, hz)` is a memory of a level for things
   that travel, read by sample (`byAge`) or by age in seconds (`heard`). A scene's camera is
   now in place before its first `update`. See `docs/EFFECTS.md` ("Kit scenes").
+- **Chladni settings**: `rotateX`, `rotateY` and `rotateZ` (0 to 360 degrees, default 0) turn
+  the plate about each axis: Rotate Y spins it in its own plane, Rotate Z rolls it to one
+  side, Rotate X tilts its top toward the viewer. Rotate X at 46 turns it to face the
+  camera, the view the old effect had. However it is turned, the plate stays in the frame.
 - **Chladni setting**: `cameraDrift` (0 to 100, default 50) for the Chladni effect. What
   the new Chladni is made of is in `overlay/chladni.js` (`TimbreChladni`), loaded by all
   three overlay pages and by `verify` under Node, and documented in `docs/EFFECTS.md` ("The

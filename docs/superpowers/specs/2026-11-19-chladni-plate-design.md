@@ -75,8 +75,16 @@ A square plate floats in the box, seen from above at an angle, built on the scen
   applies at once; grains that were not drawn are where they last lay.
 - `cameraDrift` (new): as in the other scenes. 0 holds the camera still; 100 doubles the
   sway.
+- `rotateX`, `rotateY`, `rotateZ` (new, asked for by the owner after seeing the scene in
+  OBS): the plate turned about each axis, 0 to 360 degrees, all 0 by default. Rotate Y
+  spins the plate in its own plane, Rotate Z rolls it to one side, and Rotate X tilts its
+  top toward the viewer; they apply in that order. Rotate X at 46 turns the plate to face
+  the camera, the view the old effect had (with Camera drift at 0 it is square on). The
+  sand, the bend and the glow turn with the plate. A plate turned so that it would leave
+  the frame is drawn smaller and moved to the middle: it is kept within 86% of the frame,
+  with room above it for sand in the air. They apply at once.
 
-A config saved before this change keeps its `density` and gains the default drift. The
+A config saved before this change keeps its `density` and gains the defaults of the rest. The
 effect joins `VIZ_SCENES`, so the control panel shows the shared Scene placement sliders for
 it. The display name does not change.
 

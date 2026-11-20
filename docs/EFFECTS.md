@@ -630,8 +630,15 @@ offers:
   inAir)`, `pale(out, rgb)` and `radius(x, z)` are how bright and what colour a grain is,
   and `grainSize(scale, zoom)` how wide it is drawn.
   `idle(b, t)` is what a band pretends to hear with the mic off.
+- **The Rotate settings.** `turn(out, x, y, z, rx, ry, rz)` turns a point of the plate by
+  the three settings, in degrees: spin about y first, then roll about z, then tilt about x
+  (three.js's `'XZY'` order, which the scene gives the group that holds the plate).
+  `bounds(...)` is how far the turned plate reaches from the middle of the frame as the
+  camera sees it at rest, and `poseFor(rx, ry, rz)` is where to put it and how large to draw
+  it so that it stays inside.
 - **The scene.** `definition()` returns the kit scene definition: the plate (a grid of 48
-  by 48 cells with a skirt round its edge) and the sand (points of added light).
+  by 48 cells with a skirt round its edge) and the sand (points of added light), in one
+  group that the Rotate settings turn.
 
 All its timing comes from `dt`, and it takes no numbers from `Math.random`. The arithmetic
 touches nothing at load but its own tables, and the file must stay loadable under Node,
