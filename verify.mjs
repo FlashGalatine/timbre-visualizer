@@ -2623,7 +2623,7 @@ await import('./overlay/chladni.js');
     }
     const same = (p, q) => p.x.every((v, i) => v === q.x[i]) && p.z.every((v, i) => v === q.z[i]) && p.y.every((v, i) => v === q.y[i]);
     const seeds0 = Uint32Array.from(a.rng);
-    ok(a.n === N && inside && Math.abs(quad / N - 0.25) < 0.03 && offMax <= 1.5 * 0.024 && offMax > 0.02 && Math.abs(offSum / N) < 0.002 && same(a, b) && !same(a, c) && a.rng.every((s) => s !== 0) && new Set(a.rng).size > 0.99 * N,
+    ok(a.n === N && inside && Math.abs(quad / N - 0.25) < 0.03 && offMax <= 1.5 * 0.024 && offMax > 0.02 && Math.abs(offSum / N) < 0.002 && same(a, b) && !same(a, c) && a.rng.every((s) => s !== 0) && new Set(a.rng).size > 0.99 * N && a.rng.every((s, i) => s === b.rng[i]) && a.rng.filter((s, i) => s === c.rng[i]).length < 0.01 * N,
       'sand starts spread evenly over the plate, each grain with its own place beside a line and its own random numbers; the same seed gives the same sand');
 
     {
@@ -2708,6 +2708,12 @@ await import('./overlay/chladni.js');
       for (let i = 0; i < 6; i++) { C.stepSand(hop, N, fig, fig, 1, 1, true, h); C.stepSand(calm, N, fig, fig, 1, 0.1, true, h); }
       const hopping = C.measure(hop, N, fig, fig, 1), calmer = C.measure(calm, N, fig, fig, 1);
       ok(hopping.air > 0.03 && hopping.top > 0.01 && hopping.top < 0.2 && calmer.air < hopping.air / 3, 'sand lying where the plate moves hops, more often and higher the harder the plate shakes');
+      // A grain that hops goes on through the air as fast as it was walking: the plate's pace, at most.
+      const leap = C.createSand(N, 22);
+      C.stepSand(leap, N, fig, fig, 1, 1, true, h);
+      let fastest = 0, leapt = 0;
+      for (let i = 0; i < N; i++) if (leap.y[i] > 0) { leapt++; fastest = Math.max(fastest, Math.hypot(leap.vx[i], leap.vz[i])); }
+      ok(leapt > 20 && fastest > 0.98 * C.pace(1) && fastest <= C.pace(1) + 1e-6, 'a grain that hops goes on through the air as fast as it was walking');
     }
     for (let i = 0; i < 240; i++) { C.stepSand(a, N, fig, fig, 1, 0.5, true, h); C.stepSand(b, N, fig, fig, 1, 0.5, true, h); }
     const loud = C.measure(a, N, fig, fig, 1);
