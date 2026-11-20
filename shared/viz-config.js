@@ -37,7 +37,7 @@
   const VIZ_SCENES = [
     'thanksgiving-harvest', 'winter-aurora',
     'pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes',
-    'sunburst-3d', 'mountains-3d', 'phosphor', 'chladni', 'glass-prism',
+    'sunburst-3d', 'mountains-3d', 'phosphor', 'chladni', 'glass-prism', 'metaball',
   ];
 
   // The name the control panel shows, where the id no longer says what the effect
@@ -93,7 +93,7 @@
     'peaks-mirror':  { seam: 50 },
     'sunburst-3d':   { density: 50, spin: 50, cameraDrift: 50 },
     'galaxy-ripple': { sensitivity: 50 },
-    'metaball':      { chrome: 50 },
+    'metaball':      { chrome: 50, cameraDrift: 50 },
     'glass-prism':   { chroma: 50, pulse: 50, shatterSensitivity: 50, reconnectSeconds: 3, cameraDrift: 50 },
     'chladni':       { density: 50, cameraDrift: 50, rotateX: 0, rotateY: 0, rotateZ: 0 },
     'phosphor':      { depth: 50, cameraDrift: 50 },

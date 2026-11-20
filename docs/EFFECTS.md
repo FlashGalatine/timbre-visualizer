@@ -748,6 +748,40 @@ Worth knowing before making another thing that turns freely:
   facet's number is its first corner's index over three. Each corner carries one of
   1,0,0 / 0,1,0 / 0,0,1, and the least of the three at a point says how near a ridge it
   is: that is how the ridges are drawn without a second mesh of lines.
+## The metaball (`TimbreMetaball`)
+
+`overlay/metaball.js` is the Metaball effect, as `globalThis.TimbreMetaball`: one ball of
+liquid metal that each of the eight lowest bands of the sound pulls a droplet out of.
+`factories/metaball.js` is one line,
+`VIZ_FACTORIES['metaball'] = TimbreScene.factory(() => TimbreMetaball.definition())`. It
+offers:
+
+- **The droplets.** `direction(out, b)` is the way droplet `b` leaves the ball, the eight
+  spread evenly round it, and `swing(b, clock)` how far round the ball it has turned.
+  `reach(band, kick)` is how far from the middle it is and `dropSize(b, band)` its radius.
+  `dropAt(out, at, b, band, kick, clock)` writes it as x, y, z and radius, and
+  `coreAt(out, at, flame, kick, clock)` the ball. `ease(v)` eases a band.
+- **The surface.** `smin(a, b, k)` is the smooth union of two distances, and
+  `field(x, y, z, balls)` how far a point is from the one surface the ball and its droplets
+  make (negative inside). `VERT` and `FRAG` are the shader that draws it: `field` again in
+  GLSL, built from the same numbers, with a ray marched to it from the sphere it is drawn
+  on.
+- **Light.** `glowOf(flame, kick)` is how much the metal glows in its own colour, and
+  `pixelOf(height, zoom)` the width of the surface's soft edge. `loudness(bins, band, gain)`
+  reads a band, and `idle(b, t)` is what a band pretends to hear with the mic off.
+- **The scene.** `definition()` returns the kit scene definition: one sphere of radius 2.5
+  with the shader on it. It follows each band (out at 12 a second, home at 2.2).
+
+All its timing comes from `dt`. The arithmetic touches nothing at load, and the file must
+stay loadable under Node, because `npm run verify` imports it; the scene looks up `THREE`,
+`TimbreScene` and the core.js globals only when it is built. It must be loaded after
+`scene-kit.js` and before the factories.
+
+Worth knowing before drawing another surface in a shader: the kit's multisampling smooths
+the edges of meshes, and a surface found by a ray inside a shader has none, so the shader
+makes its own soft edge from how nearly a ray missed, and it has to know the height of the
+picture the kit draws into and the camera's zoom to make it a pixel wide. The material is
+transparent only for that edge; everywhere else the metal is solid.
 
 ## Wire format (for driving Timbre from elsewhere)
 

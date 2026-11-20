@@ -24,8 +24,9 @@ One ball of liquid metal floats in the box, built on the scene kit (`overlay/sce
   a bright horizon, the ball's own colour dimly below, and two soft white lamps. Its own
   colour is `getColor(colorT)`, the horizon `colorT + 1` and the sky `colorT + 2`.
 - **Eight droplets** live inside the ball, one for each of the eight lowest bins of the
-  sound. Each has its own way out of the ball, the eight spread evenly round it, and they
-  turn slowly round the ball together.
+  sound. Each has its own way out of the ball, the eight spread evenly round it (flattened
+  a little, so that none goes straight up or down), and they turn slowly round the ball
+  together.
 - The ball and its droplets are one surface: where two are close they flow into each other
   (a smooth union, 0.42 wide), so a droplet leaving the ball bulges, draws a neck and
   pinches off.
@@ -43,7 +44,8 @@ One ball of liquid metal floats in the box, built on the scene kit (`overlay/sce
 - **A beat** (the kit's) makes everything jump outward (every droplet 18% further, the ball
   0.07 larger) and the metal glow more.
 - **Mic off, Idle animation on:** the bands follow a slow pattern, so droplets come and go.
-  **Mic off, Idle animation off:** the droplets drift home and the ball is still. (The
+  **Mic off, Idle animation off:** the droplets drift home (a band within a ten-thousandth
+  of silent is silent) and the ball is still. (The
   camera still drifts, as in the other scenes, and the colours still move through the
   palette, as they did in the old effect.)
 

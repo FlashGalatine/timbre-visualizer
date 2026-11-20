@@ -35,6 +35,10 @@ traceability.
   What the new Glass Prism is made of is in `overlay/glass-prism.js` (`TimbreGlassPrism`),
   loaded by all three overlay pages and by `verify` under Node, and documented in
   `docs/EFFECTS.md` ("The glass prism").
+- **Metaball setting**: `cameraDrift` (0 to 100, default 50) for the Metaball effect. What the
+  new Metaball is made of is in `overlay/metaball.js` (`TimbreMetaball`), loaded by all three
+  overlay pages and by `verify` under Node, and documented in `docs/EFFECTS.md` ("The
+  metaball").
 - **Chladni settings**: `rotateX`, `rotateY` and `rotateZ` (0 to 360 degrees, default 0) turn
   the plate about each axis: Rotate Y spins it in its own plane, Rotate Z rolls it to one
   side, Rotate X tilts its top toward the viewer. Rotate X at 46 turns it to face the
@@ -172,6 +176,19 @@ traceability.
   Colours come from the palette, not from a map of its own as before. `chroma` is how far
   the colours come apart (none at 0). It uses the shared Scene placement sliders, and no
   longer makes a renderer of its own.
+- **Metaball is now a ball of liquid metal and its droplets**, the twelfth scene on the scene
+  kit. The four wandering spheres are gone. One ball of liquid metal floats in the box,
+  mirroring a sky made of the palette's colours. Each of the eight lowest bands of the sound
+  has a droplet inside it: when its band sounds the droplet bulges out of the ball, draws a
+  neck and pinches off, and when the band falls quiet it drifts home and is swallowed. Low
+  bands are large drops and high bands small ones, so a pause is one calm ball, a voice a
+  ball with a few drops round it, and music a cluster. The voice swells the ball and makes
+  the metal glow, and a beat throws every droplet further. With the mic off and Idle
+  animation on droplets come and go; with both off they drift home and the ball is still
+  (its colours still move through the palette).
+  Colours come from the palette, not from a hue of its own as before. `chrome` is how much of
+  a mirror the metal is. It uses the shared Scene placement sliders, and no longer makes a
+  renderer of its own.
 
 - **Chladni is now sand on a floating plate**, the eleventh scene on the scene kit. The
   flat field of hard dots is gone. A square, nearly black plate floats in the box, seen
