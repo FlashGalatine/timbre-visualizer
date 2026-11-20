@@ -590,6 +590,8 @@
         whole.updateMatrixWorld(true);
         const corner = plate.localToWorld(new THREE.Vector3(HALF, 0, HALF)), middle = plate.localToWorld(new THREE.Vector3(0, 0, 0)), top = plate.localToWorld(new THREE.Vector3(0, 1, 0)).sub(middle).normalize();
         const toCamera = camera.position.clone().sub(new THREE.Vector3().fromArray(FRAME.center)).normalize();
+        // Where the first grain is in the scene, and how far the skirt's first point is from the plate's corner it hangs from.
+        const grainWorld = grains.localToWorld(new THREE.Vector3(pos[0], pos[1], pos[2])), skirtWorldOff = skirt.localToWorld(new THREE.Vector3(sp[0], sp[1], sp[2])).distanceTo(plate.localToWorld(new THREE.Vector3(pp[rim[0] * 3], pp[rim[0] * 3 + 1], pp[rim[0] * 3 + 2])));
         // The first grain's own colour as its buffer holds it, with its brightness and its paleness taken back out.
         const b = sandBright(s.shake, sand.y[0] > 0), un = (v) => (v / b - 0.4) / 0.6, out = { r: 0, g: 0, b: 0 };
         colour.setRGB(un(gc.getX(0)), un(gc.getY(0)), un(gc.getZ(0))).getRGB(out, THREE.SRGBColorSpace);
@@ -599,7 +601,7 @@
         return Object.assign(voiced, m, {
           glowTint: [Math.round(lit.r * 255), Math.round(lit.g * 255), Math.round(lit.b * 255)],
           drawn: grains.geometry.drawRange.count, size: grains.material.size, first,
-          turned: turned.slice(), scale: pose.scale, at: [pose.x, pose.y, pose.z], corner: corner.toArray(), facing: top.dot(toCamera), drawn0: [pos[0], pos[1], pos[2]], f0: sand.f[0],
+          turned: turned.slice(), scale: pose.scale, at: [pose.x, pose.y, pose.z], corner: corner.toArray(), facing: top.dot(toCamera), grainWorld: grainWorld.toArray(), skirtWorldOff, drawn0: [pos[0], pos[1], pos[2]], f0: sand.f[0],
           ring: (radius(sand.x[0], sand.z[0]) * RINGS) | 0, tint: [Math.round(out.r * 255), Math.round(out.g * 255), Math.round(out.b * 255)],
           relief, plateLit, plateDark, rimLit: pc[0] + pc[1] + pc[2], thick, skirtOff,
         }, s);
