@@ -603,11 +603,15 @@ offers:
   `cell(x)` is the table cell for a place, and `sample(fig, ix, iz, out)` reads a figure's
   value and its slope each way from the tables (2,048 cells across the plate).
 - **The sound.** `toneOf(bands)` is where the sound's weight sits among the 16 lowest bins,
-  0 to 1, or -1 with too little sound to tell. `wantFigure(tone)` is the figure a tone asks
-  for. `voice()` is what the plate remembers (its figure, the one before, how long since it
-  changed, how long the voice has been quiet) and `listen(st, level, want, dt)` is one
-  moment of listening: a new phrase draws a new figure, and within a phrase the figure
-  follows the tone but is kept for 3 s. `blendOf(since)` is how far a change has got.
+  each weighing as its square, 0 to 1, or -1 with too little sound to tell. `meanOf(...)` is
+  the running mean the scene takes of it over a phrase's first tenth of a second.
+  `wantFigure(tone)` is the figure a tone asks for. `voice()` is what the plate remembers
+  (its figure, the one before, what the tone last asked for, how long since it changed, how
+  long the voice has been quiet, whether a phrase is waiting) and `listen(st, level, want,
+  dt)` is one moment of listening: a new phrase takes `phraseFigure(want, has, had)`, the
+  figure the tone asks for or the nearest one along that the plate neither has nor had, and
+  within a phrase the figure moves only when the tone has, and not within 3 s of the last
+  change. `blendOf(since)` is how far a change has got.
 - **The shake.** `shakeOf(flame, kick, live)` is how hard the plate shakes. `pace(shake)`,
   `jostle(shake, h)`, `hopChance(shake, h)` and `hopSpeed(shake, moved, r)` are what that
   does to a grain. `thrown(level, rose, sinceHit)` is how hard a beat throws the sand.
@@ -615,12 +619,16 @@ offers:
   own place beside a line and its own run of random numbers. `stepSand(sand, count, figA,
   figB, blend, shake, live, h)` moves the first `count` of them one step: a grain on the
   plate walks toward its place, is jostled, and may hop; a grain in the air flies and falls.
+  Within reach of its place a grain's distance from it dies away at a rate that does not
+  depend on the step, and `sand.f` is left as the plate's value under each grain.
   `throwSand(sand, count, strength)` throws those lying on the plate. `measure(...)` says how
-  the sand lies. `stepsFor(dt)` is how many steps a frame takes. `grainCount(density)` is
-  how many grains a Density setting means (6,000 to 30,000).
+  the sand lies. `stepsFor(dt)` is how many steps a frame takes (none longer than a sixtieth
+  of a second). `grainCount(density)` is how many grains a Density setting means (6,000 to
+  30,000).
 - **The plate and the light.** `bend(shake, clock)` is how far the plate is bent just now and
   `glow(f, shake)` how bright it glows where the figure's value is `f`. `sandBright(shake,
-  inAir)`, `pale(out, rgb)` and `radius(x, z)` are how bright and what colour a grain is.
+  inAir)`, `pale(out, rgb)` and `radius(x, z)` are how bright and what colour a grain is,
+  and `grainSize(scale, zoom)` how wide it is drawn.
   `idle(b, t)` is what a band pretends to hear with the mic off.
 - **The scene.** `definition()` returns the kit scene definition: the plate (a grid of 48
   by 48 cells with a skirt round its edge) and the sand (points of added light).
@@ -632,8 +640,12 @@ core.js globals only when it is built. It must be loaded after `scene-kit.js` an
 the factories.
 
 Worth knowing before building another effect out of particles: the sand is stepped in
-steps of about a sixtieth of a second whatever the frame rate, and each grain has its own
-run of random numbers, so a run is repeatable and the checks can step the sand under Node.
+steps no longer than a sixtieth of a second whatever the frame rate, and each grain has its
+own run of random numbers, so a run is repeatable and the checks can step the sand under
+Node. three.js sizes a point (`PointsMaterial` with `sizeAttenuation`) by the height of the
+canvas, not of the picture the kit draws into, and takes no notice of the camera's zoom: on
+the small page, where the kit draws four times taller, points come out a quarter of their
+size, and the Size slider does not scale them. The scene sets the size itself each frame.
 Two frame rates still give the same kind of figure and not the same grains, because a hop
 is a chance taken each step. And the kit's afterglow lingers only where nothing solid is
 drawn: sand over the plate leaves no trail, sand thrown beyond its edge does.
