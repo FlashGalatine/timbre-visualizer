@@ -20,6 +20,14 @@ traceability.
 - **Scene kit**: `TimbreScene.createHistory(size, hz)` is a memory of a level for things
   that travel, read by sample (`byAge`) or by age in seconds (`heard`). A scene's camera is
   now in place before its first `update`. See `docs/EFFECTS.md` ("Kit scenes").
+- **Glass Prism pulses on the beat and shatters on a hard peak.** A beat swells the
+  crystal by about a fifth and it springs back, a little smaller for a moment, before it
+  is still. A hard peak (a thump on the mic, a yell) breaks it into its twenty facets,
+  which fly apart spinning, hang and drift, and after a calm wait come home and are the
+  crystal again. It breaks by the rule DNA and Pulse Rings break by. While it is in
+  pieces it is drawn smaller, so that no facet leaves the picture. New settings: `pulse`
+  (0 to 100, default 50; none at 0), `shatterSensitivity` (0 to 100, default 50; never at
+  0) and `reconnectSeconds` (0 to 10, default 3).
 - **Glass Prism setting**: `cameraDrift` (0 to 100, default 50) for the Glass Prism effect.
   What the new Glass Prism is made of is in `overlay/glass-prism.js` (`TimbreGlassPrism`),
   loaded by all three overlay pages and by `verify` under Node, and documented in

@@ -70,6 +70,41 @@ its colours still move through the palette).
   page and shows only the middle of each block of sixteen, so a ridge two of those pixels
   wide came out in dashes.
 
+## Added after the owner's first look: the pulse and the shatter
+
+The owner, looking at it in OBS: "I think the prism should also expand and contract based
+on the beat of the sound. Maybe it can shatter when I thump the mic and then reform itself
+after a while." The choices below are the builder's.
+
+- **The pulse.** A beat sets the crystal swinging like a spring let go: about 18% larger
+  in a tenth of a second, then about 5% smaller than it was, then still, all within two
+  seconds. It is a damped spring (14 radians a second, damping 0.35) worked out exactly, so
+  it is the same at any frame rate; a beat is a push of `4 × pulse / 50`. Beats one after
+  another add up. Its size is never under 0.7 or over 1.6.
+- **The shatter.** A hard peak on the mic breaks the crystal into its twenty facets. Each
+  is pushed outward (give or take) and set spinning about its own middle; the push and the
+  spin die away in 0.38 s and a slow drift carries on. A peak while it is in pieces jostles
+  them; after Reconnect seconds of calm they are carried home over a second and a half, the
+  short way round and each in its own time, and the crystal is whole again, corner for
+  corner. A peak during the return blows them out again. A shatter, a jostle and the moment
+  it is whole again each come with a flash.
+- **When it breaks is DNA's rule.** The state machine is `TimbreHelix.createShatter`, the
+  one DNA and Pulse Rings use, so all three hear the same thing: the raw peak of the mic,
+  before Gain, against the Shatter sensitivity setting; the mic must have been on and the
+  crystal whole for 0.4 s; never with the mic off. How the facets fly is this scene's own,
+  in 3D and in the crystal's own frame, so the pieces go on tumbling together.
+- **Nothing leaves the picture.** No facet is drawn further than 3.2 from its place. The
+  whole crystal is drawn smaller by just as much as keeps its largest copy within 2 of the
+  middle (the picture takes a ball that size on every page, wherever the camera is): at
+  once when it must be, and back to its size at 2 a second. So a shatter looks like the
+  camera pulling back, and in pieces the facets are about four tenths of their size. Once
+  it is in pieces a fifth of the room is kept for the pulse, so a beat still swells it.
+- **Settings.** `pulse` (0 to 100, default 50; 0 is none), `shatterSensitivity` (0 to 100,
+  default 50; 0 never shatters) and `reconnectSeconds` (0 to 10, default 3), the last two
+  named and scaled as DNA's are.
+- **Repeatable.** The facets' flight takes its numbers from a seeded generator, a new seed
+  for each shatter, never from `Math.random`.
+
 ## Not in this change
 
 - The other WebGL effects (Ink, Shards, Jelly, Boids, Rose).

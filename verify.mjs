@@ -2953,11 +2953,182 @@ await import('./overlay/glass-prism.js');
     ok(dot(slow, fast) > 1 - 5e-8 && dot(usual, fast) > 1 - 5e-9 && dot(usual, [0, 0, 0, 1]) < 0.9, 'the same sound gives the same tumble at 30, 60 and 240 frames a second');
   }
 
+  // The pulse: a beat sets the crystal swinging, larger and then smaller, like a spring let go.
+  {
+    ok(P.PULSE_RATE === 14 && P.PULSE_DAMP === 0.35 && P.PULSE_PUSH === 4 && P.pushOf(50) === 4 && P.pushOf(0) === 0 && P.pushOf(100) === 8 && near(P.pushOf(25), 2),
+      'a beat pushes it by as much as the Pulse setting says: not at all at 0, twice as hard at 100');
+    const a = 0.35 * 14, wd = 14 * Math.sqrt(1 - 0.35 * 0.35), at = (t) => (4 / wd) * Math.exp(-a * t) * Math.sin(wd * t);
+    const one = P.swing([0, 4], 0.1), two = P.swing(P.swing([0, 4], 0.05), 0.05), held = [0.2, 0];
+    ok(near(one[0], at(0.1), 1e-12) && same(Array.from(one), Array.from(two), 1e-12) && P.swing([0, 0], 0.1).every((v) => v === 0) && P.swing(held, 0.01) === held && held[0] < 0.2 && held[1] < 0,
+      'the swing is exact: a step is where the spring would be, two half steps are one whole, and held out it pulls back');
+    // The whole swing after one beat, at 240 steps a second.
+    let top = 0, topAt = 0, low = 0, lowAt = 0, restAt = null; const sw = [0, 4];
+    for (let i = 1; i <= 240 * 3; i++) { P.swing(sw, 1 / 240); if (sw[0] > top) { top = sw[0]; topAt = i / 240; } if (sw[0] < low) { low = sw[0]; lowAt = i / 240; } if (restAt === null && sw[0] === 0 && sw[1] === 0) restAt = i / 240; }
+    ok(top > 0.17 && top < 0.19 && topAt > 0.08 && topAt < 0.11 && low < -0.045 && low > -0.07 && lowAt > 0.3 && lowAt < 0.37 && restAt !== null && restAt > 0.5 && restAt < 2,
+      'a beat swells it by about 18% in a tenth of a second, then it shrinks to about 5% under its size, and within two seconds it is at rest');
+    ok(P.sizeOf(0) === 1 && near(P.sizeOf(0.18), 1.18) && near(P.sizeOf(-0.05), 0.95) && P.sizeOf(-0.9) === 0.7 && P.sizeOf(2) === 1.6 && P.SMALLEST === 0.7 && P.LARGEST === 1.6, 'its size is one and the swing, and never under 0.7 or over 1.6');
+    // Beats as fast as the kit gives them (every 13 frames is 217 ms), at Pulse 100, for ten seconds.
+    const quick = [0, 0]; let most = 0, least = 0;
+    for (let i = 0; i < 600; i++) { if (i % 13 === 0) quick[1] += P.pushOf(100); P.swing(quick, 1 / 60); most = Math.max(most, quick[0]); least = Math.min(least, quick[0]); }
+    ok(most > 0.3 && most < 0.45 && least > -0.1 && least <= 0, 'beats as fast as they can come, at Pulse 100, do not take it to either limit');
+    const rate = (fps) => { const w = [0, 0]; for (let i = 0; i < 1.2 * fps; i++) { if (i === 0 || i === fps) w[1] += 4; P.swing(w, 1 / fps); } return w; };
+    ok(same(rate(30), rate(240), 1e-9) && same(rate(60), rate(240), 1e-9) && Math.abs(rate(60)[0]) > 0.01, 'the same beats give the same swing at 30, 60 and 240 frames a second');
+  }
+
+  // The shatter. Twenty facets like the crystal's: each a triangle 1.033 from the middle, facing straight out.
+  await import('./overlay/helix.js');
+  await import('./overlay/scene-kit.js');
+  {
+    const HX = globalThis.TimbreHelix, N = 20, home = new Float32Array(N * 9), homeN = new Float32Array(N * 9);
+    for (let i = 0; i < N; i++) {
+      const y = 1 - (2 * (i + 0.5)) / N, r = Math.sqrt(1 - y * y), ang = 2.39996 * i, n = [r * Math.cos(ang), y, r * Math.sin(ang)];
+      const u = [-n[2], 0, n[0]], ul = long(u), uu = u.map((v) => v / ul), w = [n[1] * uu[2] - n[2] * uu[1], n[2] * uu[0] - n[0] * uu[2], n[0] * uu[1] - n[1] * uu[0]];
+      for (let v = 0; v < 3; v++) for (let c = 0; c < 3; c++) { home[i * 9 + v * 3 + c] = 1.033 * n[c] + 0.789 * (uu[c] * Math.cos(v * 2.0944) + w[c] * Math.sin(v * 2.0944)); homeN[i * 9 + v * 3 + c] = n[c]; }
+    }
+    const lay = P.layout(home), at = (arr, i) => [arr[i * 3], arr[i * 3 + 1], arr[i * 3 + 2]], dot = (p, q) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
+    let laid = lay.centres.length === 60 && lay.normals.length === 60;
+    for (let i = 0; i < N; i++) if (!near(long(at(lay.centres, i)), 1.033, 1e-4) || !near(long(at(lay.normals, i)), 1, 1e-9) || !near(dot(at(lay.normals, i), at(homeN, i * 3)), 1, 1e-4)) laid = false;
+    ok(laid, 'a facet\'s middle is the mean of its three corners, and it faces straight out from the crystal\'s middle');
+
+    ok(P.SPEED_MIN === 2.4 && P.SPEED_RANGE === 4.6 && P.SCATTER === 0.5 && P.SHARD_SPIN === 9 && P.SLOW_S === 0.38 && P.DRIFT_MIN === 0.05 && P.DRIFT_RANGE === 0.1 && P.DRIFT_SPIN === 0.7 && P.FLY_MAX === 3.2 && P.REBLAST === 0.7 && P.JOSTLE === 0.4 && P.ROOM === 2 && P.ZOOM_BACK === 2 && P.FLASH_S === 0.25,
+      'the shatter\'s sizes: how hard a blast pushes, how soon the push dies, how far a facet may go and how much room there is');
+    const fresh = P.createShards();
+    ok(['off', 'vel', 'drift', 'axis', 'from', 'shown'].every((k) => fresh[k].length === 60 && fresh[k].every((v) => v === 0)) && ['ang', 'spin', 'dspin', 'fromAng', 'turned'].every((k) => fresh[k].length === 20 && fresh[k].every((v) => v === 0)) && fresh.lag.length === 20 && fresh.lag.every((v) => v === 1),
+      'the facets start in their places, at rest');
+
+    // A blast.
+    const sh = P.createShards(), sh2 = P.createShards();
+    P.blast(sh, lay.normals, 1, HX.rng(1001), true, true); P.blast(sh2, lay.normals, 1, HX.rng(1001), true, true);
+    let out = true, speeds = true, axes = true, spins = true, drifts = true;
+    for (let i = 0; i < N; i++) {
+      const v = at(sh.vel, i), d = at(sh.drift, i), sp = long(v);
+      if (!(dot(v, at(lay.normals, i)) > 0.4 * sp)) out = false;
+      if (!(sp >= 2.4 - 1e-9 && sp <= 7 + 1e-9)) speeds = false;
+      if (!near(long(at(sh.axis, i)), 1, 1e-9)) axes = false;
+      if (!(Math.abs(sh.spin[i]) <= 4.5 && Math.abs(sh.dspin[i]) <= 0.35)) spins = false;
+      if (!(long(d) >= 0.05 - 1e-9 && long(d) <= 0.15 + 1e-9 && near(dot(d, v), long(d) * sp, 1e-9))) drifts = false;
+    }
+    const spread = (k) => Math.max(...Array.from(sh[k])) - Math.min(...Array.from(sh[k]));
+    ok(out && speeds && axes && spins && drifts && spread('spin') > 4 && same(Array.from(sh.vel), Array.from(sh2.vel)) && same(Array.from(sh.axis), Array.from(sh2.axis)) && sh.off.every((v) => v === 0),
+      'a blast pushes every facet outward, give or take, at its own speed and with its own spin about its own axis; the same blast is the same again');
+    const other = P.createShards(); P.blast(other, lay.normals, 1, HX.rng(1002), true, true);
+    const half = P.createShards(); P.blast(half, lay.normals, 0.5, HX.rng(1001), true, true);
+    ok(!same(Array.from(other.vel), Array.from(sh.vel), 0.1) && same(Array.from(half.vel), Array.from(sh.vel).map((v) => v / 2), 1e-12) && same(Array.from(half.spin), Array.from(sh.spin).map((v) => v / 2), 1e-12) && same(Array.from(half.drift), Array.from(sh.drift), 1e-12),
+      'the next shatter is another; a weaker blast pushes and spins less, and the drift that lasts is the same');
+
+    // Flight.
+    const t1 = P.createShards(), t2 = P.createShards();
+    for (const s of [t1, t2]) P.blast(s, lay.normals, 1, HX.rng(1001), true, true);
+    const v0 = Array.from(t1.vel), d0 = Array.from(t1.drift), w0 = Array.from(t1.spin), dw0 = Array.from(t1.dspin);
+    P.fly(t1, 0.2); P.fly(t2, 0.1); P.fly(t2, 0.1);
+    const gone = 0.38 * (1 - Math.exp(-0.2 / 0.38));
+    ok(same(Array.from(t1.off), v0.map((v, i) => v * gone + d0[i] * 0.2), 1e-12) && same(Array.from(t1.ang), w0.map((v, i) => v * gone + dw0[i] * 0.2), 1e-12) && same(Array.from(t1.vel), v0.map((v) => v * Math.exp(-0.2 / 0.38)), 1e-12)
+      && same(Array.from(t1.off), Array.from(t2.off), 1e-12) && same(Array.from(t1.ang), Array.from(t2.ang), 1e-12) && same(Array.from(t1.turned), Array.from(t1.ang)),
+      'in flight the push and the spin die away and the drift carries on, exactly: two half steps are one whole');
+    let capped = true, shrunk = 0;
+    for (let i = 0; i < N; i++) { const o = at(t1.off, i), s = at(t1.shown, i), l = long(o); if (!near(long(s), 3.2 * Math.tanh(l / 3.2), 1e-12) || !near(dot(o, s), l * long(s), 1e-9)) capped = false; if (long(s) < l) shrunk++; }
+    for (let i = 0; i < 6000; i++) P.fly(t1, 1 / 60);
+    let within = true; for (let i = 0; i < N; i++) if (!(long(at(t1.shown, i)) <= 3.2)) within = false;
+    ok(capped && shrunk === N && within && long(at(t1.off, 0)) > 5, 'a facet is shown the way it has flown but never further than 3.2 from its place, however long it drifts');
+
+    // A jostle, and a blast while it is in pieces: its axes stay as they are.
+    const j = P.createShards(); P.blast(j, lay.normals, 1, HX.rng(1001), true, true); P.fly(j, 0.5);
+    const axis0 = Array.from(j.axis), vel0 = Array.from(j.vel); P.blast(j, lay.normals, 0.4, HX.rng(5), false, false);
+    let inward = 0; for (let i = 0; i < N; i++) if (dot([j.vel[i * 3] - vel0[i * 3], j.vel[i * 3 + 1] - vel0[i * 3 + 1], j.vel[i * 3 + 2] - vel0[i * 3 + 2]], at(lay.normals, i)) < 0) inward++;
+    ok(same(Array.from(j.axis), axis0) && inward >= 4 && inward <= 16, 'a jostle pushes each facet any way at all, on top of the speed it has, and its axis stays as it was');
+
+    // The return.
+    const r = P.createShards(); P.blast(r, lay.normals, 1, HX.rng(1001), true, true); for (let i = 0; i < 90; i++) P.fly(r, 1 / 60);
+    r.ang[0] = 7; r.ang[1] = -3.5; P.fly(r, 0);
+    const shown0 = Array.from(r.shown), turned0 = Array.from(r.turned);
+    P.startReturn(r, HX.rng(9));
+    const short = (v) => v - 2 * Math.PI * Math.round(v / (2 * Math.PI));
+    ok(same(Array.from(r.from), shown0) && same(Array.from(r.fromAng), turned0.map(short), 1e-12) && near(r.fromAng[0], 7 - 2 * Math.PI) && near(r.fromAng[1], -3.5 + 2 * Math.PI) && r.vel.every((v) => v === 0) && r.spin.every((v) => v === 0)
+      && Array.from(r.lag).every((v) => v >= 0.6 && v <= 1) && Math.max(...r.lag) - Math.min(...r.lag) > 0.2 && P.shortWay(0) === 0 && near(P.shortWay(Math.PI + 0.1), -Math.PI + 0.1),
+      'the return starts from where each facet is shown, turning back the short way, each with its own lag');
+    P.place(r, 0, HX.returnShare);
+    const start = same(Array.from(r.shown), shown0) && same(Array.from(r.turned), Array.from(r.fromAng));
+    P.place(r, 0.5, HX.returnShare);
+    let part = true; for (let i = 0; i < N; i++) { const e = HX.returnShare(0.5, r.lag[i]).e; if (!same(at(r.shown, i), at(r.from, i).map((v) => v * (1 - e)), 1e-12) || !near(r.turned[i], r.fromAng[i] * (1 - e), 1e-12) || !(e > 0.2 && e < 0.73)) part = false; }
+    // A blast while it is coming back: flight takes up from where the return had got to.
+    const mid = Array.from(r.shown), midTurn = Array.from(r.turned); P.resume(r); P.fly(r, 0);
+    const resumed = same(Array.from(r.shown), mid, 1e-9) && same(Array.from(r.ang), midTurn) && Array.from(r.off).every(Number.isFinite);
+    const far = P.createShards(); far.shown[0] = 3.2; P.resume(far);
+    P.place(r, 1, HX.returnShare);
+    ok(start && part && resumed && Number.isFinite(far.off[0]) && far.off[0] > 10 && r.shown.every((v) => Math.abs(v) < 1e-12) && r.turned.every((v) => Math.abs(v) < 1e-12), 'the return carries each facet home by its share of the way; broken off, the flight takes up where it had got to; at its end every facet is home');
+    P.home(r);
+    ok(['off', 'vel', 'drift', 'from', 'shown', 'ang', 'spin', 'dspin', 'fromAng', 'turned'].every((k) => r[k].every((v) => v === 0)) && r.lag.every((v) => v === 1), 'home, the facets are at rest again');
+
+    // What is drawn.
+    const pos = new Float32Array(N * 9), nor = new Float32Array(N * 9), whole = P.createShards();
+    const reach0 = P.shape(pos, nor, home, homeN, lay.centres, whole);
+    let most0 = 0; for (let k = 0; k < N * 3; k++) most0 = Math.max(most0, long(at(home, k)));
+    ok(same(Array.from(pos), Array.from(home), 1e-6) && same(Array.from(nor), Array.from(homeN), 1e-6) && near(reach0, most0, 1e-6) && near(most0, Math.hypot(1.033, 0.789), 1e-3), 'with every facet home the crystal is drawn as it is, and reaches as far as its corners');
+    const m = P.createShards(), o2 = at(lay.normals, 2).map((v) => v * 0.5); m.shown.set(o2, 6); m.axis.set(at(lay.normals, 5), 15); m.turned[5] = Math.PI / 2; m.axis[0] = 0; m.axis[1] = 1; m.axis[2] = 0; m.turned[0] = 1.1;
+    const reach1 = P.shape(pos, nor, home, homeN, lay.centres, m);
+    let moved = true, turned = true, others = true, furthest = 0;
+    for (let k = 0; k < N * 3; k++) furthest = Math.max(furthest, long(at(pos, k)));
+    for (let v = 0; v < 3; v++) {
+      if (!same(at(pos, 6 + v), at(home, 6 + v).map((x, a) => x + o2[a]), 1e-6) || !same(at(nor, 6 + v), at(homeN, 6 + v), 1e-6)) moved = false;
+      // Facet 5 a quarter turn about its own normal: its corners keep their distance from its middle and from one another, and it faces the same way.
+      const c = at(lay.centres, 5), p = at(pos, 15 + v), h = at(home, 15 + v), q = at(pos, 15 + ((v + 1) % 3)), rel = p.map((x, a) => x - c[a]), was = h.map((x, a) => x - c[a]);
+      if (!near(long(rel), 0.789, 1e-4) || !near(dot(rel, was), 0, 1e-4) || !near(long(p.map((x, a) => x - q[a])), 0.789 * Math.sqrt(3), 1e-4) || !same(at(nor, 15 + v), at(homeN, 15 + v), 1e-5)) turned = false;
+      // Facet 0 turned about the upright axis: so is the way it faces, and it is still square to the facet.
+      const n0 = at(nor, v), p0 = at(pos, v), p1 = at(pos, (v + 1) % 3), hn = at(homeN, v);
+      if (!near(long(n0), 1, 1e-6) || !near(dot(n0, p0.map((x, a) => x - p1[a])), 0, 1e-5) || !near(n0[1], hn[1], 1e-6) || !same([n0[0], n0[2]], [hn[0] * Math.cos(1.1) + hn[2] * Math.sin(1.1), hn[2] * Math.cos(1.1) - hn[0] * Math.sin(1.1)], 1e-6)) turned = false;
+    }
+    for (let k = 9; k < N * 3; k++) if (k !== 15 && k !== 16 && k !== 17 && !same(at(pos, k), at(home, k), 1e-6)) others = false;
+    ok(moved && turned && others && near(reach1, furthest, 1e-6) && reach1 > reach0, 'a facet in flight is drawn whole: moved by how far it has flown and turned about its own middle, the way it faces turned with it; the reach is the furthest corner');
+
+    // Room: nothing is drawn further than 2 from the middle, and the picture takes that at any page shape.
+    ok(P.HEAD === 0.2 && P.HEAD_OVER === 0.5 && P.headFor(1.3) === 1 && P.headFor(1) === 1 && near(P.headFor(1.55), 1.1) && near(P.headFor(1.8), 1.2) && near(P.headFor(3.5), 1.2),
+      'once it is in pieces, room is kept for a beat to swell it by a fifth: none while it is whole, all of it once the pieces are half a unit out');
+    ok(P.roomFor(1.3, 1, 0.118) === 1 && P.roomFor(1.3, 1.18, 0.118) === 1 && near(P.roomFor(1.3, 1, 0.396), 2 / (1.3 * 1.396 + 0.198)) && near(P.roomFor(3, 1.1, 0.1), 2 / (3 * 1.2 * 1.1 + 0.05)) && near(P.roomFor(3, 1.4, 0.1), 2 / (3 * 1.4 * 1.1 + 0.05)) && P.roomFor(0, 1, 0) === 1,
+      'the crystal is drawn smaller when it would not fit: by just enough that its largest copy stays within 2 of the middle, swollen by a beat or not');
+    let fits = true;
+    for (const aspect of [300 / 220, 1440 / 1080, 1728 / 1080, 1920 / 1080]) {
+      const d = globalThis.TimbreScene.fitDistance(P.FRAME.width, P.FRAME.height, P.FOV, aspect), up = Math.tan((P.FOV * Math.PI) / 360), cone = Math.tan(Math.asin(P.ROOM / d));
+      if (!(cone < 0.99 * up && cone < 0.99 * up * aspect)) fits = false;
+    }
+    ok(fits, 'a ball of that size about the middle is inside the picture on every page, wherever the camera has drifted to');
+    ok(P.zoomAfter(1, 0.6, 1 / 60) === 0.6 && near(P.zoomAfter(0.6, 1, 0.5), 0.6 + 0.4 * (1 - Math.exp(-1))) && P.zoomAfter(0.6, 0.8, 100) === 0.8 && P.zoomAfter(0.99995, 1, 1 / 60) === 1 && P.zoomAfter(1, 1, 1 / 60) === 1 && P.zoomAfter(0.9, 0.95, 0) === 0.9
+      && near(P.zoomAfter(P.zoomAfter(0.5, 1, 0.1), 1, 0.1), P.zoomAfter(0.5, 1, 0.2), 1e-12), 'it is drawn smaller at once when it must be, and comes back to its size over about a second: exactly, and all the way');
+
+    // A whole shatter, start to end, with the worst the sound can do: nothing is ever drawn outside the room.
+    let inside = true, smallest = 1, widest = 0;
+    for (let seed = 1; seed <= 12; seed++) {
+      const rnd = HX.rng(1000 + seed), s = P.createShards(), swing = [0, 0]; let zoom = 1;
+      P.blast(s, lay.normals, 1, rnd, true, true);
+      const step = (returning, u, dt, i) => {
+        if (i % 13 === 0) swing[1] += P.pushOf(100);
+        P.swing(swing, dt);
+        if (returning) P.place(s, u, HX.returnShare); else P.fly(s, dt);
+        const reach = P.shape(pos, nor, home, homeN, lay.centres, s), size = P.sizeOf(swing[0]), apart = 0.396;
+        zoom = P.zoomAfter(zoom, P.roomFor(reach, size, apart), dt);
+        if (zoom * (reach * size * (1 + apart) + 0.5 * apart) > 2 + 1e-9) inside = false;
+        smallest = Math.min(smallest, zoom); widest = Math.max(widest, reach);
+      };
+      for (let i = 0; i < 240; i++) { if (i === 60) P.blast(s, lay.normals, 0.4, rnd, false, false); if (i === 150) P.blast(s, lay.normals, 0.7, rnd, true, false); step(false, 0, 1 / 60, i); }
+      P.startReturn(s, rnd);
+      for (let i = 0; i <= 90; i++) step(true, i / 90, 1 / 60, i);
+    }
+    ok(inside && smallest < 0.35 && smallest > 0.2 && widest > 3.5 && widest < 1.033 + 3.2 + 0.789 + 1e-6, 'through a whole shatter with jostles, beats and the colours as far apart as they go, nothing is ever drawn outside the room');
+  }
+
+  // Light.
+  ok(near(P.brightOf(0, 0, 1), 0.51) && near(P.brightOf(0.5, 1, 0.4), 0.64) && P.brightOf(0.3, 0.2) === P.brightOf(0.3, 0.2, 0) && same(Array.from(P.heartOf([0, 0], 0, 0, 1)), [0.28, 2.3]) && same(Array.from(P.heartOf([0, 0], 1, 1, 1)), [0.5, 3.9]) && same(Array.from(P.heartOf([0, 0], 1, 1)), [0.25, 3.4]),
+    'a shatter is a flash: the crystal and the glow inside are brighter for a moment, and the glow larger');
+
   // The table.
   ok(T.VIZ_SCENES.indexOf('glass-prism') > T.VIZ_SCENES.indexOf('chladni') && T.VIZ_USES_3D.includes('glass-prism'), 'glass-prism is a kit scene, listed after chladni');
-  ok(JSON.stringify(T.DEFAULT_PER_VIZ['glass-prism']) === '{"chroma":50,"cameraDrift":50}' && !('glass-prism' in T.PER_VIZ_MAX), 'glass-prism knobs: chroma and camera drift, both 0 to 100');
+  ok(JSON.stringify(T.DEFAULT_PER_VIZ['glass-prism']) === '{"chroma":50,"pulse":50,"shatterSensitivity":50,"reconnectSeconds":3,"cameraDrift":50}' && JSON.stringify(T.PER_VIZ_MAX['glass-prism']) === '{"reconnectSeconds":10}',
+    'glass-prism knobs: chroma, pulse, shatter sensitivity and camera drift, 0 to 100, and reconnect seconds, 0 to 10');
   const oldPrism = T.sanitizeConfig({ activeViz: 'glass-prism', perViz: { 'glass-prism': { chroma: 80 } } });
-  ok(oldPrism.activeViz === 'glass-prism' && JSON.stringify(oldPrism.perViz['glass-prism']) === '{"chroma":80,"cameraDrift":50}', 'a saved pre-redesign glass-prism config keeps its chroma and gains the new default');
+  ok(oldPrism.activeViz === 'glass-prism' && JSON.stringify(oldPrism.perViz['glass-prism']) === '{"chroma":80,"pulse":50,"shatterSensitivity":50,"reconnectSeconds":3,"cameraDrift":50}', 'a saved pre-redesign glass-prism config keeps its chroma and gains the new defaults');
+  {
+    const c = T.sanitizeConfig({ perViz: { 'glass-prism': { pulse: 250, shatterSensitivity: -4, reconnectSeconds: 99 } } }).perViz['glass-prism'];
+    ok(c.pulse === 100 && c.shatterSensitivity === 0 && c.reconnectSeconds === 10, 'glass-prism knobs clamp: pulse to 100, sensitivity to 0, reconnect to 10');
+  }
   ok(!('glass-prism' in T.VIZ_LABELS), 'glass-prism keeps the name it is listed by');
 
   // The files.
