@@ -409,7 +409,7 @@
     const st = voice();
     // What the checks read. clock: seconds the scene has been live, which the plate bends by;
     // cold: no tone has been heard since the last pause; hits: how many throws there have been.
-    const s = { flame: 0, kick: 0, level: 0, clock: 0, live: false, orbit: 0, colorT: 0, grains: 0, tone: 0, want: 0, cold: true, heardFor: 0, shake: 0, flex: 0, glowMax: 0, glowAt: 0, hits: 0, strength: 0, sinceHit: 9, lastKick: 0 };
+    const s = { flame: 0, kick: 0, level: 0, clock: 0, live: false, orbit: 0, colorT: 0, grains: 0, tone: 0, want: 0, cold: true, heardFor: 0, shake: 0, flex: 0, glowMax: 0, glowAt: 0, mix: 1, midF: 0, hits: 0, strength: 0, sinceHit: 9, lastKick: 0 };
 
     function setGrains(n) {
       count = n;
@@ -500,13 +500,14 @@
       s.want = wantFigure(s.tone);
       listen(st, audio.level, s.cold ? -1 : s.want, dt);
       const mix = blendOf(st.since), figA = FIGURES[st.from], figB = FIGURES[st.figure];
+      s.mix = mix;
 
       // How hard the plate shakes, and a throw.
       s.shake = shakeOf(audio.flame, audio.kick, s.live);
       s.sinceHit += dt;
       const rose = audio.kick > s.lastKick + 0.4;
       s.lastKick = audio.kick;
-      const strength = s.live ? thrown(audio.level, rose, s.sinceHit) : 0;
+      const strength = thrown(audio.level, rose, s.sinceHit);
       if (strength > 0) { throwSand(sand, count, strength); s.sinceHit = 0; s.hits++; s.strength = strength; }
 
       // The sand moves.
@@ -541,6 +542,7 @@
         if (mix < 1) { sample(figA, cells[c], cells[r], PA); f = PA[0] + (f - PA[0]) * mix; }
         const edge = r === 0 || c === 0 || r === G || c === G, g = glow(f, s.shake), light = g + (edge ? RIM : 0);
         if (g > glowMax && !edge) { glowMax = g; s.glowAt = p; }
+        if (r === 12 && c === 16) s.midF = f;   // the figure's value at one point of the plate, as the plate has it
         pp[p] = ((c / G) * 2 - 1) * HALF; pp[p + 1] = flex * f; pp[p + 2] = ((r / G) * 2 - 1) * HALF;
         pc[p] = 0.006 + rgb[0] * light; pc[p + 1] = 0.006 + rgb[1] * light; pc[p + 2] = 0.009 + rgb[2] * light;
       }

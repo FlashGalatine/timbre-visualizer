@@ -1789,6 +1789,8 @@ async function main() {
           out.push({ state, solid, sand, lit, light, edge, diff, glowT: s ? s.afterglowT : null, empty: empty / (w * h), cornerAlpha: px[3], solidBox: size(solidBox), canvas: [w, h], trace, hash, kitCam: s ? s.camera : null,
             expectTone: state.grains ? getColor(state.colorT + (state.ring / 32) * 1.4) : null, expectGlow: state.grains ? getColor(state.colorT + 0.7) : null,
             // Where the plate's near right corner should be, from the Rotate settings as the scene read them.
+            // The figure's value at the plate's point (16, 12) of 48: blended as the plate should have it, and each figure's own.
+            expectMid: state.grains ? (() => { const C = TimbreChladni, ix = C.cell((16 / 48) * 2 - 1), iz = C.cell((12 / 48) * 2 - 1), fb = C.sample(C.FIGURES[state.figure], ix, iz, [0, 0, 0])[0], fa = C.sample(C.FIGURES[state.from], ix, iz, [0, 0, 0])[0], m = C.blendOf(state.since); return [fa + (fb - fa) * m, fa, fb]; })() : null,
             expectGrain: state.turned ? (() => { const C = TimbreChladni, r = state.turned, p = C.poseFor(r[0], r[1], r[2]), o = C.turn([0, 0, 0], state.drawn0[0], state.drawn0[1], state.drawn0[2], r[0], r[1], r[2]); return [o[0] * p.scale + p.x, o[1] * p.scale + p.y, o[2] * p.scale + p.z]; })() : null,
             expectCorner: state.turned ? (() => { const C = TimbreChladni, r = state.turned, p = C.poseFor(r[0], r[1], r[2]), o = C.turn([0, 0, 0], C.HALF, 0, C.HALF, r[0], r[1], r[2]); return [o[0] * p.scale + p.x, o[1] * p.scale + p.y, o[2] * p.scale + p.z]; })() : null });
         }
@@ -1828,8 +1830,13 @@ async function main() {
     const [soft] = await plateRun([{ level: 0.3, bins: low, secs: 3 }]), [full] = await plateRun([{ level: 1, bins: low, secs: 3 }]);
     check('chladni: the louder the voice, the fuzzier the lines', full.state.spread > 1.5 * soft.state.spread && soft.state.settled > 0.7 && Math.abs(soft.state.shake - 0.34) < 0.01 && Math.abs(full.state.shake - 1.04) < 0.01,
       JSON.stringify({ spread: [soft.state.spread, full.state.spread], settled: [soft.state.settled, full.state.settled] }));
-    check('chladni: a grain is drawn where it lies on the plate, a hair above it', [0, 1, 2].every((i) => Math.abs(loud.state.drawn0[i] - [loud.state.first[0] * 2.2, loud.state.flex * loud.state.f0 + loud.state.first[2] + 0.014, loud.state.first[1] * 2.2][i]) < 1e-5)
-      && Math.abs(loud.state.first[0]) <= 1 && Math.abs(loud.state.first[1]) <= 1 && Math.abs(loud.state.size - 0.085) < 1e-9, JSON.stringify({ size: loud.state.size, drawn: loud.state.drawn0, lies: loud.state.first.slice(0, 3), f: loud.state.f0, flex: loud.state.flex }));
+    // A moment when the plate is bent up, and one when it is bent down, with the camera held still.
+    const [up, down] = await plateRun([{ level: 0.8, bins: low, secs: 3.034 }, { level: 0.8, bins: low, secs: 0.15 }], { knobs: { cameraDrift: 0 } });
+    check('chladni: a grain is drawn where it lies on the bent plate, a hair above it', [0, 1, 2].every((i) => Math.abs(up.state.drawn0[i] - [up.state.first[0] * 2.2, up.state.flex * up.state.f0 + up.state.first[2] + 0.014, up.state.first[1] * 2.2][i]) < 1e-5)
+      && Math.abs(up.state.flex * up.state.f0) > 1e-4 && up.state.flex > 0.015 && down.state.flex < -0.015 && Math.abs(up.state.first[0]) <= 1 && Math.abs(up.state.first[1]) <= 1 && Math.abs(loud.state.size - 0.085) < 1e-9,
+      JSON.stringify({ size: loud.state.size, drawn: up.state.drawn0, lies: up.state.first.slice(0, 3), f: up.state.f0, flex: [up.state.flex, down.state.flex] }));
+    check('chladni: the plate is drawn bent: its outline is not the same bent up as bent down', up.solid !== down.solid && (Math.abs(up.solidBox.h - down.solidBox.h) >= 2 || Math.abs(up.solidBox.cy - down.solidBox.cy) >= 1) && up.state.relief > 0.03 && down.state.relief > 0.03,
+      JSON.stringify({ solid: [up.solid, down.solid], box: [up.solidBox, down.solidBox], relief: [up.state.relief, down.state.relief] }));
 
     // The tone picks the figure.
     const [deep] = await plateRun([{ level: 0.8, bins: [[0, 1]], secs: 0.5 }]), [mid] = await plateRun([{ level: 0.8, bins: [[1, 1], [2, 1]], secs: 0.5 }]), [high] = await plateRun([{ level: 0.8, bins: [[9, 1]], secs: 0.5 }]);
@@ -1866,9 +1873,10 @@ async function main() {
       JSON.stringify({ rounds: rounds.map((r) => r.state.figure), bursts: [bursts[14].state.figure, bursts[14].state.phrases, bursts[14].state.changes] }));
     // The blend from the frame the plate takes its new figure (a tenth of a second into the phrase).
     const blendTrace = again.trace.map((t) => t[9]).slice(again.trace.findIndex((t) => t[9] === 0));
-    check('chladni: the plate changes figure over 0.8 s, and the sand follows', Math.abs(again.state.since - 0.3) < 0.02 && Math.abs(again.state.blend - smooth(again.state.since / 0.8)) < 1e-6 && again.state.blend > 0.15 && again.state.blend < 0.6 && later.state.blend === 1
+    check('chladni: the plate changes figure over 0.8 s, and the sand follows', Math.abs(again.state.since - 0.3) < 0.02 && Math.abs(again.state.blend - smooth(again.state.since / 0.8)) < 1e-6 && again.state.blend > 0.15 && again.state.blend < 0.6
+      && again.state.mix === again.state.blend && Math.abs(again.state.midF - again.expectMid[0]) < 1e-6 && Math.abs(again.expectMid[1] - again.expectMid[2]) > 0.1 && again.state.settled > 0.85 && later.state.blend === 1
       && blendTrace.length > 10 && blendTrace[0] === 0 && blendTrace.every((b, i) => i === 0 || b > blendTrace[i - 1]) && later.state.settled > 0.6 && later.state.figure === 3,
-      JSON.stringify({ since: again.state.since, blend: [again.state.blend, later.state.blend], settled: [again.state.settled, later.state.settled] }));
+      JSON.stringify({ since: again.state.since, blend: [again.state.blend, later.state.blend], settled: [again.state.settled, later.state.settled], mid: [again.state.midF, again.expectMid] }));
 
     // The plate bends and glows where it moves.
     const [, bent] = await plateRun([{ level: 0.8, bins: low, secs: 2 }, { level: 0.8, bins: low, secs: 0.5, trace: true }]);
@@ -1884,8 +1892,8 @@ async function main() {
     check('chladni: the plate glows where it moves, more the louder the voice, and has a lit rim', Math.abs(loud.state.glowMax - 0.1 * loud.state.shake) < 1e-6 && Math.abs(hush.state.glowMax - 0.1 * hush.state.shake) < 1e-6 && hush.state.glowMax < 0.005 && loud.state.plateLit > 1.5 * hush.state.plateLit
       && loud.state.plateDark < 0.03 && hush.state.rimLit > 2 * hush.state.plateLit && loud.lit > 1.5 * hush.lit && close(loud.state.glowTint, loud.expectGlow),
       JSON.stringify({ glow: [loud.state.glowMax, hush.state.glowMax], lit: [loud.state.plateLit, hush.state.plateLit], dark: loud.state.plateDark, rim: hush.state.rimLit, px: [loud.lit, hush.lit], tint: [loud.state.glowTint, loud.expectGlow] }));
-    check('chladni: the plate has its thickness all round, and its skirt hangs from its edge', Math.abs(bent.state.thick[0] - 0.09) < 1e-6 && Math.abs(bent.state.thick[1] - 0.09) < 1e-6 && bent.state.skirtOff < 1e-6 && bent.state.relief > 0,
-      JSON.stringify({ thick: bent.state.thick, off: bent.state.skirtOff, relief: bent.state.relief }));
+    check('chladni: the plate has its thickness all round, bent or not, and its skirt hangs from its edge', Math.abs(up.state.thick[0] - 0.09) < 1e-6 && Math.abs(up.state.thick[1] - 0.09) < 1e-6 && up.state.skirtOff < 1e-6 && up.state.relief > 0.03 && Math.abs(hush.state.thick[0] - 0.09) < 1e-6,
+      JSON.stringify({ thick: up.state.thick, off: up.state.skirtOff, relief: up.state.relief }));
 
     // A throw.
     const settle = { level: 0.3, bins: low, secs: 2.5 };
@@ -1896,6 +1904,15 @@ async function main() {
       && fell.state.air < 0.15 && gap(calm.state.first, fell.state.first) > 0.03 && back.state.settled > 0.7 && back.state.hits === 1 && hit.edge === 0
       && hit.light > PLATE_AIR && Math.abs(hit.solid - calm.solid) < 0.02 * calm.solid && hit.state.first[2] > 0 && close(hit.state.tint, hit.expectTone),
       JSON.stringify({ hits: [calm.state.hits, hit.state.hits, back.state.hits], air: [hit.state.air, fell.state.air], top: hit.state.top, settled: [calm.state.settled, fell.state.settled, back.state.settled], moved: gap(calm.state.first, fell.state.first), light: [calm.light, hit.light], solid: [calm.solid, hit.solid], tint: [hit.state.tint, hit.expectTone] }));
+    const [, , , third] = await plateRun([settle, { level: 1, bins: low, secs: 0.1 }, { level: 0.05, bins: low, secs: 2.7 }, { level: 1, bins: low, secs: 0.1 }]);
+    const [, held] = await plateRun([settle, { level: 1, bins: low, secs: 3.5 }]);
+    // A beat at a level too low to throw, and the level rising past 0.9 a moment later with no beat of its own.
+    const [, , late] = await plateRun([settle, { level: 0.6, bins: low, secs: 0.05 }, { level: 1, bins: low, secs: 0.1 }]);
+    check('chladni: the plate shakes as hard as the voice is loud, and harder on a beat', Math.abs(nearly.state.shake - Math.min(1.2, 0.04 + nearly.state.flame + 0.4 * nearly.state.kick)) < 1e-6 && nearly.state.kick > 0.5 && nearly.state.shake < 1.19
+      && Math.abs(nearly.state.flame - 0.88) > 0.005 && Math.abs(hush.state.shake - (0.04 + hush.state.flame)) < 1e-6, JSON.stringify({ shake: nearly.state.shake, flame: nearly.state.flame, kick: nearly.state.kick }));
+    check('chladni: a throw needs a beat of its own: a held yell throws once, and a level that rises after the beat throws nothing; after 2.5 s a new hit throws again', held.state.hits === 1 && held.state.level === 1
+      && late.state.hits === 0 && late.state.kick > 0.4 && late.state.level === 1 && third.state.hits === 2 && third.state.air > 0.9,
+      JSON.stringify({ held: held.state.hits, late: [late.state.hits, late.state.kick], third: [third.state.hits, third.state.air] }));
     check('chladni: a beat below a level of 0.9 throws nothing, and neither does a second hit within 2.5 s', nearly.state.hits === 0 && nearly.state.kick > 0.5 && nearly.state.air < 0.05 && twice.state.hits === 1 && twice.state.kick > 0.5,
       JSON.stringify({ nearly: [nearly.state.hits, nearly.state.kick, nearly.state.air], twice: [twice.state.hits, twice.state.kick] }));
 
@@ -1913,6 +1930,9 @@ async function main() {
     const [flat] = await turnedBy({}), [face] = await turnedBy({ rotateX: 46 }), [diamond] = await turnedBy({ rotateX: 46, rotateY: 45 }), [spun] = await turnedBy({ rotateY: 45 }), [rolled] = await turnedBy({ rotateZ: 30 });
     // How far the plate's corner is from where the settings put it; the same for the first grain; and for the skirt, from the plate.
     const cornerOff = (r) => Math.max(gap(r.state.corner, r.expectCorner), gap(r.state.grainWorld, r.expectGrain), r.state.skirtWorldOff);
+    const [flatAgain] = await turnedBy({});
+    check('chladni: the sand starts the same every time, so two runs of the same sound leave every grain in the same place', gap(flatAgain.state.first, flat.state.first) === 0 && flatAgain.state.settled === flat.state.settled,
+      JSON.stringify({ a: flatAgain.state.first.slice(0, 3), b: flat.state.first.slice(0, 3) }));
     check('chladni: with no rotation the plate is where it always was', flat.state.turned.join() === '0,0,0' && flat.state.scale === 1 && flat.state.at.join() === '0,0,0' && cornerOff(flat) < 1e-6 && Math.abs(flat.state.corner[0] - 2.2) < 1e-6 && Math.abs(flat.state.corner[2] - 2.2) < 1e-6
       && Math.abs(flat.state.facing - Math.cos(46 * Math.PI / 180)) < 1e-4, JSON.stringify({ corner: flat.state.corner, facing: flat.state.facing }));
     check('chladni: Rotate X at 46 turns the plate to face the camera, like the old effect', face.state.facing > 0.9999 && Math.abs(face.solidBox.w - face.solidBox.h) < 0.05 * face.solidBox.w && face.solidBox.h > flat.solidBox.h && cornerOff(face) < 1e-5
@@ -1938,6 +1958,10 @@ async function main() {
     const [a30, , c30] = await plateRun(fpsSteps, { fps: 30 }), [a60, , c60] = await plateRun(fpsSteps, { fps: 60 });
     // The tone a second and a half after the voice has gone from low to high, at 30 fps: where following at 2.5 a second puts it.
     const [, k30] = await plateRun([{ level: 0.8, bins: low, secs: 0.5 }, { level: 0.8, bins: [[9, 1]], secs: 1.5 }], { fps: 30 });
+    // A throw, two tenths of a second on, at 60 and at 144 fps: the sand is as high and as much of it is in the air.
+    const [, t60] = await plateRun([settle, { level: 1, bins: low, secs: 0.2 }], { fps: 60 }), [, t144] = await plateRun([settle, { level: 1, bins: low, secs: 0.2 }], { fps: 144 });
+    check('chladni: thrown sand flies as high and as long at 144 fps as at 60', t60.state.hits === 1 && t144.state.hits === 1 && t60.state.air > 0.8 && Math.abs(t144.state.air - t60.state.air) < 0.08 && Math.abs(t144.state.top - t60.state.top) < 0.12 * t60.state.top,
+      JSON.stringify({ air: [t60.state.air, t144.state.air], top: [t60.state.top, t144.state.top] }));
     check('chladni: the same sound gives the same kind of figure at 30 and 60 fps', Math.abs(c30.state.clock - 2.9) < 1e-6 && Math.abs(c60.state.clock - 2.9) < 1e-6 && c30.state.figure === 3 && c60.state.figure === 3 && Math.abs(c30.state.since - c60.state.since) < 0.02
       && Math.abs(c30.state.blend - c60.state.blend) < 0.05 && Math.abs(a30.state.settled - a60.state.settled) < 0.05 && a60.state.settled > 0.7 && Math.abs(a30.state.spread - a60.state.spread) < 0.3 * a60.state.spread
       && Math.abs(a30.state.shake - a60.state.shake) < 1e-3 && Math.abs(a30.state.air - a60.state.air) < 0.02 && Math.abs(k30.state.tone - (1 - (10 / 13) * Math.exp(-3.75))) < 1e-4,
