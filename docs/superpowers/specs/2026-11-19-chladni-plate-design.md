@@ -36,23 +36,26 @@ A square plate floats in the box, seen from above at an angle, built on the scen
 - **Loudness shakes the plate.** A grain that lies where the plate moves walks toward the
   nearest line of the figure, faster the louder the voice, and is jostled as it goes. So the
   sand gathers into the figure, and the louder the voice the fuzzier its lines.
-- **Each grain has its own place beside a line**, up to about 0.05 either side of it, so a
-  settled figure is a band of sand and not a hair.
+- **Each grain has its own place beside a line**, up to 0.036 either side of it (the plate
+  is 2 across), so a settled figure is a band of sand and not a hair.
 - **Sand hops where the plate moves.** A grain away from a line is now and then thrown a
   little way up, more often and higher the louder the voice, and travels on while in the air.
 - **A pause leaves a sharp figure.** With the mic on and no sound the plate still hums a
   little (4% of full), enough for the sand to finish gathering and then lie almost still.
 - **Each phrase draws a new figure, and the tone picks which.** The tone is where the
   sound's weight sits among the 16 lowest bins: low gives a simple figure, high an intricate
-  one. When the voice comes back after 0.45 s of quiet the plate takes the figure for the
-  tone at that moment, or the next one along if that is the figure it already has. Within a
-  phrase the figure follows the tone, but not within 1.8 s of the last change.
+  one. When the voice comes back after 0.45 s of quiet (the level below 0.1, then above
+  0.22) the plate takes the figure for the tone at that moment, or the next one along if
+  that is the figure it already has. Within a phrase the figure follows the tone (itself
+  followed at 2.5 a second), but not within 1.8 s of the last change. A plate's first
+  phrase takes what the tone asks for, even the figure it starts on. A sound with too
+  little in its bins to have a tone starts no phrase; the plate keeps its figure.
 - **The plate changes figure over 0.8 s**, as a blend of the old one and the new, and the
-  sand walks from one to the other.
+  sand walks from one to the other. A change waits until the last one has finished.
 - **The plate bends and glows where it moves.** It bends by up to 0.035 times the figure's
   value, four times a second, and glows in a palette colour, both more the louder the voice.
 - **A yell or a mic thump throws all the sand into the air.** A beat (the kit's) with the
-  level at 0.9 or more throws every grain on the plate up and a little sideways, harder the
+  level above 0.9 throws every grain on the plate up and a little sideways, harder the
   nearer the level is to 1, not more than once in 1.2 s. The sand lands scattered and walks
   back.
 - **Mic off, Idle animation on:** the kit's slow swell shakes the plate and the tone drifts
@@ -84,7 +87,7 @@ it. The display name does not change.
   1/30 s is two steps), so the same sound gives the same kind of figure at any frame rate.
   Each grain has its own random numbers, seeded once, so a run is repeatable and no grain's
   path depends on the order grains are stepped in.
-- A figure's value and slope are read from tables of the cosines and sines (512 samples
+- A figure's value and slope are read from tables of the cosines and sines (2,048 cells
   across the plate), built once.
 - The plate is a grid of 48 by 48 cells with a skirt round its edge; its points and
   colours, and the sand's, are written every frame.

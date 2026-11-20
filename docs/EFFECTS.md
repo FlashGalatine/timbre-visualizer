@@ -589,6 +589,55 @@ trace from the frequency bins instead. And nothing in this deck moves from place
 only in shape, so the kit's afterglow gives the traces a little persistence where they rise
 and fall, not the filled wake it leaves behind something that travels.
 
+## The chladni plate (`TimbreChladni`)
+
+`overlay/chladni.js` is the Chladni effect, as `globalThis.TimbreChladni`: a dark plate
+floating in the box, with sand on it that gathers into the lines of a figure as the voice
+shakes the plate. `factories/chladni.js` is one line,
+`VIZ_FACTORIES['chladni'] = TimbreScene.factory(() => TimbreChladni.definition())`. It
+offers:
+
+- **The figures.** `FIGURES` is the ten figures, simplest first, each `[n, m, s]`.
+  `value(fig, x, z)` is a figure's value at a place on the plate (x and z from -1 to 1):
+  `cos(n·π·x)·cos(m·π·z) + s·cos(m·π·x)·cos(n·π·z)`. Its lines are where that is zero.
+  `cell(x)` is the table cell for a place, and `sample(fig, ix, iz, out)` reads a figure's
+  value and its slope each way from the tables (2,048 cells across the plate).
+- **The sound.** `toneOf(bands)` is where the sound's weight sits among the 16 lowest bins,
+  0 to 1, or -1 with too little sound to tell. `wantFigure(tone)` is the figure a tone asks
+  for. `voice()` is what the plate remembers (its figure, the one before, how long since it
+  changed, how long the voice has been quiet) and `listen(st, level, want, dt)` is one
+  moment of listening: a new phrase draws a new figure, and within a phrase the figure
+  follows the tone but is kept for 1.8 s. `blendOf(since)` is how far a change has got.
+- **The shake.** `shakeOf(flame, kick, live)` is how hard the plate shakes. `pace(shake)`,
+  `jostle(shake, h)`, `hopChance(shake, h)` and `hopSpeed(shake, moved, r)` are what that
+  does to a grain. `thrown(level, rose, sinceHit)` is how hard a beat throws the sand.
+- **The sand.** `createSand(n, seed)` makes n grains as plain typed arrays, each with its
+  own place beside a line and its own run of random numbers. `stepSand(sand, count, figA,
+  figB, blend, shake, live, h)` moves the first `count` of them one step: a grain on the
+  plate walks toward its place, is jostled, and may hop; a grain in the air flies and falls.
+  `throwSand(sand, count, strength)` throws those lying on the plate. `measure(...)` says how
+  the sand lies. `stepsFor(dt)` is how many steps a frame takes. `grainCount(density)` is
+  how many grains a Density setting means (6,000 to 30,000).
+- **The plate and the light.** `bend(shake, clock)` is how far the plate is bent just now and
+  `glow(f, shake)` how bright it glows where the figure's value is `f`. `sandBright(shake,
+  inAir)`, `pale(out, rgb)` and `radius(x, z)` are how bright and what colour a grain is.
+  `idle(b, t)` is what a band pretends to hear with the mic off.
+- **The scene.** `definition()` returns the kit scene definition: the plate (a grid of 48
+  by 48 cells with a skirt round its edge) and the sand (points of added light).
+
+All its timing comes from `dt`, and it takes no numbers from `Math.random`. The arithmetic
+touches nothing at load but its own tables, and the file must stay loadable under Node,
+because `npm run verify` imports it; the scene looks up `THREE`, `TimbreScene` and the
+core.js globals only when it is built. It must be loaded after `scene-kit.js` and before
+the factories.
+
+Worth knowing before building another effect out of particles: the sand is stepped in
+steps of about a sixtieth of a second whatever the frame rate, and each grain has its own
+run of random numbers, so a run is repeatable and the checks can step the sand under Node.
+Two frame rates still give the same kind of figure and not the same grains, because a hop
+is a chance taken each step. And the kit's afterglow lingers only where nothing solid is
+drawn: sand over the plate leaves no trail, sand thrown beyond its edge does.
+
 ## Wire format (for driving Timbre from elsewhere)
 
 Anything that can call a Streamer.bot action can drive Timbre:
