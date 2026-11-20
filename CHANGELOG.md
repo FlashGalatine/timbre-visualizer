@@ -148,7 +148,8 @@ traceability.
 
 - **Glass Prism is now a cut crystal turning in the light**, a scene on the scene kit. The
   shaded glass body with its built-in colour map is gone. A twenty-sided crystal floats in
-  the box and tumbles, drawn in light only, so it reads as glass over any backdrop: its
+  the box and tumbles, drawn in light only, so it reads as glass over a dark or mid-toned
+  backdrop: its
   ridges glow, a facet flashes as it turns to face a lamp, the far facets show through the
   near ones, and a soft glow sits inside. Each facet answers one of the ten lowest bands of
   the sound. Like light through a prism its colours come apart: it is drawn in three

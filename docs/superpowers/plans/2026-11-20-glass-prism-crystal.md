@@ -53,3 +53,36 @@ Final stills; offer to switch the live overlay. Merge only after the owner has s
 - A first `tumble` that made the crystal's own turn and then the kick's would have differed
   by about a hundredth of a radian a second between frame rates. Making half the turn
   either side of the kick's brought that to a few ten-thousandths over two seconds.
+
+## What the review found
+
+One independent review (it read the code, ran the arithmetic and three.js's own math under
+Node, and replayed the checks' number-reading parts; no suite, no browser). It found no
+defect in the arithmetic or the scene. What it did find:
+
+- **On a beat or a loud voice the crystal smeared into a blob.** The kit's afterglow kept
+  every frame's ridges. Seen in the built stills as well. The light it leaves is now gone
+  in 0.06 s, and a check holds the light a loud beat leaves to a measured most (42 million
+  against 57 million with the kit's usual afterglow).
+- **On the small page the ridges would come out in dashes.** They are now sized for the
+  page's own pixels.
+- **Checks that read the scene's own numbers where they should read the picture.** New or
+  changed: the copies' roll is about the line of sight (the axis, not only the angle); the
+  light at the outer rim of the picture is the third palette colour; the glow inside is the
+  second; a band lights its facets where they face the viewer and changes nothing where
+  they face away (the facets' facing worked out from three.js's own geometry); the light in
+  a pause is held to a tenth of what was measured; and two seconds of silent tumble are
+  replayed step for step, which pins the moment each step's axis is taken at.
+- The design said "over any backdrop" and "still"; both are now said as they are.
+
+## Found during the build
+
+- **The "holds still, pixel for pixel" flake is the GPU's.** This scene's check failed one
+  run in four with two pixels different by one step, as the same check has now and then in
+  Sunburst, Mountains 3D, Phosphor and Chladni. Twelve runs with every number in the scene
+  fixed, read at 4, 5, 8, 9 and 10 seconds, showed the picture in one of two states, two
+  pixels apart, changing from one to the other at any reading. So it is not in a scene's
+  arithmetic or in light still fading. This scene's two stillness checks now allow up to
+  eight pixels one step apart. The older scenes' checks still compare pixel for pixel.
+- The spin a beat gives is 2.2 to 3.1 radians a second, not 2.2: the three parts of its
+  axis are each up to 2.2.

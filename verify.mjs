@@ -2894,7 +2894,8 @@ await import('./overlay/glass-prism.js');
     'with the mic off the bands take turns, each rising and falling between nothing and 0.6');
   ok(P.highOf([1, 1, 1, 1, 1, 0, 0, 0, 0, 0]) === 0 && P.highOf([0, 0, 0, 0, 0, 1, 1, 1, 1, 1]) === 1 && near(P.highOf([0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0]), 0.1) && near(P.highOf([9, 9, 9, 9, 9, 0.2, 0.4, 0, 0, 1]), 0.32),
     'the high end is the mean of the five highest bands');
-  ok(P.definition().cooling.length === 3 && P.definition().cooling.every((v) => v === Infinity), 'light that lingers keeps its colour');
+  ok(P.definition().cooling.length === 3 && P.definition().cooling.every((v) => v === 0.06) && P.LINGER === 0.06, 'the light it leaves behind is gone in a twentieth of a second, all colours alike, so a fast tumble does not smear');
+  ok(/uniform float uBright, uScale;/.test(P.FRAG) && /fwidth\(m\) \* uScale/.test(P.FRAG) && /max\(0\.007, 0\.75 \* w\)/.test(P.FRAG), 'a ridge is drawn for the pixels of the page: never thinner than three quarters of one');
   ok(P.settle(0) === 0 && P.settle(9e-5) === 0 && P.settle(1e-4) === 1e-4 && P.settle(0.3) === 0.3 && P.settle(1) === 1, 'a level within a ten-thousandth of nothing is nothing');
 
   // The colours coming apart.
