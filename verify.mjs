@@ -113,7 +113,7 @@ console.log('\n[1] table consistency');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['thanksgiving-harvest']) === '{"candleGlow":50,"leafDensity":50,"cameraDrift":50}', 'thanksgiving knobs');
   ok(T.VIZ_SCENES.indexOf('winter-aurora') === 1 && T.VIZ_SCENES.indexOf('thanksgiving-harvest') === 0, 'winter-aurora is the second kit scene');
   const FLAG_IDS = ['pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes'];
-  ok(JSON.stringify(T.VIZ_SCENES) === JSON.stringify(['thanksgiving-harvest', 'winter-aurora', ...FLAG_IDS, 'sunburst-3d', 'mountains-3d', 'phosphor', 'chladni', 'glass-prism']) && FLAG_IDS.every((n) => T.VIZ_USES_3D.includes(n)), 'the five flags are kit scenes, listed after winter-aurora');
+  ok(JSON.stringify(T.VIZ_SCENES) === JSON.stringify(['thanksgiving-harvest', 'winter-aurora', ...FLAG_IDS, 'sunburst-3d', 'mountains-3d', 'phosphor', 'chladni', 'glass-prism', 'metaball']) && FLAG_IDS.every((n) => T.VIZ_USES_3D.includes(n)), 'the five flags are kit scenes, listed after winter-aurora');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['pride-ribbon']) === '{"wind":50,"heartRate":50,"stripeStyle":0,"cameraDrift":50}'
     && ['bi', 'ace', 'trans'].every((p) => JSON.stringify(T.DEFAULT_PER_VIZ[p + '-pride-ribbon']) === '{"wind":50,"heartRate":50,"cameraDrift":50}'), 'pride flag knobs');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['july-fourth-stripes']) === '{"wind":50,"starTwinkle":50,"burstChance":50,"cameraDrift":50}', 'fourth of july flag knobs');
@@ -3185,6 +3185,107 @@ await import('./overlay/glass-prism.js');
   const factory = await readFile(resolve(__dirname, 'overlay/factories/glass-prism.js'), 'utf8');
   ok(/VIZ_FACTORIES\['glass-prism'\] = TimbreScene\.factory\(\(\) => TimbreGlassPrism\.definition\(\)\);/.test(factory) && !/WebGLRenderer/.test(factory), 'the effect is the kit\'s factory around the crystal\'s definition, with no renderer of its own');
   ok(!/Math\.random/.test(await readFile(resolve(__dirname, 'overlay/glass-prism.js'), 'utf8')), 'the crystal takes no numbers from Math.random, so a run is repeatable');
+}
+
+console.log('\n[18] metaball');
+await import('./overlay/metaball.js');
+{
+  const M = globalThis.TimbreMetaball;
+  const near = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol;
+  const D = M.DROPS;
+
+  ok(M.DROPS === 8 && M.REACH === 1.6 && M.BOUND === 2.5 && M.CORE === 0.74 && M.SMOOTH === 0.42 && M.RISE === 12 && M.FALL === 2.2 && M.FOV === 30 && M.PITCH === 12 && JSON.stringify(M.FRAME) === '{"width":5.2,"height":4.2,"center":[0,0,0]}',
+    'the sizes: a ball 0.74 in radius with eight droplets that reach 1.6 from its middle, joined over 0.42, in a sphere of 2.5');
+  ok(M.ease(0) === 0 && M.ease(1) === 1 && near(M.ease(0.5), 0.5) && near(M.ease(0.25), 0.15625) && M.ease(-3) === 0 && M.ease(7) === 1, 'a band is eased: slow to leave and slow to arrive');
+
+  // Where a droplet leaves the ball.
+  {
+    const dirs = [];
+    for (let b = 0; b < D; b++) dirs.push(Array.from(M.direction([0, 0, 0], b)));
+    const sum = dirs.reduce((s, d) => [s[0] + d[0], s[1] + d[1], s[2] + d[2]], [0, 0, 0]);
+    let closest = 9;
+    for (let a = 0; a < D; a++) for (let b = a + 1; b < D; b++) closest = Math.min(closest, Math.hypot(dirs[a][0] - dirs[b][0], dirs[a][1] - dirs[b][1], dirs[a][2] - dirs[b][2]));
+    const flat = (y) => Math.hypot(Math.sqrt(1 - y * y), 0.75 * y);
+    ok(dirs.every((d) => near(Math.hypot(d[0], d[1], d[2]), 1)) && near(dirs[0][1], 0.75 * 0.875 / flat(0.875)) && near(dirs[7][1], -dirs[0][1]) && Math.hypot(sum[0], sum[1], sum[2]) < 0.6 && closest > 0.55
+      && near(dirs[1][0], Math.cos(2.39996) * Math.sqrt(1 - 0.625 * 0.625) / flat(0.625)),
+      'the eight droplets leave the ball in eight ways spread evenly round it, the lowest band near the top and the eighth near the bottom');
+    ok(M.swing(0, 0) === 0 && near(M.swing(2, 0), 0.3 * Math.sin(2)) && near(M.swing(3, 10), 2.2 + 0.3 * Math.sin(10)) && M.swing(1, 5) !== M.swing(2, 5), 'they turn slowly round the ball, each a little ahead of or behind the rest');
+  }
+
+  // How far a droplet goes and how large it is.
+  ok(M.reach(0, 0) === 0 && near(M.reach(1, 0), 1.6) && near(M.reach(0.5, 0), 0.8) && near(M.reach(1, 1), 1.888) && near(M.reach(0.25, 0), 0.25) && M.reach(0, 1) === 0 && near(M.reach(3, 0), 1.6),
+    'a droplet goes as far from the middle as its band is loud, eased, up to 1.6; a beat throws it 18% further');
+  ok(near(M.dropSize(0, 1), 0.44) && near(M.dropSize(7, 1), 0.23) && near(M.dropSize(0, 0), 0.242) && near(M.dropSize(3, 0.5), 0.35 * 0.775) && M.dropSize(2, 1) > M.dropSize(5, 1), 'low bands are large drops and high bands small ones; a droplet still inside the ball is 55% of its size');
+  {
+    const out = new Float32Array(8), p = (b, band, kick, clock, at = 0) => { out.fill(NaN); M.dropAt(out, at, b, band, kick, clock); return Array.from(out.subarray(at, at + 4)); };
+    const d0 = M.direction([0, 0, 0], 3), still = p(3, 1, 0, 0), a = M.swing(3, 0);
+    const want = [(d0[0] * Math.cos(a) + d0[2] * Math.sin(a)) * 1.6, d0[1] * 1.6 + 0.06 * Math.sin(6.3), (-d0[0] * Math.sin(a) + d0[2] * Math.cos(a)) * 1.6, 0.35];
+    ok(still.every((v, i) => near(v, want[i], 1e-6)) && p(3, 0, 0, 0).slice(0, 3).every((v) => v === 0) && near(p(3, 0, 0, 0)[3], 0.35 * 0.55, 1e-6),
+      'a droplet is out along its own way, turned round the ball by its swing, bobbing a little; with its band silent it is at the middle');
+    const later = p(3, 1, 0, 5), kicked = p(3, 1, 1, 0), second = p(5, 0.7, 0, 2, 4);
+    ok(near(Math.hypot(later[0], later[2]), Math.hypot(still[0], still[2]), 1e-5) && Math.abs(later[0] - still[0]) > 0.1 && near(Math.hypot(kicked[0], kicked[2]), 1.18 * Math.hypot(still[0], still[2]), 1e-5) && near(kicked[3], 0.35, 1e-6)
+      && Number.isNaN(out[0]) && Number.isFinite(second[0]) && near(second[3], M.dropSize(5, 0.7), 1e-6), 'as time passes it goes round the ball at the same distance; a beat throws it further; it is written where it is asked for');
+    const core = Array.from(M.coreAt(new Float32Array(4), 0, 0, 0, 0)), loud = Array.from(M.coreAt(new Float32Array(4), 0, 1, 1, 2));
+    ok(core[0] === 0 && core[1] === 0 && core[2] === 0 && near(core[3], 0.74, 1e-6) && near(loud[3], 0.91, 1e-6) && near(loud[1], 0.04 * Math.sin(2.6), 1e-6) && loud[0] === 0,
+      'the ball sits in the middle, bobbing a hair; loudness swells it by up to 0.1 and a beat by 0.07 more');
+  }
+
+  // The smooth union, and the surface it makes.
+  ok(M.smin(1, 2, 0.42) === 1 && M.smin(2, 1, 0.42) === 1 && near(M.smin(0.3, 0.3, 0.42), 0.3 - 0.105) && near(M.smin(0.3, 0.5, 0.42), M.smin(0.5, 0.3, 0.42)) && M.smin(0.3, 0.5, 0.42) < 0.3 && M.smin(0.3, 0.5, 0.42) > 0.2,
+    'two surfaces further apart than 0.42 leave each other alone; nearer, they flow together');
+  {
+    const balls = new Float32Array(36);
+    const set = (bands, flame = 0, kick = 0, clock = 0) => { M.coreAt(balls, 0, flame, kick, clock); for (let b = 0; b < D; b++) M.dropAt(balls, 4 + b * 4, b, bands[b], kick, clock); };
+    const none = new Array(D).fill(0), all = new Array(D).fill(1);
+    // With every band silent the surface is the ball alone: round, 0.74 out, whichever way one looks.
+    set(none);
+    let round = true;
+    for (let i = 0; i < 40; i++) { const a = i * 1.7, y = Math.sin(i * 0.9), r = Math.sqrt(1 - y * y), p = [Math.cos(a) * r, y, Math.sin(a) * r]; if (Math.abs(M.field(p[0] * 0.74, p[1] * 0.74, p[2] * 0.74, balls)) > 1e-6 || !near(M.field(p[0] * 2, p[1] * 2, p[2] * 2, balls), 1.26, 1e-6)) round = false; }
+    ok(round && near(M.field(0, 0, 0, balls), -0.74, 1e-6), 'with every band silent the droplets are inside the ball and the surface is the ball alone, round');
+    // One droplet at three distances: along the line from the middle to the droplet's own middle.
+    const along = (b, band) => { const bands = none.slice(); bands[b] = band; set(bands); const c = balls.subarray(4 + b * 4, 8 + b * 4), far = Math.hypot(c[0], c[1], c[2]); let worst = -9, at = 0; for (let s = 0; s <= 200; s++) { const u = s / 200, v = M.field(c[0] * u, c[1] * u, c[2] * u, balls); if (v > worst) { worst = v; at = u * far; } } return { worst, at, far, own: M.field(c[0], c[1], c[2], balls), size: c[3] }; };
+    const bulge = along(2, 0.45), neck = along(2, 0.65), apart = along(2, 1), small = along(7, 1), large = along(0, 1);
+    ok(bulge.worst < -0.2 && bulge.far > 0.4, 'a droplet partly out is a bulge on the ball: metal all the way from the middle to it');
+    ok(neck.worst < 0 && neck.worst > -0.15 && neck.at > 0.74 && neck.at < neck.far - neck.size, 'further out it is joined to the ball by a neck, thinnest between them');
+    ok(apart.worst > 0.05 && apart.own < 0 && small.worst > 0.15 && small.own < 0 && large.worst > 0.05 && large.own < 0 && near(apart.far, 1.6, 0.07) && near(large.far, 1.6, 0.07), 'right out it has pinched off, the largest droplet too: there is a gap between it and the ball');
+    // Louder and on a beat, still apart; and nothing reaches past the sphere the surface is drawn on.
+    set(all, 1, 1, 3.3);
+    let furthest = 0;
+    for (let i = 0; i < 9; i++) furthest = Math.max(furthest, Math.hypot(balls[i * 4], balls[i * 4 + 1], balls[i * 4 + 2]) + balls[i * 4 + 3]);
+    ok(furthest < M.BOUND - 0.05 && furthest > 2.2, 'with every band full, on a beat, nothing reaches past the sphere the surface is drawn on');
+  }
+
+  // Light, the edge, and the bands.
+  ok(M.glowOf(0, 0) === 0 && near(M.glowOf(1, 0), 0.25) && near(M.glowOf(0.4, 1), 0.6), 'the metal glows with the voice, and more on a beat');
+  ok(near(M.pixelOf(624, 1), (2 * Math.tan(15 * Math.PI / 180) / 624) * 1.5) && near(M.pixelOf(520, 1), M.pixelOf(1040, 1) * 2) && near(M.pixelOf(624, 2), M.pixelOf(624, 1) / 2) && M.pixelOf(0, 1) === M.pixelOf(1, 1),
+    'the soft edge is a pixel and a half wide: narrower in a taller picture, and with the camera zoomed in');
+  {
+    const bins = new Uint8Array(32); bins[0] = 255; bins[1] = 51; bins[7] = 102;
+    ok(near(M.loudness(bins, 0, 1), 1) && near(M.loudness(bins, 1, 1), 0.2) && near(M.loudness(bins, 7, 1), 0.4) && near(M.loudness(bins, 1, 2), 0.4) && M.loudness(bins, 7, 3) === 1 && M.loudness(bins, 1, 0) === 0
+      && M.loudness(null, 3, 1) === 0 && M.loudness(new Uint8Array(0), 3, 1) === 0 && M.loudness(bins, 40, 1) === 0, 'a band is as loud as its bin, times Gain, held to 1; nothing with no bins or a band past the last bin');
+  }
+  ok(near(M.idle(2, 3), Math.max(0, 0.34 + 0.34 * Math.sin(1.5 + 3.8))) && near(M.idle(6, 3), 0.6 * Math.max(0, 0.34 + 0.34 * Math.sin(1.5 + 11.4))) && [0, 1, 2, 3, 4, 5, 6, 7].every((b) => M.idle(b, 11.3) >= 0 && M.idle(b, 11.3) <= 1)
+    && Math.abs(M.idle(1, 0) - M.idle(1, 3)) > 0.05, 'with the mic off the bands follow a slow pattern, the higher ones weaker');
+  ok(typeof M.FRAG === 'string' && M.FRAG.includes('uBall[9]') && M.FRAG.includes('0.42') && M.FRAG.includes('i < 9') && typeof M.VERT === 'string' && !/gl_FragDepth/.test(M.FRAG),
+    'the shader joins the ball and its eight droplets with the same smooth union');
+
+  // The table.
+  ok(T.VIZ_SCENES[T.VIZ_SCENES.length - 1] === 'metaball' && T.VIZ_USES_3D.includes('metaball'), 'metaball is a kit scene, listed after chladni');
+  ok(JSON.stringify(T.DEFAULT_PER_VIZ['metaball']) === '{"chrome":50,"cameraDrift":50}', 'metaball knobs: chrome and camera drift');
+  const oldBlob = T.sanitizeConfig({ activeViz: 'metaball', perViz: { 'metaball': { chrome: 80 } } });
+  ok(oldBlob.activeViz === 'metaball' && JSON.stringify(oldBlob.perViz['metaball']) === '{"chrome":80,"cameraDrift":50}', 'a saved pre-redesign metaball config keeps its chrome and gains the new default');
+  ok(!('metaball' in T.VIZ_LABELS), 'metaball keeps the name it is listed by');
+
+  // The files.
+  const order = [];
+  for (const p of ['300x220', '1440x1080', '1920x1080']) {
+    const html = await readFile(resolve(__dirname, `overlay/mic-visualizers-${p}.html`), 'utf8');
+    const pos = html.indexOf('src="metaball.js"');
+    order.push(pos > html.indexOf('src="chladni.js"') && pos > html.indexOf('src="scene-kit.js"') && pos < html.indexOf('src="factories/'));
+  }
+  ok(order.every(Boolean), 'all three overlay pages load metaball.js after the scene kit and chladni.js and before the factories');
+  const factory = await readFile(resolve(__dirname, 'overlay/factories/metaball.js'), 'utf8');
+  ok(/VIZ_FACTORIES\['metaball'\] = TimbreScene\.factory\(\(\) => TimbreMetaball\.definition\(\)\);/.test(factory) && !/WebGLRenderer/.test(factory), 'the effect is the kit\'s factory around the metaball\'s definition, with no renderer of its own');
 }
 
 // ── 4. Live transport seam (mock SB + real panel-client-sb.js) ───────────────

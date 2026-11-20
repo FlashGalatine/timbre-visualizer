@@ -2444,6 +2444,179 @@ async function main() {
 
     }
 
+    // ── The metaball (a kit scene: a ball of liquid metal and its droplets) ────
+    {   // its own block: the names below are the metaball's own
+    // Build the scene afresh, drive the level and the 32 bins by hand, and read the canvas and
+    // the scene after each step. A step gives level (null: whatever the kit hears), secs, and
+    // either all (every bin, 0..1) or bins ([[bin, 0..1], ...]); idle: true has the mic off,
+    // off: true has the mic and Idle animation off.
+    const BLOB = 'metaball';
+    const blobRun = (steps, { fps = 60, knobs = null, hue = null, colorSpeed = null, gain = null } = {}) => wide.evaluate(({ id, steps, fps, knobs, hue, colorSpeed, gain }) => {
+      window.frame = function () {};
+      const saved = { frequencies, micActive, cfgIdleAnim, cfgColorHue, cfgColorSpeed, cfgGain }, knobs0 = Object.assign({}, perViz[id]);
+      try {
+        if (knobs) Object.assign(perViz[id], knobs);
+        if (hue !== null) cfgColorHue = hue;
+        if (colorSpeed !== null) cfgColorSpeed = colorSpeed;
+        if (gain !== null) cfgGain = gain;
+        TimbreScene.testLevel = 0;
+        setActiveViz('visualizer'); setActiveViz(id);
+        const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), f = new Uint8Array(32), out = [];
+        let now = 100000 + 1000 / 120, last = null;
+        for (const st of steps) {
+          TimbreScene.testLevel = st.level;
+          micActive = !st.idle && !st.off;
+          cfgIdleAnim = st.off ? false : saved.cfgIdleAnim;
+          if (st.knobs) Object.assign(perViz[id], st.knobs);
+          f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
+          if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
+          frequencies = f;
+          for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) { now += 1000 / fps; currentViz.draw(now, 1 / fps); }
+          const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);   // row 0 is the bottom of the canvas
+          // solid: the metal. soft: its edge, neither solid nor clear. light: light over the background, which
+          // this scene should not make. sum: how bright the metal is in all. shine: pixels of white highlight.
+          let solid = 0, soft = 0, light = 0, edge = 0, empty = 0, sum = 0, shine = 0, hash = 2166136261;
+          for (let i = 0; i < px.length; i++) hash = Math.imul(hash ^ px[i], 16777619) >>> 0;   // the whole picture, as one number
+          const solidBox = [w, -1, h, -1];
+          for (let i = 0; i < px.length; i += 4) {
+            const x = (i / 4) % w, y = Math.floor(i / 4 / w), rgb = px[i] + px[i + 1] + px[i + 2], a = px[i + 3];
+            if (a > 250) {
+              solid++; sum += rgb; if (rgb > 690) shine++;
+              if (x < solidBox[0]) solidBox[0] = x; if (x > solidBox[1]) solidBox[1] = x; if (y < solidBox[2]) solidBox[2] = y; if (y > solidBox[3]) solidBox[3] = y;
+              if (x < 4 || y < 4 || x >= w - 4 || y >= h - 4) edge++;
+            } else if (a >= 5) soft++;
+            else if (rgb > 12) light++;
+            if (a === 0 && rgb === 0) empty++;
+          }
+          const size = (b) => ({ w: b[1] < 0 ? 0 : b[1] - b[0] + 1, h: b[3] < 0 ? 0 : b[3] - b[2] + 1, cx: (b[0] + b[1]) / 2, cy: (b[2] + b[3]) / 2 });
+          // How this picture differs from the last step's, for when a still picture is not still.
+          const diff = { n: 0, max: 0 };
+          if (last) for (let i = 0; i < px.length; i++) { const d = Math.abs(px[i] - last[i]); if (d) { diff.n++; if (d > diff.max) diff.max = d; } }
+          last = px;
+          const s = window.__timbre.scene, state = (s && s.state) || {};
+          out.push({ state, solid, soft, light, edge, shine, mean: solid ? sum / solid : 0, empty: empty / (w * h), cornerAlpha: px[3], solidBox: size(solidBox), canvas: [w, h], hash, diff, kitCam: s ? s.camera : null,
+            expect: state.balls ? [getColor(state.colorT), getColor(state.colorT + 1), getColor(state.colorT + 2)] : null,
+            expectPixel: state.balls ? TimbreMetaball.pixelOf(TimbreScene.renderScale(gl.canvas.height) * gl.canvas.height, 1) : null });
+        }
+        return out;
+      } finally {
+        frequencies = saved.frequencies; micActive = saved.micActive; cfgIdleAnim = saved.cfgIdleAnim; cfgColorHue = saved.cfgColorHue; cfgColorSpeed = saved.cfgColorSpeed; cfgGain = saved.cfgGain;
+        Object.assign(perViz[id], knobs0); TimbreScene.testLevel = null;
+      }
+    }, { id: BLOB, steps, fps, knobs, hue, colorSpeed, gain });
+    const top = (a) => Math.max(...a);
+    const gap = (a, b) => top(a.map((v, i) => Math.abs(v - b[i])));
+    const close = (a, b) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= 2);
+    const smooth = (v) => { const u = Math.min(1, Math.max(0, v)); return u * u * (3 - 2 * u); };
+    // Droplet b of a run (the ball is 0): how far its middle is from the scene's, and its radius.
+    const far = (r, i) => Math.hypot(r.state.balls[i * 4], r.state.balls[i * 4 + 1], r.state.balls[i * 4 + 2]);
+    const radius = (r, i) => r.state.balls[i * 4 + 3];
+    const talk = [{ level: 0.8, all: 0.8, secs: 3 }];
+    // Thresholds are 60% of what the scene gives after 3 s at a steady 0.8 with every band sounding: about
+    // BLOB_SOLID_SEEN solid pixels.
+    const BLOB_SOLID = 1e9;
+
+    await activate(BLOB);
+    const blobState = await sceneState();
+    const [loud] = await blobRun(talk);
+    const [hush] = await blobRun([{ level: 0, secs: 2 }]);
+    check('metaball is a kit scene: solid metal that adds no light, with a transparent corner',
+      !!blobState && blobState.active === true && blobState.targetSize[0] === 1728 && loud.solid > BLOB_SOLID && loud.cornerAlpha === 0 && loud.edge === 0 && loud.empty > 0.5 && loud.light < 0.01 * loud.solid && loud.state.transparent === true
+        && loud.state.balls.length === 36,
+      JSON.stringify({ size: blobState && blobState.targetSize, solid: [loud.solid, hush.solid], soft: [loud.soft, hush.soft], light: loud.light, corner: loud.cornerAlpha, edge: loud.edge, empty: loud.empty, box: [loud.solidBox, hush.solidBox], mean: loud.mean, shine: loud.shine }));
+    check('metaball: a pause is one round ball in the middle of the frame', hush.state.out === 0 && [1, 2, 3, 4, 5, 6, 7, 8].every((i) => far(hush, i) < 1e-6) && Math.abs(radius(hush, 0) - 0.74) < 1e-4 && Math.abs(hush.solidBox.w - hush.solidBox.h) < 0.04 * hush.solidBox.w
+      && Math.abs(hush.solidBox.cx - hush.canvas[0] / 2) < 0.04 * hush.canvas[0] && Math.abs(hush.solidBox.cy - hush.canvas[1] / 2) < 0.08 * hush.canvas[1] && Math.abs(hush.solid - Math.PI * hush.solidBox.w * hush.solidBox.w / 4) < 0.05 * hush.solid,
+      JSON.stringify({ out: hush.state.out, radius: radius(hush, 0), box: hush.solidBox, solid: hush.solid }));
+    check('metaball: with every band sounding, every droplet is out and the blob is far larger', loud.state.out === 8 && [1, 2, 3, 4, 5, 6, 7, 8].every((i) => Math.abs(far(loud, i) - 1.6 * smooth(Math.min(1, loud.state.bands[i - 1]))) < 0.07) && loud.state.bands.every((b) => b > 0.7)
+      && loud.solid > 1.5 * hush.solid && loud.solidBox.w > 1.6 * hush.solidBox.w, JSON.stringify({ out: loud.state.out, far: [1, 4, 8].map((i) => far(loud, i)), bands: loud.state.bands, solid: [hush.solid, loud.solid] }));
+    check('metaball: the surface has a soft edge about a pixel wide', hush.soft > 0.3 * Math.PI * hush.solidBox.w && hush.soft < 4 * Math.PI * hush.solidBox.w && Math.abs(hush.state.pixel - hush.expectPixel) < 1e-12 && hush.state.uniforms[2] === hush.state.pixel,
+      JSON.stringify({ soft: hush.soft, around: Math.PI * hush.solidBox.w, pixel: [hush.state.pixel, hush.expectPixel] }));
+
+    // A band and its droplet.
+    const [third] = await blobRun([{ level: 0.6, bins: [[2, 1]], secs: 1.5 }], { gain: 1 });
+    check('metaball: a band pulls its own droplet out, and no other', third.state.out === 1 && Math.abs(far(third, 3) - 1.6) < 0.07 && Math.abs(radius(third, 3) - 0.38) < 1e-3 && [1, 2, 4, 5, 6, 7, 8].every((i) => far(third, i) < 1e-6)
+      && Math.abs(radius(third, 1) - 0.44 * 0.55) < 1e-4, JSON.stringify({ out: third.state.out, far: [1, 2, 3, 4].map((i) => far(third, i)), radius: [radius(third, 1), radius(third, 3)] }));
+    const [risen, fallen] = await blobRun([{ level: 0.6, bins: [[2, 1]], secs: 0.1 }, { level: 0.6, secs: 0.5 }], { gain: 1 });
+    check('metaball: a band is followed, quick out and slow home', Math.abs(risen.state.bands[2] - (1 - Math.exp(-1.2))) < 1e-5 && Math.abs(fallen.state.bands[2] - (1 - Math.exp(-1.2)) * Math.exp(-1.1)) < 1e-5 && risen.state.bands[3] === 0 && far(fallen, 3) < far(risen, 3) && far(fallen, 3) > 0.05,
+      JSON.stringify({ bands: [risen.state.bands[2], fallen.state.bands[2]], far: [far(risen, 3), far(fallen, 3)] }));
+    const quiet = [{ level: 0.6, bins: [[2, 0.4]], secs: 1.5 }];
+    const [plain] = await blobRun(quiet, { gain: 1 }), [boosted] = await blobRun(quiet, { gain: 2 });
+    check('metaball: Gain scales how loud a band is, and so how far its droplet goes', Math.abs(plain.state.bands[2] - 0.4) < 0.005 && Math.abs(boosted.state.bands[2] - 0.8) < 0.005 && Math.abs(far(plain, 3) - 1.6 * smooth(plain.state.bands[2])) < 0.07 && far(boosted, 3) > far(plain, 3) + 0.5,
+      JSON.stringify({ bands: [plain.state.bands[2], boosted.state.bands[2]], far: [far(plain, 3), far(boosted, 3)] }));
+
+    // Loudness and a beat.
+    const [swollen] = await blobRun([{ level: 0.8, secs: 2 }]);
+    check('metaball: the voice swells the ball and makes the metal glow', Math.abs(radius(swollen, 0) - (0.74 + 0.1 * swollen.state.flame + 0.07 * swollen.state.kick)) < 1e-4 && Math.abs(swollen.state.flame - 0.8) < 0.01 && Math.abs(swollen.state.glow - 0.2) < 0.01
+      && swollen.state.uniforms[1] === swollen.state.glow && hush.state.glow < 0.01 && swollen.solid > 1.1 * hush.solid, JSON.stringify({ radius: radius(swollen, 0), flame: swollen.state.flame, glow: [swollen.state.glow, hush.state.glow], solid: [hush.solid, swollen.solid] }));
+    const beat = [{ level: 0.05, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, secs: 0.1 }, { level: 0.9, all: 0.5, secs: 2.5 }];
+    const [calm, hit, after] = await blobRun(beat, { gain: 1 });
+    check('metaball: a beat throws every droplet further, swells the ball and brightens the glow, then lets go', hit.state.kick > 0.5 && after.state.kick < 0.001 && calm.state.kick === 0
+      && [1, 4, 8].every((i) => Math.abs(far(hit, i) - 1.6 * smooth(hit.state.bands[i - 1]) * (1 + 0.18 * hit.state.kick)) < 0.07 && far(hit, i) > far(calm, i) * 1.05)
+      && Math.abs(radius(hit, 0) - (0.74 + 0.1 * hit.state.flame + 0.07 * hit.state.kick)) < 1e-4 && Math.abs(hit.state.glow - (0.25 * hit.state.flame + 0.5 * hit.state.kick)) < 1e-5 && hit.state.glow > after.state.glow + 0.2 && hit.edge === 0,
+      JSON.stringify({ kick: [calm.state.kick, hit.state.kick, after.state.kick], far: [far(calm, 1), far(hit, 1), far(after, 1)], radius: [radius(calm, 0), radius(hit, 0)], glow: [hit.state.glow, after.state.glow] }));
+
+    // Chrome.
+    const [matte] = await blobRun(talk, { knobs: { chrome: 0 } }), [mirror] = await blobRun(talk, { knobs: { chrome: 100 } });
+    check('metaball: Chrome 0 is a soft shaded body and 100 all mirror', matte.state.chrome === 0 && mirror.state.chrome === 1 && loud.state.chrome === 0.5 && matte.state.uniforms[0] === 0 && mirror.state.uniforms[0] === 1 && matte.hash !== mirror.hash && matte.hash !== loud.hash
+      && mirror.shine > 1.5 * matte.shine + 20 && Math.abs(mirror.solid - matte.solid) < 0.01 * matte.solid, JSON.stringify({ chrome: [matte.state.chrome, loud.state.chrome, mirror.state.chrome], shine: [matte.shine, loud.shine, mirror.shine], mean: [matte.mean, loud.mean, mirror.mean] }));
+
+    // Camera.
+    const [still] = await blobRun(talk, { knobs: { cameraDrift: 0 } }), [drift] = await blobRun(talk, { knobs: { cameraDrift: 100 } });
+    check('metaball: Camera drift 0 holds the camera still; 100 doubles the sway', still.state.orbit === 0 && Math.abs(loud.state.orbit) > 0.005 && Math.abs(drift.state.orbit - 2 * loud.state.orbit) < 1e-9
+      && Math.abs(still.kitCam[0]) < 1e-6 && Math.abs(drift.kitCam[0]) > 1.5 * Math.abs(loud.kitCam[0]) && Math.abs(loud.kitCam[0]) > 0.05,
+      JSON.stringify({ orbit: [still.state.orbit, loud.state.orbit, drift.state.orbit], x: [still.kitCam[0], loud.kitCam[0], drift.kitCam[0]] }));
+
+    // The same at any frame rate.
+    const fpsSteps = [{ level: 0.8, all: 0.8, secs: 1 }, { level: 0, all: 0, secs: 0.5 }];
+    const [, d30] = await blobRun(fpsSteps, { fps: 30 }), [, d60] = await blobRun(fpsSteps, { fps: 60 });
+    const onset = [{ level: 0.6, bins: [[2, 1]], secs: 0.1 }];
+    const [b30] = await blobRun(onset, { fps: 30, gain: 1 }), [b60] = await blobRun(onset, { fps: 60, gain: 1 });
+    check('metaball: the same sound gives the same blob at 30 and 60 fps', Math.abs(d30.state.clock - 1.5) < 1e-6 && Math.abs(d60.state.clock - 1.5) < 1e-6 && gap(d30.state.bands, d60.state.bands) < 1e-5 && gap(d30.state.balls, d60.state.balls) < 0.03 && far(d60, 1) > 0.3
+      && Math.abs(b30.state.bands[2] - (1 - Math.exp(-1.2))) < 1e-5 && Math.abs(b60.state.bands[2] - (1 - Math.exp(-1.2))) < 1e-5,
+      JSON.stringify({ clock: [d30.state.clock, d60.state.clock], bands: gap(d30.state.bands, d60.state.bands), balls: gap(d30.state.balls, d60.state.balls), band: [b30.state.bands[2], b60.state.bands[2]] }));
+
+    // Mic off.
+    const [idle1, idle2] = await blobRun([{ level: null, idle: true, secs: 3 }, { level: null, idle: true, secs: 1.5 }]);
+    check('metaball: with the mic off and Idle animation on, droplets come and go', idle1.state.live === true && Math.abs(idle2.state.clock - 4.5) < 1e-6 && gap(idle1.state.balls, idle2.state.balls) > 0.05 && top(idle2.state.bands) > 0.3 && top(idle2.state.bands) < 0.75
+      && [1, 2, 3, 4, 5, 6, 7, 8].some((i) => far(idle2, i) > 0.3), JSON.stringify({ clock: [idle1.state.clock, idle2.state.clock], moved: gap(idle1.state.balls, idle2.state.balls), bands: idle2.state.bands }));
+    // Camera drift 0 and a palette that stands still, so that nothing but the scene could move the picture.
+    const [off1, off2] = await blobRun([{ level: null, off: true, secs: 3 }, { level: null, off: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
+    const [on1, on2] = await blobRun([{ level: null, idle: true, secs: 3 }, { level: null, idle: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
+    check('metaball: with the mic and Idle animation off the picture holds still, pixel for pixel', off1.hash === off2.hash && on1.hash !== on2.hash && off2.solid > 500 && off2.state.live === false && off2.state.clock === 0 && off2.state.out === 0,
+      JSON.stringify({ off: [off1.hash, off2.hash], idle: [on1.hash, on2.hash], solid: off2.solid, differs: off2.diff }));
+    const [live1, muted1, muted2, muted3] = await blobRun([{ level: 0.8, all: 0.8, secs: 2 }, { level: null, off: true, secs: 0.5 }, { level: null, off: true, secs: 7.5 }, { level: null, off: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
+    check('metaball: muted in the middle of a stream, the droplets stop turning, drift home, and then nothing moves', muted1.state.live === false && muted1.state.clock === live1.state.clock && muted2.state.clock === live1.state.clock && live1.state.out === 8
+      && far(muted1, 1) > 0.05 && far(muted1, 1) < far(live1, 1) && muted2.state.bands.every((b) => b === 0) && [1, 2, 3, 4, 5, 6, 7, 8].every((i) => far(muted2, i) === 0) && muted2.hash === muted3.hash && muted1.hash !== muted2.hash,
+      JSON.stringify({ clock: [live1.state.clock, muted1.state.clock, muted2.state.clock], far: [far(live1, 1), far(muted1, 1), far(muted2, 1)], bands: muted2.state.bands.slice(0, 3), differs: muted3.diff }));
+
+    // Colour.
+    const [hued] = await blobRun(talk, { hue: 2 });
+    check('metaball: the metal, its horizon and its sky are three palette colours, and the hue setting moves them', close(loud.state.body, loud.expect[0]) && close(loud.state.horizon, loud.expect[1]) && close(loud.state.sky, loud.expect[2])
+      && close(hued.state.body, hued.expect[0]) && !close(hued.state.body, loud.state.body), JSON.stringify({ body: [loud.state.body, loud.expect[0]], horizon: [loud.state.horizon, loud.expect[1]], sky: [loud.state.sky, loud.expect[2]], hued: hued.state.body }));
+
+    // Placement and cost.
+    await activate(BLOB);
+    const blobP0 = await probe();
+    await pushConfig((c) => { c.activeViz = 'metaball'; c.placement.x = 30; });
+    await wide.waitForTimeout(400);
+    const blobP1 = await probe();
+    check('metaball: Scene placement slides it', blobP1.centroidX - blobP0.centroidX > 150, `${blobP0.centroidX.toFixed(0)} → ${blobP1.centroidX.toFixed(0)}`);
+    await pushConfig((c) => { c.activeViz = 'metaball'; c.placement.size = 50; });
+    await wide.waitForTimeout(400);
+    const halfEdge = await wide.evaluate(() => { currentViz.draw(performance.now(), 1 / 60); currentViz.draw(performance.now() + 17, 1 / 60); return window.__timbre.scene.state.pixel; });
+    // The small page draws into a picture several times taller than its canvas.
+    const smallBlob = await page.evaluate(() => { currentViz.draw(performance.now(), 1 / 60); currentViz.draw(performance.now() + 17, 1 / 60); const s = window.__timbre.scene, c = document.getElementById('vizCanvas3D'); return { name: window.__timbre.currentVizName, scale: s && s.renderScale, pixel: s && s.state.pixel, want: TimbreMetaball.pixelOf(s.renderScale * c.height, 0.5) }; });
+    check('metaball: the soft edge stays a pixel and a half wide under the Size slider and on the small page', Math.abs(halfEdge - 2 * hush.state.pixel) < 1e-12 && smallBlob.name === 'metaball' && smallBlob.scale >= 2 && Math.abs(smallBlob.pixel - smallBlob.want) < 1e-12,
+      JSON.stringify({ half: halfEdge, full: hush.state.pixel, small: smallBlob }));
+    await pushConfig((c) => { c.placement.x = 0; });
+    await wide.waitForTimeout(300);
+    await activate(BLOB);
+    const blobCost = await wide.evaluate(() => { let now = performance.now(), acc = 0; for (let i = 0; i < 120; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); acc += performance.now() - t; } return acc / 120; });
+    check(`metaball: draw() averages under 5 ms of script time (${blobCost.toFixed(2)} ms)`, blobCost < 5);
+
+    }
+
     // Every kit scene, so the next one is covered without a new check.
     const gpuAfterSelect = (name) => wide.evaluate((n) => { setActiveViz('visualizer'); setActiveViz(n); currentViz.draw(performance.now(), 1 / 60); const s = window.__timbre.scene; return [s.memory.geometries, s.memory.textures, s.programs]; }, name);
     for (const name of T.VIZ_SCENES) {
@@ -2474,7 +2647,7 @@ async function main() {
       } finally { gl.createTexture = create; gl.deleteTexture = del; }
       return out;
     }, T.VIZ_SCENES);
-    const TEXTURES = { 'thanksgiving-harvest': 9, 'winter-aurora': 8, 'pride-ribbon': 5, 'bi-pride-ribbon': 5, 'ace-pride-ribbon': 5, 'trans-pride-ribbon': 5, 'july-fourth-stripes': 7, 'sunburst-3d': 5, 'mountains-3d': 5, 'phosphor': 4, 'chladni': 4, 'glass-prism': 4 };
+    const TEXTURES = { 'thanksgiving-harvest': 9, 'winter-aurora': 8, 'pride-ribbon': 5, 'bi-pride-ribbon': 5, 'ace-pride-ribbon': 5, 'trans-pride-ribbon': 5, 'july-fourth-stripes': 7, 'sunburst-3d': 5, 'mountains-3d': 5, 'phosphor': 4, 'chladni': 4, 'glass-prism': 4, 'metaball': 3 };
     check('a scene deletes every GL texture it made, whichever scene ran before it',
       Object.keys(texturesLeft).length === T.VIZ_SCENES.length ** 2 && Object.entries(texturesLeft).every(([pair, [made, left]]) => made >= TEXTURES[pair.split(' then ')[1]] && left === 0), JSON.stringify(texturesLeft));
 
