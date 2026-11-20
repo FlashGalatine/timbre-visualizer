@@ -32,6 +32,11 @@
   const NC = NX + 1, NR = NZ + 2;    // points in a row; rows drawn (the two edges and the stored rows between)
   const ROWS = NZ + 4;               // stored rows kept
   const SNOW_RGB = [0.93, 0.95, 1];
+  const FOV = 30, PITCH = 18;        // the camera: how wide it sees and how far it looks down, in degrees
+  const FRAME = { width: 8.8, height: 5.4, center: [0, 0.8, 0.2] };   // what the camera frames
+  // The block as a box, for the Rotate settings to keep in the frame: its base, and its tallest peak lifted.
+  const BOX = { min: [-W / 2, -BASE, -D / 2], max: [W / 2, HMAX * 1.2, D / 2] }, VIEW = { frame: FRAME, fov: FOV, pitch: PITCH };
+  const RAD = Math.PI / 180;
 
   // A fixed number in 0..1 for each lattice point.
   function hash(ix, iz) {
@@ -235,24 +240,32 @@
   function definition() {
     const ID = 'mountains-3d';
     // A setting, read live so the control panel's sliders apply at once.
-    const knob = (name) => {
+    const knob = (name, unset = 50) => {
       const v = typeof perViz !== 'undefined' && perViz[ID];
-      return v && typeof v[name] === 'number' ? v[name] : 50;
+      return v && typeof v[name] === 'number' ? v[name] : unset;
     };
     const amps = new Float32Array(NC), bands = new Float32Array(NC), tones = new Float32Array(NC * 3);
     const heights = new Float32Array(NR * NC), rgb = [0, 0, 0], tone = [0, 0, 0];
     for (let c = 0; c < NC; c++) bands[c] = bandOf(columnX(c));
-    let THREE = null, land = null, mesh = null, skirt = null, skirtFrom = null, sun = null, haze = null, key = null;
+    let THREE = null, whole = null, land = null, mesh = null, skirt = null, skirtFrom = null, sun = null, haze = null, key = null;
+    let pose = { scale: 1, x: 0, y: 0, z: 0 };
+    const turned = [0, 0, 0];
     let colour = null, white = null;
     // What the checks read. travel: how far the land has come; peak: the tallest point drawn,
     // before the lift; amp: the mean loudness across the range; clock: seconds the scene has
     // been live; snowy: how many points are more snow than rock.
-    const s = { flame: 0, kick: 0, slow: 0, travel: 0, top: 0, peak: 0, amp: 0, lift: 1, live: false, clock: 0, orbit: 0, colorT: 0, snowy: 0, sun: 0, sunY: 0, sunSize: 0, glow: 0 };
+    const s = { flame: 0, kick: 0, slow: 0, travel: 0, top: 0, peak: 0, amp: 0, lift: 1, live: false, clock: 0, orbit: 0, colorT: 0, snowy: 0, sun: 0, sunY: 0, sunSize: 0, glow: 0, turned: [0, 0, 0], scale: 1, at: [0, 0, 0], corner: [0, 0, 0] };
+    let cornerAt = null;
 
     function build(k) {
       THREE = k.THREE;
       colour = new THREE.Color(); white = new THREE.Color(1, 1, 1);
       land = createLand();
+      // The block, its lights and its sun turn together, by the three Rotate settings.
+      whole = new THREE.Group();
+      cornerAt = new THREE.Vector3();
+      whole.rotation.order = 'XZY';   // spin (y) first, then roll (z), then tilt (x): as TimbreScene.turn does
+      k.scene.add(whole);
 
       // The land: one grid, rewritten each frame.
       const geo = new THREE.BufferGeometry();
@@ -270,7 +283,7 @@
       mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 }));
       mesh.castShadow = true; mesh.receiveShadow = true;
       mesh.frustumCulled = false;   // its points move every frame
-      k.scene.add(mesh);
+      whole.add(mesh);
 
       // The cut sides of the block: each point of the land's rim, and the point below it.
       const sides = rim();
@@ -286,7 +299,7 @@
       skirt = new THREE.Mesh(sg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 }));
       skirt.castShadow = true;
       skirt.frustumCulled = false;
-      k.scene.add(skirt);
+      whole.add(skirt);
 
       // The sun's light: low, from behind the range and to the left, so the peaks throw
       // their shadows across the land toward the viewer. A weak fill keeps the near faces
@@ -301,7 +314,7 @@
       key.shadow.bias = -0.0012; key.shadow.normalBias = 0.05;
       const fill = new THREE.DirectionalLight(0xbcd0ff, 0.75);
       fill.position.set(2.5, 3, 6);
-      k.scene.add(key, key.target, fill, new THREE.HemisphereLight(0xc4d6ff, 0x2a2233, 0.85));
+      whole.add(key, key.target, fill, new THREE.HemisphereLight(0xc4d6ff, 0x2a2233, 0.85));
 
       // The sun itself and the glow of the sky round it: added light, behind the range.
       const disc = k.glowTexture(255, 255, 255);
@@ -309,7 +322,7 @@
       haze = new THREE.Sprite(k.addLight(new THREE.SpriteMaterial({ map: disc, depthTest: true })));
       haze.position.set(-0.6, 1.4, -D / 2 - 1.4);
       haze.scale.set(9, 4.5, 1);
-      k.scene.add(sun, haze);
+      whole.add(sun, haze);
     }
 
     // The palette colour at t, as the colour buffer wants it (linear), into rgb.
@@ -322,6 +335,16 @@
     function update(k, audio, now, dt) {
       const t = now / 1000, follow = TimbreScene.follow;
       s.orbit = k.orbit = (0.22 * Math.sin(0.15 * t) + 0.06 * Math.sin(0.41 * t + 2)) * knob('cameraDrift') / 50;
+      // The block as the Rotate settings turn it, kept in the frame.
+      const rx = knob('rotateX', 0), ry = knob('rotateY', 0), rz = knob('rotateZ', 0);
+      if (rx !== turned[0] || ry !== turned[1] || rz !== turned[2]) { turned[0] = rx; turned[1] = ry; turned[2] = rz; pose = TimbreScene.poseFor(BOX, VIEW, rx, ry, rz); }
+      whole.rotation.set(rx * RAD, ry * RAD, rz * RAD);
+      whole.scale.setScalar(pose.scale);
+      whole.position.set(pose.x, pose.y, pose.z);
+      // How it stands, for the checks: the settings as read, its size and place, and where one corner is in the scene.
+      whole.updateMatrixWorld(true);
+      mesh.localToWorld(cornerAt.set(W / 2, 0, D / 2));
+      s.turned[0] = rx; s.turned[1] = ry; s.turned[2] = rz; s.scale = pose.scale; s.at[0] = pose.x; s.at[1] = pose.y; s.at[2] = pose.z; s.corner[0] = cornerAt.x; s.corner[1] = cornerAt.y; s.corner[2] = cornerAt.z;
 
       // With the mic and Idle animation both off, the land stands still.
       s.live = !!(micActive || cfgIdleAnim);
@@ -390,9 +413,9 @@
     }
 
     return {
-      frame: { width: 8.8, height: 5.4, center: [0, 0.8, 0.2] },
-      fov: 30,
-      pitch: 18,
+      frame: { width: FRAME.width, height: FRAME.height, center: FRAME.center.slice() },
+      fov: FOV,
+      pitch: PITCH,
       cooling: [Infinity, Infinity, Infinity],   // fading light keeps its colour
       build,
       update,
@@ -423,6 +446,7 @@
           rim: Math.max(...Array.from(skirt.geometry.attributes.position.array).filter((_, i) => i % 3 === 1)),
           floor: Math.min(...Array.from(skirt.geometry.attributes.position.array).filter((_, i) => i % 3 === 1)),
         }, s, {
+          turned: s.turned.slice(), at: s.at.slice(), corner: s.corner.slice(),   // as they are now, not as they will be
           // Read back from what is drawn, not from what update() meant to draw.
           high: Math.max(...Array.from(mesh.geometry.attributes.position.array).filter((_, i) => i % 3 === 1)),
           sun: key.intensity, sunY: sun.position.y, sunSize: sun.scale.x,
@@ -433,7 +457,7 @@
   }
 
   globalThis.TimbreMountains = {
-    W, D, NX, NZ, SP, HMAX, FOOT, EDGE, BASE, SNOW, BANDS, FLANK, CROSS,
+    W, D, NX, NZ, SP, HMAX, FOOT, EDGE, BASE, SNOW, BANDS, FLANK, CROSS, FOV, PITCH, FRAME, BOX,
     hash, noise, ridge, columnX, bandOf, loudness, answer, rise, heightAt, sink, flow, lift, shade, idle, createLand, rim, definition,
   };
 })();

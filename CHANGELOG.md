@@ -39,6 +39,13 @@ traceability.
   new Metaball is made of is in `overlay/metaball.js` (`TimbreMetaball`), loaded by all three
   overlay pages and by `verify` under Node, and documented in `docs/EFFECTS.md` ("The
   metaball").
+- **Mountains 3D and Phosphor settings**: `rotateX`, `rotateY` and `rotateZ` (0 to 360 degrees,
+  default 0), as on Chladni: Rotate Y spins the block of land or the deck in its own plane,
+  Rotate Z rolls it to one side, Rotate X tilts its top toward the viewer. However it is
+  turned it stays in the frame. With all three at 0 nothing changes.
+- **Scene kit**: `TimbreScene.turn`, `TimbreScene.reach` and `TimbreScene.poseFor` turn what a
+  scene shows and keep it in the frame; Chladni's rotation now uses them. See
+  `docs/EFFECTS.md` ("Turning what a scene shows").
 - **Chladni settings**: `rotateX`, `rotateY` and `rotateZ` (0 to 360 degrees, default 0) turn
   the plate about each axis: Rotate Y spins it in its own plane, Rotate Z rolls it to one
   side, Rotate X tilts its top toward the viewer. Rotate X at 46 turns it to face the

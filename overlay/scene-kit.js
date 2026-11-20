@@ -95,6 +95,62 @@
     return Math.max(frameH / 2, frameW / 2 / aspect) / Math.tan((fovDeg * Math.PI) / 360);
   }
 
+  // ── Turning what a scene shows ──────────────────────────────────────────────
+  // Some scenes have three Rotate settings that turn the thing they show (not the camera).
+  // These are the arithmetic of that, shared so that every such scene turns the same way.
+
+  // A point (x, y, z; y is up) turned by three angles in degrees, into out. It spins about
+  // its own upright axis first (y), then rolls to one side (about z, the axis from back to
+  // front), then tilts its top toward the viewer (about x, the axis from left to right).
+  // three.js calls this order 'XZY'; a scene gives it to the group it turns.
+  const DEG = Math.PI / 180;
+  function turn(out, x, y, z, rx, ry, rz) {
+    const ca = Math.cos(rx * DEG), sa = Math.sin(rx * DEG), cb = Math.cos(ry * DEG), sb = Math.sin(ry * DEG), cc = Math.cos(rz * DEG), sc = Math.sin(rz * DEG);
+    const x1 = x * cb + z * sb, z1 = -x * sb + z * cb;
+    const x2 = x1 * cc - y * sc, y2 = x1 * sc + y * cc;
+    out[0] = x2; out[1] = y2 * ca - z1 * sa; out[2] = y2 * sa + z1 * ca;
+    return out;
+  }
+
+  // How a turned box lies on the picture, seen from where a scene's camera rests: how far
+  // its eight corners reach from the middle of the frame, as [lowest, highest, leftmost,
+  // rightmost], in the scene's units there. box is { min: [x, y, z], max: [x, y, z] }; view
+  // is { frame, fov, pitch } as in a scene's definition; the box is drawn at `scale` with
+  // its own origin at (px, py, pz).
+  function reach(box, view, rx, ry, rz, scale, px, py, pz) {
+    const sinP = Math.sin(view.pitch * DEG), cosP = Math.cos(view.pitch * DEG), dist = view.frame.height / 2 / Math.tan((view.fov * DEG) / 2), c = view.frame.center;
+    const b = [Infinity, -Infinity, Infinity, -Infinity], p = [0, 0, 0];
+    for (let i = 0; i < 8; i++) {
+      turn(p, (i & 1 ? box.max : box.min)[0], (i & 2 ? box.max : box.min)[1], (i & 4 ? box.max : box.min)[2], rx, ry, rz);
+      const qx = p[0] * scale + px - c[0], qy = p[1] * scale + py - c[1], qz = p[2] * scale + pz - c[2];
+      const near = dist / (dist - (qy * sinP + qz * cosP)), v = (qy * cosP - qz * sinP) * near, h = qx * near;
+      if (v < b[0]) b[0] = v; if (v > b[1]) b[1] = v; if (h < b[2]) b[2] = h; if (h > b[3]) b[3] = h;
+    }
+    return b;
+  }
+
+  // Where to put a turned box and how large to draw it, so that it stays in the frame:
+  // { scale, x, y, z }. With no rotation it is where it always was, at full size. Turned, it
+  // may reach as far from the middle of the frame as it did unturned, or FILL of the way to
+  // the frame's edge if that is further; if it would reach past that it is drawn smaller,
+  // and it is moved so that it sits in the frame where the unturned box does. Nearer things
+  // look larger, so one correction is not exact: four rounds bring it home.
+  const FILL = 0.86;
+  function poseFor(box, view, rx, ry, rz) {
+    const rest = reach(box, view, 0, 0, 0, 1, 0, 0, 0), sinP = Math.sin(view.pitch * DEG), cosP = Math.cos(view.pitch * DEG);
+    const vRoom = Math.max((FILL * view.frame.height) / 2, (rest[1] - rest[0]) / 2), hRoom = Math.max((FILL * view.frame.width) / 2, (rest[3] - rest[2]) / 2);
+    const pose = { scale: 1, x: 0, y: 0, z: 0 };
+    for (let round = 0; round < 4; round++) {
+      // Its size first, then its place at that size.
+      let b = reach(box, view, rx, ry, rz, pose.scale, pose.x, pose.y, pose.z);
+      pose.scale = Math.min(1, pose.scale * Math.min(vRoom / ((b[1] - b[0]) / 2), hRoom / ((b[3] - b[2]) / 2)));
+      b = reach(box, view, rx, ry, rz, pose.scale, pose.x, pose.y, pose.z);
+      const up = (rest[0] + rest[1]) / 2 - (b[0] + b[1]) / 2, across = (rest[2] + rest[3]) / 2 - (b[2] + b[3]) / 2;
+      pose.x += across; pose.y += up * cosP; pose.z -= up * sinP;
+    }
+    return pose;
+  }
+
   // Trail veil (0..100) to afterglow seconds: 100 -> 0.35, 0 -> 1.5.
   function afterglowTime(trailVeilPct) {
     const t = trailVeilPct / 100;
@@ -141,7 +197,7 @@
   // tone-maps to the canvas. Light is written with alpha 0 throughout.
 
   const api = {
-    createEnvelope, createHistory, follow, fall, fitDistance, afterglowTime, decay, cooling, renderScale, viewOffset,
+    createEnvelope, createHistory, follow, fall, fitDistance, turn, reach, poseFor, FILL, afterglowTime, decay, cooling, renderScale, viewOffset,
     testLevel: null,          // test hook: a number here replaces the mic level
     outputMode: 'added',      // or 'premultiplied' (an owner's decision, never automatic)
     readLevel, create, factory, debug,

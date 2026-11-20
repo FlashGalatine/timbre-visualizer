@@ -1342,6 +1342,8 @@ async function main() {
           const s = window.__timbre.scene, state = (s && s.state) || {};
           out.push({ state, textures: s ? s.memory.textures : -1, solid, white, light, lightSum, edge, empty: empty / (w * h), cornerAlpha: px[3],
             box: size(box), solidBox: size(solidBox), canvas: [w, h], trace, hash, kitCam: s ? s.camera : null, foot,
+            // Where the near right corner should be, from the Rotate settings as the scene read them.
+            expectCorner: state.turned ? (() => { const K = TimbreScene, M = TimbreMountains, r = state.turned, p = K.poseFor(M.BOX, { frame: M.FRAME, fov: M.FOV, pitch: M.PITCH }, r[0], r[1], r[2]), o = K.turn([0, 0, 0], M.W / 2, 0, M.D / 2, r[0], r[1], r[2]); return [o[0] * p.scale + p.x, o[1] * p.scale + p.y, o[2] * p.scale + p.z]; })() : null,
             expectRock: state.amps ? getColor(state.colorT + 0.3) : null,
             expectFar: state.amps ? TimbreMountains.heightAt(0, state.travel, state.amps[40]) : null });
         }
@@ -1489,6 +1491,21 @@ async function main() {
     check('mountains: the land takes its colour from the palette, and the hue setting moves it', close(mid50.state.rock, mid50.expectRock) && close(hued.state.rock, hued.expectRock) && !close(hued.state.rock, mid50.state.rock),
       JSON.stringify({ rock: mid50.state.rock, expect: mid50.expectRock, hued: hued.state.rock, hueExpect: hued.expectRock }));
 
+    // The three Rotate settings, with the camera held still.
+    const landTurned = (knobs) => landRun([{ level: 0.8, all: 0.8, secs: 1 }], { knobs: Object.assign({ cameraDrift: 0 }, knobs) });
+    const [landFlat] = await landTurned({}), [landFace] = await landTurned({ rotateX: 72 }), [landDiamond] = await landTurned({ rotateX: 72, rotateY: 45 }), [landRolled] = await landTurned({ rotateY: 200, rotateZ: 30 });
+    const landOff = (r) => Math.max(...r.state.corner.map((v, i) => Math.abs(v - r.expectCorner[i])));
+    const landIn = (r) => r.solidBox.cx - r.solidBox.w / 2 > 4 && r.solidBox.cx + r.solidBox.w / 2 < r.canvas[0] - 4 && r.solidBox.cy - r.solidBox.h / 2 > 4 && r.solidBox.cy + r.solidBox.h / 2 < r.canvas[1] - 4;
+    check('mountains-3d: with no rotation it is where it always was', landFlat.state.turned.join() === '0,0,0' && landFlat.state.scale === 1 && landFlat.state.at.join() === '0,0,0' && landOff(landFlat) < 1e-6
+      && Math.abs(landFlat.state.corner[0] - 3.5) < 1e-6 && Math.abs(landFlat.state.corner[2] - 2.2) < 1e-6 && landIn(landFlat), JSON.stringify({ corner: landFlat.state.corner, box: landFlat.solidBox }));
+    check('mountains-3d: Rotate X, Y and Z turn it, and however it is turned it stays in the frame', [landFace, landDiamond, landRolled].every((r) => landOff(r) < 1e-5 && landIn(r) && r.solidBox.w > 100 && r.solidBox.h > 100 && r.state.scale <= 1 && r.state.scale > 0.4)
+      && landFace.state.turned.join() === '72,0,0' && landDiamond.state.scale < landFace.state.scale && Math.abs(landFace.state.corner[1] - landFlat.state.corner[1]) > 0.5 && landRolled.state.turned.join() === '0,200,30'
+      && landFace.hash !== landFlat.hash,
+      JSON.stringify({ off: [landOff(landFace), landOff(landDiamond), landOff(landRolled)], scale: [landFace.state.scale, landDiamond.state.scale, landRolled.state.scale], box: [landFlat.solidBox, landFace.solidBox, landDiamond.solidBox, landRolled.solidBox] }));
+    const landReset = await landRun([{ level: 0.8, all: 0.8, secs: 1 }, { level: 0.8, all: 0.8, secs: 0.02, knobs: { rotateX: 72, rotateY: 90, rotateZ: 10 } }, { level: 0.8, all: 0.8, secs: 0.02, knobs: { rotateX: 0, rotateY: 0, rotateZ: 0 } }], { knobs: { cameraDrift: 0 } });
+    check('mountains-3d: a change of rotation applies at once, both ways', landReset.map((r) => r.state.turned.join()).join(' ') === '0,0,0 72,90,10 0,0,0' && landReset[1].state.scale < 1 && landReset[2].state.scale === 1 && landOff(landReset[1]) < 1e-5 && landOff(landReset[2]) < 1e-6,
+      JSON.stringify(landReset.map((r) => [r.state.turned, r.state.scale])));
+
     // Placement and cost.
     await activate(LAND);
     const landP0 = await probe();
@@ -1569,6 +1586,8 @@ async function main() {
           const s = window.__timbre.scene, state = (s && s.state) || {};
           out.push({ state, solid, light, lightSum, edge, foot, empty: empty / (w * h), cornerAlpha: px[3],
             box: size(box), solidBox: size(solidBox), canvas: [w, h], trace, hash, kitCam: s ? s.camera : null,
+            // Where the near right corner should be, from the Rotate settings as the scene read them.
+            expectCorner: state.turned ? (() => { const K = TimbreScene, M = TimbrePhosphor, r = state.turned, p = K.poseFor(M.BOX, { frame: M.FRAME, fov: M.FOV, pitch: M.PITCH }, r[0], r[1], r[2]), o = K.turn([0, 0, 0], M.W / 2, 0, M.D / 2, r[0], r[1], r[2]); return [o[0] * p.scale + p.x, o[1] * p.scale + p.y, o[2] * p.scale + p.z]; })() : null,
             expectTone: state.slices ? getColor(state.colorT + TimbrePhosphor.backOf(state.ref, state.slices) * 0.8) : null });
         }
         return out;
@@ -1706,6 +1725,21 @@ async function main() {
     const close = (a, b) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= 2);
     check('phosphor: a trace takes its colour from the palette by how far back it is, and the hue setting moves it', close(loud.state.tone, loud.expectTone) && close(hued.state.tone, hued.expectTone) && !close(hued.state.tone, loud.state.tone) && loud.state.ref === 12,
       JSON.stringify({ tone: loud.state.tone, expect: loud.expectTone, hued: hued.state.tone, hueExpect: hued.expectTone }));
+
+    // The three Rotate settings, with the camera held still.
+    const deckTurned = (knobs) => deckRun([{ level: 0.8, all: 0.8, secs: 1 }], { knobs: Object.assign({ cameraDrift: 0 }, knobs) });
+    const [deckFlat] = await deckTurned({}), [deckFace] = await deckTurned({ rotateX: 60 }), [deckDiamond] = await deckTurned({ rotateX: 60, rotateY: 45 }), [deckRolled] = await deckTurned({ rotateY: 200, rotateZ: 30 });
+    const deckOff = (r) => Math.max(...r.state.corner.map((v, i) => Math.abs(v - r.expectCorner[i])));
+    const deckIn = (r) => r.solidBox.cx - r.solidBox.w / 2 > 4 && r.solidBox.cx + r.solidBox.w / 2 < r.canvas[0] - 4 && r.solidBox.cy - r.solidBox.h / 2 > 4 && r.solidBox.cy + r.solidBox.h / 2 < r.canvas[1] - 4;
+    check('phosphor: with no rotation it is where it always was', deckFlat.state.turned.join() === '0,0,0' && deckFlat.state.scale === 1 && deckFlat.state.at.join() === '0,0,0' && deckOff(deckFlat) < 1e-6
+      && Math.abs(deckFlat.state.corner[0] - 3.2) < 1e-6 && Math.abs(deckFlat.state.corner[2] - 1.8) < 1e-6 && deckIn(deckFlat), JSON.stringify({ corner: deckFlat.state.corner, box: deckFlat.solidBox }));
+    check('phosphor: Rotate X, Y and Z turn it, and however it is turned it stays in the frame', [deckFace, deckDiamond, deckRolled].every((r) => deckOff(r) < 1e-5 && deckIn(r) && r.solidBox.w > 100 && r.solidBox.h > 100 && r.state.scale <= 1 && r.state.scale > 0.4)
+      && deckFace.state.turned.join() === '60,0,0' && deckDiamond.state.scale < deckFace.state.scale && Math.abs(deckFace.state.corner[1] - deckFlat.state.corner[1]) > 0.5 && deckRolled.state.turned.join() === '0,200,30'
+      && deckFace.hash !== deckFlat.hash,
+      JSON.stringify({ off: [deckOff(deckFace), deckOff(deckDiamond), deckOff(deckRolled)], scale: [deckFace.state.scale, deckDiamond.state.scale, deckRolled.state.scale], box: [deckFlat.solidBox, deckFace.solidBox, deckDiamond.solidBox, deckRolled.solidBox] }));
+    const deckReset = await deckRun([{ level: 0.8, all: 0.8, secs: 1 }, { level: 0.8, all: 0.8, secs: 0.02, knobs: { rotateX: 60, rotateY: 90, rotateZ: 10 } }, { level: 0.8, all: 0.8, secs: 0.02, knobs: { rotateX: 0, rotateY: 0, rotateZ: 0 } }], { knobs: { cameraDrift: 0 } });
+    check('phosphor: a change of rotation applies at once, both ways', deckReset.map((r) => r.state.turned.join()).join(' ') === '0,0,0 60,90,10 0,0,0' && deckReset[1].state.scale < 1 && deckReset[2].state.scale === 1 && deckOff(deckReset[1]) < 1e-5 && deckOff(deckReset[2]) < 1e-6,
+      JSON.stringify(deckReset.map((r) => [r.state.turned, r.state.scale])));
 
     // Placement and cost.
     await activate(DECK);
