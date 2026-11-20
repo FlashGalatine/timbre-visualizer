@@ -366,7 +366,6 @@
       // How it stands, for the checks: the settings as read, its size and place, and where one corner is in the scene.
       whole.updateMatrixWorld(true);
       sky.position.set(0, 1, 0).applyQuaternion(whole.quaternion);
-      sky.updateMatrixWorld();
       mesh.localToWorld(cornerAt.set(W / 2, 0, D / 2));
       s.turned[0] = rx; s.turned[1] = ry; s.turned[2] = rz; s.scale = pose.scale; s.at[0] = pose.x; s.at[1] = pose.y; s.at[2] = pose.z; s.corner[0] = cornerAt.x; s.corner[1] = cornerAt.y; s.corner[2] = cornerAt.z;
 
@@ -480,7 +479,11 @@
             return { key: from(key), fill: from(fill), sky: at(sky).normalize().toArray(), keyAt: at(key).toArray(), keyAim: at(key.target).toArray(), fillAt: at(fill).toArray(), fillAim: at(fill.target).toArray() };
           })(),
           shadow: [key.shadow.camera.right, key.shadow.camera.top, key.shadow.camera.near, key.shadow.camera.far, key.shadow.normalBias],
-          sway: swayWas, under: base.geometry.attributes.position.count,
+          sway: swayWas,
+          // The underside as it is built: how far it reaches each way, its height, and which way it faces.
+          under: (() => { const p = base.geometry.attributes.position, n = base.geometry.attributes.normal; let x = 0, z = 0, lo = Infinity, hi = -Infinity; for (let i = 0; i < p.count; i++) { x = Math.max(x, Math.abs(p.getX(i))); z = Math.max(z, Math.abs(p.getZ(i))); lo = Math.min(lo, p.getY(i)); hi = Math.max(hi, p.getY(i)); } return [x, z, lo, hi, n.getY(0)]; })(),
+          // How far the sun's shadows reach, as the shadow camera will draw them (not as it was told).
+          shadowSpan: 1 / key.shadow.camera.projectionMatrix.elements[0],
           sunAt: sun.getWorldPosition(new THREE.Vector3()).toArray(), sunLocal: sun.position.toArray(),
           glow: (palette(s.colorT + 0.6), sun.material.color.r / (rgb[0] + (1 - rgb[0]) * 0.4)),
         });
