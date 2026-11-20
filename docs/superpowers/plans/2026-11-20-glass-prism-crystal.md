@@ -109,3 +109,31 @@ Each break is one changed line, run against the crystal's own checks (its sectio
     crystal gives is now measured: 347 thousand with whole ridges, 221 to 237 thousand with
     ridges sized for the kit's larger picture.
   Each new check was confirmed by running its break again.
+
+## Added after the owner's first look: the pulse and the shatter
+
+Asked for by the owner while looking at the crystal in OBS; the design is in the spec under
+the same heading. Built check-first on this branch:
+
+- Arithmetic (`verify.mjs`, section 19, 26 more checks): the swing against the formula of a
+  damped spring, exact across step sizes and frame rates, and its limits under beats as
+  fast as they come; a blast, a jostle, the flight, the limit on how far a facet is shown,
+  the return and a return broken off, each on twenty stand-in facets with a seeded
+  generator; what is drawn for a facet moved and turned; the room, and that a ball of that
+  size is inside the picture at every page's shape; and a whole shatter with jostles, beats
+  at Pulse 100 and Chroma 100, in which nothing may be drawn outside the room.
+- Picture (`verify-render.mjs`, 13 more checks): the swell and the drawing-in, by size and
+  by the box of the light (the bright light alone for the drawing-in, since the faint light
+  the swollen crystal leaves is still there a tenth of a second on); a peak shatters it, in
+  a flash; in pieces the light fills far less of its box (0.27 against 0.66 whole) and
+  nothing reaches the edge; the return and the crystal whole again corner for corner; what
+  sets it off (the sensitivity, not Gain, and only with the mic); a jostle and a blast
+  during the return; the worst the sound can do; 30 against 60 frames a second; and muted in
+  pieces it still comes home and the picture then holds still.
+- Found on the way: the first flight (facets up to 1.8 from their places) read as a jumbled
+  ball, not a shatter, because drawing it smaller to fit cancelled most of the spreading.
+  Facets now go up to 3.2. The "still a crystal, not a blob" measure is now taken at the
+  crystal's own size, since a swollen crystal gives more light by its size squared.
+
+Still owed before it is merged: an independent review of this addition and its deliberate
+breaks.

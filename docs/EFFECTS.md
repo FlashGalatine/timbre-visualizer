@@ -672,8 +672,21 @@ It offers:
 - **The colours coming apart.** `apartOf(high, kick, chroma)` is how far apart the three
   copies of the crystal should be, and `copyAt(out, c, apart)` copy `c`'s size, its roll
   about the line of sight and its move to the camera's right.
-- **Light.** `brightOf(flame, kick)` is how bright the crystal is drawn and
-  `heartOf(out, flame, kick)` the glow inside it.
+- **Light.** `brightOf(flame, kick, flash)` is how bright the crystal is drawn and
+  `heartOf(out, flame, kick, flash)` the glow inside it; `flash` is a shatter's.
+- **The pulse.** `pushOf(pulse)` is the push a beat gives, `swing(sw, dt)` carries the
+  swing (`[how far out, how fast]`) on by `dt` exactly, and `sizeOf(x)` is the crystal's
+  size with the swing `x` out.
+- **The shatter.** `layout(corners)` gives each facet's middle and the way it faces.
+  `createShards()` is the facets' flight: `blast(sh, normals, strength, random, outward,
+  fresh)` pushes and spins them, `fly(sh, dt)` carries them on, `startReturn(sh, random)`
+  and `place(sh, u, share)` bring them home, `resume(sh)` takes up the flight when a
+  return is broken off, and `home(sh)` puts them at rest. `shape(pos, nor, corners,
+  normals, centres, sh)` writes the crystal as drawn and returns how far its furthest
+  corner is from the middle. `roomFor(reach, size, apart)` is how much smaller it must be
+  drawn to fit, `headFor(reach)` the room kept for a beat while it is in pieces, and
+  `zoomAfter(zoom, room, dt)` how much smaller it is drawn a step later. When it breaks
+  and when it comes back is `TimbreHelix.createShatter`, as for DNA.
 - **The tumble.** `turnRate(flame)` is how fast it turns by itself, `axisAt(out, clock)` the
   wandering axis it turns about, `kickAt(out, n)` the spin the nth beat gives it and
   `kickAngle(speed, dt)` the angle a dying spin turns in a step. `turn(q, x, y, z, angle)`
@@ -685,8 +698,8 @@ It offers:
 
 All its timing comes from `dt`. The arithmetic touches nothing at load, and the file must
 stay loadable under Node, because `npm run verify` imports it; the scene looks up `THREE`,
-`TimbreScene` and the core.js globals only when it is built. It must be loaded after
-`scene-kit.js` and before the factories.
+`TimbreScene`, `TimbreHelix` and the core.js globals only when it is built. It must be
+loaded after `scene-kit.js` and before the factories; `helix.js` may come after it.
 
 Worth knowing before making another thing that turns freely:
 
@@ -704,6 +717,21 @@ Worth knowing before making another thing that turns freely:
   a page pixel (a ridge sized with `fwidth`, say) comes out in dashes that crawl. Multiply
   the `fwidth` by `TimbreScene.renderScale(canvas3d.height)` and keep the line at least
   three quarters of a page pixel wide.
+- A thing that springs is better worked out than stepped: `swing` is where a damped
+  spring would be after `dt`, so thirty steps a second and two hundred and forty agree to
+  the last digit, and a beat is only a push added to its speed.
+- A scene whose frame its subject nearly fills has no room to throw pieces about. This
+  one works out each frame how far its furthest corner is from the middle and draws the
+  whole of itself smaller by just enough (`roomFor`), which looks like the camera pulling
+  back. The bound is a ball about the middle, which is inside the picture wherever the
+  camera drifts, so it needs no projection. It shrinks at once and grows back slowly
+  (`zoomAfter`): following it both ways would make the crystal quiver as its pieces spin.
+- The shatter machine in `helix.js` counts and moves flat pieces of its own. A scene in 3D
+  can use it for the rule alone: hand it stand-in pieces, read its state and its events,
+  and count the seconds of the return yourself, in step with it, as Pulse Rings does.
+- The crystal's corners are rewritten on the CPU while it is in pieces (sixty of them),
+  and copied back from a saved copy when it is whole, so that whole it is exactly the
+  crystal it was and not a sum that is nearly it.
 - three.js builds an icosahedron with no shared corners, three to a facet in order, so a
   facet's number is its first corner's index over three. Each corner carries one of
   1,0,0 / 0,1,0 / 0,0,1, and the least of the three at a point says how near a ridge it

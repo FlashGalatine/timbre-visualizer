@@ -94,7 +94,7 @@
     'sunburst-3d':   { density: 50, spin: 50, cameraDrift: 50 },
     'galaxy-ripple': { sensitivity: 50 },
     'metaball':      { chrome: 50 },
-    'glass-prism':   { chroma: 50, cameraDrift: 50 },
+    'glass-prism':   { chroma: 50, pulse: 50, shatterSensitivity: 50, reconnectSeconds: 3, cameraDrift: 50 },
     'chladni':       { density: 50, cameraDrift: 50, rotateX: 0, rotateY: 0, rotateZ: 0 },
     'phosphor':      { depth: 50, cameraDrift: 50 },
     'ink':           { swirl: 50 },
@@ -123,7 +123,7 @@
   };
 
   // Per-knob max overrides for numeric perViz values; default max is 100.
-  const PER_VIZ_MAX = { 'dna': { reconnectSeconds: 10 }, 'pulse-rings': { reconnectSeconds: 10 }, 'orbit': { planets: 9 }, 'chladni': { rotateX: 360, rotateY: 360, rotateZ: 360 } };
+  const PER_VIZ_MAX = { 'dna': { reconnectSeconds: 10 }, 'pulse-rings': { reconnectSeconds: 10 }, 'orbit': { planets: 9 }, 'chladni': { rotateX: 360, rotateY: 360, rotateZ: 360 }, 'glass-prism': { reconnectSeconds: 10 } };
 
   // Shared knob group for any visualizer that loads a 3D STL model. Whichever
   // STL viz is active reads from `config.stlObject`; adding a new STL viz means
