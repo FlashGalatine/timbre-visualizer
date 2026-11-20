@@ -2109,6 +2109,8 @@ async function main() {
     const PRISM_LIGHT = 76000;
     // How like the third palette colour the light at the rim must be (1 is the same hue).
     const RIM = 0.95;
+    // How much light the crystal gives on the small page in a pause, all told: between what whole ridges and dashed ones give.
+    const SMALL_LIT = 290000;
     // How much light the crystal gives in a pause, all told: measured, and held to a tenth either way.
     const HUSH_SUM = 13900000;
     // The most light a loud beat may leave on the picture, all told: a crystal whose light lingers smears into a blob with far more.
@@ -2159,7 +2161,8 @@ async function main() {
 
     // The colours coming apart.
     const lows = [[0, 1], [1, 1], [2, 1], [3, 1], [4, 1]], highs = [[5, 1], [6, 1], [7, 1], [8, 1], [9, 1]];
-    const [low] = await prismRun([{ level: 0.6, bins: lows, secs: 2 }], { gain: 1 }), [high] = await prismRun([{ level: 0.6, bins: highs, secs: 2 }], { gain: 1 });
+    const [low] = await prismRun([{ level: 0.6, bins: lows, secs: 2 }], { gain: 1 }), [high] = await prismRun([{ level: 0.6, bins: highs, secs: 2 }], { gain: 1 }), [parting] = await prismRun([{ level: 0.6, bins: highs, secs: 0.1 }], { gain: 1 });
+    check('glass-prism: the colours do not jump apart, they follow', parting.state.high > 0.8 && parting.state.apart > 0.03 && parting.state.apart < 0.08 && placed(parting), JSON.stringify({ high: parting.state.high, apart: parting.state.apart }));
     check('glass-prism: the high end of the sound pulls its colours apart, and the low end does not', low.state.high === 0 && Math.abs(high.state.high - 1) < 1e-6 && Math.abs(low.state.apart - 0.018) < 1e-6 && Math.abs(high.state.apart - 0.118) < 1e-6
       && placed(low) && placed(high) && high.state.copies[2].scale > 1.11 && high.state.copies[0].scale < 0.89 && long(high.state.copies[2].at) > 0.05 && high.box.w > low.box.w + 20 && high.light > 1.1 * low.light,
       JSON.stringify({ high: [low.state.high, high.state.high], apart: [low.state.apart, high.state.apart], scale: high.state.copies.map((c) => c.scale), box: [low.box.w, high.box.w], light: [low.light, high.light] }));
@@ -2169,9 +2172,10 @@ async function main() {
       JSON.stringify({ apart: [together.state.apart, high.state.apart, wide2.state.apart], light: [together.light, high.light, wide2.light], box: [together.box.w, high.box.w, wide2.box.w] }));
 
     // The voice, the tumble and a beat.
-    const [slowTurn] = await prismRun([{ level: 0, secs: 2 }]), [fastTurn] = await prismRun([{ level: 0.8, secs: 2 }]);
+    const [slowTurn] = await prismRun([{ level: 0, secs: 2 }]), [fastTurn] = await prismRun([{ level: 0.8, secs: 2 }]), [quick] = await prismRun([{ level: 0.8, secs: 0.05 }]);
     check('glass-prism: it turns slowly in silence and several times as fast with the voice, which also brightens it', Math.abs(turned(slowTurn.state.q) - 0.5) < 0.01 && turned(fastTurn.state.q) > 4 * turned(slowTurn.state.q) && Math.abs(fastTurn.state.flame - 0.8) < 0.01
       && Math.abs(fastTurn.state.bright - (0.26 + 0.2 * fastTurn.state.flame + 0.18 * fastTurn.state.kick)) < 1e-9 && fastTurn.state.copies.every((c) => c.bright === fastTurn.state.bright) && fastTurn.sum > 1.3 * slowTurn.sum
+      && quick.state.flame > 0.02 && quick.state.flame < 0.7 && Math.abs(quick.state.bright - (0.26 + 0.2 * quick.state.flame + 0.18 * quick.state.kick)) < 1e-9 && fastTurn.state.heart.shown === true
       && Math.abs(fastTurn.state.heart.size - (1.8 + fastTurn.state.flame + 0.6 * fastTurn.state.kick)) < 1e-9 && Math.abs(slowTurn.state.heart.size - 1.8) < 1e-9 && top(fastTurn.state.heart.light) > 3 * top(slowTurn.state.heart.light),
       JSON.stringify({ turned: [turned(slowTurn.state.q), turned(fastTurn.state.q)], flame: fastTurn.state.flame, bright: [slowTurn.state.bright, fastTurn.state.bright], sum: [slowTurn.sum, fastTurn.sum], heart: [slowTurn.state.heart, fastTurn.state.heart] }));
     const beat = [{ level: 0.05, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, secs: 0.1 }, { level: 0.9, all: 0.5, secs: 2.5 }];
@@ -2179,7 +2183,7 @@ async function main() {
     const kick1 = [2.2 * Math.cos(2.4), 2.2 * Math.sin(4.08), 2.2 * Math.sin(2.4)];
     check('glass-prism: a beat kicks its tumble about a new axis, pulls its colours apart and brightens it, then lets go', calm.state.kicks === 0 && long(calm.state.spin) === 0 && hit.beats === 1 && hit.state.kicks === 1 && hit.state.kick > 0.5
       && long(hit.state.spin) > 0.7 * long(kick1) && long(hit.state.spin) <= long(kick1) && long(kick1) > 2.2 && gap(hit.state.spin.map((v) => v / long(hit.state.spin)), kick1.map((v) => v / long(kick1))) < 1e-9
-      && hit.state.apart > calm.state.apart + 0.02 && hit.state.bright > calm.state.bright + 0.15 && after.state.kicks >= 1 && after.state.kick < 0.001 && long(after.state.spin) < 0.05 && after.state.apart < hit.state.apart && hit.edge === 0 && placed(hit),
+      && hit.state.apart > calm.state.apart + 0.02 && hit.state.bright > calm.state.bright + 0.15 && Math.abs(hit.state.bright - (0.26 + 0.2 * hit.state.flame + 0.18 * hit.state.kick)) < 1e-9 && after.state.kicks >= 1 && after.state.kick < 0.001 && long(after.state.spin) < 0.05 && after.state.apart < hit.state.apart && hit.edge === 0 && placed(hit),
       JSON.stringify({ kicks: [calm.state.kicks, hit.state.kicks, after.state.kicks], beats: hit.beats, kick: [hit.state.kick, after.state.kick], spin: [hit.state.spin, after.state.spin], apart: [calm.state.apart, hit.state.apart, after.state.apart], bright: [calm.state.bright, hit.state.bright], speed: [long(kick1), long(hit.state.spin), long(after.state.spin)] }));
     const [, smear] = await prismRun([{ level: 0.05, all: 0.8, secs: 1 }, { level: 0.9, all: 0.8, secs: 0.6 }]);
     check('glass-prism: tumbling fast on a loud beat it is still a crystal, not a blob of white', smear.state.kicks >= 1 && smear.state.flame > 0.7 && smear.sum < SMEAR_MAX && smear.light > 0.5 * PRISM_LIGHT, JSON.stringify({ sum: smear.sum, light: smear.light, kicks: smear.state.kicks, flame: smear.state.flame }));
@@ -2215,9 +2219,10 @@ async function main() {
     const [on1, on2] = await prismRun([{ level: null, idle: true, secs: 4 }, { level: null, idle: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
     check('glass-prism: with the mic and Idle animation off the picture holds still', same(off2) && on2.diff.n > 1000 && off2.light > 0.2 * PRISM_LIGHT && off2.state.live === false && off2.state.clock === 0 && turned(off2.state.q) === 0,
       JSON.stringify({ off: [off1.hash, off2.hash], idle: [on1.hash, on2.hash], light: off2.light, differs: off2.diff, numbers: [off1, off2].map((r) => [r.state.flame, r.state.kick, r.state.bright, r.state.apart, r.state.orbit, r.state.colorT, r.state.heart.size, r.sum]) }));
-    const [live1, muted1, muted2, muted3] = await prismRun([{ level: 0.8, all: 0.8, secs: 2 }, { level: null, off: true, secs: 0.5 }, { level: null, off: true, secs: 7.5 }, { level: null, off: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
+    // (Quiet and then loud, so that a beat has struck and its kick is still dying away when the mic goes.)
+    const [, live1, muted1, muted2, muted3] = await prismRun([{ level: 0.05, all: 0.8, secs: 1.5 }, { level: 0.9, all: 0.8, secs: 0.5 }, { level: null, off: true, secs: 0.5 }, { level: null, off: true, secs: 7.5 }, { level: null, off: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
     check('glass-prism: muted in the middle of a stream, it stops turning where it is, dims, and then nothing moves', muted1.state.live === false && muted1.state.clock === live1.state.clock && muted2.state.clock === live1.state.clock && turned(live1.state.q) > 1
-      && gap(muted1.state.q, live1.state.q) === 0 && gap(muted2.state.q, live1.state.q) === 0 && long(muted1.state.spin) === 0 && muted1.state.bands[0] > 0.01 && muted1.state.bands[0] < live1.state.bands[0]
+      && gap(muted1.state.q, live1.state.q) === 0 && gap(muted2.state.q, live1.state.q) === 0 && long(live1.state.spin) > 0.3 && live1.state.kick > 0.01 && muted1.state.kick > 0 && long(muted1.state.spin) === 0 && muted1.state.bands[0] > 0.01 && muted1.state.bands[0] < live1.state.bands[0]
       && muted2.state.bands.every((b) => b === 0) && muted2.state.flame === 0 && muted2.state.kick === 0 && muted2.state.bright === 0.26 && Math.abs(muted2.state.apart - 0.018) < 1e-12 && same(muted3) && muted2.diff.n > 1000,
       JSON.stringify({ clock: [live1.state.clock, muted1.state.clock, muted2.state.clock], bands: [live1.state.bands[0], muted1.state.bands[0], muted2.state.bands[0]], apart: muted2.state.apart, differs: muted3.diff }));
 
@@ -2247,6 +2252,12 @@ async function main() {
     const [halved] = await prismRun([{ level: 0.5, all: 0.5, secs: 1 }]);
     // The small page draws into a picture several times taller than its canvas.
     const smallPrism = await page.evaluate(() => { currentViz.draw(performance.now(), 1 / 60); currentViz.draw(performance.now() + 17, 1 / 60); const s = window.__timbre.scene; return { name: window.__timbre.currentVizName, scale: s && s.renderScale, copies: s && s.state.copies ? s.state.copies.length : 0, drawnFor: s && s.state.drawnFor }; });
+    // On the small page a ridge sized for the kit's larger picture would be half a page pixel wide and show in dashes:
+    // far less of the page would be lit.
+    const smallLit = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, cfgColorSpeed, cfgColorHue }; window.frame = function () {}; try { TimbreScene.testLevel = 0; frequencies = new Uint8Array(32); micActive = true; cfgColorSpeed = 0; cfgColorHue = 0; setActiveViz('visualizer'); setActiveViz('glass-prism'); let now = 100000; for (let i = 0; i < 120; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      let lit = 0, sum = 0; for (let i = 0; i < px.length; i += 4) { const rgb = px[i] + px[i + 1] + px[i + 2]; if (px[i + 3] < 5 && rgb > 60) { lit++; sum += rgb; } } return { lit, sum, canvas: [w, h] }; } finally { TimbreScene.testLevel = null; window.frame = fr; frequencies = heard.frequencies; micActive = heard.micActive; cfgColorSpeed = heard.cfgColorSpeed; cfgColorHue = heard.cfgColorHue; } });
+    check('glass-prism: on the small page its ridges are whole lines', smallLit.sum > SMALL_LIT, JSON.stringify(smallLit));
     check('glass-prism: the Size slider halves it, and the small page draws it too', halved.box.w < 0.62 * placed0.box.w && halved.box.w > 0.38 * placed0.box.w && halved.solid === 0 && smallPrism.name === PRISM && smallPrism.scale >= 2 && smallPrism.copies === 3 && smallPrism.drawnFor === smallPrism.scale && loud.state.drawnFor === 1,
       JSON.stringify({ box: [placed0.box.w, halved.box.w], small: smallPrism }));
     await pushConfig((c) => { c.placement.size = 100; });
