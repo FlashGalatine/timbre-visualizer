@@ -86,3 +86,26 @@ defect in the arithmetic or the scene. What it did find:
   eight pixels one step apart. The older scenes' checks still compare pixel for pixel.
 - The spin a beat gives is 2.2 to 3.1 radians a second, not 2.2: the three parts of its
   axis are each up to 2.2.
+
+## Breaking it on purpose
+
+Each break is one changed line, run against the crystal's own checks (its section of
+`verify`, or its block of `verify-render` cut out and run alone), in a separate copy.
+
+- **The arithmetic and the wiring: 71 breaks.** 68 caught at once. One of the three that
+  were not is the run with nothing broken; the other two got checks that their breaks then
+  failed: a turn that has drifted from unit length is brought back, and the light it leaves
+  behind fades as the design says.
+- **The scene and the shader: 74 breaks.** 64 caught at once. One of the ten that were not
+  is the run with nothing broken. The nine others each got a check:
+  - the voice followed where the level should not be (a twentieth of a second into a loud
+    stretch the two differ);
+  - a beat's own share of the brightness;
+  - a beat still dying away when the mic goes (the muted run now starts with one), which
+    also catches a kick left spinning under a muted crystal;
+  - the colours following apart and not jumping;
+  - the glow inside being in the scene at all;
+  - and three ways of losing the ridges' width on the small page, where the light the
+    crystal gives is now measured: 347 thousand with whole ridges, 221 to 237 thousand with
+    ridges sized for the kit's larger picture.
+  Each new check was confirmed by running its break again.

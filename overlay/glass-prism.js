@@ -297,7 +297,7 @@
             turned: m.quaternion.toArray(), scale: m.scale.x, at: m.position.toArray(), color: srgb(m.material.uniforms.uColor.value), bright: m.material.uniforms.uBright.value,
             light: m.material.blending === THREE.CustomBlending && m.material.blendDst === THREE.OneFactor && m.material.depthTest === false && m.material.side === THREE.DoubleSide,
           })),
-          heart: { size: heart.scale.x, light: [heart.material.color.r, heart.material.color.g, heart.material.color.b] },
+          heart: { size: heart.scale.x, light: [heart.material.color.r, heart.material.color.g, heart.material.color.b], shown: heart.visible && !!heart.parent && heart.parent.type === 'Scene' },
           right: right.toArray(), sight: sight.toArray(),
         }, s);
       },
