@@ -20,6 +20,13 @@ traceability.
 - **Scene kit**: `TimbreScene.createHistory(size, hz)` is a memory of a level for things
   that travel, read by sample (`byAge`) or by age in seconds (`heard`). A scene's camera is
   now in place before its first `update`. See `docs/EFFECTS.md` ("Kit scenes").
+- **Shards settings**: `bloom` (0 to 100, default 50: how far the sound opens the pane;
+  at 0 it stays shut and only its lights change, at 100 it opens twice as far) and
+  `cameraDrift` (0 to 100, default 50) for the Shards effect. `density` stays, and is now
+  how finely the pane is broken (91 shards at 0, 280 at 50, 545 at 100). What the new
+  Shards is made of is in `overlay/shards.js` (`TimbreShards`), loaded by all three
+  overlay pages and by `verify` under Node, and documented in `docs/EFFECTS.md` ("The
+  shards").
 - **Ink settings**: `density` (0 to 100, default 50; 6,000 to 30,000 specks of ink at once),
   `glass` (0 to 100, default 50: how bright the tank's glass and the water's surface are
   drawn; at 0 they are not drawn at all and the ink floats free) and `cameraDrift` (0 to
@@ -179,6 +186,20 @@ traceability.
 
 ### Changed
 
+- **Shards is now a broken mirror that the sound opens up**, a scene on the scene kit. The
+  ball of small tetrahedra is gone. A pane of mirror glass floats in the box, already
+  broken: cracks run out from the point where it was struck and rings of cracks cross
+  them, so it is a few hundred shards that still fit together, with a light behind it.
+  Each syllable starts at the point of impact and travels outward as a ripple; the shards
+  it reaches lift toward the viewer, move apart, tip outward like petals and sink back.
+  A pause is a flat cracked mirror, a voice a pane that blooms open in waves, and music a
+  pane that never quite closes. Each sector of the pane also follows one of the eight
+  lowest bands of the sound, and a beat sends a faster ring outward. Each shard mirrors a
+  sky made of the palette's colours with long soft lights in it, and flashes when it tips
+  far enough to catch a lamp; the cut edges of the glass glow. The shards are solid, so
+  the pane shows over a bright backdrop as well as a dark one. With the mic off and Idle
+  animation on, the sectors lift a little in turn; with both off the pane is shut. It
+  uses the shared Scene placement sliders, and no longer makes a renderer of its own.
 - **Ink is now coloured ink poured into a tank of water**, a scene on the scene kit. The
   fluid on a coarse grid, drawn in blocks, is gone. A glass tank of clear water floats in
   the box. Each of the eight lowest bands of the sound has its own place along the top of

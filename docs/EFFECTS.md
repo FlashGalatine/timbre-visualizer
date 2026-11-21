@@ -922,6 +922,66 @@ Worth knowing before drawing another thing that is not light:
   several times the page, and the Scene Size slider is the camera's zoom: `pxOf` takes
   both.
 
+## The shards (`TimbreShards`)
+
+`overlay/shards.js` is the Shards effect, as `globalThis.TimbreShards`: a broken pane of
+mirror glass that the sound opens up. `factories/shards.js` is one line,
+`VIZ_FACTORIES['shards'] = TimbreScene.factory(() => TimbreShards.definition())`. It offers:
+
+- **The cracks.** `spokesFor(density)` and `ringsFor(density)` say how many cracks run
+  outward from the point of impact and how many rings cross them; `edgeAt(angle)` is how
+  far the pane's edge is from that point in a direction; `crack(spokes, rings, seed)`
+  gives the shards, each a polygon of three or four corners, which together fill the pane
+  exactly.
+- **The pane.** `createPane(density, seed)` gives every shard its middle, its distance and
+  direction from the point of impact, the band its sector listens to, numbers of its own
+  (how far it lifts and tips, a lean, a twist, how it lies at rest), and its corners as a
+  small prism: a top (the mirror), a back and a cut side along each edge. `COUNT_MIN` and
+  `COUNT_MAX` are how many shards the coarsest and the finest pane have (91 and 545; 280
+  at the usual Density).
+- **The sound.** `loudness(bins, band, gain)` reads one of the eight lowest bins,
+  `idle(b, t)` is what a band pretends to hear with the mic off, and `settle(v)` makes
+  nothing of a level within a ten-thousandth of nothing.
+- **Opening.** `amountOf(bloom)` is what the Bloom setting makes of every opening;
+  `delayOf(d)` and `beatDelayOf(d)` are how long the voice's ripple and a beat's ring take
+  to reach a shard; `openOf(voice, band, beat, amount)` is how far open a shard is, and
+  `openAll(out, pane, voice, bands, beat, amount)` that for every shard, from what is
+  remembered of the sound (the kit's `createHistory`).
+- **Placing.** `poseOf(out, pane, i, e)` is where an opening puts a shard (its move, and
+  its one turn), and `place(pane, open, pos, norm, shown)` every corner of every shard and
+  the way it faces. `measure(pane, pos)` is the box they lie in, for the checks.
+- **The light behind.** `glowOf(out, flame, kick)` is how bright and how wide it is.
+- **The scene.** `MIRROR_VERT` and `MIRROR_FRAG` draw a shard, solid; `GLOW_VERT` and
+  `GLOW_FRAG` draw the light behind the pane, in added light. `definition()` returns the
+  kit scene definition.
+
+All its timing comes from `dt`. The arithmetic touches nothing at load, and the file must
+stay loadable under Node, because `npm run verify` imports it; the scene looks up `THREE`,
+`TimbreScene` and the core.js globals only when it is built. It must be loaded after
+`scene-kit.js` and before the factories.
+
+Worth knowing before drawing another thing made of many solid pieces:
+
+- A few hundred pieces that each move and turn on their own are cheapest as one mesh
+  whose corners the arithmetic places each frame: 13,000 corners cost about a third of a
+  millisecond, need one draw call, and can be checked under Node to the last corner. The
+  buffers are made once for the most pieces there can be; breaking the pane anew for
+  another Density only fills them again and changes how much is drawn.
+- A flat mirror that shows a smooth sky reads as coloured paper. What makes it a mirror is
+  something in the sky with edges (here, long soft lights), so that each piece shows its
+  own part of it and the parts do not line up across a crack. No piece lies quite flat,
+  even at rest, for the same reason.
+- A piece that turns too far shows its back, or goes edge-on and all but vanishes. Its
+  lean from the pane is held to `TILT_MAX`, which with the pane's own turn and the widest
+  angle the camera sees it from stays short of edge-on.
+- What moves toward the camera grows in the picture. The frame is sized for the widest
+  opening as the camera sees it, not for the box the pieces lie in: the check projects
+  every corner from where the kit puts the camera, on each page and at the furthest the
+  camera sways.
+- The cracks are a tiling: every shard's corners are shared with its neighbours, and the
+  check adds up the shards' areas and wants the pane's exactly. A shard is drawn a little
+  smaller than its polygon, so the cracks show and the light behind leaks through.
+
 ## Wire format (for driving Timbre from elsewhere)
 
 Anything that can call a Streamer.bot action can drive Timbre:

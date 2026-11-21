@@ -42,7 +42,7 @@ off the pane closes and the picture holds still.
 
 | Setting | Range | Default | What it does |
 |---|---|---|---|
-| `density` | 0 to 100 | 50 | How finely the pane is broken: about 110 shards at 0, 270 at 50, 480 at 100. Kept from today's effect, where it was also the number of shards. |
+| `density` | 0 to 100 | 50 | How finely the pane is broken: 91 shards at 0, 280 at 50, 545 at 100. Kept from today's effect, where it was also the number of shards. |
 | `bloom` | 0 to 100 | 50 | How far the sound opens the pane. At 0 it stays shut and only its lights change. |
 | `cameraDrift` | 0 to 100 | 50 | How far the camera sways. |
 

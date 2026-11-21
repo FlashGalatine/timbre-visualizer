@@ -3123,6 +3123,264 @@ async function main() {
 
     }
 
+    // ── The shards (a kit scene: a broken pane of mirror glass that the sound opens up) ────
+    {   // its own block: the names below are the shards' own
+    // Build the scene afresh, drive the level and the 32 bins by hand, and read the canvas and
+    // the scene after each step. A step gives level (null: whatever the kit hears), secs, and
+    // either all (every bin, 0..1) or bins ([[bin, 0..1], ...]); idle: true has the mic off,
+    // off: true has the mic and Idle animation off; hue sets the palette's hue from that step
+    // on; knobs sets settings from that step on.
+    // Beside the scene, the pane is made again here from the arithmetic alone, frame for frame
+    // (the bands followed, what is remembered of them, of the voice and of the beat, how far
+    // open each shard is and where that puts every corner), and model says how far the scene's
+    // own is from it.
+    const SHARDS = 'shards';
+    const shardRun = (steps, { fps = 60, knobs = null, hue = null, colorSpeed = null, gain = null } = {}) => wide.evaluate(({ id, steps, fps, knobs, hue, colorSpeed, gain }) => {
+      window.frame = function () {};
+      const saved = { frequencies, micActive, cfgIdleAnim, cfgColorHue, cfgColorSpeed, cfgGain }, knobs0 = Object.assign({}, perViz[id]);
+      try {
+        if (knobs) Object.assign(perViz[id], knobs);
+        if (hue !== null) cfgColorHue = hue;
+        if (colorSpeed !== null) cfgColorSpeed = colorSpeed;
+        if (gain !== null) cfgGain = gain;
+        TimbreScene.testLevel = 0;
+        setActiveViz('visualizer'); setActiveViz(id);
+        const K = TimbreShards, follow = TimbreScene.follow, mk = () => TimbreScene.createHistory(K.HISTORY, K.HISTORY_HZ);
+        const m = { bands: new Float32Array(8), hist: Array.from({ length: 8 }, mk), voice: mk(), beat: mk(), clock: 0 }, panes = {};
+        const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), f = new Uint8Array(32), out = [];
+        let now = 100000 + 1000 / 120, last = null;
+        for (const st of steps) {
+          TimbreScene.testLevel = st.level;
+          micActive = !st.idle && !st.off;
+          cfgIdleAnim = st.off ? false : saved.cfgIdleAnim;
+          if (st.knobs) Object.assign(perViz[id], st.knobs);
+          if (st.hue !== undefined) cfgColorHue = st.hue;
+          f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
+          if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
+          frequencies = f;
+          let beats = 0;
+          for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) {
+            now += 1000 / fps;
+            const b0 = window.__timbre.scene ? window.__timbre.scene.state.beats : 0, dt = 1 / fps;
+            currentViz.draw(now, dt);
+            const live = window.__timbre.scene.state;
+            if (live.beats > b0) beats++;
+            if (micActive || cfgIdleAnim) m.clock += dt;
+            for (let b = 0; b < 8; b++) {
+              let v = 0;
+              if (micActive) v = K.loudness(frequencies, b, cfgGain); else if (cfgIdleAnim) v = K.idle(b, m.clock);
+              m.bands[b] = follow(m.bands[b], v, v > m.bands[b] ? K.RISE : K.FALL, dt);
+              if (v === 0) m.bands[b] = K.settle(m.bands[b]);
+              m.hist[b].step(m.bands[b], dt);
+            }
+            m.voice.step(live.flame, dt); m.beat.step(live.kick, dt);
+          }
+          const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);   // row 0 is the bottom of the canvas
+          // solid: pixels a shard covers. part: pixels at a shard's rim. light: pixels of light over the background (the light behind the pane).
+          // white: solid pixels all but white (a shard catching a lamp). edge: anything at the canvas's edge.
+          let solid = 0, part = 0, light = 0, lightSum = 0, edge = 0, sx = 0, white = 0, sum = 0, sumSq = 0, hash = 2166136261;
+          for (let i = 0; i < px.length; i++) hash = Math.imul(hash ^ px[i], 16777619) >>> 0;
+          const box = [w, -1, h, -1], color = [0, 0, 0];
+          for (let i = 0; i < px.length; i += 4) {
+            const x = (i / 4) % w, y = Math.floor(i / 4 / w), rgb = px[i] + px[i + 1] + px[i + 2], a = px[i + 3];
+            if (a >= 250) {
+              solid++; sx += x; sum += rgb; sumSq += rgb * rgb; color[0] += px[i]; color[1] += px[i + 1]; color[2] += px[i + 2];
+              if (px[i] > 215 && px[i + 1] > 215 && px[i + 2] > 215) white++;
+              if (x < box[0]) box[0] = x; if (x > box[1]) box[1] = x; if (y < box[2]) box[2] = y; if (y > box[3]) box[3] = y;
+              if (x < 4 || y < 4 || x >= w - 4 || y >= h - 4) edge++;
+            } else if (a >= 25) {
+              part++;
+              if (x < 4 || y < 4 || x >= w - 4 || y >= h - 4) edge++;
+            } else if (a < 5 && rgb > 12) {
+              light++; lightSum += rgb;
+              if (x < 4 || y < 4 || x >= w - 4 || y >= h - 4) edge++;
+            }
+          }
+          // Light seen inside the box the shards lie in: what leaks through the cracks and between open shards.
+          let cracks = 0;
+          if (box[1] >= 0) for (let y = box[2]; y <= box[3]; y++) for (let x = box[0]; x <= box[1]; x++) { const i = (y * w + x) * 4; if (px[i + 3] < 5 && px[i] + px[i + 1] + px[i + 2] > 12) cracks++; }
+          const diff = { n: 0, max: 0 };
+          if (last) for (let i = 0; i < px.length; i++) { const d = Math.abs(px[i] - last[i]); if (d) { diff.n++; if (d > diff.max) diff.max = d; } }
+          last = px;
+          const s = window.__timbre.scene, state = (s && s.state) || {};
+          // The pane made again from the arithmetic.
+          const dens = perViz[id].density, pane = panes[dens] || (panes[dens] = K.createPane(dens, K.SEED));
+          const open = new Float32Array(pane.count), pos = new Float32Array(pane.verts * 3), norm = new Float32Array(pane.verts * 3), shown = new Float32Array(pane.verts);
+          const mean = K.openAll(open, pane, m.voice, m.hist, m.beat, K.amountOf(perViz[id].bloom));
+          K.place(pane, open, pos, norm, shown);
+          let posSum = 0, normSum = 0, gapOpen = state.opens && state.opens.length === pane.count ? 0 : 99;
+          for (let i = 0, n = pane.verts * 3; i < n; i++) { posSum += pos[i] * ((i % 7) + 1); normSum += norm[i] * ((i % 5) + 1); }
+          if (!gapOpen) for (let i = 0; i < pane.count; i++) gapOpen = Math.max(gapOpen, Math.abs(open[i] - state.opens[i]));
+          const ring = (test) => { let t = 0, n = 0; for (let i = 0; i < pane.count; i++) if (test(pane.d[i])) { t += state.opens[i]; n++; } return n ? t / n : 0; };
+          const byBand = Array.from({ length: 8 }, (_, b) => { let t = 0, n = 0; for (let i = 0; i < pane.count; i++) if (pane.band[i] === b) { t += state.opens[i]; n++; } return n ? t / n : 0; });
+          const model = { gapOpen, gapPos: Math.abs(posSum - state.posSum) / (1 + Math.abs(posSum)), gapNorm: Math.abs(normSum - state.normSum) / (1 + Math.abs(normSum)), mean, bands: Array.from(m.bands), clock: m.clock,
+            inner: ring((d) => d < 0.15), mid: ring((d) => d > 0.4 && d < 0.6), outer: ring((d) => d > 0.85), byBand,
+            pal: [0, 1, 2, 3, 4, 5].map((i) => getColor(state.colorT + (i * PALETTE.length) / 6).slice(0, 3)), glowColor: getColor(state.colorT + PALETTE.length / 2).slice(0, 3) };
+          const size = (b) => ({ w: b[1] < 0 ? 0 : b[1] - b[0] + 1, h: b[3] < 0 ? 0 : b[3] - b[2] + 1, x0: b[0], x1: b[1], y0: b[2], y1: b[3] });
+          out.push({ state, model, solid, part, light, lightSum, edge, beats, white, cracks, bright: solid ? sum / solid : 0, vary: solid ? Math.sqrt(Math.max(0, sumSq / solid - (sum / solid) ** 2)) : 0,
+            color: solid ? color.map((v) => v / solid) : [0, 0, 0], centroidX: solid ? sx / solid : 0, box: size(box), cornerAlpha: px[3], canvas: [w, h], hash, diff, kitCam: s ? s.camera : null });
+        }
+        return out;
+      } finally {
+        frequencies = saved.frequencies; micActive = saved.micActive; cfgIdleAnim = saved.cfgIdleAnim; cfgColorHue = saved.cfgColorHue; cfgColorSpeed = saved.cfgColorSpeed; cfgGain = saved.cfgGain;
+        Object.assign(perViz[id], knobs0); TimbreScene.testLevel = null;
+      }
+    }, { id: SHARDS, steps, fps, knobs, hue, colorSpeed, gain });
+    const gap = (a, b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
+    // A picture is as the last one was, but for the two stray pixels this GPU allows itself (see the glass prism's block).
+    const same = (r) => r.diff.n <= 8 && r.diff.max <= 1;
+    const remade = (r) => r.model.gapOpen < 1e-6 && r.model.gapPos < 1e-6 && r.model.gapNorm < 1e-6;
+    const still = { knobs: { cameraDrift: 0 }, colorSpeed: 0, gain: 1 };
+    // The shut pane: how many pixels its shards cover, the box they lie in (left, right, bottom, top), how bright they are on average
+    // (the sum of the three colours, of 765) and how much that varies across the pane (the soft lights in the mirror). Measured.
+    const PANE_SOLID = 134457, PANE_BOX = [635, 1114, 166, 493], PANE_BRIGHT = 350, PANE_VARY = 121;
+    // Pixels of light seen through the shut pane's cracks, at least and at most. Measured.
+    const CRACKS = [300, 700];
+    // Solid pixels all but white when the pane is open and loud (shards catching a lamp), at least. Measured, and half of it.
+    const FLASHES = 1000;
+    // How far apart the openings may be at 30 and at 60 frames a second, after the same sound. Measured, and set a few times over.
+    const FPS_OPEN = 0.03;
+
+    await activate(SHARDS);
+    const shState = await sceneState();
+    const [shLoud] = await shardRun([{ level: 0.8, all: 0.8, secs: 3 }], { gain: 1 });
+    const [shHush] = await shardRun([{ level: 0, secs: 2 }], still);
+    check('shards is a kit scene: solid shards in front of a light, with a transparent corner and nothing at the edge',
+      !!shState && shState.active === true && shState.targetSize[0] === 1728 && shLoud.solid > 0.8 * PANE_SOLID && shLoud.state.solid === true && shLoud.state.light === true && shLoud.cornerAlpha === 0 && shLoud.edge === 0
+        && shLoud.state.count === 280 && shLoud.state.verts === 5808 && shLoud.state.indices === 8256 && shLoud.state.drawn === 8256 && shLoud.state.spokes === 22 && shLoud.state.rings === 8 && shLoud.state.breaks === 1
+        && gap(shLoud.state.turn, [-0.05, -0.26, 0.03]) < 1e-12 && gap(shLoud.state.glowAt, [-0.38, 0.14, -0.55]) < 1e-12 && shLoud.state.glowDrawn[0] === shLoud.state.glow && shLoud.state.glowDrawn[1] === shLoud.state.glowSize && shLoud.state.glowDrawn[2] === 6.4
+        && shLoud.state.lit[0] === shLoud.state.flame && shLoud.state.lit[1] === shLoud.state.kick && shLoud.state.lit[2] === shLoud.state.shift && shLoud.state.open > 0.6 && shLoud.part < 0.2 * shLoud.solid,
+      JSON.stringify({ size: shState && shState.targetSize, solid: shLoud.solid, part: shLoud.part, light: shLoud.light, corner: shLoud.cornerAlpha, edge: shLoud.edge, box: shLoud.box, open: shLoud.state.open }));
+    check('shards: in silence the pane is shut, every shard in its place', shHush.state.opens.length === 280 && shHush.state.opens.every((v) => v === 0) && shHush.state.open === 0 && shHush.state.most === 0 && shHush.state.bands.every((b) => b === 0) && shHush.state.flame === 0
+      && Math.abs(shHush.state.glow - 0.05) < 1e-12 && Math.abs(shHush.state.glowSize - 3.8) < 1e-12 && shHush.state.box[0] > -1.81 && shHush.state.box[1] < 1.81 && shHush.state.box[2] > -1.16 && shHush.state.box[3] < 1.16 && shHush.state.box[4] > -0.06 && shHush.state.box[5] < 0.06
+      && shHush.edge === 0 && remade(shHush), JSON.stringify({ open: shHush.state.open, glow: shHush.state.glow, box: shHush.state.box, model: [shHush.model.gapOpen, shHush.model.gapPos, shHush.model.gapNorm] }));
+    check('shards: the shut pane is drawn as it was measured: a mirror with soft lights in it, where it lies, with light leaking through its cracks', Math.abs(shHush.solid - PANE_SOLID) < 0.03 * PANE_SOLID
+      && gap([shHush.box.x0, shHush.box.x1, shHush.box.y0, shHush.box.y1], PANE_BOX) <= 3 && Math.abs(shHush.bright - PANE_BRIGHT) < 0.12 * PANE_BRIGHT && shHush.vary > 0.7 * PANE_VARY && shHush.cracks >= CRACKS[0] && shHush.cracks <= CRACKS[1],
+      JSON.stringify({ solid: shHush.solid, box: shHush.box, bright: shHush.bright, vary: shHush.vary, cracks: shHush.cracks, light: shHush.light, white: shHush.white }));
+    check('shards: every shard is where the arithmetic puts it, frame for frame: the bands followed, the ripple, how far open, every corner and the way it faces', remade(shLoud) && Math.abs(shLoud.model.mean - shLoud.state.open) < 1e-6 && shLoud.state.shownSum > 0
+      && gap(shLoud.model.bands, shLoud.state.bands) < 1e-9 && Math.abs(shLoud.model.clock - shLoud.state.clock) < 1e-9, JSON.stringify({ model: [shLoud.model.gapOpen, shLoud.model.gapPos, shLoud.model.gapNorm], mean: [shLoud.model.mean, shLoud.state.open] }));
+    check('shards: open, the shards have left the pane toward the viewer and spread, and some catch a lamp', shLoud.state.box[5] > 0.8 && shLoud.state.box[1] - shLoud.state.box[0] > 3.9 && shLoud.box.w > shHush.box.w + 20 && shLoud.white > FLASHES && shLoud.cracks > 3 * shHush.cracks
+      && Math.abs(shLoud.state.most - 0.92) < 1e-6, JSON.stringify({ box: shLoud.state.box, w: [shHush.box.w, shLoud.box.w], white: [shHush.white, shLoud.white], cracks: [shHush.cracks, shLoud.cracks], most: shLoud.state.most }));
+
+    // The ripple.
+    const [early, later, passed] = await shardRun([{ level: 0.9, secs: 0.12 }, { level: 0, secs: 0.3 }, { level: 0, secs: 1.2 }], still);
+    check('shards: a syllable opens the pane at the point of impact first, and travels outward to the far corners', early.model.inner > 0.3 && early.model.mid < 0.03 && early.model.outer === 0 && later.model.mid > 0.2 && later.model.outer === 0 && later.model.inner < early.model.inner
+      && passed.model.outer > 2 * passed.model.inner && passed.model.outer > 0.01 && remade(early) && remade(later) && remade(passed),
+      JSON.stringify({ early: [early.model.inner, early.model.mid, early.model.outer], later: [later.model.inner, later.model.mid, later.model.outer], passed: [passed.model.inner, passed.model.mid, passed.model.outer] }));
+
+    // A band and its sectors.
+    const one = (bins, opts = still) => shardRun([{ level: 0, bins, secs: 1.5 }], opts).then((r) => r[0]);
+    const band2 = await one([[2, 1]]), band5 = await one([[5, 1]]), band12 = await one([[12, 1]]), half2 = await one([[2, 0.5]]), gained2 = await one([[2, 0.5]], { ...still, gain: 2 });
+    check('shards: each sector of the pane opens with its own band, and with no other', Math.abs(band2.model.byBand[2] - 0.65) < 0.005 && band2.model.byBand.every((v, b) => b === 2 || v === 0) && Math.abs(band5.model.byBand[5] - 0.65) < 0.005 && band5.model.byBand.every((v, b) => b === 5 || v === 0)
+      && band12.state.opens.every((v) => v === 0) && band2.solid > 0 && remade(band2) && remade(band5), JSON.stringify({ band2: band2.model.byBand, band5: band5.model.byBand }));
+    check('shards: a band is as loud as its bin, times Gain', Math.abs(half2.model.byBand[2] - 0.325) < 0.005 && Math.abs(gained2.model.byBand[2] - 0.65) < 0.005 && Math.abs(half2.state.bands[2] - 0.5 * 128 / 127.5) < 0.01 && Math.abs(gained2.state.bands[2] - 2 * half2.state.bands[2]) < 0.01,
+      JSON.stringify({ half: half2.model.byBand[2], gained: gained2.model.byBand[2], bands: [half2.state.bands[2], gained2.state.bands[2]] }));
+    const [risen, fallen] = await shardRun([{ level: 0, bins: [[2, 1]], secs: 0.1 }, { level: 0, secs: 0.5 }], still);
+    check('shards: a band is followed quick up and slower down', Math.abs(risen.state.bands[2] - (1 - Math.exp(-2))) < 1e-6 && Math.abs(fallen.state.bands[2] - (1 - Math.exp(-2)) * Math.exp(-2)) < 1e-6 && risen.state.bands.every((v, b) => b === 2 || v === 0),
+      JSON.stringify({ risen: risen.state.bands[2], fallen: fallen.state.bands[2] }));
+
+    // A beat.
+    const beatSteps = [{ level: 0.05, secs: 1 }, { level: 0.9, secs: 0.1 }, { level: 0.05, secs: 0.32 }];
+    const [calm, hit, ringing] = await shardRun(beatSteps, still);
+    check('shards: a beat sends a ring outward ahead of the voice, and the light behind the pane flares', calm.beats === 0 && hit.beats === 1 && hit.state.beats === 1 && hit.state.kick > 0.5 && Math.abs(hit.state.glow - (0.05 + 0.26 * hit.state.flame + 0.3 * hit.state.kick)) < 1e-9
+      && Math.abs(hit.state.glowSize - (3.8 + hit.state.flame + 0.8 * hit.state.kick)) < 1e-9 && hit.state.glow > calm.state.glow + 0.25 && hit.lightSum > 2 * calm.lightSum && hit.state.most > calm.state.most + 0.5 && ringing.model.outer > calm.model.outer + 0.3
+      && remade(hit) && remade(ringing), JSON.stringify({ beats: [calm.beats, hit.beats], kick: hit.state.kick, glow: [calm.state.glow, hit.state.glow], light: [calm.lightSum, hit.lightSum], most: [calm.state.most, hit.state.most], outer: [calm.model.outer, ringing.model.outer], mid: ringing.model.mid }));
+
+    // Bloom.
+    const bloomAt = (bloom) => shardRun([{ level: 0.8, all: 0.8, secs: 3 }], { ...still, knobs: { cameraDrift: 0, bloom } }).then((r) => r[0]);
+    const bloom0 = await bloomAt(0), bloom50 = await bloomAt(50), bloom100 = await bloomAt(100);
+    check('shards: Bloom 0 keeps the pane shut while its lights still change; 100 opens it twice as far, and no further than the widest', bloom0.state.opens.every((v) => v === 0) && bloom0.state.amount === 0 && Math.abs(bloom0.solid - shHush.solid) < 0.02 * shHush.solid
+      && bloom0.state.glow > 0.2 && bloom0.bright > 1.1 * shHush.bright && bloom50.state.amount === 1 && bloom100.state.amount === 2 && bloom100.state.open > 1.4 * bloom50.state.open && bloom100.state.most <= 1.7 + 1e-6 && bloom100.state.most > 1.6
+      && bloom100.state.box[5] > bloom50.state.box[5] + 0.3 && bloom100.edge === 0 && remade(bloom0) && remade(bloom100),
+      JSON.stringify({ open: [bloom0.state.open, bloom50.state.open, bloom100.state.open], most: bloom100.state.most, bright: [shHush.bright, bloom0.bright], z: [bloom50.state.box[5], bloom100.state.box[5]], edge: bloom100.edge }));
+    // The widest opening there is, with the camera swaying as far as it goes, at three moments of its sway.
+    const widest = await shardRun([{ level: 1, all: 1, secs: 1.5 }, { level: 1, all: 1, secs: 7 }, { level: 1, all: 1, secs: 9 }], { colorSpeed: 0, gain: 1, knobs: { cameraDrift: 100, bloom: 100 } });
+    check('shards: wide open, every shard is still in the picture, however far the camera has swayed', widest.every((r) => r.edge === 0 && r.box.x0 > 8 && r.box.x1 < r.canvas[0] - 8 && r.box.y0 > 8 && r.box.y1 < r.canvas[1] - 8 && r.state.most > 1.69)
+      && Math.max(...widest.map((r) => Math.abs(r.state.orbit))) > 0.2, JSON.stringify(widest.map((r) => ({ box: r.box, orbit: r.state.orbit, most: r.state.most }))));
+
+    // Density.
+    const densAt = (density) => shardRun([{ level: 0.6, all: 0.6, secs: 1.5 }], { ...still, knobs: { cameraDrift: 0, density } }).then((r) => r[0]);
+    const dens0 = await densAt(0), dens100 = await densAt(100);
+    check('shards: Density breaks the pane more coarsely or more finely', dens0.state.count === 91 && dens0.state.spokes === 12 && dens0.state.rings === 5 && dens0.state.drawn === dens0.state.indices && dens100.state.count === 545 && dens100.state.spokes === 32 && dens100.state.rings === 11
+      && dens100.state.drawn === dens100.state.indices && dens100.state.indices > 2 * dens0.state.indices && dens0.edge === 0 && dens100.edge === 0 && dens0.solid > 0.5 * shHush.solid && dens100.solid > 0.5 * shHush.solid && remade(dens0) && remade(dens100)
+      && dens0.state.lastIndex < dens0.state.verts && dens100.state.lastIndex < dens100.state.verts, JSON.stringify({ count: [dens0.state.count, dens100.state.count], drawn: [dens0.state.drawn, dens100.state.drawn], solid: [dens0.solid, dens100.solid] }));
+    const changing = [{ level: 0.6, all: 0.6, secs: 1.5 }, { level: 0.6, all: 0.6, secs: 0.05, knobs: { density: 0 } }, { level: 0.6, all: 0.6, secs: 0.05, knobs: { density: 50 } }];
+    const [whole1, coarse, whole2] = await shardRun(changing, still), [, , straight] = await shardRun(changing.map((s) => ({ ...s, knobs: undefined })), still);
+    check('shards: Density changed while the pane is open breaks it anew at once, and changed back gives the pane there was', whole1.state.breaks === 1 && coarse.state.breaks === 2 && whole2.state.breaks === 3 && coarse.state.count === 91 && coarse.state.drawn === coarse.state.indices
+      && coarse.state.opens.length === 91 && remade(coarse) && whole2.state.count === 280 && remade(whole2) && gap(whole2.state.opens, straight.state.opens) < 1e-9 && Math.abs(whole2.state.posSum - straight.state.posSum) < 1e-6 && Math.abs(whole2.solid - straight.solid) < 0.01 * straight.solid
+      && coarse.state.uploads[3] === whole1.state.uploads[3] + 1 && coarse.state.uploads[4] === whole1.state.uploads[4] + 1 && whole2.state.uploads[3] === whole1.state.uploads[3] + 2 && coarse.edge === 0,
+      JSON.stringify({ breaks: [whole1.state.breaks, coarse.state.breaks, whole2.state.breaks], count: [coarse.state.count, whole2.state.count], opens: gap(whole2.state.opens, straight.state.opens), posSum: [whole2.state.posSum, straight.state.posSum], solid: [whole2.solid, straight.solid], remade: [remade(coarse), remade(whole2)], drawn: [coarse.state.drawn, coarse.state.indices], uploads: [whole1.state.uploads, coarse.state.uploads, whole2.state.uploads] }));
+
+    // Colours.
+    const [hue0, hue2] = await shardRun([{ level: 0.5, all: 0.5, secs: 1 }, { level: 0.5, all: 0.5, secs: 0.5, hue: 2 }], still);
+    check('shards: the mirrors show six colours from round the palette and the light behind is another, and they turn with the palette', [hue0, hue2].every((r) => r.state.pal.every((c, i) => gap(c, r.model.pal[i]) <= 1) && gap(r.state.glowColor, r.model.glowColor) <= 1)
+      && gap(hue0.state.pal[0], hue0.state.pal[3]) > 30 && gap(hue0.state.pal[0], hue2.state.pal[0]) > 30 && gap(hue0.color, hue2.color) > 12 && Math.abs(hue2.state.colorT - hue0.state.colorT - 2) < 1e-9,
+      JSON.stringify({ pal: [hue0.state.pal, hue0.model.pal], glow: [hue0.state.glowColor, hue0.model.glowColor], colour: [hue0.color, hue2.color] }));
+
+    // Camera.
+    const [noDrift] = await shardRun([{ level: 0.8, all: 0.8, secs: 3 }], { gain: 1, knobs: { cameraDrift: 0 } }), [drift] = await shardRun([{ level: 0.8, all: 0.8, secs: 3 }], { gain: 1, knobs: { cameraDrift: 100 } });
+    check('shards: Camera drift 0 holds the camera still; 100 doubles the sway', noDrift.state.orbit === 0 && Math.abs(shLoud.state.orbit) > 0.005 && Math.abs(drift.state.orbit - 2 * shLoud.state.orbit) < 1e-9 && Math.abs(noDrift.kitCam[0]) < 1e-6 && Math.abs(drift.kitCam[0]) > 1.5 * Math.abs(shLoud.kitCam[0]) && drift.edge === 0,
+      JSON.stringify({ orbit: [noDrift.state.orbit, shLoud.state.orbit, drift.state.orbit], x: [noDrift.kitCam[0], shLoud.kitCam[0], drift.kitCam[0]] }));
+
+    // The same at any frame rate.
+    const fpsSteps = [{ level: 0.05, all: 0.5, secs: 1 }, { level: 0.9, all: 0.8, secs: 1 }, { level: 0, all: 0, secs: 0.3 }];
+    const [, , s30] = await shardRun(fpsSteps, { ...still, fps: 30 }), [, , s60] = await shardRun(fpsSteps, { ...still, fps: 60 });
+    check('shards: the same sound gives the same pane at 30 and 60 fps', Math.abs(s30.state.clock - 2.3) < 1e-6 && Math.abs(s60.state.clock - 2.3) < 1e-6 && s60.state.open > 0.2 && gap(s30.state.opens, s60.state.opens) < FPS_OPEN && gap(s30.state.box, s60.state.box) < 2 * FPS_OPEN
+      && s60.state.beats >= 1 && s30.state.beats === s60.state.beats && Math.abs(s30.solid - s60.solid) < 0.03 * s60.solid && remade(s30) && remade(s60),
+      JSON.stringify({ opens: gap(s30.state.opens, s60.state.opens), box: gap(s30.state.box, s60.state.box), open: [s30.state.open, s60.state.open], solid: [s30.solid, s60.solid] }));
+
+    // Mic off.
+    const [idle1, idle2] = await shardRun([{ level: null, idle: true, secs: 3 }, { level: null, idle: true, secs: 3 }], still);
+    check('shards: with the mic off and Idle animation on, the sectors lift a little in turn', idle1.state.live === true && Math.abs(idle2.state.clock - 6) < 1e-6 && idle1.state.open > 0.05 && idle2.state.open > 0.05 && idle2.state.most < 0.75 && idle2.state.beats === 0 && gap(idle1.model.byBand, idle2.model.byBand) > 0.1
+      && Math.max(...idle2.model.byBand) - Math.min(...idle2.model.byBand) > 0.1 && Math.max(...idle2.state.bands) < 0.53 && idle2.diff.n > 1000 && remade(idle1) && remade(idle2),
+      JSON.stringify({ open: [idle1.state.open, idle2.state.open], most: idle2.state.most, byBand: [idle1.model.byBand, idle2.model.byBand], bands: idle2.state.bands }));
+    const [off1, off2] = await shardRun([{ level: null, off: true, secs: 3 }, { level: null, off: true, secs: 1 }], still);
+    check('shards: with the mic and Idle animation off the pane is shut and the picture holds still', off2.state.live === false && off2.state.clock === 0 && off2.state.open === 0 && off2.state.most === 0 && off2.state.shift === 0 && same(off2) && Math.abs(off2.solid - shHush.solid) < 0.01 * shHush.solid,
+      JSON.stringify({ open: off2.state.open, differs: off2.diff, clock: off2.state.clock, solid: off2.solid }));
+    const [live1, muted1, muted2, muted3] = await shardRun([{ level: 0.9, all: 0.8, secs: 1.5 }, { level: null, off: true, secs: 0.3 }, { level: null, off: true, secs: 8 }, { level: null, off: true, secs: 1 }], still);
+    check('shards: muted while it is open, the pane closes, and then nothing moves', live1.state.open > 0.6 && muted1.state.live === false && muted1.state.clock === live1.state.clock && muted1.state.open > 0.2 && muted1.state.open < live1.state.open && muted2.state.open === 0 && muted2.state.most === 0
+      && muted2.state.flame === 0 && muted2.state.kick === 0 && muted2.state.bands.every((b) => b === 0) && muted2.state.opens.every((v) => v === 0) && same(muted3) && muted1.diff.n > 1000 && muted2.state.shift === live1.state.shift && Math.abs(muted2.state.glow - 0.05) < 1e-12,
+      JSON.stringify({ open: [live1.state.open, muted1.state.open, muted2.state.open], flame: muted2.state.flame, differs: muted3.diff }));
+
+    // What is sent to be drawn, placement, and cost.
+    const [up1, up2] = await shardRun([{ level: 0.5, all: 0.5, secs: 0.5 }, { level: 0.5, all: 0.5, secs: 0.5 }], still);
+    check('shards: every frame its corners, the way they face and how far open they are are sent to be drawn; what does not change is sent once', [0, 1, 2].every((i) => up2.state.uploads[i] - up1.state.uploads[i] === 30) && up2.state.uploads[3] === up1.state.uploads[3] && up2.state.uploads[4] === up1.state.uploads[4],
+      JSON.stringify({ uploads: [up1.state.uploads, up2.state.uploads] }));
+    const [placed0] = await shardRun([{ level: 0.5, all: 0.5, secs: 2 }], still);
+    await pushConfig((c) => { c.activeViz = SHARDS; c.placement.x = 30; });
+    await wide.waitForTimeout(400);
+    const [placed1] = await shardRun([{ level: 0.5, all: 0.5, secs: 2 }], still);
+    check('shards: Scene placement slides it', placed1.centroidX - placed0.centroidX > 150 && placed1.solid > 0.8 * placed0.solid, placed0.centroidX.toFixed(0) + ' → ' + placed1.centroidX.toFixed(0));
+    await pushConfig((c) => { c.activeViz = SHARDS; c.placement.x = 0; c.placement.size = 50; });
+    await wide.waitForTimeout(400);
+    const [halved] = await shardRun([{ level: 0.5, all: 0.5, secs: 2 }], still);
+    // The small page, with the pane as wide open as it goes.
+    const smallShards = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive }, knobs0 = Object.assign({}, perViz.shards); window.frame = function () {}; try { perViz.shards.bloom = 100; perViz.shards.cameraDrift = 0; TimbreScene.testLevel = 1; frequencies = new Uint8Array(32).fill(255); micActive = true; setActiveViz('visualizer'); setActiveViz('shards');
+      const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+      let now = 100000; for (let i = 0; i < 120; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      let solid = 0, edge = 0; for (let i = 0; i < px.length; i += 4) if (px[i + 3] >= 25) { if (px[i + 3] >= 128) solid++; const x = (i / 4) % w, y = Math.floor(i / 4 / w); if (x < 2 || y < 2 || x >= w - 2 || y >= h - 2) edge++; }
+      const s = window.__timbre.scene; return { name: window.__timbre.currentVizName, scale: s && s.renderScale, most: s && s.state.most, count: s && s.state.count, solid, edge, canvas: [w, h] }; } finally { Object.assign(perViz.shards, knobs0); TimbreScene.testLevel = null; window.frame = fr; frequencies = heard.frequencies; micActive = heard.micActive; } });
+    check('shards: the Size slider halves it, and the small page draws it too, wide open and all of it in the picture', halved.box.w < 0.62 * placed0.box.w && halved.box.w > 0.38 * placed0.box.w && halved.solid < 0.31 * placed0.solid && halved.solid > 0.19 * placed0.solid
+      && smallShards.name === SHARDS && smallShards.scale >= 2 && smallShards.count === 280 && smallShards.most > 1.69 && smallShards.edge === 0 && smallShards.solid > 0.03 * smallShards.canvas[0] * smallShards.canvas[1],
+      JSON.stringify({ box: [placed0.box.w, halved.box.w], solid: [placed0.solid, halved.solid], small: smallShards }));
+    await pushConfig((c) => { c.placement.size = 100; });
+    await wide.waitForTimeout(300);
+    // The finest pane, open and loud: a frame's script time, and a frame drawn and finished by the GPU.
+    await pushConfig((c) => { c.activeViz = SHARDS; c.perViz.shards.density = 100; });
+    await wide.waitForTimeout(300);
+    const shCost = await wide.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive }; window.frame = function () {}; try { TimbreScene.testLevel = 0.9; frequencies = new Uint8Array(32).fill(255); micActive = true; setActiveViz('visualizer'); setActiveViz('shards');
+      const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), one = new Uint8Array(4); let now = performance.now(), script = 0, whole = 0;
+      for (let i = 0; i < 120; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      for (let i = 0; i < 60; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); script += performance.now() - t; }
+      for (let i = 0; i < 60; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, one); whole += performance.now() - t; }
+      return { script: script / 60, whole: whole / 60, count: window.__timbre.scene.state.count, open: window.__timbre.scene.state.open }; } finally { TimbreScene.testLevel = null; window.frame = fr; frequencies = heard.frequencies; micActive = heard.micActive; } });
+    await pushConfig((c) => { c.perViz.shards.density = 50; });
+    check('shards: with the finest pane open, draw() averages under 3 ms of script time, and a frame drawn and finished by the GPU under 7 ms (' + shCost.script.toFixed(2) + ' and ' + shCost.whole.toFixed(2) + ' ms)', shCost.count === 545 && shCost.open > 0.5 && shCost.script < 3 && shCost.whole < 7, JSON.stringify(shCost));
+
+    }
+
     // Every kit scene, so the next one is covered without a new check.
     const gpuAfterSelect = (name) => wide.evaluate((n) => { setActiveViz('visualizer'); setActiveViz(n); currentViz.draw(performance.now(), 1 / 60); const s = window.__timbre.scene; return [s.memory.geometries, s.memory.textures, s.programs]; }, name);
     for (const name of T.VIZ_SCENES) {
@@ -3153,7 +3411,7 @@ async function main() {
       } finally { gl.createTexture = create; gl.deleteTexture = del; }
       return out;
     }, T.VIZ_SCENES);
-    const TEXTURES = { 'thanksgiving-harvest': 9, 'winter-aurora': 8, 'pride-ribbon': 5, 'bi-pride-ribbon': 5, 'ace-pride-ribbon': 5, 'trans-pride-ribbon': 5, 'july-fourth-stripes': 7, 'sunburst-3d': 5, 'mountains-3d': 5, 'phosphor': 4, 'chladni': 4, 'glass-prism': 4, 'metaball': 3, 'ink': 3 };
+    const TEXTURES = { 'thanksgiving-harvest': 9, 'winter-aurora': 8, 'pride-ribbon': 5, 'bi-pride-ribbon': 5, 'ace-pride-ribbon': 5, 'trans-pride-ribbon': 5, 'july-fourth-stripes': 7, 'sunburst-3d': 5, 'mountains-3d': 5, 'phosphor': 4, 'chladni': 4, 'glass-prism': 4, 'metaball': 3, 'ink': 3, 'shards': 3 };
     check('a scene deletes every GL texture it made, whichever scene ran before it',
       Object.keys(texturesLeft).length === T.VIZ_SCENES.length ** 2 && Object.entries(texturesLeft).every(([pair, [made, left]]) => made >= TEXTURES[pair.split(' then ')[1]] && left === 0), JSON.stringify(texturesLeft));
 
@@ -3295,7 +3553,7 @@ async function main() {
       const fresh = await freshPage();
       const first = await fresh.evaluate(async () => {
         window.frame = function () {};
-        setActiveViz('shards');
+        setActiveViz('jelly');
         await new Promise((r) => setTimeout(r, 900));
         currentViz.draw(performance.now(), 1 / 60);
         const gl = document.getElementById('vizCanvas3D').getContext('webgl2');
