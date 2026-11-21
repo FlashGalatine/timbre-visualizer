@@ -29,14 +29,17 @@ reaches lift toward the viewer, move apart and tip outward like petals, then sin
 **The shards are mirrors.** Each shows a sky made of the palette's colours with long soft
 lights in it, so every shard shows its own piece of them and the pane reads as a mirror
 and not as coloured paper. A shard flashes when it tips far enough to catch one of three
-lamps. No shard lies perfectly flat, even at rest. The cut edges of the glass glow in the
+lamps. No shard lies perfectly flat, even at rest. A shard's back is a mirror too, dimmer:
+with the camera swayed to one side, a shard wide open on the other is seen from behind. The cut edges of the glass glow in the
 colour of the light behind the pane, brighter the further a shard is open.
 
 **The shards are solid**, so the pane shows over a bright backdrop as well as a dark one.
 The light behind it is light only.
 
 With the mic off and Idle animation on, the sectors take turns to lift a little. With both
-off the pane closes and the picture holds still.
+off the pane closes and lies still (the camera's sway and the palette's turning go on, as
+in every scene). A band quieter than 0.08 is not heard at all, so a room's hiss does not
+hold the pane open.
 
 ## Settings
 
@@ -74,9 +77,10 @@ unchanged, so saved configs keep working: a saved `density` is kept.
 
 ## Risks to check in the build
 
-- At the widest opening no shard may leave the picture, at any Size the kit allows by
-  default, on the small page as well.
-- A shard that tips too far shows its dark back or goes edge-on; the tip is held short of
-  that.
+- At the widest opening no shard may leave the picture at the usual Size, on the small
+  page as well. (Above a Size of about 107 the widest opening reaches the picture's top
+  and bottom, as any scene made larger does.)
+- A shard that tips far enough is seen from behind. (The review found that it is, with
+  the camera swayed; its back is a mirror for that.)
 - With the mic muted the levels must fall to nothing and the picture come to rest.
 - Density changed while the pane is open.

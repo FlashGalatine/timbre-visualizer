@@ -3129,7 +3129,8 @@ async function main() {
     // the scene after each step. A step gives level (null: whatever the kit hears), secs, and
     // either all (every bin, 0..1) or bins ([[bin, 0..1], ...]); idle: true has the mic off,
     // off: true has the mic and Idle animation off; hue sets the palette's hue from that step
-    // on; knobs sets settings from that step on.
+    // on; knobs sets settings from that step on. grid: true reads the shards' colours cell by
+    // cell; probe: true looks at the pixel in the middle of each shard's mirror and cut sides.
     // Beside the scene, the pane is made again here from the arithmetic alone, frame for frame
     // (the bands followed, what is remembered of them, of the voice and of the beat, how far
     // open each shard is and where that puts every corner), and model says how far the scene's
@@ -3218,8 +3219,44 @@ async function main() {
           const model = { gapOpen, gapPos: Math.abs(posSum - state.posSum) / (1 + Math.abs(posSum)), gapNorm: Math.abs(normSum - state.normSum) / (1 + Math.abs(normSum)), mean, bands: Array.from(m.bands), clock: m.clock,
             inner: ring((d) => d < 0.15), mid: ring((d) => d > 0.4 && d < 0.6), outer: ring((d) => d > 0.85), byBand,
             pal: [0, 1, 2, 3, 4, 5].map((i) => getColor(state.colorT + (i * PALETTE.length) / 6).slice(0, 3)), glowColor: getColor(state.colorT + PALETTE.length / 2).slice(0, 3) };
+          // The shards' mean colour in each of 8 x 6 cells of the box they lie in, left to right and bottom to top (-1 where a cell has fewer than 40 of their pixels).
+          let grid = null;
+          if (st.grid && box[1] >= 0) {
+            const gw = 8, gh = 6, acc = new Float64Array(gw * gh * 4);
+            for (let y = box[2]; y <= box[3]; y++) for (let x = box[0]; x <= box[1]; x++) {
+              const i = (y * w + x) * 4; if (px[i + 3] < 250) continue;
+              const c = (Math.min(gh - 1, Math.floor(((y - box[2]) * gh) / (box[3] - box[2] + 1))) * gw + Math.min(gw - 1, Math.floor(((x - box[0]) * gw) / (box[1] - box[0] + 1)))) * 4;
+              acc[c] += px[i]; acc[c + 1] += px[i + 1]; acc[c + 2] += px[i + 2]; acc[c + 3]++;
+            }
+            grid = [];
+            for (let c = 0; c < gw * gh; c++) { const n = acc[c * 4 + 3]; for (let a = 0; a < 3; a++) grid.push(n < 40 ? -1 : Math.round(acc[c * 4 + a] / n)); }
+          }
+          // One shard at a time: the pixel where the camera saw the middle of its mirror, and of each of its cut sides, when that face was turned to the camera,
+          // large enough to find and not hidden. tops, sides: how many were found. topLike, sideLike: how many are the colour of the light behind the pane
+          // (the same hue to within 0.97, 1 being the same). sideSum: how bright the sides are in all (the three colours added, of 765 each).
+          const probe = { tops: 0, topLike: 0, sides: 0, sideLike: 0, sideSum: 0 };
+          if (st.probe && state.world && state.view && state.proj) {
+            const Wm = state.world, Vm = state.view, Pm = state.proj, cam = s.camera, g = state.glowColor, gl2 = Math.hypot(...g) || 1;
+            const mul = (mt, v) => [mt[0] * v[0] + mt[4] * v[1] + mt[8] * v[2] + mt[12] * v[3], mt[1] * v[0] + mt[5] * v[1] + mt[9] * v[2] + mt[13] * v[3], mt[2] * v[0] + mt[6] * v[1] + mt[10] * v[2] + mt[14] * v[3], mt[3] * v[0] + mt[7] * v[1] + mt[11] * v[2] + mt[15] * v[3]];
+            const seen = (v) => { const a = mul(Wm, [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2], 1]), c = mul(Pm, mul(Vm, a)); return { world: a, x: ((c[0] / c[3]) * 0.5 + 0.5) * w - 0.5, y: ((c[1] / c[3]) * 0.5 + 0.5) * h - 0.5 }; };
+            const facing = (v, a) => { const n = mul(Wm, [norm[v * 3], norm[v * 3 + 1], norm[v * 3 + 2], 0]), d = [cam[0] - a[0], cam[1] - a[1], cam[2] - a[2]]; return (n[0] * d[0] + n[1] * d[1] + n[2] * d[2]) / Math.hypot(...d); };
+            const look = (verts, least) => {
+              const ps = verts.map(seen); let area = 0, mx = 0, my = 0;
+              for (let q = 0; q < ps.length; q++) { const a = ps[q], b = ps[(q + 1) % ps.length]; area += a.x * b.y - b.x * a.y; mx += a.x / ps.length; my += a.y / ps.length; }
+              if (Math.abs(area) / 2 < least || facing(verts[0], ps[0].world) < 0.3 || !(mx >= 0 && my >= 0 && mx < w - 1 && my < h - 1)) return null;
+              const i = (Math.round(my) * w + Math.round(mx)) * 4;
+              if (px[i + 3] < 250) return null;
+              const c = [px[i], px[i + 1], px[i + 2]];
+              return { like: (c[0] * g[0] + c[1] * g[1] + c[2] * g[2]) / ((Math.hypot(...c) || 1) * gl2), sum: c[0] + c[1] + c[2] };
+            };
+            for (let i = 0; i < pane.count; i++) {
+              const s0 = pane.start[i], n = (pane.start[i + 1] - s0) / 6, top = look(Array.from({ length: n }, (_, c) => s0 + c), 150);
+              if (top) { probe.tops++; if (top.like > 0.97) probe.topLike++; }
+              for (let c = 0; c < n; c++) { const side = look([0, 1, 2, 3].map((q) => s0 + 2 * n + c * 4 + q), 25); if (side) { probe.sides++; probe.sideSum += side.sum; if (side.like > 0.97) probe.sideLike++; } }
+            }
+          }
           const size = (b) => ({ w: b[1] < 0 ? 0 : b[1] - b[0] + 1, h: b[3] < 0 ? 0 : b[3] - b[2] + 1, x0: b[0], x1: b[1], y0: b[2], y1: b[3] });
-          out.push({ state, model, solid, part, light, lightSum, edge, beats, white, dark, cracks, bright: solid ? sum / solid : 0, vary: solid ? Math.sqrt(Math.max(0, sumSq / solid - (sum / solid) ** 2)) : 0,
+          out.push({ state, model, solid, part, light, lightSum, edge, beats, white, dark, cracks, grid, probe, bright: solid ? sum / solid : 0, vary: solid ? Math.sqrt(Math.max(0, sumSq / solid - (sum / solid) ** 2)) : 0,
             color: solid ? color.map((v) => v / solid) : [0, 0, 0], centroidX: solid ? sx / solid : 0, box: size(box), cornerAlpha: px[3], canvas: [w, h], hash, diff, kitCam: s ? s.camera : null });
         }
         return out;
@@ -3240,6 +3277,11 @@ async function main() {
     const CRACKS = [300, 700];
     // Solid pixels all but white when the pane is open and loud (shards catching a lamp), at least. Measured, and half of it.
     const FLASHES = 1000;
+    // The shards' colours cell by cell (see the runner), for the shut pane and for the pane after two seconds of every band at 0.8: measured. And how far a cell's
+    // colour may be from it: a few times what two runs differ by.
+    const PANE_GRID = [79, 163, 112, 71, 160, 103, 58, 153, 109, 37, 130, 105, 34, 139, 104, 27, 134, 115, 30, 133, 114, 11, 102, 94, 93, 160, 123, 65, 150, 108, 35, 135, 108, 45, 134, 107, 20, 119, 104, 14, 109, 99, 4, 113, 111, 4, 104, 97, 70, 147, 115, 103, 154, 138, 68, 136, 121, 41, 112, 107, 28, 126, 117, 7, 110, 102, 5, 112, 106, 3, 104, 95, 126, 176, 163, 80, 141, 131, 83, 141, 140, 74, 141, 143, 37, 140, 132, 27, 142, 138, 50, 168, 167, 61, 173, 170, 123, 166, 156, 108, 167, 161, 113, 169, 170, 73, 144, 141, 78, 163, 161, 87, 180, 181, 57, 176, 178, 46, 180, 179, 121, 170, 158, 143, 190, 188, 137, 191, 196, 103, 183, 184, 90, 183, 185, 66, 168, 172, 61, 178, 181, 70, 184, 188], OPEN_GRID = [136, 114, 100, 125, 73, 87, 125, 77, 88, 163, 181, 144, 137, 118, 110, 84, 122, 150, 69, 132, 156, 97, 144, 168, 141, 127, 115, 106, 78, 73, 135, 74, 96, 172, 142, 142, 117, 137, 156, 63, 136, 133, 116, 115, 203, 100, 82, 181, 75, 123, 78, 121, 102, 102, 156, 113, 124, 190, 139, 191, 141, 136, 175, 153, 70, 185, 145, 111, 189, 82, 67, 166, 110, 146, 134, 141, 149, 166, 176, 116, 192, 173, 73, 207, 128, 93, 207, 86, 111, 167, 223, 159, 229, 190, 162, 222, 124, 150, 170, 100, 138, 191, 142, 99, 201, 171, 75, 204, 161, 56, 202, 213, 154, 233, 214, 97, 226, 128, 85, 186, 100, 141, 120, 72, 144, 183, 149, 86, 206, 195, 90, 214, 174, 59, 200, 223, 128, 226, 190, 140, 221, 137, 86, 209], GRID_TOL = 3;
+    // With the pane wide open: how many cut sides must be found turned to the camera, and how bright they are on average at least (the three colours added). Measured.
+    const SIDES_SEEN = 150, SIDE_BRIGHT = 450;
     // How far apart the openings may be at 30 and at 60 frames a second, after the same sound. Measured, and set a few times over.
     const FPS_OPEN = 0.03;
     // The share of the shards' pixels that may be dark with the pane wide open and the camera swung furthest to the right, which is when the shards on the
@@ -3249,7 +3291,8 @@ async function main() {
     await activate(SHARDS);
     const shState = await sceneState();
     const [shLoud] = await shardRun([{ level: 0.8, all: 0.8, secs: 3 }], { gain: 1 });
-    const [shHush] = await shardRun([{ level: 0, secs: 2 }], still);
+    const [shHush] = await shardRun([{ level: 0, secs: 2, grid: true }], still);
+    const [shOpen] = await shardRun([{ level: 0.8, all: 0.8, secs: 2, grid: true, probe: true }], still), [shWide] = await shardRun([{ level: 0.8, all: 0.8, secs: 2, probe: true }], { ...still, knobs: { cameraDrift: 0, bloom: 100 } });
     check('shards is a kit scene: solid shards in front of a light, with a transparent corner and nothing at the edge',
       !!shState && shState.active === true && shState.targetSize[0] === 1728 && shLoud.solid > 0.8 * PANE_SOLID && shLoud.state.solid === true && shLoud.state.light === true && shLoud.cornerAlpha === 0 && shLoud.edge === 0
         && shLoud.state.count === 280 && shLoud.state.verts === 5808 && shLoud.state.indices === 8256 && shLoud.state.drawn === 8256 && shLoud.state.spokes === 22 && shLoud.state.rings === 8 && shLoud.state.breaks === 1
@@ -3266,6 +3309,14 @@ async function main() {
       && gap(shLoud.model.bands, shLoud.state.bands) < 1e-9 && Math.abs(shLoud.model.clock - shLoud.state.clock) < 1e-9, JSON.stringify({ model: [shLoud.model.gapOpen, shLoud.model.gapPos, shLoud.model.gapNorm], mean: [shLoud.model.mean, shLoud.state.open] }));
     check('shards: open, the shards have left the pane toward the viewer and spread, and some catch a lamp', shLoud.state.box[5] > 0.8 && shLoud.state.box[1] - shLoud.state.box[0] > 3.9 && shLoud.box.w > shHush.box.w + 20 && shLoud.white > FLASHES && shLoud.cracks > 3 * shHush.cracks
       && Math.abs(shLoud.state.most - 0.92) < 1e-6, JSON.stringify({ box: shLoud.state.box, w: [shHush.box.w, shLoud.box.w], white: [shHush.white, shLoud.white], cracks: [shHush.cracks, shLoud.cracks], most: shLoud.state.most }));
+
+    // The picture, cell by cell and shard by shard.
+    check('shards: the shut pane\'s colours are as they were measured, cell by cell: the sky the mirrors show, its soft lights, and where they fall', shHush.grid.length === 144 && gap(shHush.grid, PANE_GRID) <= GRID_TOL,
+      JSON.stringify({ worst: gap(shHush.grid, PANE_GRID), grid: shHush.grid }));
+    check('shards: and the open pane\'s, lit by the voice', shOpen.grid.length === 144 && gap(shOpen.grid, OPEN_GRID) <= GRID_TOL && remade(shOpen), JSON.stringify({ worst: gap(shOpen.grid, OPEN_GRID), grid: shOpen.grid }));
+    check('shards: a shard\'s cut sides glow in the colour of the light behind the pane, brighter the wider it is open (so bright, wide open, that they are all but white); its mirror shows the sky, which is mostly other colours',
+      shOpen.probe.sides > SIDES_SEEN && shOpen.probe.sideLike > 0.75 * shOpen.probe.sides && shOpen.probe.sideSum > SIDE_BRIGHT * shOpen.probe.sides && shWide.probe.sides > SIDES_SEEN
+        && shWide.probe.sideSum / shWide.probe.sides > shOpen.probe.sideSum / shOpen.probe.sides + 40 && shOpen.probe.tops > 100 && shOpen.probe.topLike < 0.2 * shOpen.probe.tops, JSON.stringify({ open: shOpen.probe, wide: shWide.probe, glow: shWide.state.glowColor }));
 
     // The ripple.
     const [early, later, passed] = await shardRun([{ level: 0.9, secs: 0.12 }, { level: 0, secs: 0.3 }, { level: 0, secs: 1.2 }], still);

@@ -196,7 +196,9 @@ traceability.
   pane that never quite closes. Each sector of the pane also follows one of the eight
   lowest bands of the sound, and a beat sends a faster ring outward. Each shard mirrors a
   sky made of the palette's colours with long soft lights in it, and flashes when it tips
-  far enough to catch a lamp; the cut edges of the glass glow. The shards are solid, so
+  far enough to catch a lamp; the cut edges of the glass glow, and a shard seen from
+  behind is a dimmer mirror. A band quieter than 0.08 is not heard, so a room's hiss
+  does not hold the pane open. The shards are solid, so
   the pane shows over a bright backdrop as well as a dark one. With the mic off and Idle
   animation on, the sectors lift a little in turn; with both off the pane is shut. It
   uses the shared Scene placement sliders, and no longer makes a renderer of its own.

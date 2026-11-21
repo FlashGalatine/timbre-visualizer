@@ -35,7 +35,7 @@
   const WIDE = 9.24;                        // a shard wider than this over the number of cracks is cracked again
   const FOV = 30, PITCH = 5;                // the camera: how wide it sees and how far it looks down, in degrees
   // What the camera frames: the pane wide open, with what lifts toward the viewer.
-  const FRAME = { width: 5.8, height: 4.4, center: [0, -0.05, 0.4] };
+  const FRAME = { width: 6, height: 4.4, center: [0, -0.05, 0.4] };
   const TURN = [-0.05, -0.26, 0.03];        // how the pane is turned from facing the camera squarely, in radians
   const GLOW_PLANE = 6.4, GLOW_Z = -0.55;   // the sheet the light behind the pane is drawn on: its size, and how far behind
   const SEED = 20261121;
@@ -132,7 +132,7 @@
   // how it lies at rest (restX, restY: no shard lies quite flat). Its corners are a small
   // prism about its middle: start[i] is its first corner and start[i + 1] the next shard's;
   // local and lnorm are each corner's place and the way it faces, kind what it belongs to
-  // (0 the mirror, 1 a cut side, 2 the back), tone the shard's place in the palette, and
+  // (0 a mirror: the top or the back; 1 a cut side), and
   // index the triangles.
   function createPane(density, seed) {
     const spokes = spokesFor(density), rings = ringsFor(density), rnd = sequence(seed), polys = crack(spokes, rings, seed, rnd), count = polys.length;
@@ -140,11 +140,11 @@
     for (const p of polys) { verts += 6 * p.length; indices += 12 * p.length - 12; }
     const F = () => new Float32Array(count);
     const P = { count, verts, indices, spokes, rings, cx: F(), cy: F(), dist: F(), d: F(), ux: F(), uy: F(), band: new Uint8Array(count), liftK: F(), tipK: F(), side: F(), twist: F(), restX: F(), restY: F(),
-      start: new Uint32Array(count + 1), local: new Float32Array(verts * 3), lnorm: new Float32Array(verts * 3), kind: new Float32Array(verts), tone: new Float32Array(verts), index: new Uint32Array(indices) };
+      start: new Uint32Array(count + 1), local: new Float32Array(verts * 3), lnorm: new Float32Array(verts * 3), kind: new Float32Array(verts), index: new Uint32Array(indices) };
     let vi = 0, ii = 0;
-    const put = (x, y, z, nx, ny, nz, kind, tone) => {
+    const put = (x, y, z, nx, ny, nz, kind) => {
       const j = vi * 3;
-      P.local[j] = x; P.local[j + 1] = y; P.local[j + 2] = z; P.lnorm[j] = nx; P.lnorm[j + 1] = ny; P.lnorm[j + 2] = nz; P.kind[vi] = kind; P.tone[vi] = tone;
+      P.local[j] = x; P.local[j + 1] = y; P.local[j + 2] = z; P.lnorm[j] = nx; P.lnorm[j + 1] = ny; P.lnorm[j + 2] = nz; P.kind[vi] = kind;
       return vi++;
     };
     for (let i = 0; i < count; i++) {
@@ -157,17 +157,16 @@
       P.band[i] = (Math.floor((ang / TAU) * SECTORS) * 3) % BANDS;
       P.liftK[i] = 0.75 + 0.5 * rnd(); P.tipK[i] = 0.6 + 0.6 * rnd(); P.side[i] = (rnd() - 0.5) * 0.9; P.twist[i] = (rnd() - 0.5) * 0.8;
       P.restX[i] = (rnd() - 0.5) * 0.11; P.restY[i] = (rnd() - 0.5) * 0.11;
-      const tone = P.d[i] + 0.25 * rnd();
       // Each corner is drawn in toward the middle by the gap, so the cracks show.
       const pts = p.map((q) => { const dx = q[0] - cx, dy = q[1] - cy, len = Math.hypot(dx, dy) || 1, f = Math.max(0.55, 1 - GAP / len); return [dx * f, dy * f]; });
       P.start[i] = vi;
-      const top = pts.map(([x, y]) => put(x, y, h, 0, 0, 1, 0, tone));
-      const back = pts.map(([x, y]) => put(x, y, -h, 0, 0, -1, 2, tone));
+      const top = pts.map(([x, y]) => put(x, y, h, 0, 0, 1, 0));
+      const back = pts.map(([x, y]) => put(x, y, -h, 0, 0, -1, 0));
       for (let c = 1; c < n - 1; c++) { P.index[ii++] = top[0]; P.index[ii++] = top[c]; P.index[ii++] = top[c + 1]; }
       for (let c = 1; c < n - 1; c++) { P.index[ii++] = back[0]; P.index[ii++] = back[c + 1]; P.index[ii++] = back[c]; }
       for (let c = 0; c < n; c++) {
         const a = pts[c], b = pts[(c + 1) % n], ex = b[0] - a[0], ey = b[1] - a[1], el = Math.hypot(ex, ey) || 1, nx = ey / el, ny = -ex / el;
-        const q0 = put(a[0], a[1], h, nx, ny, 0, 1, tone), q1 = put(b[0], b[1], h, nx, ny, 0, 1, tone), q2 = put(b[0], b[1], -h, nx, ny, 0, 1, tone), q3 = put(a[0], a[1], -h, nx, ny, 0, 1, tone);
+        const q0 = put(a[0], a[1], h, nx, ny, 0, 1), q1 = put(b[0], b[1], h, nx, ny, 0, 1), q2 = put(b[0], b[1], -h, nx, ny, 0, 1), q3 = put(a[0], a[1], -h, nx, ny, 0, 1);
         P.index[ii++] = q0; P.index[ii++] = q3; P.index[ii++] = q2; P.index[ii++] = q0; P.index[ii++] = q2; P.index[ii++] = q1;
       }
     }
@@ -291,16 +290,16 @@
   // A shard, drawn solid. Its top is a mirror: it shows a sky of six palette colours (the
   // colour depends on where the mirror points) with long soft lights in it, so that each
   // shard shows its own piece of them, and it flashes when it catches one of three lamps.
-  // Its back is a mirror too, dimmer: with the camera swayed to one side, a shard that is
-  // wide open on the other side has tipped past edge-on, and must still read as glass. Its
-  // cut sides glow in the colour of the light behind the pane, brighter the further open
-  // the shard is.
+  // Its back is the same mirror: with the camera swayed to one side, a shard that is wide
+  // open on the other side has tipped past edge-on, and must still read as glass. Its cut
+  // sides glow in the colour of the light behind the pane (the fourth of the six), brighter
+  // the further open the shard is and on a beat.
   const MIRROR_VERT = `
-    attribute float kind, tone, open;
+    attribute float kind, open;
     varying vec3 vN, vW;
-    varying float vKind, vTone, vOpen;
+    varying float vKind, vOpen;
     void main() {
-      vKind = kind; vTone = tone; vOpen = open;
+      vKind = kind; vOpen = open;
       vec4 w = modelMatrix * vec4(position, 1.0);
       vW = w.xyz;
       vN = normalize(mat3(modelMatrix) * normal);
@@ -311,7 +310,7 @@
     uniform vec3 uPal[6];
     uniform float uShift, uFlame, uKick;
     varying vec3 vN, vW;
-    varying float vKind, vTone, vOpen;
+    varying float vKind, vOpen;
     vec3 pal(float u) {
       u = fract(u) * 6.0;
       int i = min(int(floor(u)), 5);
@@ -322,18 +321,17 @@
     void main() {
       vec3 n = normalize(vN), v = normalize(cameraPosition - vW);
       vec3 col;
-      if (vKind > 0.5 && vKind < 1.5) {
-        col = pal(0.5 + 0.10 * vTone) * (0.20 + 1.3 * vOpen + 0.5 * uKick);
+      if (vKind > 0.5) {
+        col = uPal[3] * (0.20 + 1.3 * vOpen + 0.5 * uKick);
       } else {
         vec3 r = reflect(-v, n);
-        vec3 sky = pal(uShift + 0.20 * r.x + 0.28 * r.y + 0.10 * vTone);
+        vec3 sky = pal(uShift + 0.20 * r.x + 0.28 * r.y);
         float bars = smoothstep(0.35, 0.95, 0.5 + 0.5 * sin(17.0 * r.y + 5.0 * r.x + 1.0));
         float lum = 0.10 + 0.22 * smoothstep(-0.7, 0.9, r.y + 0.35 * r.x) + 0.42 * bars;
         vec3 l1 = normalize(vec3(0.42, 0.72, 0.55)), l2 = normalize(vec3(-0.72, 0.22, 0.66)), l3 = normalize(vec3(0.12, -0.74, 0.66));
         float flash = pow(max(dot(r, l1), 0.0), 70.0) * 2.4 + pow(max(dot(r, l2), 0.0), 40.0) * 1.2 + pow(max(dot(r, l3), 0.0), 40.0) * 0.9;
         float fres = pow(1.0 - abs(dot(n, v)), 3.0);
         col = sky * lum * (0.8 + 0.5 * uFlame) + sky * fres * 0.6 + (vec3(0.6) + 0.4 * sky) * flash * (0.45 + 0.7 * uFlame + 0.8 * uKick);
-        if (vKind > 1.5) col *= 0.6;
       }
       gl_FragColor = vec4(col, 1.0);
     }`;
@@ -370,8 +368,8 @@
     };
     const VERTS = SHARDS_MAX * 24, INDICES = SHARDS_MAX * 36;
     const bands = new Float32Array(BANDS), hist = [], open = new Float32Array(SHARDS_MAX), glowed = [0, 0];
-    const pos = new Float32Array(VERTS * 3), norm = new Float32Array(VERTS * 3), shown = new Float32Array(VERTS), kind = new Float32Array(VERTS), tone = new Float32Array(VERTS), index = new Uint32Array(INDICES);
-    let THREE = null, pane = null, group = null, mesh = null, geo = null, glow = null, voice = null, beat = null;
+    const pos = new Float32Array(VERTS * 3), norm = new Float32Array(VERTS * 3), shown = new Float32Array(VERTS), kind = new Float32Array(VERTS), index = new Uint32Array(INDICES);
+    let THREE = null, pane = null, group = null, mesh = null, geo = null, glow = null, voice = null, beat = null, camera = null;
     // What the checks read. clock: seconds the scene has been live. count: the shards.
     // open: how far open they are on average; most: the furthest open. amount: what Bloom
     // makes of it. glow, glowSize: the light behind the pane. breaks: how often the pane has
@@ -386,7 +384,6 @@
       geo.setAttribute('normal', live(norm, 3));
       geo.setAttribute('open', live(shown, 1));
       geo.setAttribute('kind', new THREE.BufferAttribute(kind, 1));
-      geo.setAttribute('tone', new THREE.BufferAttribute(tone, 1));
       geo.setIndex(new THREE.BufferAttribute(index, 1));
       mesh = new THREE.Mesh(geo, k.keep(new THREE.ShaderMaterial({ vertexShader: MIRROR_VERT, fragmentShader: MIRROR_FRAG,
         uniforms: { uPal: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Color()) }, uShift: { value: 0 }, uFlame: { value: 0 }, uKick: { value: 0 } } })));
@@ -408,14 +405,15 @@
     // Break the pane anew for a Density.
     function shatter(d) {
       pane = createPane(d, SEED);
-      kind.set(pane.kind); tone.set(pane.tone); index.set(pane.index);
-      geo.attributes.kind.needsUpdate = true; geo.attributes.tone.needsUpdate = true; geo.index.needsUpdate = true;
+      kind.set(pane.kind); index.set(pane.index);
+      geo.attributes.kind.needsUpdate = true; geo.index.needsUpdate = true;
       geo.setDrawRange(0, pane.indices);
       s.count = pane.count; s.breaks++;
     }
 
     function update(k, audio, now, dt) {
       const t = now / 1000, follow = TimbreScene.follow;
+      camera = k.camera;
       s.orbit = k.orbit = (0.2 * Math.sin(0.13 * t) + 0.05 * Math.sin(0.31 * t + 1)) * knob('cameraDrift') / 50;
       s.live = !!(micActive || cfgIdleAnim);
       if (s.live) s.clock += dt;
@@ -490,6 +488,8 @@
           light: gm.blending === THREE.CustomBlending && gm.blendDst === THREE.OneFactor && gm.depthTest === true && gm.depthWrite === false,
           uploads: [geo.attributes.position.version, geo.attributes.normal.version, geo.attributes.open.version, geo.attributes.kind.version, geo.index.version],
           first: Array.from(pos.subarray(0, 9)), lastIndex: index[pane.indices - 1],
+          // For a check that looks at one shard's pixels: how the pane stands in the scene, and how the camera saw the last frame.
+          world: Array.from(group.matrixWorld.elements), view: camera ? Array.from(camera.matrixWorldInverse.elements) : null, proj: camera ? Array.from(camera.projectionMatrix.elements) : null,
         }, s);
       },
     };

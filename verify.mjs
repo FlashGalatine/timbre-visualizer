@@ -3741,7 +3741,7 @@ await import('./overlay/shards.js');
 
   ok(K.BANDS === 8 && K.PW === 3.6 && K.PH === 2.3 && K.IX === -0.38 && K.IY === 0.14 && K.THICK === 0.05 && K.GAP === 0.011 && K.TRAVEL === 0.75 && K.BEAT_TRAVEL === 0.41 && K.LIFT === 1 && K.SPREAD === 0.22 && K.TIP === 0.6
     && K.TILT_MAX === 0.95 && K.OPEN_MAX === 1.7 && K.RISE === 20 && K.FALL === 4 && K.HISTORY === 24 && K.HISTORY_HZ === 24 && K.SHARDS_MAX === 640 && K.SECTORS === 16 && K.FOV === 30 && K.PITCH === 5
-    && JSON.stringify(K.FRAME) === '{"width":5.8,"height":4.4,"center":[0,-0.05,0.4]}' && JSON.stringify(K.TURN) === '[-0.05,-0.26,0.03]' && near(K.FAR, FAR) && K.GLOW_PLANE === 6.4 && K.GLOW_Z === -0.55 && K.QUIET === 0.08,
+    && JSON.stringify(K.FRAME) === '{"width":6,"height":4.4,"center":[0,-0.05,0.4]}' && JSON.stringify(K.TURN) === '[-0.05,-0.26,0.03]' && near(K.FAR, FAR) && K.GLOW_PLANE === 6.4 && K.GLOW_Z === -0.55 && K.QUIET === 0.08,
     'the sizes: a pane 3.6 across and 2.3 tall, struck left of its middle and above it; a ripple crosses it in three quarters of a second');
 
   // How finely the pane is broken.
@@ -3812,9 +3812,9 @@ await import('./overlay/shards.js');
   {
     const polys = K.crack(22, 8, K.SEED), P = K.createPane(50, K.SEED);
     let verts = 0, indices = 0; for (const p of polys) { verts += 6 * p.length; indices += 12 * p.length - 12; }
-    ok(P.count === 280 && P.verts === verts && P.indices === indices && P.local.length === verts * 3 && P.lnorm.length === verts * 3 && P.kind.length === verts && P.tone.length === verts && P.index.length === indices
+    ok(P.count === 280 && P.verts === verts && P.indices === indices && P.local.length === verts * 3 && P.lnorm.length === verts * 3 && P.kind.length === verts && !('tone' in P) && P.index.length === indices
       && P.start.length === P.count + 1 && P.start[0] === 0 && P.start[P.count] === verts && P.spokes === 22 && P.rings === 8, 'a pane of ' + P.count + ' shards: ' + verts + ' corners and ' + indices / 3 + ' triangles');
-    let placed = true, away = true, ranges = true, tones = true; const bandsUsed = new Set();
+    let placed = true, away = true, ranges = true; const bandsUsed = new Set();
     for (let i = 0; i < P.count; i++) {
       const p = polys[i], n = p.length, cx = p.reduce((s, c) => s + c[0], 0) / n, cy = p.reduce((s, c) => s + c[1], 0) / n, dist = Math.hypot(cx - K.IX, cy - K.IY);
       if (!(near(P.cx[i], cx, 1e-6) && near(P.cy[i], cy, 1e-6) && near(P.dist[i], dist, 1e-6) && near(P.d[i], dist / FAR, 1e-6) && P.start[i + 1] - P.start[i] === 6 * n)) placed = false;
@@ -3823,14 +3823,12 @@ await import('./overlay/shards.js');
       if (P.band[i] !== (Math.floor((ang / TAU) * 16) * 3) % 8) placed = false;
       bandsUsed.add(P.band[i]);
       if (!(P.liftK[i] >= 0.75 && P.liftK[i] <= 1.25 && P.tipK[i] >= 0.6 && P.tipK[i] <= 1.2 && Math.abs(P.side[i]) <= 0.45 && Math.abs(P.twist[i]) <= 0.4 && Math.abs(P.restX[i]) <= 0.055 && Math.abs(P.restY[i]) <= 0.055)) ranges = false;
-      for (let v = P.start[i]; v < P.start[i + 1]; v++) if (!(P.tone[v] >= P.d[i] - 1e-6 && P.tone[v] <= P.d[i] + 0.25 + 1e-6 && P.tone[v] === P.tone[P.start[i]])) tones = false;
     }
     const spread = (a) => { let lo = Infinity, hi = -Infinity; for (const v of a) { if (v < lo) lo = v; if (v > hi) hi = v; } return hi - lo; };
     ok(placed && away && bandsUsed.size === 8, 'each shard knows its middle, how far it is from the point of impact and which way that is, and its sector\'s band; all eight bands have sectors');
-    const toneOver = Array.from({ length: P.count }, (_, i) => P.tone[P.start[i]] - P.d[i]);
-    ok(ranges && tones && spread(P.liftK) > 0.4 && spread(P.tipK) > 0.5 && spread(P.side) > 0.8 && spread(P.twist) > 0.7 && spread(P.restX) > 0.09 && spread(P.restY) > 0.09 && spread(toneOver) > 0.2,
-      'each shard has numbers of its own: how far it lifts and tips, a lean, a twist, how it lies at rest, and its place in the palette');
-    ok(near(P.liftK[0], 1.1726065874099731, 1e-6) && near(P.tipK[7], 0.7163816690444946, 1e-6) && near(P.side[100], 0.20604239404201508, 1e-6) && near(P.twist[200], -0.25915902853012085, 1e-6) && near(P.restX[279], -0.03823056071996689, 1e-6) && near(P.restY[33], 0.05472983047366142, 1e-6),
+    ok(ranges && spread(P.liftK) > 0.4 && spread(P.tipK) > 0.5 && spread(P.side) > 0.8 && spread(P.twist) > 0.7 && spread(P.restX) > 0.09 && spread(P.restY) > 0.09,
+      'each shard has numbers of its own: how far it lifts and tips, a lean, a twist, and how it lies at rest');
+    ok(near(P.liftK[0], 1.1726065874099731, 1e-6) && near(P.tipK[7], 1.0768808126449585, 1e-6) && near(P.side[100], -0.35313478112220764, 1e-6) && near(P.twist[200], -0.31332534551620483, 1e-6) && near(P.restX[279], -0.027324281632900238, 1e-6) && near(P.restY[33], 0.013727881945669651, 1e-6),
       'and they are the numbers they were measured to be: they go on in the sequence where the cracks left it');
     // The mesh of one shard at a time.
     let tops = true, backs = true, sides = true, drawnIn = true, wound = true, within = true;
@@ -3842,7 +3840,7 @@ await import('./overlay/shards.js');
         const dx = p[c][0] - P.cx[i], dy = p[c][1] - P.cy[i], len = Math.hypot(dx, dy), f = Math.max(0.55, 1 - 0.011 / len), t = L(s0 + c), b = L(s0 + n + c);
         if (!(near(t[0], dx * f, 1e-6) && near(t[1], dy * f, 1e-6) && near(t[2], 0.025, 1e-7))) drawnIn = false;
         if (!(N(s0 + c)[2] === 1 && N(s0 + c)[0] === 0 && P.kind[s0 + c] === 0)) tops = false;
-        if (!(near(b[0], t[0], 1e-7) && near(b[1], t[1], 1e-7) && near(b[2], -0.025, 1e-7) && N(s0 + n + c)[2] === -1 && P.kind[s0 + n + c] === 2)) backs = false;
+        if (!(near(b[0], t[0], 1e-7) && near(b[1], t[1], 1e-7) && near(b[2], -0.025, 1e-7) && N(s0 + n + c)[2] === -1 && P.kind[s0 + n + c] === 0)) backs = false;
         for (let q = 0; q < 4; q++) {
           const v = s0 + 2 * n + c * 4 + q, nv = N(v), lv = L(v);
           if (!(P.kind[v] === 1 && nv[2] === 0 && near(Math.hypot(nv[0], nv[1]), 1, 1e-5) && nv[0] * lv[0] + nv[1] * lv[1] > 0 && near(Math.abs(lv[2]), 0.025, 1e-7))) sides = false;
@@ -3857,7 +3855,7 @@ await import('./overlay/shards.js');
         if (!(nx * nn[0] + ny * nn[1] + nz * nn[2] > 0)) wound = false;   // every triangle faces the way its corners say
       }
     }
-    ok(tops && backs && drawnIn, 'a shard has a top and a back, half the glass\'s thickness either side of the pane, drawn in from its cracks by the gap');
+    ok(tops && backs && drawnIn, 'a shard has a top and a back, both mirrors, half the glass\'s thickness either side of the pane, drawn in from its cracks by the gap');
     ok(sides && within && wound && ix === P.indices, 'and a cut side along each edge, facing outward; every triangle is the shard\'s own and faces the way its corners say');
     const Q = K.createPane(50, K.SEED), R = K.createPane(0, K.SEED), U = K.createPane(100, K.SEED);
     ok(Q.count === P.count && Q.local.every((v, i) => v === P.local[i]) && Q.side.every((v, i) => v === P.side[i]) && R.count === K.COUNT_MIN && U.count === K.COUNT_MAX && R.spokes === 12 && R.rings === 5 && U.spokes === 32 && U.rings === 11 && U.verts <= K.SHARDS_MAX * 24 && U.indices <= K.SHARDS_MAX * 36,
@@ -3869,7 +3867,7 @@ await import('./overlay/shards.js');
     const bins = new Uint8Array(32); bins[0] = 255; bins[1] = 51; bins[7] = 102; bins[3] = 20; bins[4] = 21;
     ok(near(K.loudness(bins, 0, 1), 1) && near(K.loudness(bins, 1, 1), 0.2) && near(K.loudness(bins, 7, 1), 0.4) && near(K.loudness(bins, 1, 2), 0.4) && K.loudness(bins, 7, 3) === 1 && K.loudness(bins, 1, 0) === 0
       && K.loudness(null, 0, 1) === 0 && K.loudness(new Uint8Array(4).fill(255), 7, 1) === 0, 'a band is as loud as its bin, times Gain, up to 1; a band there is no bin for is silent');
-    ok(K.loudness(bins, 3, 1) === 0 && near(K.loudness(bins, 4, 1), 21 / 255) && near(K.loudness(bins, 3, 2), 40 / 255) && K.loudness(bins, 4, 0.9) === 0 && K.loudness(bins, 5, 1) === 0,
+    ok(K.loudness(bins, 3, 1) === 0 && near(K.loudness(bins, 4, 1), 21 / 255) && near(K.loudness(bins, 3, 2), 40 / 255) && K.loudness(bins, 4, 0.9) === 0 && K.loudness(bins, 5, 1) === 0 && K.loudness(bins, 0, 0.08) === 0.08 && K.loudness(bins, 0, 0.0799) === 0,
       'a band quieter than 0.08 is not heard at all, so the hiss of a room does not hold the pane open');
     let most = 0, least = 9, apart = 0;
     for (let t = 0; t < 60; t += 0.25) { for (let b = 0; b < 8; b++) { const v = K.idle(b, t); most = Math.max(most, v); least = Math.min(least, v); } apart = Math.max(apart, Math.abs(K.idle(0, t) - K.idle(3, t))); }
@@ -4018,10 +4016,10 @@ await import('./overlay/shards.js');
   }
 
   // The shaders.
-  ok(/uniform vec3 uPal\[6\];/.test(K.MIRROR_FRAG) && /reflect\(-v, n\)/.test(K.MIRROR_FRAG) && /sin\(17\.0 \* r\.y \+ 5\.0 \* r\.x \+ 1\.0\)/.test(K.MIRROR_FRAG) && /gl_FragColor = vec4\(col, 1\.0\);/.test(K.MIRROR_FRAG) && /attribute float kind, tone, open;/.test(K.MIRROR_VERT)
+  ok(/uniform vec3 uPal\[6\];/.test(K.MIRROR_FRAG) && /reflect\(-v, n\)/.test(K.MIRROR_FRAG) && /sin\(17\.0 \* r\.y \+ 5\.0 \* r\.x \+ 1\.0\)/.test(K.MIRROR_FRAG) && /gl_FragColor = vec4\(col, 1\.0\);/.test(K.MIRROR_FRAG) && /attribute float kind, open;/.test(K.MIRROR_VERT)
     && /exp\(-4\.8 \* r\)/.test(K.GLOW_FRAG) && /uSize/.test(K.GLOW_FRAG), 'a shard is drawn solid, as a mirror of a sky of six palette colours with long soft lights in it; the light behind falls away from its middle');
-  ok(/int i = min\(int\(floor\(u\)\), 5\);/.test(K.MIRROR_FRAG) && /abs\(dot\(n, v\)\)/.test(K.MIRROR_FRAG) && /if \(vKind > 1\.5\) col \*= 0\.6;/.test(K.MIRROR_FRAG) && /pal\(0\.5 \+ 0\.10 \* vTone\)/.test(K.MIRROR_FRAG) && !/pal\(uShift \+ 0\.5/.test(K.MIRROR_FRAG),
-    'a shard\'s back is a mirror too, dimmer, so one that has tipped past edge-on still reads as glass; its cut sides keep the colour of the light behind; the palette is never read past its sixth colour');
+  ok(/int i = min\(int\(floor\(u\)\), 5\);/.test(K.MIRROR_FRAG) && /abs\(dot\(n, v\)\)/.test(K.MIRROR_FRAG) && /if \(vKind > 0\.5\) \{\s+col = uPal\[3\] \*/.test(K.MIRROR_FRAG) && !/vTone/.test(K.MIRROR_FRAG + K.MIRROR_VERT),
+    'a shard\'s back is the same mirror as its top, so one that has tipped past edge-on still reads as glass; its cut sides are the colour of the light behind; the palette is never read past its sixth colour');
 
   // What the kit is told.
   {

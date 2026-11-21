@@ -939,9 +939,10 @@ mirror glass that the sound opens up. `factories/shards.js` is one line,
   small prism: a top (the mirror), a back and a cut side along each edge. `COUNT_MIN` and
   `COUNT_MAX` are how many shards the coarsest and the finest pane have (91 and 545; 280
   at the usual Density).
-- **The sound.** `loudness(bins, band, gain)` reads one of the eight lowest bins,
-  `idle(b, t)` is what a band pretends to hear with the mic off, and `settle(v)` makes
-  nothing of a level within a ten-thousandth of nothing.
+- **The sound.** `loudness(bins, band, gain)` reads one of the eight lowest bins, and
+  hears nothing of one quieter than `QUIET` (0.08); `idle(b, t)` is what a band pretends
+  to hear with the mic off, and `settle(v)` makes nothing of a level within a
+  ten-thousandth of nothing.
 - **Opening.** `amountOf(bloom)` is what the Bloom setting makes of every opening;
   `delayOf(d)` and `beatDelayOf(d)` are how long the voice's ripple and a beat's ring take
   to reach a shard; `openOf(voice, band, beat, amount)` is how far open a shard is, and
@@ -963,24 +964,35 @@ stay loadable under Node, because `npm run verify` imports it; the scene looks u
 Worth knowing before drawing another thing made of many solid pieces:
 
 - A few hundred pieces that each move and turn on their own are cheapest as one mesh
-  whose corners the arithmetic places each frame: 13,000 corners cost about a third of a
-  millisecond, need one draw call, and can be checked under Node to the last corner. The
-  buffers are made once for the most pieces there can be; breaking the pane anew for
-  another Density only fills them again and changes how much is drawn.
+  whose corners the arithmetic places each frame: the finest pane's 11,000 corners cost
+  about a third of a millisecond, need one draw call, and can be checked under Node to
+  the last corner. The buffers are made once for the most pieces there can be; breaking
+  the pane anew only fills them again and changes how much is drawn, and it is broken
+  anew only when Density asks for other cracks (there are 27 different panes).
 - A flat mirror that shows a smooth sky reads as coloured paper. What makes it a mirror is
   something in the sky with edges (here, long soft lights), so that each piece shows its
   own part of it and the parts do not line up across a crack. No piece lies quite flat,
   even at rest, for the same reason.
-- A piece that turns too far shows its back, or goes edge-on and all but vanishes. Its
-  lean from the pane is held to `TILT_MAX`, which with the pane's own turn and the widest
-  angle the camera sees it from stays short of edge-on.
+- A piece that turns far enough shows its back. Holding its lean from the pane to
+  `TILT_MAX` is not enough to prevent that: the pane is turned, the camera sees its far
+  side at an angle, and the camera sways, so with the camera swung to the right a shard
+  wide open on the left is seen from behind (the first build drew backs all but dark, and
+  at the widest opening a few of every hundred pixels of the pane went black). So a
+  shard's back is a mirror too, dimmer. A mirror looks the same from either side of
+  edge-on, so nothing jumps as a shard tips through it.
+- A band of the sound that is never quite silent (a room's hiss) would hold its sectors a
+  little open for good, and the lights in the mirror make much of a small tilt. A band
+  quieter than `QUIET` is not heard at all, as in the ink.
 - What moves toward the camera grows in the picture. The frame is sized for the widest
   opening as the camera sees it, not for the box the pieces lie in: the check projects
   every corner from where the kit puts the camera, on each page and at the furthest the
   camera sways.
-- The cracks are a tiling: every shard's corners are shared with its neighbours, and the
-  check adds up the shards' areas and wants the pane's exactly. A shard is drawn a little
-  smaller than its polygon, so the cracks show and the light behind leaks through.
+- The cracks are a tiling: the shards are cut from one set of corners, so they fill the
+  pane exactly (where a crack stops halfway along a neighbour's edge the two still meet).
+  The checks add up the shards' areas and want the pane's, for every pane there is, and
+  want every one of a few thousand places in the pane to lie in one shard and no more. A
+  shard is drawn a little smaller than its polygon, so the cracks show and the light
+  behind leaks through.
 
 ## Wire format (for driving Timbre from elsewhere)
 
