@@ -37,7 +37,7 @@
   const VIZ_SCENES = [
     'thanksgiving-harvest', 'winter-aurora',
     'pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes',
-    'sunburst-3d', 'mountains-3d', 'phosphor', 'chladni', 'glass-prism', 'metaball',
+    'sunburst-3d', 'mountains-3d', 'phosphor', 'chladni', 'glass-prism', 'metaball', 'ink',
   ];
 
   // The name the control panel shows, where the id no longer says what the effect
@@ -97,7 +97,7 @@
     'glass-prism':   { chroma: 50, pulse: 50, shatterSensitivity: 50, reconnectSeconds: 3, cameraDrift: 50 },
     'chladni':       { density: 50, cameraDrift: 50, rotateX: 0, rotateY: 0, rotateZ: 0 },
     'phosphor':      { depth: 50, cameraDrift: 50, rotateX: 0, rotateY: 0, rotateZ: 0 },
-    'ink':           { swirl: 50 },
+    'ink':           { swirl: 50, density: 50, glass: 50, cameraDrift: 50 },
     'shards':        { density: 50 },
     'jelly':         { stiffness: 50 },
     'boids':         { cohesion: 50 },
