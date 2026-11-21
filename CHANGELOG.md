@@ -176,7 +176,7 @@ traceability.
   Colours come from the palette, not from a map of its own as before. `chroma` is how far
   the colours come apart (none at 0). It uses the shared Scene placement sliders, and no
   longer makes a renderer of its own.
-- **Metaball is now a ball of liquid metal and its droplets**, the twelfth scene on the scene
+- **Metaball is now a ball of liquid metal and its droplets**, a scene on the scene
   kit. The four wandering spheres are gone. One ball of liquid metal floats in the box,
   mirroring a sky made of the palette's colours. Each of the eight lowest bands of the sound
   has a droplet inside it: when its band sounds the droplet bulges out of the ball, draws a
