@@ -67,7 +67,7 @@ arithmetic and the wiring, a block of `verify-render.mjs` for the picture.
   Its lean from the pane is held to 0.95 of a radian.
 - **The widest opening did not fit the picture.** What lifts toward the camera grows, so
   the frame was sized by projecting every corner from where the kit puts the camera, and
-  is larger than the spike's: the pane is about a ninth smaller in the picture.
+  is larger than the spike's: the pane is about a tenth smaller in the picture.
 
 ## What the review found
 
@@ -79,7 +79,7 @@ no browser). Each of these was fixed with a check first:
   held, but the pane is turned and the camera sways: swung right, it sees a shard that is
   wide open on the left from behind. At the usual Camera drift that began at an opening
   of about 1.15; at the widest opening and the furthest sway, 89 shards of 280. A shard's
-  back is now a mirror too, dimmer, which looks the same from either side of edge-on. The
+  back is now a mirror too, which looks the same from either side of edge-on. The
   check that claimed "so its back does not show" only measured the lean, and says so now.
 - **Nothing kept a room's hiss from holding the pane a little open**, and the lights in the
   mirror make much of a small tilt. A band quieter than 0.08 is not heard, as in the ink.
@@ -106,3 +106,39 @@ Left as it is: the same sound gives openings up to 0.4 apart at 30 and at 60 fra
 second for the frame or two in which a ripple's front arrives (the onset lands a frame
 apart), and the same within 0.03 after it. Above a Scene Size of about 107 the widest
 opening reaches the picture's top and bottom.
+
+## Breaking it on purpose
+
+Every line was broken, one at a time, in a separate copy of the branch, each against its
+own section of the checks (each run began with nothing broken, which must say that
+nothing failed).
+
+- **Arithmetic: 206 breaks at first.** Ten were caught by nothing. Eight got a check that
+  its break fails: the pane's own numbers going on in the sequence where the cracks left
+  it; a crack to every corner when fewer cracks are asked for than the pane has corners;
+  the rings round near the point of impact; a crack that splits a wide shard running
+  true; which way a shard is cut across; a shard's tint (since taken out); the cap on
+  what the voice and a band open before Bloom is applied; and the twist left out of what
+  is held back at the widest opening. Two were lines that did nothing and were taken
+  out: the pane's corners were sorted though they come in order, and the innermost
+  shards were kept from a split they are never wide enough for. After the review and
+  the changes below, the lines that had changed were broken too (one more check: a band
+  exactly at the quietest that is heard), and the whole list was run again on the code as
+  it stands: 185 breaks, all caught.
+- **The scene and the shaders.** The first run was stopped after its first nine breaks of
+  the shader, every one of which nothing caught: drawing the cut sides as mirrors, a
+  wrong palette, a mirror that did not reflect. The picture checks only knew how much
+  was covered and how bright it was. So the picture is now read cell by cell against
+  what was measured, and shard by shard (see `docs/EFFECTS.md`), and the shard was made
+  simpler so that what it draws can be told apart: no tint of a shard's own, a back that
+  is the same mirror as the top, cut sides of one colour.
+- **Then 117 breaks**, of which nine were caught by nothing. Six got a check: a beat
+  making the shards that catch a lamp flash harder (with the pane held wide open so
+  that nothing else changes); the beat reaching the shader at all; a beat that is dying
+  away when the mic is muted coming to nothing; the widest opening being the widest and
+  not the first shard's; a Density that asks for another ring of cracks and no more
+  cracks outward; and that neither the shards nor the light behind them is ever culled.
+  Two were taken out because nothing could see them: a beat's share in the cut sides'
+  glow (they are all but white already) and a fade at the rim of the sheet the light is
+  drawn on (the light is long gone there). Each new check was confirmed by running its
+  break again, with the breaks of the lines that had changed: 13 of 13 caught.

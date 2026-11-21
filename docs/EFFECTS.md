@@ -978,8 +978,8 @@ Worth knowing before drawing another thing made of many solid pieces:
   side at an angle, and the camera sways, so with the camera swung to the right a shard
   wide open on the left is seen from behind (the first build drew backs all but dark, and
   at the widest opening a few of every hundred pixels of the pane went black). So a
-  shard's back is a mirror too, dimmer. A mirror looks the same from either side of
-  edge-on, so nothing jumps as a shard tips through it.
+  shard's back is the same mirror as its top. A mirror looks the same from either side
+  of edge-on, so nothing jumps as a shard tips through it.
 - A band of the sound that is never quite silent (a room's hiss) would hold its sectors a
   little open for good, and the lights in the mirror make much of a small tilt. A band
   quieter than `QUIET` is not heard at all, as in the ink.
@@ -987,6 +987,15 @@ Worth knowing before drawing another thing made of many solid pieces:
   opening as the camera sees it, not for the box the pieces lie in: the check projects
   every corner from where the kit puts the camera, on each page and at the furthest the
   camera sways.
+- A picture of many small mirrors is hard to check by its totals: how much of it is
+  covered and how bright it is on average hardly change when the sky they show is wrong.
+  The checks here read it two more ways. The shards' mean colour in each of 48 cells of
+  the box they lie in is compared with what was measured, for the shut pane and for an
+  open one (`PANE_GRID`, `OPEN_GRID` in `verify-render.mjs`: measure them again after any
+  change to the look). And the scene tells the checks how the pane stands and how the
+  camera saw the last frame (`world`, `view`, `proj` in its `debug()`), so a check can
+  find the pixel in the middle of one shard's mirror, or of one of its cut sides, and
+  say what colour it is.
 - The cracks are a tiling: the shards are cut from one set of corners, so they fill the
   pane exactly (where a crack stops halfway along a neighbour's edge the two still meet).
   The checks add up the shards' areas and want the pane's, for every pane there is, and

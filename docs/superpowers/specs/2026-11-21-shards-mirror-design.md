@@ -29,8 +29,8 @@ reaches lift toward the viewer, move apart and tip outward like petals, then sin
 **The shards are mirrors.** Each shows a sky made of the palette's colours with long soft
 lights in it, so every shard shows its own piece of them and the pane reads as a mirror
 and not as coloured paper. A shard flashes when it tips far enough to catch one of three
-lamps. No shard lies perfectly flat, even at rest. A shard's back is a mirror too, dimmer:
-with the camera swayed to one side, a shard wide open on the other is seen from behind. The cut edges of the glass glow in the
+lamps. No shard lies perfectly flat, even at rest. A shard's back is the same mirror as its
+top: with the camera swayed to one side, a shard wide open on the other is seen from behind. The cut edges of the glass glow in the
 colour of the light behind the pane, brighter the further a shard is open.
 
 **The shards are solid**, so the pane shows over a bright backdrop as well as a dark one.
