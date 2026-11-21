@@ -190,7 +190,7 @@ traceability.
   rings the surface. The ink is pigment, not light, so it shows over a bright backdrop as
   well as a dark one. With the mic off and Idle animation on, bands take turns to pour a
   little; with both off nothing pours and the water clears. `swirl` is how strong the
-  currents are (still water at 0). It uses the shared Scene placement sliders, and no
+  currents are (none at 0, though a beat still twists the tank). It uses the shared Scene placement sliders, and no
   longer makes a renderer of its own.
 
 - **Glass Prism is now a cut crystal turning in the light**, a scene on the scene kit. The
