@@ -3741,13 +3741,13 @@ await import('./overlay/shards.js');
 
   ok(K.BANDS === 8 && K.PW === 3.6 && K.PH === 2.3 && K.IX === -0.38 && K.IY === 0.14 && K.THICK === 0.05 && K.GAP === 0.011 && K.TRAVEL === 0.75 && K.BEAT_TRAVEL === 0.41 && K.LIFT === 1 && K.SPREAD === 0.22 && K.TIP === 0.6
     && K.TILT_MAX === 0.95 && K.OPEN_MAX === 1.7 && K.RISE === 20 && K.FALL === 4 && K.HISTORY === 24 && K.HISTORY_HZ === 24 && K.SHARDS_MAX === 640 && K.SECTORS === 16 && K.FOV === 30 && K.PITCH === 5
-    && JSON.stringify(K.FRAME) === '{"width":5.8,"height":4.4,"center":[0,-0.05,0.4]}' && JSON.stringify(K.TURN) === '[-0.05,-0.26,0.03]' && near(K.FAR, FAR) && K.GLOW_PLANE === 6.4 && K.GLOW_Z === -0.55,
+    && JSON.stringify(K.FRAME) === '{"width":5.8,"height":4.4,"center":[0,-0.05,0.4]}' && JSON.stringify(K.TURN) === '[-0.05,-0.26,0.03]' && near(K.FAR, FAR) && K.GLOW_PLANE === 6.4 && K.GLOW_Z === -0.55 && K.QUIET === 0.08,
     'the sizes: a pane 3.6 across and 2.3 tall, struck left of its middle and above it; a ripple crosses it in three quarters of a second');
 
   // How finely the pane is broken.
   ok(K.spokesFor(0) === 12 && K.spokesFor(50) === 22 && K.spokesFor(100) === 32 && K.spokesFor(-9) === 12 && K.spokesFor(900) === 32 && K.spokesFor(undefined) === 22 && K.spokesFor(NaN) === 22 && K.spokesFor(33.3) === 19 && Number.isInteger(K.spokesFor(47.7))
     && K.ringsFor(0) === 5 && K.ringsFor(50) === 8 && K.ringsFor(100) === 11 && K.ringsFor(-9) === 5 && K.ringsFor(900) === 11 && K.ringsFor(undefined) === 8 && K.ringsFor(33.3) === 7 && Number.isInteger(K.ringsFor(47.7)),
-    'Density gives 12 to 32 cracks outward and 5 to 11 rings across them');
+    'Density asks for 12 to 32 cracks outward and 5 to 11 rings across them');
   ok(near(K.edgeAt(0), 2.18) && near(K.edgeAt(Math.PI / 2), 1.01) && near(K.edgeAt(Math.PI), 1.42) && near(K.edgeAt(-Math.PI / 2), 1.29) && near(K.edgeAt(3 * Math.PI / 2), 1.29)
     && near(K.edgeAt(Math.atan2(1.01, 2.18)), Math.hypot(1.01, 2.18)) && near(K.edgeAt(Math.atan2(-1.29, -1.42)), Math.hypot(1.29, 1.42)) && near(K.edgeAt(0.2), 2.18 / Math.cos(0.2)) && near(K.edgeAt(1.2), 1.01 / Math.sin(1.2)),
     'how far the pane\'s edge is from the point of impact, in every direction');
@@ -3774,12 +3774,38 @@ await import('./overlay/shards.js');
       && has(1.8, 1.15) && has(-1.8, 1.15) && has(-1.8, -1.15) && has(1.8, -1.15),
       'the cracks cut the pane into shards of three or four corners that fill it exactly: none overlaps, none is left out, and the pane keeps its four corners (' + polys.length + ' shards, the smallest ' + least.toExponential(2) + ')');
     ok(JSON.stringify(polys) === JSON.stringify(again) && JSON.stringify(polys) !== JSON.stringify(other) && near(other.reduce((s, p) => s + area(p), 0), 3.6 * 2.3, 1e-9), 'the same seed breaks the pane the same way, another seed another way');
+    const sumOf = (ps) => { let s = 0, k = 0; for (const p of ps) for (const c of p) { s += c[0] * ((k % 7) + 1) + c[1] * ((k % 5) + 1); k++; } return s; };
+    ok(near(sumOf(polys), -773.2145057604686, 1e-9) && near(polys[0][1][0], -0.30570078609633966, 1e-12) && near(polys[150][2][1], -0.3766502828719156, 1e-12), 'the pane breaks as it was measured to: every corner of every shard is where it was');
+    const few = K.crack(2, 3, K.SEED);
+    ok(few.length === 14 && few.filter((p) => p.some((c) => c[0] === K.IX && c[1] === K.IY)).length === 4 && near(few.reduce((s, p) => s + area(p), 0), 8.28, 1e-9)
+      && [[1.8, 1.15], [-1.8, 1.15], [-1.8, -1.15], [1.8, -1.15]].every(([x, y]) => few.some((p) => p.some((c) => near(c[0], x) && near(c[1], y)))),
+      'asked for fewer cracks than the pane has corners, a crack still runs to each corner and no more, and the shards still fill the pane');
     const coarse = K.crack(12, 5, K.SEED), fine = K.crack(32, 11, K.SEED);
     ok(coarse.length === K.COUNT_MIN && fine.length === K.COUNT_MAX && coarse.length < 150 && coarse.length > 80 && fine.length > 420 && fine.length <= K.SHARDS_MAX && near(coarse.reduce((s, p) => s + area(p), 0), 8.28, 1e-9) && near(fine.reduce((s, p) => s + area(p), 0), 8.28, 1e-9),
       'the coarsest pane and the finest: ' + coarse.length + ' and ' + fine.length + ' shards, each filling the pane');
     let most = 0, growing = true, last = 0, whole = true;
     for (let d = 0; d <= 100; d++) { const n = K.crack(K.spokesFor(d), K.ringsFor(d), K.SEED).length; if (n > most) most = n; if (d % 25 === 0) { if (!(n > last)) growing = false; last = n; } if (!Number.isInteger(n)) whole = false; }
-    ok(most <= K.SHARDS_MAX && growing && whole, 'at every Density there is room for the shards, and more Density is more of them (the most: ' + most + ')');
+    ok(most <= K.SHARDS_MAX && growing && whole, 'at every Density there is room for the shards, and Density 0, 25, 50, 75 and 100 each give more than the last (the most: ' + most + ')');
+    // Every pane there is (Density picks one of 27), not only the usual one.
+    let every = true, covered = true; const pairs = new Set();
+    for (let d = 0; d <= 100; d += 0.5) {
+      const sp = K.spokesFor(d), rg = K.ringsFor(d), ps = K.crack(sp, rg, K.SEED); let tot = 0;
+      pairs.add(sp + ' ' + rg);
+      for (const p of ps) {
+        const a = area(p); tot += a;
+        if (!(a > 1e-5) || (p.length !== 3 && p.length !== 4)) every = false;
+        for (let i = 0; i < p.length; i++) { const [x, y] = p[i], q = p[(i + 1) % p.length], r = p[(i + 2) % p.length]; if (Math.abs(x) > 1.8 + 1e-9 || Math.abs(y) > 1.15 + 1e-9 || (q[0] - x) * (r[1] - q[1]) - (q[1] - y) * (r[0] - q[0]) < -1e-9) every = false; }
+      }
+      if (!near(tot, 8.28, 1e-9) || ![[1.8, 1.15], [-1.8, 1.15], [-1.8, -1.15], [1.8, -1.15]].every(([x, y]) => ps.some((p) => p.some((c) => near(c[0], x) && near(c[1], y))))) every = false;
+      // Areas that add up could hide an overlap that makes up for a hole: so, places all over the pane, each in one shard and no more.
+      if (d % 25 === 0) for (let gy = 0; gy < 37; gy++) for (let gx = 0; gx < 59; gx++) {
+        const x = -1.8 + ((gx + 0.3183) * 3.6) / 59, y = -1.15 + ((gy + 0.7071) * 2.3) / 37; let inside = 0;
+        for (const p of ps) { let all = true; for (let i = 0; i < p.length && all; i++) { const a = p[i], b = p[(i + 1) % p.length]; if ((b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0]) < 0) all = false; } if (all) inside++; }
+        if (inside !== 1) covered = false;
+      }
+    }
+    ok(every && pairs.size === 27, 'every pane there is, of ' + pairs.size + ': its shards have three or four corners, turn the same way, bulge nowhere inward, lie in the pane, fill it exactly and keep its four corners');
+    ok(covered, 'and a place in the pane is in one shard and no more: nothing overlaps and nothing is left out');
   }
 
   // The pane: every shard's place and numbers, and its corners as a mesh.
@@ -3801,7 +3827,11 @@ await import('./overlay/shards.js');
     }
     const spread = (a) => { let lo = Infinity, hi = -Infinity; for (const v of a) { if (v < lo) lo = v; if (v > hi) hi = v; } return hi - lo; };
     ok(placed && away && bandsUsed.size === 8, 'each shard knows its middle, how far it is from the point of impact and which way that is, and its sector\'s band; all eight bands have sectors');
-    ok(ranges && tones && spread(P.liftK) > 0.4 && spread(P.tipK) > 0.5 && spread(P.side) > 0.8 && spread(P.twist) > 0.7 && spread(P.restX) > 0.09 && spread(P.restY) > 0.09, 'each shard has numbers of its own: how far it lifts and tips, a lean, a twist, and how it lies at rest');
+    const toneOver = Array.from({ length: P.count }, (_, i) => P.tone[P.start[i]] - P.d[i]);
+    ok(ranges && tones && spread(P.liftK) > 0.4 && spread(P.tipK) > 0.5 && spread(P.side) > 0.8 && spread(P.twist) > 0.7 && spread(P.restX) > 0.09 && spread(P.restY) > 0.09 && spread(toneOver) > 0.2,
+      'each shard has numbers of its own: how far it lifts and tips, a lean, a twist, how it lies at rest, and its place in the palette');
+    ok(near(P.liftK[0], 1.1726065874099731, 1e-6) && near(P.tipK[7], 0.7163816690444946, 1e-6) && near(P.side[100], 0.20604239404201508, 1e-6) && near(P.twist[200], -0.25915902853012085, 1e-6) && near(P.restX[279], -0.03823056071996689, 1e-6) && near(P.restY[33], 0.05472983047366142, 1e-6),
+      'and they are the numbers they were measured to be: they go on in the sequence where the cracks left it');
     // The mesh of one shard at a time.
     let tops = true, backs = true, sides = true, drawnIn = true, wound = true, within = true;
     const L = (v) => [P.local[v * 3], P.local[v * 3 + 1], P.local[v * 3 + 2]], N = (v) => [P.lnorm[v * 3], P.lnorm[v * 3 + 1], P.lnorm[v * 3 + 2]];
@@ -3836,9 +3866,11 @@ await import('./overlay/shards.js');
 
   // The sound.
   {
-    const bins = new Uint8Array(32); bins[0] = 255; bins[1] = 51; bins[7] = 102;
+    const bins = new Uint8Array(32); bins[0] = 255; bins[1] = 51; bins[7] = 102; bins[3] = 20; bins[4] = 21;
     ok(near(K.loudness(bins, 0, 1), 1) && near(K.loudness(bins, 1, 1), 0.2) && near(K.loudness(bins, 7, 1), 0.4) && near(K.loudness(bins, 1, 2), 0.4) && K.loudness(bins, 7, 3) === 1 && K.loudness(bins, 1, 0) === 0
       && K.loudness(null, 0, 1) === 0 && K.loudness(new Uint8Array(4).fill(255), 7, 1) === 0, 'a band is as loud as its bin, times Gain, up to 1; a band there is no bin for is silent');
+    ok(K.loudness(bins, 3, 1) === 0 && near(K.loudness(bins, 4, 1), 21 / 255) && near(K.loudness(bins, 3, 2), 40 / 255) && K.loudness(bins, 4, 0.9) === 0 && K.loudness(bins, 5, 1) === 0,
+      'a band quieter than 0.08 is not heard at all, so the hiss of a room does not hold the pane open');
     let most = 0, least = 9, apart = 0;
     for (let t = 0; t < 60; t += 0.25) { for (let b = 0; b < 8; b++) { const v = K.idle(b, t); most = Math.max(most, v); least = Math.min(least, v); } apart = Math.max(apart, Math.abs(K.idle(0, t) - K.idle(3, t))); }
     ok(least === 0 && most > 0.5 && most <= 0.52 && apart > 0.4 && near(K.idle(2, 3), Math.max(0, 0.22 + 0.3 * Math.sin(2.1 + 2.8))) && near(K.idle(0, 1), 0.22 + 0.3 * Math.sin(0.7)) && K.idle(5, 0) === Math.max(0, 0.22 + 0.3 * Math.sin(7)),
@@ -3850,7 +3882,7 @@ await import('./overlay/shards.js');
   ok(K.amountOf(50) === 1 && K.amountOf(0) === 0 && K.amountOf(100) === 2 && K.amountOf(25) === 0.5 && K.amountOf(-5) === 0 && K.amountOf(500) === 2 && K.amountOf(undefined) === 1 && K.amountOf(NaN) === 1, 'Bloom: none at 0, as designed at 50, twice that at 100');
   ok(K.delayOf(0) === 0 && near(K.delayOf(1), 0.75) && near(K.delayOf(0.4), 0.3) && K.beatDelayOf(0) === 0 && near(K.beatDelayOf(1), 0.41) && near(K.beatDelayOf(0.5), 0.205), 'a ripple reaches the furthest corner in three quarters of a second, a beat\'s ring in rather more than half that');
   ok(K.openOf(0, 0, 0, 1) === 0 && near(K.openOf(1, 0, 0, 1), 0.5) && near(K.openOf(0, 1, 0, 1), 0.65) && near(K.openOf(1, 1, 0, 1), 1.15) && near(K.openOf(0.4, 0.2, 0, 1), 0.33) && near(K.openOf(0, 0, 1, 1), 0.5) && near(K.openOf(1, 1, 1, 1), 1.65)
-    && near(K.openOf(1, 1, 0.5, 1), 1.4) && near(K.openOf(0.4, 0.2, 0.2, 2), 0.86) && K.openOf(1, 1, 1, 2) === 1.7 && near(K.openOf(1, 0, 0, 0.5), 0.25) && K.openOf(1, 1, 1, 0) === 0 && near(K.openOf(2, 2, 0, 1), 1.2) && near(K.openOf(2, 2, 1, 1), 1.7),
+    && near(K.openOf(1, 1, 0.5, 1), 1.4) && near(K.openOf(0.4, 0.2, 0.2, 2), 0.86) && K.openOf(1, 1, 1, 2) === 1.7 && near(K.openOf(1, 0, 0, 0.5), 0.25) && K.openOf(1, 1, 1, 0) === 0 && near(K.openOf(2, 2, 0, 1), 1.2) && near(K.openOf(2, 2, 1, 1), 1.7) && near(K.openOf(2, 2, 0, 0.5), 0.6) && near(K.openOf(1, 0.3, 0, 2), 1.39),
     'a shard is as far open as the voice and its band say, further on a beat, by as much as Bloom says, and no further than the widest');
   {
     const P = K.createPane(50, K.SEED), out = new Float32Array(P.count), mk = () => S.createHistory(K.HISTORY, K.HISTORY_HZ);
@@ -3913,13 +3945,25 @@ await import('./overlay/shards.js');
     }
     ok(rest && flatAtRest > 0.9 * P.count, 'shut, a shard is in its place in the pane, turned only by the little it does not lie flat');
     ok(moved && turns && outward > 0.9 * P.count, 'open, it has lifted toward the viewer (most near the point of impact), moved away from that point, and tipped outward like a petal (' + outward + ' of ' + P.count + ')');
-    ok(held && atMost > 0.5 * P.count, 'however far open, it tips no further than 0.95 of a radian, so its back does not show (' + atMost + ' are within 0.15 of that at the widest)');
+    ok(held && atMost > 0.5 * P.count, 'however far open, it tips no further than 0.95 of a radian, however the camera then sees it (' + atMost + ' are within 0.15 of that at the widest)');
     // One shard, by hand: its turn is about the one axis its tip, lean, twist and rest make together.
     const i = 100, e = 0.8, a = 0.6 * e * P.tipK[i], b = e * P.side[i];
     const rx = -P.uy[i] * a + P.ux[i] * b + P.restX[i], ry = P.ux[i] * a + P.uy[i] * b + P.restY[i], rz = e * P.twist[i], ang = Math.hypot(rx, ry, rz), x = rx / ang, y = ry / ang, z = rz / ang, c = Math.cos(ang), sn = Math.sin(ang), t = 1 - c;
     K.poseOf(o, P, i, e);
     ok(Math.hypot(rx, ry) < 0.95 && near(o[3], c + x * x * t, 1e-9) && near(o[4], x * y * t - z * sn, 1e-9) && near(o[5], x * z * t + y * sn, 1e-9) && near(o[6], y * x * t + z * sn, 1e-9) && near(o[7], c + y * y * t, 1e-9) && near(o[8], y * z * t - x * sn, 1e-9)
       && near(o[9], z * x * t - y * sn, 1e-9) && near(o[10], z * y * t + x * sn, 1e-9) && near(o[11], c + z * z * t, 1e-9), 'a shard\'s turn is one turn about the axis that its tip, its lean, its twist and its rest make together');
+    // Every shard at the widest opening, by hand: only what leans it from the pane is held back, and its twist is left alone.
+    let widest = true, heldBack = 0, free = 0;
+    for (let k = 0; k < P.count; k++) {
+      const e2 = 1.7, a2 = 0.6 * e2 * P.tipK[k], b2 = e2 * P.side[k];
+      let qx = -P.uy[k] * a2 + P.ux[k] * b2 + P.restX[k], qy = P.ux[k] * a2 + P.uy[k] * b2 + P.restY[k];
+      const qz = e2 * P.twist[k], lean = Math.hypot(qx, qy);
+      if (lean > 0.95) { qx *= 0.95 / lean; qy *= 0.95 / lean; heldBack++; } else free++;
+      const g = Math.hypot(qx, qy, qz), X = qx / g, Y = qy / g, Z = qz / g, C = Math.cos(g), Sn = Math.sin(g), Tt = 1 - C;
+      K.poseOf(o, P, k, e2);
+      if (!(near(o[3], C + X * X * Tt, 1e-9) && near(o[5], X * Z * Tt + Y * Sn, 1e-9) && near(o[8], Y * Z * Tt - X * Sn, 1e-9) && near(o[10], Z * Y * Tt + X * Sn, 1e-9) && near(o[11], C + Z * Z * Tt, 1e-9))) widest = false;
+    }
+    ok(widest && heldBack > 0.5 * P.count && free > 5, 'at the widest opening a shard\'s lean from the pane is held to 0.95 of a radian and its twist is left as it is (' + heldBack + ' held, ' + free + ' not)');
   }
   {
     const P = K.createPane(50, K.SEED), open = new Float32Array(P.count), pos = new Float32Array(P.verts * 3), norm = new Float32Array(P.verts * 3), shown = new Float32Array(P.verts), o = new Float64Array(12);
@@ -3940,6 +3984,7 @@ await import('./overlay/shards.js');
     const shut = K.measure(P, pos);
     open.fill(1.7); K.place(P, open, pos, norm, shown);
     const wide = K.measure(P, pos);
+    const spots = [0, 8.5, 20, 35, 50, 65, 75, 90, 100].map((dn) => { const Q = K.createPane(dn, K.SEED), o2 = new Float32Array(Q.count).fill(1.7), p2 = new Float32Array(Q.verts * 3); K.place(Q, o2, p2, new Float32Array(Q.verts * 3), new Float32Array(Q.verts)); return [Q, p2]; });
     ok(shut[0] >= -1.8 - 0.01 && shut[1] <= 1.8 + 0.01 && shut[2] >= -1.15 - 0.01 && shut[3] <= 1.15 + 0.01 && shut[4] > -0.06 && shut[5] < 0.06 && shut[1] - shut[0] > 3.5 && shut[3] - shut[2] > 2.2
       && wide[0] < -2.1 && wide[1] > 2.4 && wide[2] < -1.4 && wide[3] > 1.3 && wide[5] > 1.8 && wide[5] < 2.4 && wide[4] > -0.4, 'shut, the shards lie in the pane; wide open they reach out beyond it and toward the viewer (' + Array.from(wide).map((v) => v.toFixed(2)).join(', ') + ')');
     // The widest opening still fits the picture: from where the kit puts the camera, on the wide page and the small one, however the camera has drifted.
@@ -3952,8 +3997,8 @@ await import('./overlay/shards.js');
       const r = [-f[2], 0, f[0]], rl = Math.hypot(...r); r[0] /= rl; r[2] /= rl;   // right = forward x up, up being +y
       const u = [r[1] * f[2] - r[2] * f[1], r[2] * f[0] - r[0] * f[2], r[0] * f[1] - r[1] * f[0]];
       const th = Math.tan((K.FOV * Math.PI) / 360); let mx = 0, my = 0;
-      for (let v = 0; v < P.verts; v++) {
-        const w = turn(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]), p = [w[0] - eye[0], w[1] - eye[1], w[2] - eye[2]];
+      for (const [Q, pos2] of spots) for (let v = 0; v < Q.verts; v++) {
+        const w = turn(pos2[v * 3], pos2[v * 3 + 1], pos2[v * 3 + 2]), p = [w[0] - eye[0], w[1] - eye[1], w[2] - eye[2]];
         const depth = p[0] * f[0] + p[1] * f[1] + p[2] * f[2], x = (p[0] * r[0] + p[1] * r[1] + p[2] * r[2]) / (depth * th * aspect), y = (p[0] * u[0] + p[1] * u[1] + p[2] * u[2]) / (depth * th);
         mx = Math.max(mx, Math.abs(x)); my = Math.max(my, Math.abs(y));
       }
@@ -3962,7 +4007,7 @@ await import('./overlay/shards.js');
     const views = [];
     for (const aspect of [1728 / 624, 300 / 220, 1440 / 1080]) for (const orbit of [-0.5, -0.25, 0, 0.25, 0.5]) views.push(worst(aspect, orbit));
     const mx = Math.max(...views.map((v) => v[0])), my = Math.max(...views.map((v) => v[1]));
-    ok(mx < 0.97 && my < 0.97 && my > 0.6, 'wide open, every shard is still in the picture, on every page and however far the camera has drifted (the furthest: ' + mx.toFixed(3) + ' across, ' + my.toFixed(3) + ' up, of 1)');
+    ok(mx < 0.97 && my < 0.97 && my > 0.9 && mx > 0.9, 'wide open, every shard is still in the picture, at any Density, on every page and however far the camera has drifted (the furthest: ' + mx.toFixed(3) + ' across, ' + my.toFixed(3) + ' up, of 1)');
   }
 
   // The light behind the pane.
@@ -3975,6 +4020,8 @@ await import('./overlay/shards.js');
   // The shaders.
   ok(/uniform vec3 uPal\[6\];/.test(K.MIRROR_FRAG) && /reflect\(-v, n\)/.test(K.MIRROR_FRAG) && /sin\(17\.0 \* r\.y \+ 5\.0 \* r\.x \+ 1\.0\)/.test(K.MIRROR_FRAG) && /gl_FragColor = vec4\(col, 1\.0\);/.test(K.MIRROR_FRAG) && /attribute float kind, tone, open;/.test(K.MIRROR_VERT)
     && /exp\(-4\.8 \* r\)/.test(K.GLOW_FRAG) && /uSize/.test(K.GLOW_FRAG), 'a shard is drawn solid, as a mirror of a sky of six palette colours with long soft lights in it; the light behind falls away from its middle');
+  ok(/int i = min\(int\(floor\(u\)\), 5\);/.test(K.MIRROR_FRAG) && /abs\(dot\(n, v\)\)/.test(K.MIRROR_FRAG) && /if \(vKind > 1\.5\) col \*= 0\.6;/.test(K.MIRROR_FRAG) && /pal\(0\.5 \+ 0\.10 \* vTone\)/.test(K.MIRROR_FRAG) && !/pal\(uShift \+ 0\.5/.test(K.MIRROR_FRAG),
+    'a shard\'s back is a mirror too, dimmer, so one that has tipped past edge-on still reads as glass; its cut sides keep the colour of the light behind; the palette is never read past its sixth colour');
 
   // What the kit is told.
   {

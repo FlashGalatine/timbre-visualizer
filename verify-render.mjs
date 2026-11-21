@@ -3178,8 +3178,8 @@ async function main() {
           const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
           gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);   // row 0 is the bottom of the canvas
           // solid: pixels a shard covers. part: pixels at a shard's rim. light: pixels of light over the background (the light behind the pane).
-          // white: solid pixels all but white (a shard catching a lamp). edge: anything at the canvas's edge.
-          let solid = 0, part = 0, light = 0, lightSum = 0, edge = 0, sx = 0, white = 0, sum = 0, sumSq = 0, hash = 2166136261;
+          // white: solid pixels all but white (a shard catching a lamp). dark: solid pixels that are dark (their three colours come to less than 150 of 765). edge: anything at the canvas's edge.
+          let solid = 0, part = 0, light = 0, lightSum = 0, edge = 0, sx = 0, white = 0, dark = 0, sum = 0, sumSq = 0, hash = 2166136261;
           for (let i = 0; i < px.length; i++) hash = Math.imul(hash ^ px[i], 16777619) >>> 0;
           const box = [w, -1, h, -1], color = [0, 0, 0];
           for (let i = 0; i < px.length; i += 4) {
@@ -3187,6 +3187,7 @@ async function main() {
             if (a >= 250) {
               solid++; sx += x; sum += rgb; sumSq += rgb * rgb; color[0] += px[i]; color[1] += px[i + 1]; color[2] += px[i + 2];
               if (px[i] > 215 && px[i + 1] > 215 && px[i + 2] > 215) white++;
+              if (rgb < 150) dark++;
               if (x < box[0]) box[0] = x; if (x > box[1]) box[1] = x; if (y < box[2]) box[2] = y; if (y > box[3]) box[3] = y;
               if (x < 4 || y < 4 || x >= w - 4 || y >= h - 4) edge++;
             } else if (a >= 25) {
@@ -3218,7 +3219,7 @@ async function main() {
             inner: ring((d) => d < 0.15), mid: ring((d) => d > 0.4 && d < 0.6), outer: ring((d) => d > 0.85), byBand,
             pal: [0, 1, 2, 3, 4, 5].map((i) => getColor(state.colorT + (i * PALETTE.length) / 6).slice(0, 3)), glowColor: getColor(state.colorT + PALETTE.length / 2).slice(0, 3) };
           const size = (b) => ({ w: b[1] < 0 ? 0 : b[1] - b[0] + 1, h: b[3] < 0 ? 0 : b[3] - b[2] + 1, x0: b[0], x1: b[1], y0: b[2], y1: b[3] });
-          out.push({ state, model, solid, part, light, lightSum, edge, beats, white, cracks, bright: solid ? sum / solid : 0, vary: solid ? Math.sqrt(Math.max(0, sumSq / solid - (sum / solid) ** 2)) : 0,
+          out.push({ state, model, solid, part, light, lightSum, edge, beats, white, dark, cracks, bright: solid ? sum / solid : 0, vary: solid ? Math.sqrt(Math.max(0, sumSq / solid - (sum / solid) ** 2)) : 0,
             color: solid ? color.map((v) => v / solid) : [0, 0, 0], centroidX: solid ? sx / solid : 0, box: size(box), cornerAlpha: px[3], canvas: [w, h], hash, diff, kitCam: s ? s.camera : null });
         }
         return out;
@@ -3241,6 +3242,9 @@ async function main() {
     const FLASHES = 1000;
     // How far apart the openings may be at 30 and at 60 frames a second, after the same sound. Measured, and set a few times over.
     const FPS_OPEN = 0.03;
+    // The share of the shards' pixels that may be dark with the pane wide open and the camera swung furthest to the right, which is when the shards on the
+    // left have tipped past edge-on. Measured with a shard's back drawn as a mirror (as it is: none) and drawn dark (as it was at first: 1.5%), and set between.
+    const DARK_MOST = 0.004;
 
     await activate(SHARDS);
     const shState = await sceneState();
@@ -3276,6 +3280,9 @@ async function main() {
       && band12.state.opens.every((v) => v === 0) && band2.solid > 0 && remade(band2) && remade(band5), JSON.stringify({ band2: band2.model.byBand, band5: band5.model.byBand }));
     check('shards: a band is as loud as its bin, times Gain', Math.abs(half2.model.byBand[2] - 0.325) < 0.005 && Math.abs(gained2.model.byBand[2] - 0.65) < 0.005 && Math.abs(half2.state.bands[2] - 0.5 * 128 / 127.5) < 0.01 && Math.abs(gained2.state.bands[2] - 2 * half2.state.bands[2]) < 0.01,
       JSON.stringify({ half: half2.model.byBand[2], gained: gained2.model.byBand[2], bands: [half2.state.bands[2], gained2.state.bands[2]] }));
+    const hiss = await one([[0, 0.07], [2, 0.07], [5, 0.07]]), heard = await one([[2, 0.1]]);
+    check('shards: a band quieter than 0.08 is not heard, so a room\'s hiss leaves the pane shut', hiss.state.opens.every((v) => v === 0) && hiss.state.bands.every((b) => b === 0) && Math.abs(hiss.solid - shHush.solid) < 0.01 * shHush.solid
+      && heard.model.byBand[2] > 0.05 && heard.state.bands[2] > 0.09 && remade(hiss) && remade(heard), JSON.stringify({ hiss: [hiss.state.open, hiss.state.bands], heard: [heard.model.byBand[2], heard.state.bands[2]] }));
     const [risen, fallen] = await shardRun([{ level: 0, bins: [[2, 1]], secs: 0.1 }, { level: 0, secs: 0.5 }], still);
     check('shards: a band is followed quick up and slower down', Math.abs(risen.state.bands[2] - (1 - Math.exp(-2))) < 1e-6 && Math.abs(fallen.state.bands[2] - (1 - Math.exp(-2)) * Math.exp(-2)) < 1e-6 && risen.state.bands.every((v, b) => b === 2 || v === 0),
       JSON.stringify({ risen: risen.state.bands[2], fallen: fallen.state.bands[2] }));
@@ -3294,10 +3301,12 @@ async function main() {
       && bloom0.state.glow > 0.2 && bloom0.bright > 1.1 * shHush.bright && bloom50.state.amount === 1 && bloom100.state.amount === 2 && bloom100.state.open > 1.4 * bloom50.state.open && bloom100.state.most <= 1.7 + 1e-6 && bloom100.state.most > 1.6
       && bloom100.state.box[5] > bloom50.state.box[5] + 0.3 && bloom100.edge === 0 && remade(bloom0) && remade(bloom100),
       JSON.stringify({ open: [bloom0.state.open, bloom50.state.open, bloom100.state.open], most: bloom100.state.most, bright: [shHush.bright, bloom0.bright], z: [bloom50.state.box[5], bloom100.state.box[5]], edge: bloom100.edge }));
-    // The widest opening there is, with the camera swaying as far as it goes, at three moments of its sway.
-    const widest = await shardRun([{ level: 1, all: 1, secs: 1.5 }, { level: 1, all: 1, secs: 7 }, { level: 1, all: 1, secs: 9 }], { colorSpeed: 0, gain: 1, knobs: { cameraDrift: 100, bloom: 100 } });
+    // The widest opening there is, with the camera swaying as far as it goes, at four moments of its sway: swung to one side, and to the other.
+    const widest = await shardRun([{ level: 1, all: 1, secs: 1.5 }, { level: 1, all: 1, secs: 7 }, { level: 1, all: 1, secs: 9 }, { level: 1, all: 1, secs: 14 }], { colorSpeed: 0, gain: 1, knobs: { cameraDrift: 100, bloom: 100 } });
     check('shards: wide open, every shard is still in the picture, however far the camera has swayed', widest.every((r) => r.edge === 0 && r.box.x0 > 8 && r.box.x1 < r.canvas[0] - 8 && r.box.y0 > 8 && r.box.y1 < r.canvas[1] - 8 && r.state.most > 1.69)
-      && Math.max(...widest.map((r) => Math.abs(r.state.orbit))) > 0.2, JSON.stringify(widest.map((r) => ({ box: r.box, orbit: r.state.orbit, most: r.state.most }))));
+      && Math.max(...widest.map((r) => r.state.orbit)) > 0.3 && Math.min(...widest.map((r) => r.state.orbit)) < -0.3, JSON.stringify(widest.map((r) => ({ box: r.box, orbit: r.state.orbit, most: r.state.most }))));
+    check('shards: a shard that has tipped past edge-on, as the camera sees it, shows a mirror too and not a dark back', widest[1].dark < DARK_MOST * widest[1].solid && widest[1].state.orbit > 0.38 && widest.every((r) => r.solid > 30000),
+      JSON.stringify(widest.map((r) => ({ dark: r.dark, solid: r.solid, share: r.dark / r.solid, orbit: r.state.orbit }))));
 
     // Density.
     const densAt = (density) => shardRun([{ level: 0.6, all: 0.6, secs: 1.5 }], { ...still, knobs: { cameraDrift: 0, density } }).then((r) => r[0]);
@@ -3311,6 +3320,9 @@ async function main() {
       && coarse.state.opens.length === 91 && remade(coarse) && whole2.state.count === 280 && remade(whole2) && gap(whole2.state.opens, straight.state.opens) < 1e-9 && Math.abs(whole2.state.posSum - straight.state.posSum) < 1e-6 && Math.abs(whole2.solid - straight.solid) < 0.01 * straight.solid
       && coarse.state.uploads[3] === whole1.state.uploads[3] + 1 && coarse.state.uploads[4] === whole1.state.uploads[4] + 1 && whole2.state.uploads[3] === whole1.state.uploads[3] + 2 && coarse.edge === 0,
       JSON.stringify({ breaks: [whole1.state.breaks, coarse.state.breaks, whole2.state.breaks], count: [coarse.state.count, whole2.state.count], opens: gap(whole2.state.opens, straight.state.opens), posSum: [whole2.state.posSum, straight.state.posSum], solid: [whole2.solid, straight.solid], remade: [remade(coarse), remade(whole2)], drawn: [coarse.state.drawn, coarse.state.indices], uploads: [whole1.state.uploads, coarse.state.uploads, whole2.state.uploads] }));
+    const [, nudged, stepped] = await shardRun([{ level: 0.6, all: 0.6, secs: 1 }, { level: 0.6, all: 0.6, secs: 0.05, knobs: { density: 51 } }, { level: 0.6, all: 0.6, secs: 0.05, knobs: { density: 55 } }], still);
+    check('shards: a Density that asks for the same cracks leaves the pane as it is, and the next that does not breaks it', nudged.state.breaks === 1 && nudged.state.count === 280 && nudged.state.spokes === 22 && stepped.state.breaks === 2 && stepped.state.spokes === 23 && stepped.state.rings === 8
+      && stepped.state.count !== 280 && remade(nudged) && remade(stepped), JSON.stringify({ breaks: [nudged.state.breaks, stepped.state.breaks], count: [nudged.state.count, stepped.state.count], spokes: [nudged.state.spokes, stepped.state.spokes] }));
 
     // Colours.
     const [hue0, hue2] = await shardRun([{ level: 0.5, all: 0.5, secs: 1 }, { level: 0.5, all: 0.5, secs: 0.5, hue: 2 }], still);
@@ -3335,6 +3347,9 @@ async function main() {
     check('shards: with the mic off and Idle animation on, the sectors lift a little in turn', idle1.state.live === true && Math.abs(idle2.state.clock - 6) < 1e-6 && idle1.state.open > 0.05 && idle2.state.open > 0.05 && idle2.state.most < 0.75 && idle2.state.beats === 0 && gap(idle1.model.byBand, idle2.model.byBand) > 0.1
       && Math.max(...idle2.model.byBand) - Math.min(...idle2.model.byBand) > 0.1 && Math.max(...idle2.state.bands) < 0.53 && idle2.diff.n > 1000 && remade(idle1) && remade(idle2),
       JSON.stringify({ open: [idle1.state.open, idle2.state.open], most: idle2.state.most, byBand: [idle1.model.byBand, idle2.model.byBand], bands: idle2.state.bands }));
+    const [longIdle] = await shardRun([{ level: null, idle: true, secs: 55 }], still);
+    check('shards: the sky the shards mirror drifts slowly round the palette, and its drift stays a share of once round', Math.abs(idle2.state.shift - 0.12) < 1e-9 && Math.abs(longIdle.state.clock - 55) < 1e-6 && Math.abs(longIdle.state.shift - 0.1) < 1e-6 && longIdle.state.lit[2] === longIdle.state.shift && remade(longIdle),
+      JSON.stringify({ shift: [idle2.state.shift, longIdle.state.shift], clock: longIdle.state.clock }));
     const [off1, off2] = await shardRun([{ level: null, off: true, secs: 3 }, { level: null, off: true, secs: 1 }], still);
     check('shards: with the mic and Idle animation off the pane is shut and the picture holds still', off2.state.live === false && off2.state.clock === 0 && off2.state.open === 0 && off2.state.most === 0 && off2.state.shift === 0 && same(off2) && Math.abs(off2.solid - shHush.solid) < 0.01 * shHush.solid,
       JSON.stringify({ open: off2.state.open, differs: off2.diff, clock: off2.state.clock, solid: off2.solid }));

@@ -25,8 +25,9 @@
   const TRAVEL = 0.75;                      // seconds a ripple takes to reach the furthest corner
   const BEAT_TRAVEL = 0.41;                 // and a beat's ring
   const LIFT = 1, SPREAD = 0.22, TIP = 0.6; // at an opening of 1: how far a shard at the point of impact lifts, how far one moves away for each unit it is from that point, and how far one tips, in radians
-  const TILT_MAX = 0.95;                    // the furthest a shard leans from the pane, in radians: further, and its back would show
+  const TILT_MAX = 0.95;                    // the furthest a shard leans from the pane, in radians
   const OPEN_MAX = 1.7;                     // the widest opening
+  const QUIET = 0.08;                       // a band below this is not heard at all
   const RISE = 20, FALL = 4;                // how fast a band is followed, up and down, a second
   const HISTORY = 24, HISTORY_HZ = 24;      // what is remembered of the sound: so many samples, so many a second
   const SHARDS_MAX = 640;                   // room for this many shards
@@ -82,8 +83,9 @@
   // `rnd` may be given to go on with a sequence; otherwise it starts from `seed`.
   function crack(spokes, rings, seed, rnd) {
     rnd = rnd || sequence(seed);
+    // The directions of the pane's four corners, which come in order round a point inside it.
     const corners = [[PW / 2, PH / 2], [-PW / 2, PH / 2], [-PW / 2, -PH / 2], [PW / 2, -PH / 2]]
-      .map(([x, y]) => (Math.atan2(y - IY, x - IX) + TAU) % TAU).sort((a, b) => a - b);
+      .map(([x, y]) => (Math.atan2(y - IY, x - IX) + TAU) % TAU);
     const angles = [];
     for (let c = 0; c < 4; c++) {
       const a0 = corners[c], a1 = c < 3 ? corners[c + 1] : corners[0] + TAU, n = Math.max(1, Math.round((spokes * (a1 - a0)) / TAU));
@@ -104,10 +106,10 @@
     }
     const polys = [];
     const mid = (p, q, t) => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
-    function quad(a, b, c, d, ring) {
-      if (ring >= 3 && Math.hypot(c[0] - b[0], c[1] - b[1]) > wide) {
+    function quad(a, b, c, d) {
+      if (Math.hypot(c[0] - b[0], c[1] - b[1]) > wide) {
         const t = 0.4 + 0.2 * rnd(), mo = mid(b, c, t), mi = mid(a, d, t);
-        quad(a, b, mo, mi, ring); quad(mi, mo, c, d, ring);
+        quad(a, b, mo, mi); quad(mi, mo, c, d);
         return;
       }
       const u = rnd();
@@ -118,7 +120,7 @@
     for (let j = 0; j < S; j++) {
       const j1 = (j + 1) % S;
       polys.push([[IX, IY], v[1][j], v[1][j1]]);
-      for (let i = 2; i <= rings; i++) quad(v[i - 1][j], v[i][j], v[i][j1], v[i - 1][j1], i);
+      for (let i = 2; i <= rings; i++) quad(v[i - 1][j], v[i][j], v[i][j1], v[i - 1][j1]);
     }
     return polys;
   }
@@ -176,10 +178,13 @@
   // How many shards the coarsest pane and the finest have.
   const COUNT_MIN = crack(spokesFor(0), ringsFor(0), SEED).length, COUNT_MAX = crack(spokesFor(100), ringsFor(100), SEED).length;
 
-  // How loud a band is, 0..1: its bin, times Gain.
+  // How loud a band is, 0..1: its bin, times Gain. One quieter than QUIET is not heard at
+  // all: a room's hiss would hold every sector a little open, and the lights in the mirror
+  // make much of a small tilt.
   function loudness(bins, band, gain) {
     if (!bins || !(band < bins.length)) return 0;
-    return clamp01((bins[band] / 255) * gain);
+    const v = clamp01((bins[band] / 255) * gain);
+    return v < QUIET ? 0 : v;
   }
 
   // With the mic off and Idle animation on: how loud band b pretends to be at t seconds.
@@ -286,8 +291,10 @@
   // A shard, drawn solid. Its top is a mirror: it shows a sky of six palette colours (the
   // colour depends on where the mirror points) with long soft lights in it, so that each
   // shard shows its own piece of them, and it flashes when it catches one of three lamps.
-  // Its cut sides glow in one palette colour, brighter the further open the shard is. Its
-  // back is all but dark.
+  // Its back is a mirror too, dimmer: with the camera swayed to one side, a shard that is
+  // wide open on the other side has tipped past edge-on, and must still read as glass. Its
+  // cut sides glow in the colour of the light behind the pane, brighter the further open
+  // the shard is.
   const MIRROR_VERT = `
     attribute float kind, tone, open;
     varying vec3 vN, vW;
@@ -307,7 +314,7 @@
     varying float vKind, vTone, vOpen;
     vec3 pal(float u) {
       u = fract(u) * 6.0;
-      int i = int(floor(u));
+      int i = min(int(floor(u)), 5);
       float f = u - floor(u);
       f = f * f * (3.0 - 2.0 * f);
       return mix(uPal[i], uPal[(i + 1) % 6], f);
@@ -315,19 +322,18 @@
     void main() {
       vec3 n = normalize(vN), v = normalize(cameraPosition - vW);
       vec3 col;
-      if (vKind < 0.5) {
+      if (vKind > 0.5 && vKind < 1.5) {
+        col = pal(0.5 + 0.10 * vTone) * (0.20 + 1.3 * vOpen + 0.5 * uKick);
+      } else {
         vec3 r = reflect(-v, n);
         vec3 sky = pal(uShift + 0.20 * r.x + 0.28 * r.y + 0.10 * vTone);
         float bars = smoothstep(0.35, 0.95, 0.5 + 0.5 * sin(17.0 * r.y + 5.0 * r.x + 1.0));
         float lum = 0.10 + 0.22 * smoothstep(-0.7, 0.9, r.y + 0.35 * r.x) + 0.42 * bars;
         vec3 l1 = normalize(vec3(0.42, 0.72, 0.55)), l2 = normalize(vec3(-0.72, 0.22, 0.66)), l3 = normalize(vec3(0.12, -0.74, 0.66));
         float flash = pow(max(dot(r, l1), 0.0), 70.0) * 2.4 + pow(max(dot(r, l2), 0.0), 40.0) * 1.2 + pow(max(dot(r, l3), 0.0), 40.0) * 0.9;
-        float fres = pow(1.0 - max(dot(n, v), 0.0), 3.0);
+        float fres = pow(1.0 - abs(dot(n, v)), 3.0);
         col = sky * lum * (0.8 + 0.5 * uFlame) + sky * fres * 0.6 + (vec3(0.6) + 0.4 * sky) * flash * (0.45 + 0.7 * uFlame + 0.8 * uKick);
-      } else if (vKind < 1.5) {
-        col = pal(uShift + 0.5 + 0.10 * vTone) * (0.20 + 1.3 * vOpen + 0.5 * uKick);
-      } else {
-        col = pal(uShift + 0.5) * (0.03 + 0.10 * uFlame);
+        if (vKind > 1.5) col *= 0.6;
       }
       gl_FragColor = vec4(col, 1.0);
     }`;
@@ -365,7 +371,7 @@
     const VERTS = SHARDS_MAX * 24, INDICES = SHARDS_MAX * 36;
     const bands = new Float32Array(BANDS), hist = [], open = new Float32Array(SHARDS_MAX), glowed = [0, 0];
     const pos = new Float32Array(VERTS * 3), norm = new Float32Array(VERTS * 3), shown = new Float32Array(VERTS), kind = new Float32Array(VERTS), tone = new Float32Array(VERTS), index = new Uint32Array(INDICES);
-    let THREE = null, pane = null, group = null, mesh = null, geo = null, glow = null, voice = null, beat = null, density = null;
+    let THREE = null, pane = null, group = null, mesh = null, geo = null, glow = null, voice = null, beat = null;
     // What the checks read. clock: seconds the scene has been live. count: the shards.
     // open: how far open they are on average; most: the furthest open. amount: what Bloom
     // makes of it. glow, glowSize: the light behind the pane. breaks: how often the pane has
@@ -401,7 +407,6 @@
 
     // Break the pane anew for a Density.
     function shatter(d) {
-      density = d;
       pane = createPane(d, SEED);
       kind.set(pane.kind); tone.set(pane.tone); index.set(pane.index);
       geo.attributes.kind.needsUpdate = true; geo.attributes.tone.needsUpdate = true; geo.index.needsUpdate = true;
@@ -421,7 +426,7 @@
 
       // The pane, broken as finely as Density says.
       const d = setting(knob('density'));
-      if (d !== density) shatter(d);
+      if (!pane || spokesFor(d) !== pane.spokes || ringsFor(d) !== pane.rings) shatter(d);
 
       // Each band is followed, quick up and slower down, and what it was is remembered.
       for (let b = 0; b < BANDS; b++) {
@@ -450,7 +455,7 @@
         const p = getColor(colorT + (i * PALETTE.length) / 6);
         u.uPal.value[i].setRGB(p[0] / 255, p[1] / 255, p[2] / 255, THREE.SRGBColorSpace);
       }
-      s.shift = u.uShift.value = 0.02 * s.clock;
+      s.shift = u.uShift.value = (0.02 * s.clock) % 1;
       u.uFlame.value = flame; u.uKick.value = kick;
 
       // The light behind the pane.
@@ -491,7 +496,7 @@
   }
 
   globalThis.TimbreShards = {
-    BANDS, PW, PH, IX, IY, FAR, THICK, GAP, TRAVEL, BEAT_TRAVEL, LIFT, SPREAD, TIP, TILT_MAX, OPEN_MAX, RISE, FALL, HISTORY, HISTORY_HZ, SHARDS_MAX, SECTORS, FOV, PITCH, FRAME, TURN, GLOW_PLANE, GLOW_Z, SEED, COUNT_MIN, COUNT_MAX,
+    BANDS, PW, PH, IX, IY, FAR, THICK, GAP, TRAVEL, BEAT_TRAVEL, LIFT, SPREAD, TIP, TILT_MAX, OPEN_MAX, QUIET, RISE, FALL, HISTORY, HISTORY_HZ, SHARDS_MAX, SECTORS, FOV, PITCH, FRAME, TURN, GLOW_PLANE, GLOW_Z, SEED, COUNT_MIN, COUNT_MAX,
     MIRROR_VERT, MIRROR_FRAG, GLOW_VERT, GLOW_FRAG,
     spokesFor, ringsFor, edgeAt, crack, createPane, loudness, idle, settle, amountOf, delayOf, beatDelayOf, openOf, openAll, poseOf, place, glowOf, measure, definition,
   };
