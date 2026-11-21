@@ -856,17 +856,21 @@ glass tank of water, as thousands of small soft specks. `factories/ink.js` is on
   `idle(b, t)` is what a band pretends to hear with the mic off, and `settle(v)` makes
   nothing of a level within a ten-thousandth of nothing.
 - **Pouring.** `placeOf(out, b, clock)` is where band `b` pours, `pourRate(level, share)`
-  how many specks a second, `speckCount(density)` how many specks there are and
-  `shareOf(count)` their share of the most.
+  how many specks a second, `pourShare(total, count)` the share of that the bands may pour
+  when together they ask for more than the specks can hold, `speckCount(density)` how many
+  specks there are and `shareOf(count)` their share of the most.
 - **The water.** `strengthOf(flame, swirl)` is how strong the currents are and
-  `current(out, x, y, z, t, strength)` the current at a place and time.
+  `current(out, x, y, z, t, strength)` the current at a place and time. `tabulate(tab, t)`
+  and `flow(out, tab, x, y, z, strength)` are the same current read from tables, which is
+  what the ink uses.
   `nearGlass(out, x, y, z)` is how much of it is left near the glass, the floor and the
   surface, and `fromGlass(out, x, y, z)` how fast those turn ink back. `twistOf(whirl, n)`
   is a beat's twist and `whirlAfter(whirl, dt)` how it dies away.
 - **The ink.** `createInk(n, seed)` makes room for the specks, `pour(ink, count, b, level,
   clock, colour)` pours one, and `stepInk(ink, count, h, clock, strength, whirl)` moves
-  them all a step; `stepsFor(dt)` is how many steps a frame takes. `lookOf(out, age, size,
-  share)` is a speck's size and how much it covers, `litOf(y)` how lit it is, and
+  them all a step; `stepsFor(dt)` is how many steps a frame takes. `lookFor(out, share)`
+  and `lookOf(out, age, size, k)` are a speck's size and how much it covers, `litOf(y)` how
+  lit it is, and
   `measure(ink, count)` says where the ink is, for the checks.
 - **The tank.** `glassOf(glass, flame, kick)` and `surfaceOf(glass, flame, kick)` are how
   bright the glass and the water's surface are drawn, and `pxOf(height, zoom)` how many
@@ -885,13 +889,30 @@ Worth knowing before drawing another thing that is not light:
 - The kit draws light by adding it, and a scene's solid things by covering. Pigment is a
   third kind: a material that is `transparent` with three.js's usual blending and no depth
   writing covers what is behind it by its alpha, and the kit's picture carries that alpha
-  out to the page, so it shows over a bright backdrop. It needs nothing from the kit.
+  out to the page, so it shows over a bright backdrop. But the kit's last pass was made
+  for light and for solid things, and treats what is in between as partly light: thin
+  pigment comes out brighter than a pigment would be, and in the bands along the picture's
+  edges where the kit dims light, see-through pigment is darkened but still covers. Keep
+  pigment out of those bands (the bottom fifth, the top tenth, a seventh at each side):
+  this scene's frame is taller than its tank for that.
+- Light that should lie over pigment must be drawn after it, and light behind it before:
+  give the meshes a `renderOrder`. Left alone, three.js draws in the order things were
+  made, and the tank's near edges were hidden by the ink behind them.
+- A ring of specks that gives each new one the oldest place needs a budget. If more is
+  poured in a speck's lifetime than there are specks, each is poured over while it is
+  still there: here loud music cut every speck off at four seconds of its eight and a
+  half, when it showed most. `pourShare` holds the pour to what the ring can hold.
+- Nine sines for each of 30,000 specks, each step, was most of this scene's cost. Each
+  wave of the current runs along one direction only, so it is worked out at 513 places
+  along that side of the tank once a step, and a speck reads between the two nearest.
 - A current that is worked out and not simulated can still be one that neither gathers nor
   thins what it carries: make each of its three parts independent of its own direction.
   But a wall breaks that. If the current only dies away at the glass, whatever reaches
   the glass stays on it and gathers where the currents along it meet (the first build
-  had a tenth of its ink in a heap on the floor). The glass, the floor and the surface
-  each turn ink back a little (`fromGlass`).
+  had a tenth of its ink in a heap on the floor, and at a high Swirl a third of it in the
+  tank's upright edges). The glass, the floor and the surface each turn ink back
+  (`fromGlass`), and harder the stronger the current is. A check for it must be run at
+  several strengths and timings: one run passed by the luck of when its beats fell.
 - A thing with an age must be nothing at the end of its life and after it, not a number
   that is not one. A speck a frame older than its life had `pow(negative, 1.5)` for its
   cover in the spike, and the GPU drew square holes in the ink with it.

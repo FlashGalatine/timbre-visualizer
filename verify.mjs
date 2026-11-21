@@ -3491,9 +3491,9 @@ await import('./overlay/ink.js');
   const at = (arr, i) => [arr[i * 3], arr[i * 3 + 1], arr[i * 3 + 2]];
 
   ok(K.BANDS === 8 && K.W === 3.3 && K.H === 2.7 && K.D === 1.5 && near(K.TOP, 1.13) && near(K.FLOOR, -1.3) && near(K.WALL_X, 1.59) && near(K.WALL_Z, 0.69) && K.LIFE === 8.5 && K.POUR === 1300 && K.QUIET === 0.08
-    && K.RISE === 14 && K.FALL === 4 && K.STREAM === 0.05 && K.TWIST === 1.6 && K.TWIST_FALL === 1.6 && K.SINK_FALL === 0.75 && K.STEPS_MAX === 6 && K.FOV === 30 && K.PITCH === 14 && JSON.stringify(K.FRAME) === '{"width":5,"height":3.7,"center":[0,0,0]}',
+    && K.RISE === 14 && K.FALL === 4 && K.STREAM === 0.05 && K.TWIST === 1.6 && K.TWIST_FALL === 1.6 && K.SINK_FALL === 0.75 && K.STEPS_MAX === 6 && K.FOV === 30 && K.PITCH === 14 && JSON.stringify(K.FRAME) === '{"width":5,"height":4.2,"center":[0,-0.25,0]}' && K.GLASS_GAIN === 3 && K.BUDGET === 0.97,
     'the sizes: a tank 3.3 across, 2.7 tall and 1.5 deep, eight bands, ink that lasts eight and a half seconds');
-  ok(K.speckCount(0) === 6000 && K.speckCount(50) === 18000 && K.speckCount(100) === 30000 && K.speckCount(-5) === 6000 && K.speckCount(400) === 30000 && K.speckCount(undefined) === 18000 && K.speckCount(12.3) === Math.round(6000 + 240 * 12.3)
+  ok(K.speckCount(0) === 6000 && K.speckCount(50) === 18000 && K.speckCount(100) === 30000 && K.speckCount(-5) === 6000 && K.speckCount(400) === 30000 && K.speckCount(undefined) === 18000 && K.speckCount(12.345) === 8963 && Number.isInteger(K.speckCount(33.3))
     && K.SPECKS_MIN === 6000 && K.SPECKS_MAX === 30000 && near(K.shareOf(18000), 0.6) && K.shareOf(30000) === 1 && near(K.shareOf(6000), 0.2), 'Density gives 6,000 to 30,000 specks, and their share of the most');
 
   // The sound.
@@ -3505,7 +3505,7 @@ await import('./overlay/ink.js');
   {
     let pouring = 0, most = 0, least = 9, turns = new Set();
     for (let t = 0; t < 120; t += 0.25) for (let b = 0; b < 8; b++) { const v = K.idle(b, t); if (v > 0.08) { pouring++; turns.add(b); } most = Math.max(most, v); least = Math.min(least, v); }
-    ok(least === 0 && most > 0.5 && most <= 0.55 && turns.size === 8 && pouring > 0.1 * 480 * 8 && pouring < 0.4 * 480 * 8 && near(K.idle(0, 2), Math.max(0, 0.05 + 0.5 * Math.sin(0.9)) * (Math.sin(0.46) > 0.2 ? 1 : 0)),
+    ok(least === 0 && most > 0.5 && most <= 0.55 && turns.size === 8 && pouring > 0.1 * 480 * 8 && pouring < 0.4 * 480 * 8 && near(K.idle(1, 1), 0.05 + 0.5 * Math.sin(2.75)) && K.idle(3, 5) === 0 && near(K.idle(0, 2), Math.max(0, 0.05 + 0.5 * Math.sin(0.9)) * (Math.sin(0.46) > 0.2 ? 1 : 0)),
       'with the mic off the bands take turns to pour a little: each of them some of the time, none of them most of it');
   }
   ok(K.settle(0) === 0 && K.settle(9e-5) === 0 && K.settle(1e-4) === 1e-4 && K.settle(0.3) === 0.3, 'a level within a ten-thousandth of nothing is nothing');
@@ -3520,6 +3520,18 @@ await import('./overlay/ink.js');
   }
   ok(K.pourRate(0, 1) === 0 && K.pourRate(0.079, 1) === 0 && near(K.pourRate(0.08, 1), 1300 * 0.08 * Math.sqrt(0.08)) && near(K.pourRate(1, 1), 1300) && near(K.pourRate(1, 0.6), 780) && near(K.pourRate(0.25, 0.2), 1300 * 0.2 * 0.125),
     'a band pours more the louder it is, nothing when it is all but silent, and by the share of specks there are');
+  {
+    const most = 0.97 * 18000 / 8.5;
+    ok(K.pourShare(0, 18000) === 1 && K.pourShare(most, 18000) === 1 && K.pourShare(1000, 18000) === 1 && near(K.pourShare(2 * most, 18000), 0.5) && near(K.pourShare(2 * most, 6000), 1 / 6) && near(K.pourShare(8 * K.pourRate(1, 0.6), 18000) * 8 * K.pourRate(1, 0.6), most),
+      'when the bands together would pour more than the specks there are can hold for their whole lives, each pours its share of what they can');
+    // Every band full for twenty-five seconds: no speck is poured over while it is still in the water, and the ink lives its whole life.
+    const count = 6000, ink = K.createInk(count, K.SEED), share = K.shareOf(count), owed = new Float32Array(8); let clock = 0, over = 0, oldest = 0, fullest = 0;
+    for (let f = 0; f < 60 * 25; f++) { const h = 1 / 60; clock += h; const rate = K.pourRate(1, share), k = K.pourShare(8 * rate, count);
+      for (let b = 0; b < 8; b++) { owed[b] += rate * k * h; while (owed[b] >= 1) { owed[b] -= 1; if (ink.age[ink.next] <= K.LIFE) over++; K.pour(ink, count, b, 1, clock, [1, 0.5, 0.25]); } }
+      const left = K.stepInk(ink, count, h, clock, K.strengthOf(1, 50), 0); fullest = Math.max(fullest, left);
+      if (f > 600) for (let i = 0; i < count; i += 7) if (ink.age[i] <= K.LIFE && ink.age[i] > oldest) oldest = ink.age[i]; }
+    ok(over === 0 && oldest > 8.3 && fullest > 0.93 * count && fullest <= count, 'with every band full, no speck is poured over while it is still in the water, and the ink lives its whole life (' + over + ' poured over, the oldest ' + oldest.toFixed(2) + ' s)');
+  }
   ok(near(K.strengthOf(0, 50), 0.1) && near(K.strengthOf(1, 50), 0.65) && near(K.strengthOf(0.4, 100), 0.64) && K.strengthOf(1, 0) === 0, 'the currents are slow in silence, stronger with the voice, and as strong as Swirl says: none at 0');
   ok(near(K.glassOf(50, 0, 0), 0.5) && near(K.glassOf(50, 1, 1), 1.1) && near(K.glassOf(100, 0, 0), 1) && K.glassOf(0, 1, 1) === 0 && near(K.surfaceOf(50, 0, 0), 0.5) && near(K.surfaceOf(50, 1, 1), 1.3) && K.surfaceOf(0, 1, 1) === 0 && near(K.surfaceOf(25, 0.5, 0), 0.325),
     'the glass and the water\'s surface are brighter with the voice and on a beat, and as bright as Glass says: not drawn at all at 0');
@@ -3537,6 +3549,16 @@ await import('./overlay/ink.js');
       if (!(Math.abs(a[0]) <= 0.6 + 1e-9 && Math.abs(a[1]) <= 0.33 + 1e-9 && Math.abs(a[2]) <= 0.48 + 1e-9)) bounded = false; }
     ok(same(c, want, 1e-12) && own && moves && bounded && K.current([0, 0, 0], 0.3, -0.4, 0.2, 2, 0).every((v) => v === 0) && same(Array.from(K.current([0, 0, 0], 0.3, -0.4, 0.2, 2, 1)), want.map((v) => v * 2), 1e-12),
       'the current is worked out from where and when: no part of it changes along its own direction, it shifts with time, and it is as strong as it is told');
+    // The ink reads the current from tables made once a step, not by working nine sines out for every speck: the same current, to a ten-thousandth.
+    {
+      const tab = K.tabulate(new Float32Array(9 * (K.TAB + 1)), 3.7); let worst = 0, own2 = true;
+      for (let n = 0; n < 400; n++) { const x = (n % 2 ? 1 : -1) * 1.59 * Math.abs(Math.sin(n * 1.3)), y = -1.3 + 2.43 * Math.abs(Math.sin(n * 0.7)), z = 0.69 * Math.sin(n * 2.9), a = K.current([0, 0, 0], x, y, z, 3.7, 0.8), b = K.flow([0, 0, 0], tab, x, y, z, 0.8);
+        for (let i = 0; i < 3; i++) worst = Math.max(worst, Math.abs(a[i] - b[i]));
+        if (K.flow([0, 0, 0], tab, x, Math.min(1.13, y + 0.01), z, 0.8)[1] !== b[1]) own2 = false; }
+      const corner = Array.from(K.flow([0, 0, 0], tab, 1.59, 1.13, 0.69, 0.8)), exact = Array.from(K.current([0, 0, 0], 1.59, 1.13, 0.69, 3.7, 0.8)), beyond = Array.from(K.flow([0, 0, 0], tab, 9, 9, 9, 0.8));
+      const later = K.tabulate(new Float32Array(9 * (K.TAB + 1)), 9), moved = K.flow([0, 0, 0], later, 0.3, -0.4, 0.2, 0.8)[0] !== K.flow([0, 0, 0], tab, 0.3, -0.4, 0.2, 0.8)[0];
+      ok(K.TAB === 512 && worst < 1e-4 && own2 && same(corner, exact, 1e-4) && same(beyond, corner) && moved && K.flow([0, 0, 0], tab, 0.3, -0.4, 0.2, 0).every((v) => v === 0), 'read from its tables the current is the same to a ten-thousandth, everywhere in the tank and at its glass (' + worst.toExponential(1) + ' at most)');
+    }
     const mid = Array.from(K.nearGlass([0, 0, 0], 0, 0, 0)), wall = Array.from(K.nearGlass([0, 0, 0], 1.59, -1.3, -0.69)), part = Array.from(K.nearGlass([0, 0, 0], 1.59 - 0.175, 1.13 - 0.125, 0.69 - 0.15)), low = Array.from(K.nearGlass([0, 0, 0], 0, -1.3 + 0.15, 0));
     ok(same(mid, [1, 1, 1]) && same(wall, [0.05, 0.05, 0.05]) && same(part, [0.5, 0.5, 0.5], 1e-9) && same(low, [1, 0.5, 1], 1e-9) && same(Array.from(K.nearGlass([0, 0, 0], -9, 9, 9)), [0.05, 0.05, 0.05]),
       'the current dies away toward the glass, the floor and the surface, to a twentieth of itself');
@@ -3547,17 +3569,24 @@ await import('./overlay/ink.js');
       && same(Array.from(K.fromGlass([0, 0, 0], 0, -1.3 + 0.15, 0)), [0, 0.0625, 0], 1e-9),
       'the glass, the floor and the surface turn ink back: not at all in open water, more the nearer it is, a quarter of a unit a second at the glass itself');
     // A long noisy run: every band pouring, a beat twice a second. The ink does not gather at the glass or in the tank's upright edges.
-    const count = 18000, ink = K.createInk(count, K.SEED), share = K.shareOf(count), owed = new Float32Array(8); let clock = 0, whirl = 0, beats = 0, worstEdge = 0, worstGlass = 0, worstFloor = 0;
-    for (let f = 0; f < 60 * 30; f++) { const h = 1 / 60; clock += h; if (f % 30 === 0) whirl = K.twistOf(whirl, ++beats); whirl = K.whirlAfter(whirl, h);
-      for (let b = 0; b < 8; b++) { const lvl = 0.35 + 0.3 * Math.sin(0.7 * clock + b); owed[b] += K.pourRate(lvl, share) * h; while (owed[b] >= 1) { owed[b] -= 1; K.pour(ink, count, b, lvl, clock, [1, 0.5, 0.25]); } }
-      K.stepInk(ink, count, h, clock, K.strengthOf(0.6, 50), whirl);
-      if (f % 60 === 59 && f > 300) { let alive = 0, edge = 0, glass = 0, floor = 0; for (let i = 0; i < count; i++) { if (ink.age[i] > K.LIFE) continue; alive++; const x = Math.abs(ink.pos[i * 3]), z = Math.abs(ink.pos[i * 3 + 2]);
-        if (x > K.WALL_X - 0.12 && z > K.WALL_Z - 0.12) edge++; if (x > K.WALL_X - 0.02 || z > K.WALL_Z - 0.02) glass++; if (ink.pos[i * 3 + 1] < K.FLOOR + 0.02) floor++; } worstEdge = Math.max(worstEdge, edge / alive); worstGlass = Math.max(worstGlass, glass / alive); worstFloor = Math.max(worstFloor, floor / alive); } }
-    ok(worstEdge < 0.03 && worstGlass < 0.03 && worstFloor < 0.03, 'through a long noisy run the ink does not gather on the glass, in the upright edges of the tank or on its floor (' + (100 * worstGlass).toFixed(1) + '%, ' + (100 * worstEdge).toFixed(1) + '% and ' + (100 * worstFloor).toFixed(1) + '% at most)');
+    const noisy = (swirl, every, first, secs) => { const count = 6000, ink = K.createInk(count, K.SEED), share = K.shareOf(count), owed = new Float32Array(8), rate = new Float32Array(8); let clock = 0, whirl = 0, beats = 0, edge = 0, glass = 0, floor = 0, nearSide = 0, n = 0;
+      for (let f = 0; f < 60 * secs; f++) { const h = 1 / 60; clock += h; if (every && f % every === first) whirl = K.twistOf(whirl, ++beats); whirl = K.whirlAfter(whirl, h);
+        let total = 0; for (let b = 0; b < 8; b++) { rate[b] = K.pourRate(0.35 + 0.3 * Math.sin(0.7 * clock + b), share); total += rate[b]; }
+        const k = K.pourShare(total, count);
+        for (let b = 0; b < 8; b++) { owed[b] += rate[b] * k * h; while (owed[b] >= 1) { owed[b] -= 1; K.pour(ink, count, b, 0.35 + 0.3 * Math.sin(0.7 * clock + b), clock, [1, 0.5, 0.25]); } }
+        K.stepInk(ink, count, h, clock, K.strengthOf(0.6, swirl), whirl);
+        if (f % 60 === 59 && f > 300) { let alive = 0, e = 0, g = 0, fl = 0, sd = 0; for (let i = 0; i < count; i++) { if (ink.age[i] > K.LIFE) continue; alive++; const x = Math.abs(ink.pos[i * 3]), z = Math.abs(ink.pos[i * 3 + 2]);
+          if (x > K.WALL_X - 0.12 && z > K.WALL_Z - 0.12) e++; if (x > K.WALL_X - 0.02 || z > K.WALL_Z - 0.02) g++; if (ink.pos[i * 3 + 1] < K.FLOOR + 0.02) fl++; if (x > K.WALL_X - 0.4) sd++; }
+          edge = Math.max(edge, e / alive); glass = Math.max(glass, g / alive); floor = Math.max(floor, fl / alive); nearSide += sd / alive; n++; } }
+      return { edge, glass, floor, nearSide: nearSide / n }; };
+    // (Swirl; a beat every so many frames, the first at which; seconds.) The upright edges are 1.3% of the tank, and the quarter of it nearest its ends 25%.
+    const runs = [[50, 30, 0, 30], [50, 30, 7, 30], [50, 30, 0, 60], [75, 30, 0, 30], [100, 30, 0, 30], [100, 0, 0, 30], [0, 30, 0, 30]].map((r) => noisy(...r));
+    ok(runs.every((r) => r.edge < 0.04 && r.glass < 0.03 && r.floor < 0.03) && runs.slice(0, 6).every((r) => r.nearSide > 0.06), 'through long noisy runs, at every strength of current and timing of the beat, the ink does not gather on the glass, in the upright edges of the tank or on its floor, nor is it kept from the ends of the tank ('
+      + runs.map((r) => (100 * r.edge).toFixed(1) + '/' + (100 * r.glass).toFixed(1) + '/' + (100 * r.floor).toFixed(1) + '/' + (100 * r.nearSide).toFixed(0)).join(' ') + ')');
   }
   ok(K.twistOf(0, 1) === 1.6 && K.twistOf(0, 2) === -1.6 && near(K.twistOf(0.5, 3), 2.1) && near(K.twistOf(0.5, 4), -1.1) && near(K.whirlAfter(1.6, 0.5), 1.6 * Math.exp(-0.8)) && near(K.whirlAfter(K.whirlAfter(1.6, 0.25), 0.25), K.whirlAfter(1.6, 0.5), 1e-12)
     && K.whirlAfter(9e-5, 0.01) === 0 && K.whirlAfter(-9e-5, 0.01) === 0 && K.whirlAfter(-1, 0.1) < 0, 'a beat twists the tank one way and the next the other; the twist dies away, exactly, and all but none is none');
-  ok(K.stepsFor(1 / 60) === 1 && K.stepsFor(1 / 30) === 2 && K.stepsFor(1 / 144) === 1 && K.stepsFor(0.05) === 3 && K.stepsFor(1) === 6 && K.stepsFor(0) === 1, 'the ink moves in steps no longer than a sixtieth of a second, six at most in a frame');
+  ok(K.stepsFor(1 / 60) === 1 && K.stepsFor(1 / 30) === 2 && K.stepsFor(1 / 144) === 1 && K.stepsFor(0.05) === 3 && K.stepsFor(1) === 6 && K.stepsFor(0) === 1 && K.stepsFor(0.02) === 2 && K.stepsFor(0.0168) === 2, 'the ink moves in steps no longer than a sixtieth of a second, six at most in a frame');
 
   // The ink.
   const red = [1, 0.5, 0.25];
@@ -3574,12 +3603,13 @@ await import('./overlay/ink.js');
     const many = K.createInk(4000, 7), again = K.createInk(4000, 7), other = K.createInk(4000, 8);
     for (let i = 0; i < 4000; i++) { K.pour(many, 4000, 4, 1, 0, red); K.pour(again, 4000, 4, 1, 0, red); K.pour(other, 4000, 4, 1, 0, red); }
     const mp = K.placeOf([0, 0], 4, 0);
-    let fastMid = 0, nMid = 0, fastEdge = 0, nEdge = 0, outward = true, widest = 0, sx = 0, sz = 0, sizes = [9, 0], shades = [9, 0];
+    let fastMid = 0, nMid = 0, fastEdge = 0, nEdge = 0, outward = true, widest = 0, sx = 0, sz = 0, sizes = [9, 0], shades = [9, 0], inner = 0, slowEdge = 9;
     for (let i = 0; i < 4000; i++) { const q = at(many.pos, i), w = at(many.vel, i), dx = q[0] - mp[0], dz = q[2] - mp[1], rr = Math.hypot(dx, dz); widest = Math.max(widest, rr); sx += dx / 4000; sz += dz / 4000;
-      if (rr < 0.02) { fastMid += -w[1]; nMid++; } else if (rr > 0.06) { fastEdge += -w[1]; nEdge++; }
+      if (rr < 0.02) { fastMid += -w[1]; nMid++; } else if (rr > 0.06) { fastEdge += -w[1]; nEdge++; slowEdge = Math.min(slowEdge, (w[0] * dx + w[2] * dz) / rr); }
+      if (rr < 0.0375) inner++;
       if (rr > 1e-4 && !(w[0] * dx + w[2] * dz >= -1e-9)) outward = false;
       sizes = [Math.min(sizes[0], many.size[i]), Math.max(sizes[1], many.size[i])]; shades = [Math.min(shades[0], many.tint[i * 3]), Math.max(shades[1], many.tint[i * 3])]; }
-    ok(nMid > 100 && nEdge > 100 && fastMid / nMid > 1.6 && fastMid / nMid <= 1.8 + 1e-6 && fastEdge / nEdge < 0.75 * fastMid / nMid && outward && widest <= 0.075 + 1e-6 && widest > 0.07 && Math.abs(sx) < 0.004 && Math.abs(sz) < 0.004
+    ok(inner > 0.2 * 4000 && inner < 0.3 * 4000 && slowEdge > 0.12 && nMid > 100 && nEdge > 100 && fastMid / nMid > 1.6 && fastMid / nMid <= 1.8 + 1e-6 && fastEdge / nEdge < 0.75 * fastMid / nMid && outward && widest <= 0.075 + 1e-6 && widest > 0.07 && Math.abs(sx) < 0.004 && Math.abs(sz) < 0.004
       && sizes[0] < 0.045 && sizes[1] > 0.07 && shades[0] < 0.82 && shades[1] > 0.96 && same(Array.from(many.pos), Array.from(again.pos)) && !same(Array.from(many.pos), Array.from(other.pos), 0.01),
       'in a stream the middle sinks fastest and the edge lags and moves outward; the same pour is the same again, and another seed another');
     // A quiet band's stream is thinner and slower.
@@ -3603,7 +3633,16 @@ await import('./overlay/ink.js');
     two.pos.set([0.2, 0.1, 0.1, 0.2, 0.1, 0.1]); two.vel.fill(0);
     const c = K.current([0, 0, 0], 0.2, 0.1, 0.1, 5, 0.4);
     K.stepInk(two, 2, 0.01, 5, 0.4, 0);
-    ok(same(at(two.pos, 0), [0.2 + c[0] * 0.01, 0.1 + (c[1] - 0.03) * 0.01, 0.1 + c[2] * 0.01], 1e-6) && same(at(two.pos, 0), at(two.pos, 1)), 'the current carries a speck; two in one place go the same way');
+    ok(same(at(two.pos, 0), [0.2 + c[0] * 0.01, 0.1 + (c[1] - 0.03) * 0.01, 0.1 + c[2] * 0.01], 3e-6) && same(at(two.pos, 0), at(two.pos, 1)), 'the current carries a speck; two in one place go the same way');
+    // Near the glass: the current is weaker there, and the glass turns the ink back, harder in a stronger current.
+    const ng = K.createInk(1, 7); K.pour(ng, 1, 3, 0.5, 0, red); ng.pos.set([1.59 - 0.175, 0.2, 0.1]); ng.vel.fill(0);
+    const cg = Array.from(K.current([0, 0, 0], 1.59 - 0.175, 0.2, 0.1, 5, 0.4));
+    K.stepInk(ng, 1, 0.01, 5, 0.4, 0);
+    ok(same(at(ng.pos, 0), [1.59 - 0.175 + (cg[0] * 0.5 - 0.0625 * (1 + 3 * 0.4)) * 0.01, 0.2 + (cg[1] - 0.03) * 0.01, 0.1 + cg[2] * 0.01], 3e-6), 'near the glass the current is weaker and the glass turns the ink back, harder the stronger the current');
+    // Near the floor: the ink's settling dies away as the current does, and the floor turns it back.
+    const nf = K.createInk(1, 7); K.pour(nf, 1, 3, 0.5, 0, red); nf.pos.set([0.2, -1.3 + 0.15, 0.1]); nf.vel.fill(0);
+    K.stepInk(nf, 1, 0.01, 5, 0, 0);
+    ok(same(at(nf.pos, 0), [0.2, -1.3 + 0.15 + (-0.03 * 0.5 + 0.0625) * 0.01, 0.1], 1e-6), 'near the floor ink settles more slowly, and the floor turns it back');
     // A twist turns the tank about its upright axis.
     const tw = K.createInk(1, 7); K.pour(tw, 1, 3, 0.5, 0, red); tw.pos.set([0.5, 0, 0.2]); tw.vel.fill(0);
     K.stepInk(tw, 1, 0.01, 0, 0, 1.6);
@@ -3612,7 +3651,7 @@ await import('./overlay/ink.js');
     const fl = K.createInk(1, 7); K.pour(fl, 1, 3, 0.5, 0, red); fl.pos.set([0.3, K.FLOOR + 0.001, 0.1]); fl.vel.set([0.3, -1, 0.4]);
     K.stepInk(fl, 1, 0.01, 0, 0, 0);
     const k2 = Math.exp(-0.0075);
-    ok(near(fl.pos[1], K.FLOOR, 1e-6) && fl.vel[1] === 0 && near(fl.vel[0], 0.3 * k2 + 0.6 * 0.55 * k2, 1e-5) && near(fl.vel[2], 0.4 * k2 + 0.8 * 0.55 * k2, 1e-5), 'ink that reaches the floor is turned outward along it, the way it was already going');
+    ok(near(fl.pos[1], K.FLOOR, 1e-6) && fl.vel[1] === 0 && near(fl.vel[0], 0.3 * k2, 1e-6) && near(fl.vel[2], 0.4 * k2, 1e-6), 'ink that reaches the floor stops sinking and stays above it');
     const held = K.createInk(3, 7); for (let i = 0; i < 3; i++) K.pour(held, 3, 3, 0.5, 0, red);
     held.pos.set([1.58, 0, 0, 0, 1.12, 0.68, -1.58, -1.29, -0.68]); held.vel.set([5, 0, 0, 0, 5, 5, -5, -5, -5]);
     for (let i = 0; i < 30; i++) K.stepInk(held, 3, 1 / 60, i / 60, 0.65, 3);
@@ -3620,17 +3659,20 @@ await import('./overlay/ink.js');
     ok(box[0] >= -K.WALL_X - 1e-6 && box[1] <= K.WALL_X + 1e-6 && box[2] >= K.FLOOR - 1e-6 && box[3] <= K.TOP - 0.01 + 1e-6 && box[4] >= -K.WALL_Z - 1e-6 && box[5] <= K.WALL_Z + 1e-6 && near(held.pos[0], K.WALL_X, 1e-6), 'the glass, the floor and the surface hold the ink in, however hard it is thrown');
     // It lasts LIFE seconds and no longer.
     const old = K.createInk(2, 7); K.pour(old, 2, 1, 0.5, 0, red); K.pour(old, 2, 1, 0.5, 0, red); old.age[0] = 8.49; old.age[1] = 8.4;
-    const leftNow = K.stepInk(old, 2, 0.02, 0, 0.3, 0), posGone = at(old.pos, 0);
+    const leftNow = K.stepInk(old, 2, 0.02, 0, 0.3, 0), posGone = at(old.pos, 0), ageGone = old.age[0];
     K.stepInk(old, 2, 0.02, 0, 0.3, 0);
-    ok(leftNow === 1 && old.age[0] > K.LIFE && same(at(old.pos, 0), posGone) && K.measure(old, 2).alive === 1, 'a speck is gone after eight and a half seconds, and moves no more');
+    ok(leftNow === 1 && old.age[0] > K.LIFE && old.age[0] === ageGone && same(at(old.pos, 0), posGone) && K.measure(old, 2).alive === 1, 'a speck is gone after eight and a half seconds, and moves no more');
   }
 
   // How a speck is drawn.
   {
-    const young = Array.from(K.lookOf([0, 0], 0.05, 0.05, 1)), half = Array.from(K.lookOf([0, 0], 4.25, 0.05, 1)), end = Array.from(K.lookOf([0, 0], 8.5, 0.05, 1)), gone = Array.from(K.lookOf([0, 0], 8.6, 0.05, 1)), few = Array.from(K.lookOf([0, 0], 4.25, 0.05, 0.2));
+    const all = K.lookFor([0, 0], 1), fifth = K.lookFor([0, 0], 0.2);
+    ok(same(Array.from(all), [1.5, 0.15]) && same(Array.from(fifth), [1.5 * Math.pow(0.2, -0.3), Math.min(0.5, 0.15 / Math.sqrt(0.2))]) && K.lookFor([0, 0], 0.01)[1] === 0.5, 'with fewer specks each is larger and covers more, up to half');
+    const young = Array.from(K.lookOf([0, 0], 0.05, 0.05, all)), half = Array.from(K.lookOf([0, 0], 4.25, 0.05, all)), end = Array.from(K.lookOf([0, 0], 8.5, 0.05, all)), gone = Array.from(K.lookOf([0, 0], 8.6, 0.05, all)), few = Array.from(K.lookOf([0, 0], 4.25, 0.05, fifth)), faint = Array.from(K.lookOf([0, 0], 8.2, 0.05, all));
     ok(near(young[0], 0.075 * (1 + 3.2 * 0.05 / 8.5)) && near(young[1], 0.15 * 0.3 * Math.pow(1 - 0.05 / 8.5, 1.5) / (0.6 + 0.4 * (1 + 3.2 * 0.05 / 8.5))) && near(half[0], 0.075 * 2.6) && near(half[1], 0.15 * Math.pow(0.5, 1.5) / (0.6 + 0.4 * 2.6))
-      && near(end[0], 0.075 * 4.2) && end[1] === 0 && gone[0] === 0 && gone[1] === 0 && Number.isFinite(gone[1]) && near(few[0], half[0] * Math.pow(0.2, -0.3)) && near(few[1], Math.min(0.5, 0.15 / Math.sqrt(0.2)) * Math.pow(0.5, 1.5) / (0.6 + 0.4 * 2.6))
-      && K.lookOf([0, 0], 2, 0.05, 0.01)[1] <= 0.5, 'a speck fades in, spreads and thins with age, and is nothing once it is gone; with fewer specks each is larger and covers more');
+      && end[0] === 0 && end[1] === 0 && gone[0] === 0 && gone[1] === 0 && Number.isFinite(gone[1]) && near(few[0], half[0] * Math.pow(0.2, -0.3)) && near(few[1], Math.min(0.5, 0.15 / Math.sqrt(0.2)) * Math.pow(0.5, 1.5) / (0.6 + 0.4 * 2.6))
+      && faint[0] === 0 && faint[1] === 0 && K.lookOf([0, 0], 7, 0.05, all)[1] > 0.002 && K.lookOf([0, 0], 7, 0.05, all)[0] > 0.2, 'a speck fades in, spreads and thins with age, and is nothing once it is gone or too thin to see');
+    ok(near(K.pxOf(624, 1), 624 / (2 * Math.tan(15 * Math.PI / 180))) && near(K.pxOf(624, 0.5), 0.5 * K.pxOf(624, 1)) && near(K.pxOf(1248, 2), 4 * K.pxOf(624, 1)), 'a unit, one unit from the camera, is as many pixels as the picture\'s height and the camera\'s zoom make it');
     ok(near(K.litOf(K.FLOOR), 0.72) && near(K.litOf(K.TOP), 1.12) && near(K.litOf((K.TOP + K.FLOOR) / 2), 0.92), 'ink near the surface is in more light than ink at the floor');
   }
 
@@ -3654,6 +3696,13 @@ await import('./overlay/ink.js');
   // The shaders.
   ok(/gl_PointSize = max\(1\.0, look\.x \* uPx \/ -mv\.z\);/.test(K.INK_VERT) && /if \(a <= 0\.002\) discard;/.test(K.INK_FRAG) && /exp\(-3\.0 \* r \* r\) \* \(1\.0 - smoothstep\(0\.75, 1\.0, r\)\)/.test(K.INK_FRAG) && /fwidth\(m\)/.test(K.GLASS_FRAG) && /uRing\[4\]/.test(K.SURFACE_FRAG),
     'a speck is drawn as a soft disc sized for the picture; the glass has edges of an even width; the surface carries four rings');
+
+  // What the kit is told.
+  {
+    const def = K.definition();
+    ok(JSON.stringify(def.frame) === JSON.stringify(K.FRAME) && def.frame.center !== K.FRAME.center && def.fov === 30 && def.pitch === 14 && def.cooling.length === 3 && def.cooling.every((v) => v === 0.08) && typeof def.build === 'function' && typeof def.update === 'function',
+      'the kit is given the frame, the camera, and a short afterglow for the light a ring leaves');
+  }
 
   // The table.
   ok(T.VIZ_SCENES[T.VIZ_SCENES.length - 1] === 'ink' && T.VIZ_USES_3D.includes('ink'), 'ink is a kit scene, the last listed');

@@ -16,7 +16,7 @@ A glass tank of clear water floats in the box, and the sound pours coloured ink 
   and its own colour from the palette. While a band sounds, ink pours in there: the louder
   the band, the more ink and the faster it sinks.
 - The ink sinks as a plume. The slow currents in the water carry it and stretch it into
-  ribbons, it spreads along the floor of the tank, and it thins away over some seconds.
+  ribbons, and it thins away over eight and a half seconds.
 - The louder the sound, the stronger the currents. In a pause the ink hangs, drifts and
   the water clears.
 - A beat gives the whole tank a twist, one way and then the other, and sends a ring across
@@ -40,20 +40,33 @@ game backdrop) and said "Build it". Every choice below is the builder's.
 - **Specks, not a grid.** The ink is small soft specks, each a disc that covers a little of
   what is behind it; where many lie together they make a plume. A speck is poured at a
   band's place, sinks with a speed of its own that dies away, is carried by the current, is
-  turned outward by the floor, is held in by the glass and the surface, grows and thins
-  with age, and is gone after 8.5 seconds.
+  turned back and held in by the glass, the floor and the surface, grows and thins with
+  age, and is gone after 8.5 seconds. Where specks lie over one another, the one poured
+  later is drawn over the earlier.
 - **The current** is worked out, not simulated: sums of sines in which no part depends on
   its own direction, so the water neither gathers nor thins the ink. It dies away toward
-  the glass and the floor, so ink is not pressed into the corners.
+  the glass, the floor and the surface, and those turn ink back, harder the stronger the
+  current, so that ink does not gather on them or in the tank's upright edges. The ink
+  reads the current from tables made once a step, which is the same current to a
+  ten-thousandth for a thirtieth of the work.
+- **No more is poured than the water holds.** A speck is given to the oldest place in a
+  ring. When the bands together would pour more than the specks in use can hold for their
+  whole lives (loud music does), each band pours its share of what they can, so no speck
+  is poured over while it is still in the water.
 - **Steps.** The ink is moved in steps no longer than a sixtieth of a second, so thirty and
   sixty frames a second give the same tank.
 - **Repeatable.** Where a speck is poured within its stream, its size and its shade come
   from a seeded sequence, never from `Math.random`.
-- **Frame.** 5.0 wide by 3.7 tall about the origin, field of view 30, pitch 14. The tank is
-  3.3 across, 2.7 tall and 1.5 deep. Nothing can leave the picture: the ink is held inside
-  the tank.
+- **Frame.** 5.0 wide by 4.2 tall, centred a quarter of a unit below the tank's middle,
+  field of view 30, pitch 14. The tank is 3.3 across, 2.7 tall and 1.5 deep. Nothing can
+  leave the picture: the ink is held inside the tank. The frame is taller than the tank
+  needs so that the ink stands clear of the bands along the picture's edges where the kit
+  dims whatever is not solid (changed after the review; the tank is about a ninth smaller
+  in the picture than in the spike).
+- **Order.** The glass's far faces are drawn before the ink, which covers them, and its near
+  faces and the water's surface after it, so that their light lies over the ink.
 - **Settings.** `swirl` stays (0 to 100, default 50): how strong the currents are; at 0
-  the ink sinks straight. New: `density` (0 to 100, default 50), 6,000 to 30,000 specks at
+  there are none (a beat still twists the tank). New: `density` (0 to 100, default 50), 6,000 to 30,000 specks at
   once (the fewer, the larger and thicker each is, so the tank looks much the same),
   `glass` (0 to 100, default 50) and `cameraDrift`. The effect's name and id are unchanged.
 - **Glass.** Asked for by the owner while this was being built: "can you add an option to
@@ -62,6 +75,17 @@ game backdrop) and said "Build it". Every choice below is the builder's.
   to the space the tank takes); 50 is as designed; 100 is twice as bright.
 - **Colour.** A speck keeps the palette colour its band had when it was poured, so ink
   already in the water does not change colour as the palette turns.
+
+## Known limits
+
+- The kit's last pass, which every scene shares, treats a see-through pixel as partly
+  light. So thin ink is drawn brighter than a true pigment would be, and over a bright
+  backdrop it lightens what is behind it a little where a pigment would only cover it.
+  Thick ink covers. This was left as it is: changing the kit would change every scene.
+- Moving the Density slider while ink is in the water makes it jump: the specks no longer
+  in use go at once, whatever their age, and every speck changes size.
+- With the Scene Size slider well above 100 the lower part of the tank does reach the band
+  the kit dims.
 
 ## Not in this change
 
