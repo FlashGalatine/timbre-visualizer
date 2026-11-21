@@ -20,6 +20,12 @@ traceability.
 - **Scene kit**: `TimbreScene.createHistory(size, hz)` is a memory of a level for things
   that travel, read by sample (`byAge`) or by age in seconds (`heard`). A scene's camera is
   now in place before its first `update`. See `docs/EFFECTS.md` ("Kit scenes").
+- **Ink settings**: `density` (0 to 100, default 50; 6,000 to 30,000 specks of ink at once),
+  `glass` (0 to 100, default 50: how bright the tank's glass and the water's surface are
+  drawn; at 0 they are not drawn at all and the ink floats free) and `cameraDrift` (0 to
+  100, default 50) for the Ink effect. What the new Ink is made of is in `overlay/ink.js`
+  (`TimbreInk`), loaded by all three overlay pages and by `verify` under Node, and
+  documented in `docs/EFFECTS.md` ("The ink").
 - **Glass Prism pulses on the beat and shatters on a hard peak.** A beat swells the
   crystal by about a fifth and it springs back, a little smaller for a moment, before it
   is still. A hard peak (a thump on the mic, a yell) breaks it into its twenty facets,
@@ -172,6 +178,20 @@ traceability.
   `test-render-640.png`.
 
 ### Changed
+
+- **Ink is now coloured ink poured into a tank of water**, a scene on the scene kit. The
+  fluid on a coarse grid, drawn in blocks, is gone. A glass tank of clear water floats in
+  the box. Each of the eight lowest bands of the sound has its own place along the top of
+  the water and its own palette colour: while it sounds, ink pours in there, the more and
+  the faster the louder it is. The ink sinks as a plume, the currents in the water stretch
+  it into ribbons, and it thins away over some seconds, so a pause lets the water clear, a
+  voice is a few plumes, and music colours the whole tank. The louder the sound, the
+  stronger the currents; a beat twists the whole tank, one way and then the other, and
+  rings the surface. The ink is pigment, not light, so it shows over a bright backdrop as
+  well as a dark one. With the mic off and Idle animation on, bands take turns to pour a
+  little; with both off nothing pours and the water clears. `swirl` is how strong the
+  currents are (still water at 0). It uses the shared Scene placement sliders, and no
+  longer makes a renderer of its own.
 
 - **Glass Prism is now a cut crystal turning in the light**, a scene on the scene kit. The
   shaded glass body with its built-in colour map is gone. A twenty-sided crystal floats in

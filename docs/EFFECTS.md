@@ -846,6 +846,61 @@ Worth knowing before drawing another surface in a shader:
   fourth pixel (and every pixel of the soft edge) and asks `field()` whether the metal is
   there. That is what holds the GLSL to the JavaScript.
 
+## The ink (`TimbreInk`)
+
+`overlay/ink.js` is the Ink effect, as `globalThis.TimbreInk`: coloured ink poured into a
+glass tank of water, as thousands of small soft specks. `factories/ink.js` is one line,
+`VIZ_FACTORIES['ink'] = TimbreScene.factory(() => TimbreInk.definition())`. It offers:
+
+- **The sound.** `loudness(bins, band, gain)` reads one of the eight lowest bins,
+  `idle(b, t)` is what a band pretends to hear with the mic off, and `settle(v)` makes
+  nothing of a level within a ten-thousandth of nothing.
+- **Pouring.** `placeOf(out, b, clock)` is where band `b` pours, `pourRate(level, share)`
+  how many specks a second, `speckCount(density)` how many specks there are and
+  `shareOf(count)` their share of the most.
+- **The water.** `strengthOf(flame, swirl)` is how strong the currents are and
+  `current(out, x, y, z, t, strength)` the current at a place and time.
+  `nearGlass(out, x, y, z)` is how much of it is left near the glass, the floor and the
+  surface, and `fromGlass(out, x, y, z)` how fast those turn ink back. `twistOf(whirl, n)`
+  is a beat's twist and `whirlAfter(whirl, dt)` how it dies away.
+- **The ink.** `createInk(n, seed)` makes room for the specks, `pour(ink, count, b, level,
+  clock, colour)` pours one, and `stepInk(ink, count, h, clock, strength, whirl)` moves
+  them all a step; `stepsFor(dt)` is how many steps a frame takes. `lookOf(out, age, size,
+  share)` is a speck's size and how much it covers, `litOf(y)` how lit it is, and
+  `measure(ink, count)` says where the ink is, for the checks.
+- **The tank.** `glassOf(glass, flame, kick)` and `surfaceOf(glass, flame, kick)` are how
+  bright the glass and the water's surface are drawn, and `pxOf(height, zoom)` how many
+  pixels a unit is, one unit from the camera.
+- **The scene.** `GLASS_VERT`, `GLASS_FRAG` and `SURFACE_FRAG` draw the glass and the
+  surface in added light; `INK_VERT` and `INK_FRAG` draw a speck as a soft disc that
+  covers what is behind it. `definition()` returns the kit scene definition.
+
+All its timing comes from `dt`. The arithmetic touches nothing at load, and the file must
+stay loadable under Node, because `npm run verify` imports it; the scene looks up `THREE`,
+`TimbreScene` and the core.js globals only when it is built. It must be loaded after
+`scene-kit.js` and before the factories.
+
+Worth knowing before drawing another thing that is not light:
+
+- The kit draws light by adding it, and a scene's solid things by covering. Pigment is a
+  third kind: a material that is `transparent` with three.js's usual blending and no depth
+  writing covers what is behind it by its alpha, and the kit's picture carries that alpha
+  out to the page, so it shows over a bright backdrop. It needs nothing from the kit.
+- A current that is worked out and not simulated can still be one that neither gathers nor
+  thins what it carries: make each of its three parts independent of its own direction.
+  But a wall breaks that. If the current only dies away at the glass, whatever reaches
+  the glass stays on it and gathers where the currents along it meet (the first build
+  had a tenth of its ink in a heap on the floor). The glass, the floor and the surface
+  each turn ink back a little (`fromGlass`).
+- A thing with an age must be nothing at the end of its life and after it, not a number
+  that is not one. A speck a frame older than its life had `pow(negative, 1.5)` for its
+  cover in the spike, and the GPU drew square holes in the ink with it.
+- Soft specks read as dots unless each is thickest in its middle, thins smoothly to
+  nothing at its rim, and is wide enough to lie over its neighbours.
+- A point's size is in pixels of the picture the kit draws into, which on a small page is
+  several times the page, and the Scene Size slider is the camera's zoom: `pxOf` takes
+  both.
+
 ## Wire format (for driving Timbre from elsewhere)
 
 Anything that can call a Streamer.bot action can drive Timbre:
