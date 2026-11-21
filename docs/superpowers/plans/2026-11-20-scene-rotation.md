@@ -120,3 +120,10 @@ cut out and run alone.
   once, when its map is made); the camera's own swing deciding which side of the deck it
   sees from the end; and, for the deck and for the plate, a change of Camera drift alone
   being fitted afresh. Each new check was confirmed by running its break again.
+
+## Rebased onto Glass Prism and Metaball
+
+Both landed on `main` first, so this branch was rebased onto them. Two places needed both
+sides kept: the table of settings' limits and the changelog. No check was lost: the suites'
+own counts add up (the render suite 602 call sites, the Node suite 700), and both pass (719
+and 669).
