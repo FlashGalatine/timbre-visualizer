@@ -136,3 +136,11 @@ Each break is one changed line, run against the Metaball's own checks (its secti
   from the picture), the camera's pitch, and the smooth union replaced by a plain one in
   the shader. Those are what the picture-against-arithmetic check and the others in "What
   the review found" are for, and all six are caught now.
+
+## Rebased onto Glass Prism
+
+Glass Prism landed on `main` first, so this branch was rebased onto it. Both had added a
+section to each suite, a script to each page, a line to the tables and a section to each
+document at the same places; each now has both, Glass Prism's first. No check was lost: the
+suites' own counts add up (the render suite 587 call sites, the Node suite 682), and both
+pass (701 and 654).
