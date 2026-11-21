@@ -293,7 +293,7 @@
   // Its back is the same mirror: with the camera swayed to one side, a shard that is wide
   // open on the other side has tipped past edge-on, and must still read as glass. Its cut
   // sides glow in the colour of the light behind the pane (the fourth of the six), brighter
-  // the further open the shard is and on a beat.
+  // the further open the shard is.
   const MIRROR_VERT = `
     attribute float kind, open;
     varying vec3 vN, vW;
@@ -322,7 +322,7 @@
       vec3 n = normalize(vN), v = normalize(cameraPosition - vW);
       vec3 col;
       if (vKind > 0.5) {
-        col = uPal[3] * (0.20 + 1.3 * vOpen + 0.5 * uKick);
+        col = uPal[3] * (0.20 + 1.3 * vOpen);
       } else {
         vec3 r = reflect(-v, n);
         vec3 sky = pal(uShift + 0.20 * r.x + 0.28 * r.y);
@@ -336,7 +336,8 @@
       gl_FragColor = vec4(col, 1.0);
     }`;
   // The light behind the pane, in light only: brightest behind the point of impact and
-  // falling away from it. uSize: how wide it is, in units; the sheet is uPlane across.
+  // falling away from it, to less than a hundredth at half its width. uSize: how wide it
+  // is, in units; the sheet it is drawn on is uPlane across, which is wider.
   const GLOW_VERT = `
     varying vec2 vUv;
     void main() {
@@ -350,8 +351,7 @@
     uniform float uBright, uSize, uPlane;
     void main() {
       float r = length(vUv - 0.5) * 2.0 * uPlane / uSize;
-      float light = exp(-4.8 * r) * (1.0 - smoothstep(0.8, 1.0, r));
-      gl_FragColor = vec4(uColor * light * uBright, 1.0);
+      gl_FragColor = vec4(uColor * exp(-4.8 * r) * uBright, 1.0);
     }`;
 
   // ── The scene ───────────────────────────────────────────────────────────────
@@ -486,6 +486,7 @@
           glowAt: glow.position.toArray(), glowDrawn: [gm.uniforms.uBright.value, gm.uniforms.uSize.value, gm.uniforms.uPlane.value], turn: [group.rotation.x, group.rotation.y, group.rotation.z],
           solid: mat.transparent === false && mat.depthTest === true && mat.depthWrite === true && mat.side === THREE.FrontSide,
           light: gm.blending === THREE.CustomBlending && gm.blendDst === THREE.OneFactor && gm.depthTest === true && gm.depthWrite === false,
+          neverCulled: mesh.frustumCulled === false && glow.frustumCulled === false,   // the shards move far from where they were when three.js measured them
           uploads: [geo.attributes.position.version, geo.attributes.normal.version, geo.attributes.open.version, geo.attributes.kind.version, geo.index.version],
           first: Array.from(pos.subarray(0, 9)), lastIndex: index[pane.indices - 1],
           // For a check that looks at one shard's pixels: how the pane stands in the scene, and how the camera saw the last frame.

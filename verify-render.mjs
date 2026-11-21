@@ -3284,6 +3284,8 @@ async function main() {
     const SIDES_SEEN = 150, SIDE_BRIGHT = 450;
     // How far apart the openings may be at 30 and at 60 frames a second, after the same sound. Measured, and set a few times over.
     const FPS_OPEN = 0.03;
+    // How many times more of the wide-open pane is all but white on a beat than a second after it. Measured, and set halfway to 1.
+    const BEAT_FLASH = 1.5;
     // The share of the shards' pixels that may be dark with the pane wide open and the camera swung furthest to the right, which is when the shards on the
     // left have tipped past edge-on. Measured with a shard's back drawn as a mirror (as it is: none) and drawn dark (as it was at first: 1.5%), and set between.
     const DARK_MOST = 0.004;
@@ -3294,7 +3296,7 @@ async function main() {
     const [shHush] = await shardRun([{ level: 0, secs: 2, grid: true }], still);
     const [shOpen] = await shardRun([{ level: 0.8, all: 0.8, secs: 2, grid: true, probe: true }], still), [shWide] = await shardRun([{ level: 0.8, all: 0.8, secs: 2, probe: true }], { ...still, knobs: { cameraDrift: 0, bloom: 100 } });
     check('shards is a kit scene: solid shards in front of a light, with a transparent corner and nothing at the edge',
-      !!shState && shState.active === true && shState.targetSize[0] === 1728 && shLoud.solid > 0.8 * PANE_SOLID && shLoud.state.solid === true && shLoud.state.light === true && shLoud.cornerAlpha === 0 && shLoud.edge === 0
+      !!shState && shState.active === true && shState.targetSize[0] === 1728 && shLoud.solid > 0.8 * PANE_SOLID && shLoud.state.solid === true && shLoud.state.light === true && shLoud.state.neverCulled === true && shLoud.cornerAlpha === 0 && shLoud.edge === 0
         && shLoud.state.count === 280 && shLoud.state.verts === 5808 && shLoud.state.indices === 8256 && shLoud.state.drawn === 8256 && shLoud.state.spokes === 22 && shLoud.state.rings === 8 && shLoud.state.breaks === 1
         && gap(shLoud.state.turn, [-0.05, -0.26, 0.03]) < 1e-12 && gap(shLoud.state.glowAt, [-0.38, 0.14, -0.55]) < 1e-12 && shLoud.state.glowDrawn[0] === shLoud.state.glow && shLoud.state.glowDrawn[1] === shLoud.state.glowSize && shLoud.state.glowDrawn[2] === 6.4
         && shLoud.state.lit[0] === shLoud.state.flame && shLoud.state.lit[1] === shLoud.state.kick && shLoud.state.lit[2] === shLoud.state.shift && shLoud.state.open > 0.6 && shLoud.part < 0.2 * shLoud.solid,
@@ -3321,7 +3323,8 @@ async function main() {
     // The ripple.
     const [early, later, passed] = await shardRun([{ level: 0.9, secs: 0.12 }, { level: 0, secs: 0.3 }, { level: 0, secs: 1.2 }], still);
     check('shards: a syllable opens the pane at the point of impact first, and travels outward to the far corners', early.model.inner > 0.3 && early.model.mid < 0.03 && early.model.outer === 0 && later.model.mid > 0.2 && later.model.outer === 0 && later.model.inner < early.model.inner
-      && passed.model.outer > 2 * passed.model.inner && passed.model.outer > 0.01 && remade(early) && remade(later) && remade(passed),
+      && passed.model.outer > 2 * passed.model.inner && passed.model.outer > 0.01 && remade(early) && remade(later) && remade(passed)
+      && [early, later, passed].every((r) => Math.abs(r.state.most - Math.max(...r.state.opens)) < 1e-9) && passed.state.most > passed.state.opens[0] + 0.01,
       JSON.stringify({ early: [early.model.inner, early.model.mid, early.model.outer], later: [later.model.inner, later.model.mid, later.model.outer], passed: [passed.model.inner, passed.model.mid, passed.model.outer] }));
 
     // A band and its sectors.
@@ -3342,8 +3345,13 @@ async function main() {
     const beatSteps = [{ level: 0.05, secs: 1 }, { level: 0.9, secs: 0.1 }, { level: 0.05, secs: 0.32 }];
     const [calm, hit, ringing] = await shardRun(beatSteps, still);
     check('shards: a beat sends a ring outward ahead of the voice, and the light behind the pane flares', calm.beats === 0 && hit.beats === 1 && hit.state.beats === 1 && hit.state.kick > 0.5 && Math.abs(hit.state.glow - (0.05 + 0.26 * hit.state.flame + 0.3 * hit.state.kick)) < 1e-9
-      && Math.abs(hit.state.glowSize - (3.8 + hit.state.flame + 0.8 * hit.state.kick)) < 1e-9 && hit.state.glow > calm.state.glow + 0.25 && hit.lightSum > 2 * calm.lightSum && hit.state.most > calm.state.most + 0.5 && ringing.model.outer > calm.model.outer + 0.3
+      && Math.abs(hit.state.glowSize - (3.8 + hit.state.flame + 0.8 * hit.state.kick)) < 1e-9 && hit.state.glow > calm.state.glow + 0.25 && hit.state.lit[1] === hit.state.kick && hit.state.lit[0] === hit.state.flame && hit.lightSum > 2 * calm.lightSum && hit.state.most > calm.state.most + 0.5 && ringing.model.outer > calm.model.outer + 0.3
       && remade(hit) && remade(ringing), JSON.stringify({ beats: [calm.beats, hit.beats], kick: hit.state.kick, glow: [calm.state.glow, hit.state.glow], light: [calm.lightSum, hit.lightSum], most: [calm.state.most, hit.state.most], outer: [calm.model.outer, ringing.model.outer], mid: ringing.model.mid }));
+    // The pane held as wide open as it goes (so that nothing moves), a beat, and a second later: on the beat the shards that catch a lamp flash harder.
+    const [, onBeat, afterBeat] = await shardRun([{ level: 0.5, all: 1, secs: 2 }, { level: 0.95, all: 1, secs: 0.1 }, { level: 0.95, all: 1, secs: 1 }], { ...still, knobs: { cameraDrift: 0, bloom: 100 } });
+    check('shards: on a beat the shards that catch a lamp flash harder', onBeat.beats === 1 && onBeat.state.kick > 0.5 && afterBeat.state.kick < 0.02 && afterBeat.state.flame >= onBeat.state.flame && gap(onBeat.state.opens, afterBeat.state.opens) < 1e-6
+      && onBeat.state.opens.every((v) => Math.abs(v - 1.7) < 1e-6) && onBeat.white > BEAT_FLASH * afterBeat.white && afterBeat.white > 500,
+      JSON.stringify({ kick: [onBeat.state.kick, afterBeat.state.kick], flame: [onBeat.state.flame, afterBeat.state.flame], white: [onBeat.white, afterBeat.white] }));
 
     // Bloom.
     const bloomAt = (bloom) => shardRun([{ level: 0.8, all: 0.8, secs: 3 }], { ...still, knobs: { cameraDrift: 0, bloom } }).then((r) => r[0]);
@@ -3374,6 +3382,9 @@ async function main() {
     const [, nudged, stepped] = await shardRun([{ level: 0.6, all: 0.6, secs: 1 }, { level: 0.6, all: 0.6, secs: 0.05, knobs: { density: 51 } }, { level: 0.6, all: 0.6, secs: 0.05, knobs: { density: 55 } }], still);
     check('shards: a Density that asks for the same cracks leaves the pane as it is, and the next that does not breaks it', nudged.state.breaks === 1 && nudged.state.count === 280 && nudged.state.spokes === 22 && stepped.state.breaks === 2 && stepped.state.spokes === 23 && stepped.state.rings === 8
       && stepped.state.count !== 280 && remade(nudged) && remade(stepped), JSON.stringify({ breaks: [nudged.state.breaks, stepped.state.breaks], count: [nudged.state.count, stepped.state.count], spokes: [nudged.state.spokes, stepped.state.spokes] }));
+    const [ringsA, ringsB] = await shardRun([{ level: 0.6, all: 0.6, secs: 0.5 }, { level: 0.6, all: 0.6, secs: 0.05, knobs: { density: 42 } }], { ...still, knobs: { cameraDrift: 0, density: 40 } });
+    check('shards: a Density that asks for another ring of cracks and no more cracks outward breaks the pane too', ringsA.state.spokes === 20 && ringsA.state.rings === 7 && ringsB.state.spokes === 20 && ringsB.state.rings === 8 && ringsB.state.breaks === ringsA.state.breaks + 1
+      && ringsB.state.count > ringsA.state.count && remade(ringsB), JSON.stringify({ spokes: [ringsA.state.spokes, ringsB.state.spokes], rings: [ringsA.state.rings, ringsB.state.rings], breaks: [ringsA.state.breaks, ringsB.state.breaks] }));
 
     // Colours.
     const [hue0, hue2] = await shardRun([{ level: 0.5, all: 0.5, secs: 1 }, { level: 0.5, all: 0.5, secs: 0.5, hue: 2 }], still);
@@ -3404,10 +3415,10 @@ async function main() {
     const [off1, off2] = await shardRun([{ level: null, off: true, secs: 3 }, { level: null, off: true, secs: 1 }], still);
     check('shards: with the mic and Idle animation off the pane is shut and the picture holds still', off2.state.live === false && off2.state.clock === 0 && off2.state.open === 0 && off2.state.most === 0 && off2.state.shift === 0 && same(off2) && Math.abs(off2.solid - shHush.solid) < 0.01 * shHush.solid,
       JSON.stringify({ open: off2.state.open, differs: off2.diff, clock: off2.state.clock, solid: off2.solid }));
-    const [live1, muted1, muted2, muted3] = await shardRun([{ level: 0.9, all: 0.8, secs: 1.5 }, { level: null, off: true, secs: 0.3 }, { level: null, off: true, secs: 8 }, { level: null, off: true, secs: 1 }], still);
-    check('shards: muted while it is open, the pane closes, and then nothing moves', live1.state.open > 0.6 && muted1.state.live === false && muted1.state.clock === live1.state.clock && muted1.state.open > 0.2 && muted1.state.open < live1.state.open && muted2.state.open === 0 && muted2.state.most === 0
+    const [, live1, muted1, muted2, muted3] = await shardRun([{ level: 0.05, all: 0.8, secs: 0.5 }, { level: 0.9, all: 0.8, secs: 1 }, { level: null, off: true, secs: 0.3 }, { level: null, off: true, secs: 8 }, { level: null, off: true, secs: 1 }], still);
+    check('shards: muted while it is open and a beat is dying away, the pane closes, and then nothing moves', live1.state.open > 0.6 && live1.state.beats >= 1 && muted1.state.kick > 0 && muted1.state.live === false && muted1.state.clock === live1.state.clock && muted1.state.open > 0.2 && muted1.state.open < live1.state.open && muted2.state.open === 0 && muted2.state.most === 0
       && muted2.state.flame === 0 && muted2.state.kick === 0 && muted2.state.bands.every((b) => b === 0) && muted2.state.opens.every((v) => v === 0) && same(muted3) && muted1.diff.n > 1000 && muted2.state.shift === live1.state.shift && Math.abs(muted2.state.glow - 0.05) < 1e-12,
-      JSON.stringify({ open: [live1.state.open, muted1.state.open, muted2.state.open], flame: muted2.state.flame, differs: muted3.diff }));
+      JSON.stringify({ open: [live1.state.open, muted1.state.open, muted2.state.open], flame: muted2.state.flame, kick: [live1.state.kick, muted1.state.kick, muted2.state.kick], beats: [live1.beats, live1.state.beats], differs: muted3.diff }));
 
     // What is sent to be drawn, placement, and cost.
     const [up1, up2] = await shardRun([{ level: 0.5, all: 0.5, secs: 0.5 }, { level: 0.5, all: 0.5, secs: 0.5 }], still);
