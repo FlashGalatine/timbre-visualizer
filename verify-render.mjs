@@ -2804,6 +2804,7 @@ async function main() {
     // the scene after each step. A step gives level (null: whatever the kit hears), secs, and
     // either all (every bin, 0..1) or bins ([[bin, 0..1], ...]); idle: true has the mic off,
     // off: true has the mic and Idle animation off; hue sets the palette's hue from that step on.
+    // mark: true notes which pixels are bright, and every later step counts the bright pixels that were not (fresh).
     // keep: true keeps the step's picture, and versus: true counts the pixels of another step's where the ink is thick in both and this one is brighter.
     const INK = 'ink';
     const inkRun = (steps, { fps = 60, knobs = null, hue = null, colorSpeed = null, gain = null } = {}) => wide.evaluate(({ id, steps, fps, knobs, hue, colorSpeed, gain }) => {
@@ -2817,7 +2818,7 @@ async function main() {
         TimbreScene.testLevel = 0;
         setActiveViz('visualizer'); setActiveViz(id);
         const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), f = new Uint8Array(32), out = [];
-        let now = 100000 + 1000 / 120, last = null;
+        let now = 100000 + 1000 / 120, last = null, marked = null;
         for (const st of steps) {
           TimbreScene.testLevel = st.level;
           micActive = !st.idle && !st.off;
@@ -2857,10 +2858,14 @@ async function main() {
           if (last) for (let i = 0; i < px.length; i++) { const d = Math.abs(px[i] - last[i]); if (d) { diff.n++; if (d > diff.max) diff.max = d; } }
           last = px;
           if (st.keep) window.__inkKept = px;
+          let fresh = -1;
+          const isBright = (i) => px[i + 3] < 5 && px[i] + px[i + 1] + px[i + 2] > 250;
+          if (marked && marked.length === px.length / 4) { fresh = 0; for (let i = 0; i < px.length; i += 4) if (isBright(i) && !marked[i / 4]) fresh++; }
+          if (st.mark) { marked = new Uint8Array(px.length / 4); for (let i = 0; i < px.length; i += 4) if (isBright(i)) marked[i / 4] = 1; }
           let over = -1;
           if (st.versus && window.__inkKept && window.__inkKept.length === px.length) { over = 0; const kept = window.__inkKept; for (let i = 0; i < px.length; i += 4) if (px[i + 3] >= 100 && kept[i + 3] >= 100 && px[i] + px[i + 1] + px[i + 2] > kept[i] + kept[i + 1] + kept[i + 2] + 25) over++; }
           const s = window.__timbre.scene, state = (s && s.state) || {};
-          out.push({ state, inked, cover, light, lightSum, edge, beats, bright, over, upper: thirds[0][1] ? thirds[0][0] / thirds[0][1] : 0, lower: thirds[1][1] ? thirds[1][0] / thirds[1][1] : 0, color: inked ? color.map((v) => v / inked) : [0, 0, 0], centroidX: cover ? sx / (cover * 255) : 0, box: size(box), lightBox: size(lightBox), cornerAlpha: px[3], canvas: [w, h], hash, diff,
+          out.push({ state, inked, cover, light, lightSum, edge, beats, bright, over, fresh, upper: thirds[0][1] ? thirds[0][0] / thirds[0][1] : 0, lower: thirds[1][1] ? thirds[1][0] / thirds[1][1] : 0, color: inked ? color.map((v) => v / inked) : [0, 0, 0], centroidX: cover ? sx / (cover * 255) : 0, box: size(box), lightBox: size(lightBox), cornerAlpha: px[3], canvas: [w, h], hash, diff,
             kitCam: s ? s.camera : null, expect: state.bands ? state.bands.map((_, b) => getColor(state.colorT + b * 0.42)) : null });
         }
         return out;
@@ -2886,8 +2891,11 @@ async function main() {
     const OVER_INK = 50;
     // How bright ink is for what it covers, at least (the sum of its three colours for a cover of one, of 765): measured, and seven tenths of it.
     const INK_BRIGHT = 1.8;
-    // How many more pixels are bright half a second after a beat than two seconds after it: the ring, spreading. Measured, and half of it.
-    const RING_LIGHT = 1000;
+    // How many pixels are bright half a second after a beat that were not bright at the beat: the ring, spreading. Measured, and half of it. (Without the ring there are none: the glass is brightest at the beat.)
+    const RING_LIGHT = 150;
+    // How much the ink covers with every band full and the tank full: measured, and eight tenths of it. And the empty tank's light on the small page, at half size: 256,790 as it is,
+    // 246,344 with only the surface's edge sized for the kit's larger picture (which comes out in dashes), and less with the glass's edges so.
+    const FLOOD_COVER = 69000, SMALL_TANK = 252000;
     // How like its palette colour a band's ink must be in the picture (1 is the same hue). Measured.
     const INK_HUE = 0.93;
     // How far apart the ink may lie at 30 and at 60 frames a second, after the same sound. Measured, and set a few times over.
@@ -2959,6 +2967,28 @@ async function main() {
     check('ink: left alone it thins away, and after eight and a half seconds the water is clear', thinning.state.left === sunk.state.left && thinning.cover < 0.8 * sunk.cover && thinning.cover > 0 && cleared.state.left === 0 && cleared.inked === 0 && cleared.state.poured === sunk.state.poured,
       JSON.stringify({ left: [sunk.state.left, thinning.state.left, cleared.state.left], cover: [sunk.cover, thinning.cover, cleared.cover] }));
 
+    // Three seconds of two bands, made again here step for step from the arithmetic, as the scene should have made it: the same ink in the same places, drawn in the same colours.
+    const [made] = await inkRun([{ level: 0.3, bins: [[2, 0.9], [5, 0.6]], secs: 3 }], still);
+    const again = await wide.evaluate(({ frames, bytes, colorT, count }) => {
+      const K = TimbreInk, follow = TimbreScene.follow, ink = K.createInk(K.SPECKS_MAX, K.SEED), share = K.shareOf(count), bands = new Float32Array(8), owed = new Float32Array(8), rate = new Float32Array(8), c = new THREE.Color(), k = K.lookFor([0, 0], share), look = [0, 0];
+      let flame = 0, clock = 0, tint = [0, 0, 0];
+      for (let f = 0; f < frames; f++) { const dt = 1 / 60;
+        flame = follow(flame, 0.3, 0.3 > flame ? 30 : 3, dt);
+        for (let b = 0; b < 8; b++) { const v = Math.min(1, bytes[b] / 255); bands[b] = follow(bands[b], v, v > bands[b] ? K.RISE : K.FALL, dt); if (v === 0) bands[b] = K.settle(bands[b]); }
+        let total = 0; for (let b = 0; b < 8; b++) { rate[b] = K.pourRate(bands[b], share); total += rate[b]; }
+        const part = K.pourShare(total, count);
+        clock += dt;
+        for (let b = 0; b < 8; b++) { owed[b] += rate[b] * part * dt; if (owed[b] >= 1) { const p = getColor(colorT + b * 0.42); c.setRGB(p[0] / 255, p[1] / 255, p[2] / 255, THREE.SRGBColorSpace); tint = [c.r, c.g, c.b]; }
+          while (owed[b] >= 1) { owed[b] -= 1; K.pour(ink, count, b, bands[b], clock, tint); } }
+        K.stepInk(ink, count, dt, clock, K.strengthOf(K.settle(flame), 50), 0); }
+      const m = K.measure(ink, count); let colSum = 0;
+      for (let i = 0; i < count; i++) { K.lookOf(look, ink.age[i], ink.size[i], k); if (look[1] === 0) continue; const lit = Math.fround(K.litOf(ink.pos[i * 3 + 1])); colSum += Math.fround(ink.tint[i * 3] * lit) + Math.fround(ink.tint[i * 3 + 1] * lit) + Math.fround(ink.tint[i * 3 + 2] * lit); }
+      return { sum: m.sum, alive: m.alive, poured: ink.poured, colSum };
+    }, { frames: 180, bytes: [0, 0, Math.round(0.9 * 255), 0, 0, Math.round(0.6 * 255), 0, 0], colorT: made.state.colorT, count: 18000 });
+    check('ink: the scene makes the ink the arithmetic makes, step for step: the same specks in the same places, drawn in the same colours', made.state.beats === 0 && made.state.poured === again.poured && made.state.left === again.alive && again.alive > 1000
+      && gap(made.state.sum, again.sum) < 0.02 && Math.abs(made.state.colSum - again.colSum) < 1e-3 * again.colSum && Math.abs(made.state.sum[1]) > 100,
+      JSON.stringify({ poured: [made.state.poured, again.poured], left: [made.state.left, again.alive], sum: [made.state.sum, again.sum], colSum: [made.state.colSum, again.colSum] }));
+
     // The currents.
     const flow = (swirl, level) => inkRun([{ level, bins: [[3, 1]], secs: 3 }], { ...still, knobs: { cameraDrift: 0, swirl } }).then((r) => r[0]);
     const calmWater = await flow(0, 0.3), usual = await flow(50, 0.3), wild = await flow(100, 0.3), loudWater = await flow(50, 0.9);
@@ -2969,13 +2999,13 @@ async function main() {
       JSON.stringify({ strength: [calmWater.state.strength, usual.state.strength, wild.state.strength, loudWater.state.strength], wide: [wide3(calmWater), wide3(usual), wide3(wild), wide3(loudWater)], boxW: [calmWater.box.w, usual.box.w, wild.box.w] }));
 
     // A beat.
-    const beatSteps = [{ level: 0.05, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, secs: 0.1 }, { level: 0.05, all: 0.5, secs: 0.4 }, { level: 0.05, all: 0.5, secs: 1.5 }, { level: 0.9, all: 0.5, secs: 0.1 }];
+    const beatSteps = [{ level: 0.05, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, secs: 0.1, mark: true }, { level: 0.05, all: 0.5, secs: 0.4 }, { level: 0.05, all: 0.5, secs: 1.5 }, { level: 0.9, all: 0.5, secs: 0.1 }];
     const [calm, hit, after, later, second] = await inkRun(beatSteps, still), [, hitDark] = await inkRun(beatSteps.slice(0, 2), { ...still, knobs: { cameraDrift: 0, glass: 0 } });
     check('ink: a beat twists the tank and rings the surface; the twist dies away, and the next beat twists it the other way', calm.state.beats === 0 && calm.state.whirl === 0 && hit.beats === 1 && Math.abs(hit.state.whirl - 1.6 * Math.exp(-0.16)) < 1e-6 && Math.abs(after.state.whirl - 1.6 * Math.exp(-0.8)) < 1e-6
       && Math.abs(later.state.whirl - 1.6 * Math.exp(-3.2)) < 1e-6 && second.beats === 1 && second.state.beats === 2 && Math.abs(second.state.whirl - (1.6 * Math.exp(-3.2) - 1.6) * Math.exp(-0.16)) < 1e-6 && hit.state.rings[0][3] === 1 && Math.abs(hit.state.rings[0][2] - 0.1) < 1e-6 && hit.state.rings[0][0] > 0.1 && hit.state.rings[0][0] < 0.9 && hit.state.rings[1][3] === 0
       && second.state.rings[1][3] === 1 && Math.abs(hit.state.surface - (0.5 + 0.3 * hit.state.flame + 0.5 * hit.state.kick)) < 1e-9 && Math.abs(hit.state.glass - (0.5 + 0.25 * hit.state.flame + 0.35 * hit.state.kick)) < 1e-9 && hit.state.kick > 0.5
-      && hit.lightSum > 1.3 * calm.lightSum && hit.edge === 0 && after.bright > later.bright + RING_LIGHT && Math.abs(later.lightSum - calm.lightSum) < 0.03 * calm.lightSum && Math.abs(later.bright - calm.bright) < 0.05 * calm.bright + 20,
-      JSON.stringify({ beats: [calm.state.beats, hit.beats, second.state.beats], whirl: [hit.state.whirl, after.state.whirl, later.state.whirl, second.state.whirl], rings: hit.state.rings, surface: hit.state.surface, lightSum: [calm.lightSum, hit.lightSum, later.lightSum], bright: [calm.bright, hit.bright, after.bright, later.bright] }));
+      && hit.lightSum > 1.3 * calm.lightSum && hit.edge === 0 && after.fresh > RING_LIGHT && later.fresh < 0.3 * after.fresh && after.state.flame > 0.15 && after.state.flame < 0.5 && Math.abs(later.lightSum - calm.lightSum) < 0.03 * calm.lightSum && Math.abs(later.bright - calm.bright) < 0.05 * calm.bright + 20,
+      JSON.stringify({ beats: [calm.state.beats, hit.beats, second.state.beats], whirl: [hit.state.whirl, after.state.whirl, later.state.whirl, second.state.whirl], rings: hit.state.rings, surface: hit.state.surface, lightSum: [calm.lightSum, hit.lightSum, later.lightSum], bright: [calm.bright, hit.bright, after.bright, later.bright], fresh: [after.fresh, later.fresh], flame: after.state.flame }));
     const fiveBeats = [{ level: 0.05, all: 0.5, secs: 1 }]; for (let n = 0; n < 5; n++) fiveBeats.push({ level: 0.9, all: 0.5, secs: 0.1 }, { level: 0.05, all: 0.5, secs: 0.5 });
     const fifth = (await inkRun(fiveBeats.slice(0, 10), still))[9], fourth = (await inkRun(fiveBeats.slice(0, 8), still))[7];
     check('ink: there are four rings, used in turn', fourth.state.beats === 4 && fourth.state.rings.every((r) => r[3] === 1) && Math.abs(fourth.state.rings[3][2] - 0.1) < 1e-6 && fourth.state.rings[0][2] > fourth.state.rings[1][2] && fourth.state.rings[1][2] > fourth.state.rings[2][2]
@@ -3018,8 +3048,8 @@ async function main() {
     // Every band full for twelve seconds: no more is poured than the specks can hold for their whole lives, so none is poured over while it is still in the water.
     const [flood1, flood2] = await inkRun([{ level: 0.9, all: 1, secs: 10 }, { level: 0.9, all: 1, secs: 2 }], still);
     check('ink: with every band full the pour is held to what the specks can hold, and the ink lives its whole life', Math.abs(flood2.state.poursAt - 0.97 * 18000 / 8.5 / (8 * pourRate(flood2.state.bands[0], 0.6))) < 1e-3 && flood2.state.poursAt < 0.4
-      && Math.abs((flood2.state.poured - flood1.state.poured) - 2 * 0.97 * 18000 / 8.5) <= 8 && flood2.state.left > 0.93 * 18000 && flood2.state.left <= 18000 && inkLoud.state.poursAt < 1 && band3.state.poursAt === 1,
-      JSON.stringify({ poursAt: flood2.state.poursAt, poured: [flood1.state.poured, flood2.state.poured], left: flood2.state.left }));
+      && Math.abs((flood2.state.poured - flood1.state.poured) - 2 * 0.97 * 18000 / 8.5) <= 8 && flood2.state.left > 0.93 * 18000 && flood2.state.left <= 18000 && inkLoud.state.poursAt < 1 && band3.state.poursAt === 1 && flood2.cover > FLOOD_COVER && flood2.state.strays === 0,
+      JSON.stringify({ poursAt: flood2.state.poursAt, poured: [flood1.state.poured, flood2.state.poured], left: flood2.state.left, cover: flood2.cover, inked: flood2.inked }));
 
     // Colour: ink keeps the colour it was poured in.
     const [, poured0, turned] = await inkRun([{ level: 0.3, bins: [[3, 1]], secs: 1 }, { level: 0.3, secs: 1 }, { level: 0.3, secs: 0.5, hue: 2 }], still);
@@ -3040,7 +3070,7 @@ async function main() {
 
     // Mic off.
     const [idle1, idle2] = await inkRun([{ level: null, idle: true, secs: 6 }, { level: null, idle: true, secs: 6 }], still);
-    check('ink: with the mic off and Idle animation on, bands take turns to pour a little', idle1.state.live === true && Math.abs(idle2.state.clock - 12) < 1e-6 && idle2.state.poured > idle1.state.poured && idle1.state.poured > 50 && idle2.inked > 200 && idle2.state.beats === 0 && idle2.state.perBand.filter((n) => n > 0).length >= 2
+    check('ink: with the mic off and Idle animation on, bands take turns to pour a little', idle1.state.live === true && Math.abs(idle2.state.clock - 12) < 1e-6 && idle2.state.poured > idle1.state.poured && idle1.state.poured > 50 && idle2.inked > 200 && idle2.state.beats === 0 && idle2.state.perBand.filter((n) => n > 0).length >= 2 && new Set(idle2.state.perBand).size >= 4
       && Math.max(...idle2.state.bands) < 0.56, JSON.stringify({ poured: [idle1.state.poured, idle2.state.poured], inked: idle2.inked, perBand: idle2.state.perBand, bands: idle2.state.bands }));
     const [off1, off2] = await inkRun([{ level: null, off: true, secs: 4 }, { level: null, off: true, secs: 1 }], still);
     check('ink: with the mic and Idle animation off nothing pours and the picture holds still', off2.state.live === false && off2.state.clock === 0 && off2.state.poured === 0 && off2.inked === 0 && same(off2) && off2.light > 2000, JSON.stringify({ poured: off2.state.poured, differs: off2.diff, clock: off2.state.clock }));
@@ -3063,14 +3093,19 @@ async function main() {
     const [halved] = await inkRun([{ level: 0.5, all: 0.5, secs: 2 }], still);
     // The small page draws into a picture several times taller than its canvas: the specks are sized for that picture.
     const smallInk = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive }; window.frame = function () {}; try { TimbreScene.testLevel = 0.5; const f = new Uint8Array(32).fill(128); frequencies = f; micActive = true; setActiveViz('visualizer'); setActiveViz('ink');
-      let now = 100000; for (let i = 0; i < 120; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
-      const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+      // First the empty tank, in silence: how much light its edges give. (Edges sized for the kit's larger picture would come out in dashes.)
+      const full = frequencies; frequencies = new Uint8Array(32); TimbreScene.testLevel = 0; let now = 100000; for (let i = 0; i < 30; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); let tankLight = 0; for (let i = 0; i < px.length; i += 4) if (px[i + 3] < 5) tankLight += px[i] + px[i + 1] + px[i + 2];
+      frequencies = full; TimbreScene.testLevel = 0.5; for (let i = 0; i < 120; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
       let inked = 0; for (let i = 3; i < px.length; i += 4) if (px[i] >= 25) inked++;
-      const s = window.__timbre.scene; return { name: window.__timbre.currentVizName, scale: s && s.renderScale, px: s && s.state.px, drawnFor: s && s.state.drawnFor, scales: s && s.state.scales, left: s && s.state.left, inked, canvas: [w, h] }; } finally { TimbreScene.testLevel = null; window.frame = fr; frequencies = heard.frequencies; micActive = heard.micActive; } });
-    check('ink: the Size slider halves it, and the small page draws it too, its specks and its glass sized for the picture the kit draws into', halved.box.w < 0.62 * placed0.box.w && halved.box.w > 0.38 * placed0.box.w && Math.abs(halved.state.px - 0.5 * placed0.state.px) < 1e-6
+      const s = window.__timbre.scene; return { name: window.__timbre.currentVizName, scale: s && s.renderScale, px: s && s.state.px, drawnFor: s && s.state.drawnFor, scales: s && s.state.scales, left: s && s.state.left, inked, tankLight, canvas: [w, h] }; } finally { TimbreScene.testLevel = null; window.frame = fr; frequencies = heard.frequencies; micActive = heard.micActive; } });
+    check('ink: the Size slider halves it, and the small page draws it too, its specks and its glass sized for the picture the kit draws into', halved.box.w < 0.62 * placed0.box.w && halved.box.w > 0.38 * placed0.box.w && Math.abs(halved.state.px - 0.5 * placed0.state.px) < 1e-6 && halved.state.drawnPx === halved.state.px
+      && halved.inked < 0.31 * placed0.inked && halved.inked > 0.19 * placed0.inked && smallInk.tankLight > SMALL_TANK
       && smallInk.name === INK && smallInk.scale >= 2 && smallInk.drawnFor === smallInk.scale && smallInk.scales.every((v) => v === smallInk.scale) && Math.abs(smallInk.px - 0.5 * smallInk.scale * smallInk.canvas[1] / (2 * Math.tan(15 * Math.PI / 180))) < 1e-6
       && smallInk.left > 500 && smallInk.inked > 0.015 * smallInk.canvas[0] * smallInk.canvas[1],
-      JSON.stringify({ box: [placed0.box.w, halved.box.w], px: [placed0.state.px, halved.state.px], small: smallInk }));
+      JSON.stringify({ box: [placed0.box.w, halved.box.w], inked: [placed0.inked, halved.inked], px: [placed0.state.px, halved.state.px], small: smallInk }));
     await pushConfig((c) => { c.placement.size = 100; });
     await wide.waitForTimeout(300);
     // The tank filled (every band full for nine seconds), at Density 100 and at 50; then a frame's script time, and a frame drawn and finished by the GPU.

@@ -289,16 +289,16 @@
   // where across the tank they lie on average, and the box they all lie in (least and most
   // across, up, and front to back).
   function measure(ink, count) {
-    const perBand = new Array(BANDS).fill(0), sumX = new Array(BANDS).fill(0), box = [Infinity, -Infinity, Infinity, -Infinity, Infinity, -Infinity];
+    const perBand = new Array(BANDS).fill(0), sumX = new Array(BANDS).fill(0), box = [Infinity, -Infinity, Infinity, -Infinity, Infinity, -Infinity], sum = [0, 0, 0];
     let alive = 0;
     for (let i = 0; i < count; i++) {
       if (ink.age[i] > LIFE) continue;
       alive++;
       const j = i * 3, b = ink.band[i];
       perBand[b]++; sumX[b] += ink.pos[j];
-      for (let a = 0; a < 3; a++) { const v = ink.pos[j + a]; if (v < box[a * 2]) box[a * 2] = v; if (v > box[a * 2 + 1]) box[a * 2 + 1] = v; }
+      for (let a = 0; a < 3; a++) { const v = ink.pos[j + a]; sum[a] += v; if (v < box[a * 2]) box[a * 2] = v; if (v > box[a * 2 + 1]) box[a * 2 + 1] = v; }
     }
-    return { alive, perBand, meanX: sumX.map((v, b) => (perBand[b] ? v / perBand[b] : 0)), box: alive ? box : [0, 0, 0, 0, 0, 0] };
+    return { alive, perBand, meanX: sumX.map((v, b) => (perBand[b] ? v / perBand[b] : 0)), box: alive ? box : [0, 0, 0, 0, 0, 0], sum };
   }
 
   // ── The shaders ─────────────────────────────────────────────────────────────
@@ -399,7 +399,7 @@
     let THREE = null, glass = null, front = null, surface = null, specks = null, geo = null, shade = null, whirl = 0, ringAt = 0;
     // What the checks read. clock: seconds the scene has been live. count, share: the specks
     // in use. left: how many are in the water. strength: of the currents. whirl: the twist.
-    const s = { flame: 0, kick: 0, clock: 0, live: false, orbit: 0, colorT: 0, count: 0, share: 0, left: 0, strength: 0, whirl: 0, beats: 0, glass: 0, surface: 0, px: 0, drawnFor: 1, steps: 0, poursAt: 1, strays: 0 };
+    const s = { flame: 0, kick: 0, clock: 0, live: false, orbit: 0, colorT: 0, count: 0, share: 0, left: 0, strength: 0, whirl: 0, beats: 0, glass: 0, surface: 0, px: 0, drawnFor: 1, steps: 0, poursAt: 1 };
 
     function build(k) {
       THREE = k.THREE;
@@ -541,8 +541,10 @@
         const m = measure(ink, s.count), mat = specks.material;
         let strays = 0, newest = ink.next ? ink.next - 1 : s.count - 1;   // specks beyond the count in use that are still in the water: there should be none
         for (let i = s.count; i < SPECKS_MAX; i++) if (ink.age[i] <= LIFE) strays++;
+        let colSum = 0;   // the colours the specks are drawn in, all added up
+        for (let i = 0; i < s.count; i++) if (look[i * 2 + 1] > 0) colSum += col[i * 3] + col[i * 3 + 1] + col[i * 3 + 2];
         return Object.assign({
-          bands: Array.from(bands), perBand: m.perBand, meanX: m.meanX, box: m.box, poured: ink.poured, next: ink.next,
+          bands: Array.from(bands), perBand: m.perBand, meanX: m.meanX, box: m.box, sum: m.sum, colSum, poured: ink.poured, next: ink.next,
           rings: rings.map((r) => r.toArray()), glassColor: srgb(glass.material.uniforms.uColor.value), frontColor: srgb(front.material.uniforms.uColor.value), surfaceColor: srgb(surface.material.uniforms.uColor.value),
           shown: [glass.visible, front.visible, surface.visible], drawn: geo.drawRange.count, strays,
           brights: [glass.material.uniforms.uBright.value, front.material.uniforms.uBright.value, surface.material.uniforms.uBright.value], drawnPx: mat.uniforms.uPx.value,

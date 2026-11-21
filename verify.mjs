@@ -3597,7 +3597,7 @@ await import('./overlay/ink.js');
     K.pour(ink, 100, 2, 0.5, 3, red);
     const p = at(ink.pos, 0), v = at(ink.vel, 0), place = K.placeOf([0, 0], 2, 3), r = Math.hypot(p[0] - place[0], p[2] - place[1]);
     ok(ink.next === 1 && ink.poured === 1 && ink.age[0] === 0 && ink.band[0] === 2 && r <= 0.05 * (0.6 + 0.45) + 1e-6 && p[1] <= K.TOP && p[1] >= K.TOP - 0.02 - 1e-6 && v[1] < 0 && ink.size[0] >= 0.04 && ink.size[0] <= 0.075 + 1e-6
-      && ink.tint[0] <= 1 && ink.tint[0] >= 0.78 - 1e-6 && near(ink.tint[1] / ink.tint[0], 0.5, 1e-5) && near(ink.tint[2] / ink.tint[0], 0.25, 1e-5) && K.measure(ink, 100).alive === 1,
+      && ink.tint[0] <= 1 && ink.tint[0] >= 0.78 - 1e-6 && near(ink.tint[1] / ink.tint[0], 0.5, 1e-5) && near(ink.tint[2] / ink.tint[0], 0.25, 1e-5) && K.measure(ink, 100).alive === 1 && same(K.measure(ink, 100).sum, p, 1e-6),
       'a speck is poured just under the surface at its band\'s place, sinking, in the colour it is given, a little uneven in shade');
     // Many: the middle of the stream sinks fastest, and its edge moves outward.
     const many = K.createInk(4000, 7), again = K.createInk(4000, 7), other = K.createInk(4000, 8);
@@ -3643,6 +3643,11 @@ await import('./overlay/ink.js');
     const nf = K.createInk(1, 7); K.pour(nf, 1, 3, 0.5, 0, red); nf.pos.set([0.2, -1.3 + 0.15, 0.1]); nf.vel.fill(0);
     K.stepInk(nf, 1, 0.01, 5, 0, 0);
     ok(same(at(nf.pos, 0), [0.2, -1.3 + 0.15 + (-0.03 * 0.5 + 0.0625) * 0.01, 0.1], 1e-6), 'near the floor ink settles more slowly, and the floor turns it back');
+    // And in a current: the floor turns it back harder, as the glass does.
+    const nf2 = K.createInk(1, 7); K.pour(nf2, 1, 3, 0.5, 0, red); nf2.pos.set([0.2, -1.3 + 0.15, 0.1]); nf2.vel.fill(0);
+    const cf = Array.from(K.current([0, 0, 0], 0.2, -1.3 + 0.15, 0.1, 5, 0.4));
+    K.stepInk(nf2, 1, 0.01, 5, 0.4, 0);
+    ok(same(at(nf2.pos, 0), [0.2 + cf[0] * 0.01, -1.3 + 0.15 + ((cf[1] - 0.03) * 0.5 + 0.0625 * (1 + 3 * 0.4)) * 0.01, 0.1 + cf[2] * 0.01], 3e-6), 'in a current the floor turns ink back harder, as the glass does');
     // A twist turns the tank about its upright axis.
     const tw = K.createInk(1, 7); K.pour(tw, 1, 3, 0.5, 0, red); tw.pos.set([0.5, 0, 0.2]); tw.vel.fill(0);
     K.stepInk(tw, 1, 0.01, 0, 0, 1.6);
