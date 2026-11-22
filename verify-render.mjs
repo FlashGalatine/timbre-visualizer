@@ -1061,7 +1061,7 @@ async function main() {
         TimbreScene.testLevel = 0;
         setActiveViz('visualizer'); setActiveViz(id);
         const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), f = new Uint8Array(32), out = [];
-        let now = 100000 + 1000 / 120;
+        let now = 100000 + 1000 / 120, last = null;
         for (const st of steps) {
           TimbreScene.testLevel = st.level;
           micActive = !st.idle && !st.off;
@@ -1082,6 +1082,10 @@ async function main() {
           gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);   // row 0 is the bottom of the canvas
           let solid = 0, light = 0, lightSum = 0, edge = 0, empty = 0, hash = 2166136261;
           for (let i = 0; i < px.length; i++) hash = Math.imul(hash ^ px[i], 16777619) >>> 0;   // the whole picture, as one number
+          // How this picture differs from the last step's, for when a still picture is not still.
+          const diff = { n: 0, max: 0 };
+          if (last) for (let i = 0; i < px.length; i++) { const d = Math.abs(px[i] - last[i]); if (d) { diff.n++; if (d > diff.max) diff.max = d; } }
+          last = px;
           const box = [w, -1, h, -1], solidBox = [w, -1, h, -1];
           const grow = (b, x, y) => { if (x < b[0]) b[0] = x; if (x > b[1]) b[1] = x; if (y < b[2]) b[2] = y; if (y > b[3]) b[3] = y; };
           for (let i = 0; i < px.length; i += 4) {
@@ -1095,7 +1099,7 @@ async function main() {
           }
           const size = (b) => ({ w: b[1] < 0 ? 0 : b[1] - b[0] + 1, h: b[3] < 0 ? 0 : b[3] - b[2] + 1, cx: (b[0] + b[1]) / 2, cy: (b[2] + b[3]) / 2 });
           const s = window.__timbre.scene, state = (s && s.state) || {}, c = (Math.floor(h / 2) * w + Math.floor(w / 2)) * 4;
-          out.push({ state, textures: s ? s.memory.textures : -1, solid, light, lightSum, edge, empty: empty / (w * h), cornerAlpha: px[3], centreAlpha: px[c + 3],
+          out.push({ diff, state, textures: s ? s.memory.textures : -1, solid, light, lightSum, edge, empty: empty / (w * h), cornerAlpha: px[3], centreAlpha: px[c + 3],
             box: size(box), solidBox: size(solidBox), canvas: [w, h], trace, firstCam, hash, kitCam: s ? s.camera : null,
             expectTip: state.rays ? getColor(state.colorT + (state.ref / state.rays) * 1.4) : null,
             fit: TimbreScene.fitDistance(8.4, 7.4, 30, canvas3d.clientWidth / canvas3d.clientHeight) });
@@ -1239,11 +1243,16 @@ async function main() {
     const [idle1, idle2] = await sunRun([{ level: null, idle: true, secs: 2 }, { level: null, idle: true, secs: 1.5 }]);
     check('sunburst: with the mic off and Idle animation on, the crown turns and its beams breathe', idle1.state.live === true && idle2.state.spin > idle1.state.spin + 0.1 && idle1.state.reach > 0.8 && idle1.state.reach < 2.4
       && idle1.state.amps.some((a, i) => Math.abs(a - idle2.state.amps[i]) > 0.1) && idle1.light > 3000, JSON.stringify({ spin: [idle1.state.spin, idle2.state.spin], reach: [idle1.state.reach, idle2.state.reach], light: idle1.light }));
+    // A picture is as the last step's was, but for a stray pixel: this GPU now and then draws a pixel or two of the very
+    // same scene one step apart (see the glass prism's block), so a pixel-for-pixel test fails some runs.
+    const same = (r) => r.diff.n <= 8 && r.diff.max <= 1;
+    // And a picture that has moved differs from the last step's in more of its numbers than this.
+    const MOVES = 1000;
     // Camera drift 0 and a palette that stands still, so that nothing but the scene could move the picture.
     const [off1, off2] = await sunRun([{ level: null, off: true, secs: 3 }, { level: null, off: true, secs: 1, trace: true }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
     const [on1, on2] = await sunRun([{ level: null, idle: true, secs: 3 }, { level: null, idle: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
-    check('sunburst: with the mic and Idle animation off the picture holds still, pixel for pixel', off1.hash === off2.hash && on1.hash !== on2.hash && off2.light > 500
-      && off2.trace.every((t) => between(t[6], off2.trace[0][6]) === 0), JSON.stringify({ off: [off1.hash, off2.hash], idle: [on1.hash, on2.hash], light: off2.light }));
+    check('sunburst: with the mic and Idle animation off the picture holds still', same(off2) && on2.diff.n > MOVES && off2.light > 500
+      && off2.trace.every((t) => between(t[6], off2.trace[0][6]) === 0), JSON.stringify({ differs: off2.diff, idle: on2.diff, light: off2.light }));
     check('sunburst: with the mic and Idle animation off, the crown does not turn and nothing flickers', off1.state.live === false && off2.state.spin === off1.state.spin && off2.state.clock === off1.state.clock
       && off2.state.amps.every((a) => a < 0.001) && Math.abs(off2.state.reach - 0.3) < 0.01 && swing(off2) < 0.001 && off2.solid > 0.5 * loud.solid,
       JSON.stringify({ spin: [off1.state.spin, off2.state.spin], clock: [off1.state.clock, off2.state.clock], reach: off2.state.reach, swing: swing(off2) }));
@@ -1302,7 +1311,7 @@ async function main() {
         TimbreScene.testLevel = 0;
         setActiveViz('visualizer'); setActiveViz(id);
         const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), f = new Uint8Array(32), out = [];
-        let now = 100000 + 1000 / 120;
+        let now = 100000 + 1000 / 120, last = null;
         for (const st of steps) {
           TimbreScene.testLevel = st.level;
           micActive = !st.idle && !st.off;
@@ -1320,6 +1329,10 @@ async function main() {
           gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);   // row 0 is the bottom of the canvas
           let solid = 0, white = 0, light = 0, lightSum = 0, edge = 0, empty = 0, hash = 2166136261;
           for (let i = 0; i < px.length; i++) hash = Math.imul(hash ^ px[i], 16777619) >>> 0;   // the whole picture, as one number
+          // How this picture differs from the last step's, for when a still picture is not still.
+          const diff = { n: 0, max: 0 };
+          if (last) for (let i = 0; i < px.length; i++) { const d = Math.abs(px[i] - last[i]); if (d) { diff.n++; if (d > diff.max) diff.max = d; } }
+          last = px;
           const box = [w, -1, h, -1], solidBox = [w, -1, h, -1];
           const grow = (b, x, y) => { if (x < b[0]) b[0] = x; if (x > b[1]) b[1] = x; if (y < b[2]) b[2] = y; if (y > b[3]) b[3] = y; };
           for (let i = 0; i < px.length; i += 4) {
@@ -1340,7 +1353,7 @@ async function main() {
           if (solidBox[1] >= 0) for (let y = solidBox[2]; y < solidBox[2] + rows; y++) for (let x = solidBox[0]; x <= solidBox[1]; x++) if (px[(y * w + x) * 4 + 3] > 250) foot++;
           foot /= Math.max(1, rows * (solidBox[1] - solidBox[0] + 1));
           const s = window.__timbre.scene, state = (s && s.state) || {};
-          out.push({ state, textures: s ? s.memory.textures : -1, solid, white, light, lightSum, edge, empty: empty / (w * h), cornerAlpha: px[3],
+          out.push({ diff, state, textures: s ? s.memory.textures : -1, solid, white, light, lightSum, edge, empty: empty / (w * h), cornerAlpha: px[3],
             box: size(box), solidBox: size(solidBox), canvas: [w, h], trace, hash, kitCam: s ? s.camera : null, foot,
             // Where the near right corner should be, from the Rotate settings as the scene read them.
             expectCorner: state.turned ? (() => { const K = TimbreScene, M = TimbreMountains, r = state.turned, D = Math.PI / 180, p = K.poseFor(M.BOX, { frame: M.FRAME, fov: M.FOV, pitch: M.PITCH }, r[0], r[1], r[2], state.sway), o = new THREE.Vector3(M.W / 2, 0, M.D / 2).applyEuler(new THREE.Euler(r[0] * D, r[1] * D, r[2] * D, 'XZY')); return [o.x * p.scale + p.x, o.y * p.scale + p.y, o.z * p.scale + p.z]; })() : null,
@@ -1474,11 +1487,16 @@ async function main() {
     check('mountains: with the mic off and Idle animation on, the land flows and swells', idle1.state.live === true && Math.abs(idle2.state.travel - 5 * FLOW) < 1e-6 && idle2.state.peak > 0.5 && gap(idle1.state.amps, idle2.state.amps) > 0.05
       && mean(idle2.state.amps) > 0.15 && mean(idle2.state.amps) < 0.6 && top(idle2.state.amps) - Math.min(...idle2.state.amps) > 0.2,
       JSON.stringify({ travel: [idle1.state.travel, idle2.state.travel], peak: idle2.state.peak, amps: [Math.min(...idle2.state.amps), mean(idle2.state.amps), top(idle2.state.amps)], moved: gap(idle1.state.amps, idle2.state.amps) }));
+    // A picture is as the last step's was, but for a stray pixel: this GPU now and then draws a pixel or two of the very
+    // same scene one step apart (see the glass prism's block), so a pixel-for-pixel test fails some runs.
+    const same = (r) => r.diff.n <= 8 && r.diff.max <= 1;
+    // And a picture that has moved differs from the last step's in more of its numbers than this.
+    const MOVES = 1000;
     // Camera drift 0 and a palette that stands still, so that nothing but the scene could move the picture.
     const [off1, off2] = await landRun([{ level: null, off: true, secs: 3 }, { level: null, off: true, secs: 1, trace: true }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
     const [on1, on2] = await landRun([{ level: null, idle: true, secs: 3 }, { level: null, idle: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
-    check('mountains: with the mic and Idle animation off the picture holds still, pixel for pixel', off1.hash === off2.hash && on1.hash !== on2.hash && off2.solid > 0.4 * loud.solid,
-      JSON.stringify({ off: [off1.hash, off2.hash], idle: [on1.hash, on2.hash], solid: off2.solid }));
+    check('mountains: with the mic and Idle animation off the picture holds still', same(off2) && on2.diff.n > MOVES && off2.solid > 0.4 * loud.solid,
+      JSON.stringify({ differs: off2.diff, idle: on2.diff, solid: off2.solid }));
     check('mountains: with the mic and Idle animation off, the land does not flow', off1.state.live === false && off2.state.travel === 0 && off2.state.clock === 0 && off2.state.amps.every((a) => a < 0.001)
       && off2.trace.every((t) => t[0] === 0 && t[8] === off2.trace[0][8] && t[4] === off2.trace[0][4]) && off2.state.peak <= 2.15 * 0.15 + 1e-6,
       JSON.stringify({ travel: off2.state.travel, clock: off2.state.clock, peak: off2.state.peak }));
@@ -1564,7 +1582,7 @@ async function main() {
         TimbreScene.testLevel = 0;
         setActiveViz('visualizer'); setActiveViz(id);
         const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), f = new Uint8Array(32), out = [];
-        let now = 100000 + 1000 / 120;
+        let now = 100000 + 1000 / 120, last = null;
         for (const st of steps) {
           TimbreScene.testLevel = st.level;
           micActive = !st.idle && !st.off;
@@ -1582,6 +1600,10 @@ async function main() {
           gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);   // row 0 is the bottom of the canvas
           let solid = 0, light = 0, lightSum = 0, edge = 0, empty = 0, hash = 2166136261;
           for (let i = 0; i < px.length; i++) hash = Math.imul(hash ^ px[i], 16777619) >>> 0;   // the whole picture, as one number
+          // How this picture differs from the last step's, for when a still picture is not still.
+          const diff = { n: 0, max: 0 };
+          if (last) for (let i = 0; i < px.length; i++) { const d = Math.abs(px[i] - last[i]); if (d) { diff.n++; if (d > diff.max) diff.max = d; } }
+          last = px;
           const box = [w, -1, h, -1], solidBox = [w, -1, h, -1];
           const grow = (b, x, y) => { if (x < b[0]) b[0] = x; if (x > b[1]) b[1] = x; if (y < b[2]) b[2] = y; if (y > b[3]) b[3] = y; };
           for (let i = 0; i < px.length; i += 4) {
@@ -1610,7 +1632,7 @@ async function main() {
           // lit: how much light lies on the slices themselves (a trace over its own slice and the one behind it).
           let lit = 0;
           for (let i = 0; i < px.length; i += 4) if (px[i + 3] > 250 && px[i] + px[i + 1] + px[i + 2] > 150) lit += px[i] + px[i + 1] + px[i + 2];
-          out.push({ state, solid, light, lightSum, lit, edge, foot, empty: empty / (w * h), cornerAlpha: px[3],
+          out.push({ diff, state, solid, light, lightSum, lit, edge, foot, empty: empty / (w * h), cornerAlpha: px[3],
             box: size(box), solidBox: size(solidBox), canvas: [w, h], trace, hash, kitCam: s ? s.camera : null,
             // Where the near right corner should be, from the Rotate settings as the scene read them.
             expectCorner: state.turned ? (() => { const K = TimbreScene, M = TimbrePhosphor, r = state.turned, D = Math.PI / 180, p = K.poseFor(M.BOX, { frame: M.FRAME, fov: M.FOV, pitch: M.PITCH }, r[0], r[1], r[2], state.sway), o = new THREE.Vector3(M.W / 2, 0, M.D / 2).applyEuler(new THREE.Euler(r[0] * D, r[1] * D, r[2] * D, 'XZY')); return [o.x * p.scale + p.x, o.y * p.scale + p.y, o.z * p.scale + p.z]; })() : null,
@@ -1735,16 +1757,21 @@ async function main() {
     check('phosphor: with the mic off and Idle animation on, the traces swell and their waves run', idle1.state.live === true && Math.abs(idle2.state.clock - 4.5) < 1e-6 && idle2.state.stands[0] > 0.03 && idle2.state.stands[0] < 0.9
       && gap(idle1.state.front, idle2.state.front) > 0.01 && swing(idle2.state.front) > 0.01 && idle2.light > 1000,
       JSON.stringify({ clock: [idle1.state.clock, idle2.state.clock], stand: idle2.state.stands[0], moved: gap(idle1.state.front, idle2.state.front), swing: swing(idle2.state.front), light: idle2.light }));
+    // A picture is as the last step's was, but for a stray pixel: this GPU now and then draws a pixel or two of the very
+    // same scene one step apart (see the glass prism's block), so a pixel-for-pixel test fails some runs.
+    const same = (r) => r.diff.n <= 8 && r.diff.max <= 1;
+    // And a picture that has moved differs from the last step's in more of its numbers than this.
+    const MOVES = 1000;
     // Camera drift 0 and a palette that stands still, so that nothing but the scene could move the picture.
     const [off1, off2] = await deckRun([{ level: null, off: true, secs: 3 }, { level: null, off: true, secs: 1, trace: true }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
     const [on1, on2] = await deckRun([{ level: null, idle: true, secs: 3 }, { level: null, idle: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
-    check('phosphor: with the mic and Idle animation off the picture holds still, pixel for pixel', off1.hash === off2.hash && on1.hash !== on2.hash && off2.solid > 500 && off2.light > 5,
-      JSON.stringify({ off: [off1.hash, off2.hash], idle: [on1.hash, on2.hash], solid: off2.solid, light: off2.light }));
+    check('phosphor: with the mic and Idle animation off the picture holds still', same(off2) && on2.diff.n > MOVES && off2.solid > 500 && off2.light > 5,
+      JSON.stringify({ differs: off2.diff, idle: on2.diff, solid: off2.solid, light: off2.light }));
     const [live1, muted1, muted2, muted3] = await deckRun([{ level: 0.8, all: 0.8, secs: 2 }, { level: null, off: true, secs: 0.5 }, { level: null, off: true, secs: 7.5, trace: true }, { level: null, off: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
     check('phosphor: muted in the middle of a stream, the waves stop where they are and the echoes die away', muted1.state.live === false && muted1.state.clock === live1.state.clock && muted2.state.clock === live1.state.clock
       && gap(muted1.state.lag, muted2.state.lag) === 0 && muted2.trace.every((t) => t[0] === live1.state.clock && t[8] === muted2.trace[0][8])
-      && muted1.state.stands[23] > 0.5 && muted1.state.stands[0] < 0.4 && top(muted2.state.stands) < 0.01 && muted2.state.peaks.every((p) => p < 0.16) && muted2.hash === muted3.hash && muted1.hash !== muted2.hash,
-      JSON.stringify({ clock: [live1.state.clock, muted1.state.clock, muted2.state.clock], stands: [muted1.state.stands[0], muted1.state.stands[23], top(muted2.state.stands)] }));
+      && muted1.state.stands[23] > 0.5 && muted1.state.stands[0] < 0.4 && top(muted2.state.stands) < 0.01 && muted2.state.peaks.every((p) => p < 0.16) && same(muted3) && muted2.diff.n > MOVES,
+      JSON.stringify({ clock: [live1.state.clock, muted1.state.clock, muted2.state.clock], stands: [muted1.state.stands[0], muted1.state.stands[23], top(muted2.state.stands)], differs: muted3.diff, died: muted2.diff }));
 
     // Colour.
     const [hued] = await deckRun(talk, { hue: 2 });
@@ -2053,16 +2080,21 @@ async function main() {
     check('chladni: with the mic off and Idle animation on, the plate shakes and the sand moves', idle1.state.live === true && Math.abs(idle2.state.clock - 4.5) < 1e-6 && idle2.state.shake > 0.08 && idle2.state.shake < 0.7 && gap(idle1.state.first, idle2.state.first) > 0.001
       && relief(idle2) > 0.002 && idle2.state.tone > 0.55 && idle2.state.tone < 0.8,
       JSON.stringify({ clock: [idle1.state.clock, idle2.state.clock], shake: idle2.state.shake, moved: gap(idle1.state.first, idle2.state.first), relief: relief(idle2), tone: idle2.state.tone, figure: idle2.state.figure }));
+    // A picture is as the last step's was, but for a stray pixel: this GPU now and then draws a pixel or two of the very
+    // same scene one step apart (see the glass prism's block), so a pixel-for-pixel test fails some runs.
+    const same = (r) => r.diff.n <= 8 && r.diff.max <= 1;
+    // And a picture that has moved differs from the last step's in more of its numbers than this.
+    const MOVES = 1000;
     // Camera drift 0 and a palette that stands still, so that nothing but the scene could move the picture.
     const [off1, off2] = await plateRun([{ level: null, off: true, secs: 3 }, { level: null, off: true, secs: 1, trace: true }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
     const [on1, on2] = await plateRun([{ level: null, idle: true, secs: 3 }, { level: null, idle: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
-    check('chladni: with the mic and Idle animation off the picture holds still, pixel for pixel', off1.hash === off2.hash && on1.hash !== on2.hash && off2.solid > 500 && off2.sand + off2.lit > 50 && off2.state.live === false && off2.state.shake === 0 && off2.state.clock === 0
+    check('chladni: with the mic and Idle animation off the picture holds still', same(off2) && on2.diff.n > MOVES && off2.solid > 500 && off2.sand + off2.lit > 50 && off2.state.live === false && off2.state.shake === 0 && off2.state.clock === 0
       && gap(off1.state.first, off2.state.first) === 0 && off2.trace.every((t) => t[2] === 0 && t[3] === 0),
-      JSON.stringify({ off: [off1.hash, off2.hash], idle: [on1.hash, on2.hash], solid: off2.solid, sand: off2.sand, lit: off2.lit, differs: off2.diff, afterglow: off2.glowT }));
+      JSON.stringify({ differs: off2.diff, idle: on2.diff, solid: off2.solid, sand: off2.sand, lit: off2.lit, afterglow: off2.glowT }));
     const [live1, thrownUp, muted1, muted2, muted3] = await plateRun([settle, { level: 1, bins: low, secs: 0.05 }, { level: null, off: true, secs: 0.05 }, { level: null, off: true, secs: 6 }, { level: null, off: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
     check('chladni: muted in the middle of a throw, the plate stops, the sand in the air lands and then nothing moves', thrownUp.state.hits === 1 && muted1.state.live === false && muted1.state.air > 0.5 && muted1.state.clock === thrownUp.state.clock && muted2.state.clock === thrownUp.state.clock
-      && muted2.state.air === 0 && muted3.state.air === 0 && muted2.state.shake === 0 && muted2.state.relief === 0 && gap(muted2.state.first, muted3.state.first) === 0 && muted2.hash === muted3.hash && muted1.hash !== muted2.hash
-      && live1.state.live === true, JSON.stringify({ air: [thrownUp.state.air, muted1.state.air, muted2.state.air], clock: [thrownUp.state.clock, muted2.state.clock], hash: [muted1.hash, muted2.hash, muted3.hash], differs: muted3.diff, afterglow: muted3.glowT }));
+      && muted2.state.air === 0 && muted3.state.air === 0 && muted2.state.shake === 0 && muted2.state.relief === 0 && gap(muted2.state.first, muted3.state.first) === 0 && same(muted3) && muted2.diff.n > MOVES
+      && live1.state.live === true, JSON.stringify({ air: [thrownUp.state.air, muted1.state.air, muted2.state.air], clock: [thrownUp.state.clock, muted2.state.clock], differs: muted3.diff, landed: muted2.diff, afterglow: muted3.glowT }));
 
     // Colour.
     const [hued] = await plateRun(talk, { hue: 2 });
@@ -2750,16 +2782,21 @@ async function main() {
     const [idle1, idle2] = await blobRun([{ level: null, idle: true, secs: 3 }, { level: null, idle: true, secs: 1.5 }]);
     check('metaball: with the mic off and Idle animation on, droplets come and go', idle1.state.live === true && Math.abs(idle2.state.clock - 4.5) < 1e-6 && gap(idle1.state.balls, idle2.state.balls) > 0.05 && top(idle2.state.bands) > 0.3 && top(idle2.state.bands) < 0.75
       && [1, 2, 3, 4, 5, 6, 7, 8].some((i) => far(idle2, i) > 0.3), JSON.stringify({ clock: [idle1.state.clock, idle2.state.clock], moved: gap(idle1.state.balls, idle2.state.balls), bands: idle2.state.bands }));
+    // A picture is as the last step's was, but for a stray pixel: this GPU now and then draws a pixel or two of the very
+    // same scene one step apart (see the glass prism's block), so a pixel-for-pixel test fails some runs.
+    const same = (r) => r.diff.n <= 8 && r.diff.max <= 1;
+    // And a picture that has moved differs from the last step's in more of its numbers than this.
+    const MOVES = 1000;
     // Camera drift 0 and a palette that stands still, so that nothing but the scene could move the picture.
     const [off1, off2] = await blobRun([{ level: null, off: true, secs: 3 }, { level: null, off: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
     const [on1, on2] = await blobRun([{ level: null, idle: true, secs: 3 }, { level: null, idle: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
-    check('metaball: with the mic and Idle animation off the picture holds still, pixel for pixel', off1.hash === off2.hash && on1.hash !== on2.hash && off2.solid > 500 && off2.state.live === false && off2.state.clock === 0 && off2.state.out === 0,
-      JSON.stringify({ off: [off1.hash, off2.hash], idle: [on1.hash, on2.hash], solid: off2.solid, differs: off2.diff }));
+    check('metaball: with the mic and Idle animation off the picture holds still', same(off2) && on2.diff.n > MOVES && off2.solid > 500 && off2.state.live === false && off2.state.clock === 0 && off2.state.out === 0,
+      JSON.stringify({ differs: off2.diff, idle: on2.diff, solid: off2.solid }));
     // (Quiet and then loud, so that a beat has struck and is still dying away when the mic goes.)
     const [, live1, muted1, muted2, muted3] = await blobRun([{ level: 0.05, all: 0.8, secs: 1 }, { level: 0.9, all: 0.8, secs: 1 }, { level: null, off: true, secs: 0.5 }, { level: null, off: true, secs: 7.5 }, { level: null, off: true, secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0 });
     check('metaball: muted in the middle of a stream, the droplets stop turning, drift home, and then nothing moves', muted1.state.live === false && muted1.state.clock === live1.state.clock && muted2.state.clock === live1.state.clock && live1.state.out === 8 && live1.state.kick > 0.001 && muted1.state.kick > 0 && muted1.state.kick < live1.state.kick
-      && far(muted1, 1) > 0.05 && far(muted1, 1) < far(live1, 1) && muted2.state.bands.every((b) => b === 0) && muted2.state.flame === 0 && muted2.state.kick === 0 && muted2.state.glow === 0 && radius(muted2, 0) === Math.fround(0.74) && [1, 2, 3, 4, 5, 6, 7, 8].every((i) => far(muted2, i) === 0) && muted2.hash === muted3.hash && muted1.hash !== muted2.hash,
-      JSON.stringify({ clock: [live1.state.clock, muted1.state.clock, muted2.state.clock], far: [far(live1, 1), far(muted1, 1), far(muted2, 1)], bands: muted2.state.bands.slice(0, 3), differs: muted3.diff }));
+      && far(muted1, 1) > 0.05 && far(muted1, 1) < far(live1, 1) && muted2.state.bands.every((b) => b === 0) && muted2.state.flame === 0 && muted2.state.kick === 0 && muted2.state.glow === 0 && radius(muted2, 0) === Math.fround(0.74) && [1, 2, 3, 4, 5, 6, 7, 8].every((i) => far(muted2, i) === 0) && same(muted3) && muted2.diff.n > MOVES,
+      JSON.stringify({ clock: [live1.state.clock, muted1.state.clock, muted2.state.clock], far: [far(live1, 1), far(muted1, 1), far(muted2, 1)], bands: muted2.state.bands.slice(0, 3), differs: muted3.diff, home: muted2.diff }));
 
     // Colour.
     const [hued] = await blobRun(talk, { hue: 2 });
