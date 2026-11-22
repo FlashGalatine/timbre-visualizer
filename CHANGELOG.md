@@ -12,6 +12,13 @@ traceability.
 
 ### Added
 
+- **Boids settings**: `density` (0 to 100, default 50: 36 to 84 birds), `frightSensitivity`
+  (0 to 100, default 50; never at 0), `settleSeconds` (0 to 10, default 3: the calm wait
+  before a fright is over) and `cameraDrift` (0 to 100, default 50) for the Boids effect.
+  `cohesion` stays, and is now how tightly the flock keeps to its lead (twice as wide at 0,
+  half as wide at 100). What the new Boids is made of is in `overlay/boids.js`
+  (`TimbreBoids`), loaded by all three overlay pages and by `verify` under Node, and
+  documented in `docs/EFFECTS.md` ("The boids").
 - **School of Fish, a new effect** (the 52nd), a scene on the scene kit. A school of fish
   swims in the box: a real flock, in which each fish keeps clear of its neighbours, swims the
   way they swim and stays with them, and which mills round as one body. Louder, it swims
@@ -209,6 +216,18 @@ traceability.
 
 ### Changed
 
+- **Boids is now birds on a wire that the voice sends up**, a scene on the scene kit. The
+  flat-shaded cones are gone. Three wires hang across the box, and in silence birds sit on
+  them in rows, wings folded. The wires are a spectrum: each stretch listens to one of the
+  eight lowest bands, low at the left and high at the right, and its birds wear that band's
+  colour. A bird takes off when its band sounds, or when the voice is loud enough for its
+  nerve: a quiet word lifts the bold ones and a loud one lifts them all. In the air they are
+  a real flock that follows a lead wheeling above the wires, banking into their turns; each
+  syllable is a ripple of banking that runs back through the flock. In a pause each bird
+  glides back to its own seat and lands, the wire springs under it, and in silence the
+  picture comes to rest. A thump of the mic is a fright: every bird bursts up at once and
+  stays up while it lasts. The birds and the wires are solid, so they show over a bright
+  backdrop too. The effect's name and id are unchanged.
 - **Jelly is now a cube of jelly that the sound wobbles**, a scene on the scene kit. The
   lattice of small balls and lines is gone. A rounded cube of clear jelly floats in the box,
   set in four layers of the palette's colours, with small bubbles caught inside it. It is a

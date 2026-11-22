@@ -5483,7 +5483,7 @@ await import('./overlay/boids.js');
     const def = K.definition();
     ok(def.fov === 30 && def.pitch === 6 && def.cooling.join() === '0.08,0.08,0.08' && typeof def.build === 'function' && typeof def.update === 'function' && typeof def.debug === 'function'
       && JSON.stringify(def.frame) === JSON.stringify(K.FRAME) && def.frame !== K.FRAME && def.frame.center !== K.FRAME.center && K.definition().frame !== def.frame
-      && ['iPos', 'iVel', 'iFwd', 'iA', 'iB', 'uLead', 'modelMatrix', 'wing', 'iVel * uLead'].every((w) => K.VERT.includes(w)) && ['uPal', 'uShift', 'gl_FrontFacing'].every((w) => K.FRAG.includes(w)) && /gl_FragColor = vec4\(col, 1\.0\)/.test(K.FRAG)
+      && ['iPos', 'iVel', 'iFwd', 'iA', 'iB', 'uLead', 'modelMatrix', 'wing', 'iVel * uLead'].every((w) => K.VERT.includes(w)) && ['uPal', 'vBand / 8.0', 'gl_FrontFacing'].every((w) => K.FRAG.includes(w)) && !K.FRAG.includes('uShift') && /gl_FragColor = vec4\(col, 1\.0\)/.test(K.FRAG)
       && K.WIRE_VERT.includes('fade') && K.WIRE_FRAG.includes('uColor'),
       'the scene definition gives the kit its frame, its camera and its two halves, and a frame of its own each time; the birds are drawn solid');
   }

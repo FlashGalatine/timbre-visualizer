@@ -1179,6 +1179,75 @@ Things worth knowing:
   it. For a moment on the way back the school can still need more than the frame, and is
   drawn smaller for it.
 
+## The boids (`TimbreBoids`)
+
+`overlay/boids.js` is the Boids effect, as `globalThis.TimbreBoids`: birds that sit in rows
+on three wires, fly up as a flock with the voice, land in a pause, and are flushed by a thump
+of the mic. `factories/boids.js` is one line,
+`VIZ_FACTORIES['boids'] = TimbreScene.factory(() => TimbreBoids.definition())`. It follows the
+school of fish closely. It offers:
+
+- **The sound and the settings.** `loudness`, `idle` and `settle` as the jelly has them.
+  `countFor(density)` is how many birds there are: 36 at Density 0, 60 at 50, 84 at 100, the
+  same number to each wire. `spreadFor(cohesion)` is how wide of the lead the birds' places
+  are: twice as wide at Cohesion 0, half as wide at 100. `callOf(band, flame)` is a bird's
+  call: its band (and a quarter more) or seven tenths of the voice, whichever is louder.
+  `pulseOf(flame, trail)` is a syllable.
+- **One bird.** `birdShape()`: a body with a head, closed at both ends, a tail, a beak and two
+  wings, beak toward +x and back toward +y. Each point's `wing` says how far out along a
+  wing it is (0 for all but the wings), with the sign of its side.
+- **The wires.** `wireY(fl, w, x)` is how high wire `w` hangs at `x`: from its two ends
+  (`WIRE_Y`), sagging in the middle, a little more for the birds on it (`load`), and swinging
+  as a spring (`bounce`). `seatY(fl, i)` is how high a bird sits; `wirePoints(out, fl, w)`
+  is the wire as the ribbon it is drawn as.
+- **The flock.** `createFlock(seed, n)` is every bird there can be (`BIRDS_MAX`, 84) with
+  what is its own: its size, its nerve, how long it stays up after its call, its place by the
+  lead and the way it sits. `state` is 0 sitting, 1 flying, 2 coming home. `reseat(fl, n)`
+  makes the rows for `n` birds: bird `i` is on wire `i % 3`, in seat `floor(i / 3)` from the
+  left, and listens to the band of its stretch of wire. Birds that join sit, birds that sit
+  move to their new seats, and a bird in the air flies on.
+- **Flying.** `leadAt(out, tau, flame)` is the lead, which wheels above the wires, wider and
+  faster the louder it is. `placeOf(out, fl, i, wide, loose)` is a bird's own place: by the
+  lead, or, in a fright, its own part of the air; always inside the air (`AIR`, `ROOM`).
+  `takeOff(fl, i, hard, random)` sends a sitting bird up and springs its wire.
+  `stepFlock(fl, n, how)` is one step of `STEP` (1/60 s) of the wires and the birds. A
+  sitting bird takes off when its call is louder than its nerve, or in a fright. A flying
+  bird flies at its cruising speed and steers by turning: toward its place, off any bird too
+  close, the way the birds near it fly, back from the edge of its air and up from the wires;
+  it banks into its turn and beats harder to climb. A bird that has heard nothing for its
+  `stay` comes home: to above its seat, then down onto it, slowing, and `sit` puts it
+  exactly there. `advance(fl, n, dt, how)` takes a step once half of it has come due, six at
+  most in a frame; `fl.left` is how far the flock is behind its steps, or ahead.
+- **The fright.** `fright(fl, n, random)`: every bird is up at once; one that was sitting
+  leaves hard, one in the air is thrown off its way. While `how.loose` is set every bird
+  stays up, flies faster and makes for its own part of the air.
+- **What is drawn.** `dress(A, B, fl, n, how)` is what each bird is sent: its size, where its
+  wings are in their beat, its roll, its band, how hard it beats, how folded its wings are,
+  and a flash. The ripple of a syllable reaches a flying bird later the further behind the
+  lead it is, and rolls it one way or the other.
+- **Camera.** `orbitAt(t, drift)`, `swayFor(drift)`.
+- `definition()`: the scene, for `TimbreScene.factory()`.
+
+Things worth knowing:
+
+- In silence, with the mic on, every bird ends up sitting, the wires stop swinging, and then
+  the picture is exactly still: every number that is drawn settles to a fixed value. That is
+  why the birds' colours do not drift with the clock, as the fish's do; they move only as the
+  palette's own Colour speed moves them.
+- The birds are one instanced mesh, solid, drawn with the depth buffer. The wires are thin
+  ribbons that fade out toward their ends, drawn before the birds.
+- The flock is stepped in fixed steps whatever the frame rate, a step coming due at its half,
+  and a bird in the air is drawn as far on along its way as the flock is ahead of or behind
+  its steps (`uLead`), as the school of fish does it. A step weighs the wires once, as it
+  begins, so that every bird that sits through it sits on the same wire.
+- With the mic and Idle animation both off no step is taken and no time passes for the
+  fright: birds in the air stop where they are.
+- Nothing comes from `Math.random`. A thump flushes the birds by the number of the thump.
+- When a fright starts and ends is `TimbreHelix.createShatter`'s machine; Fright sensitivity
+  and Settle seconds are its two settings under names that fit birds.
+- The scene is made to fill the frame at Scene Size 100. Enlarged past that it is cropped, as
+  the landscape scenes are: nothing here is drawn smaller to stay in.
+
 ## Wire format (for driving Timbre from elsewhere)
 
 Anything that can call a Streamer.bot action can drive Timbre:

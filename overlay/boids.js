@@ -444,7 +444,6 @@
   const FRAG = `
     precision highp float;
     uniform vec3 uPal[6];
-    uniform float uShift;
     varying vec3 vN, vW; varying float vBand, vFlash, vWing, vUp;
     vec3 pal(float u) {
       u = fract(u) * 6.0; int i = int(floor(u)); float f = u - floor(u); f = f * f * (3.0 - 2.0 * f);
@@ -453,7 +452,7 @@
     void main() {
       vec3 n = normalize(vN); bool under = !gl_FrontFacing; if (under) n = -n;
       vec3 v = normalize(cameraPosition - vW);
-      vec3 base = pal(uShift + vBand / 8.0);
+      vec3 base = pal(vBand / 8.0);   // its band's colour: the wires are a spectrum, and it does not drift
       vec3 l1 = normalize(vec3(0.30, 0.85, 0.50)), l2 = normalize(vec3(-0.50, -0.50, 0.50));
       float d1 = max(dot(n, l1), 0.0), d2 = max(dot(n, l2), 0.0);
       float spec = pow(max(dot(n, normalize(l1 + v)), 0.0), 40.0);
@@ -520,7 +519,7 @@
       geo.setIndex(new THREE.BufferAttribute(shape.index, 1));
       const each = (name, array, n) => { const at = new THREE.InstancedBufferAttribute(array, n).setUsage(THREE.DynamicDrawUsage); geo.setAttribute(name, at); sent.push(at); };
       each('iPos', flock.p, 3); each('iVel', flock.v, 3); each('iFwd', flock.head, 3); each('iA', A, 4); each('iB', B, 4);
-      shared = { uPal: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Color()) }, uShift: { value: 0 }, uLen: { value: SIZE }, uLead: { value: 0 } };
+      shared = { uPal: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Color()) }, uLen: { value: SIZE }, uLead: { value: 0 } };
       birds = new THREE.Mesh(geo, new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, side: THREE.DoubleSide, uniforms: shared }));
       birds.frustumCulled = false;
       // The wires: thin ribbons that fade out toward their ends, drawn before the birds.
@@ -609,11 +608,11 @@
       shared.uLead.value = flock.left;
       for (let w = 0; w < WIRES; w++) { wirePoints(wires[w].pos, flock, w); wires[w].at.needsUpdate = true; }
 
-      // The colours: six from round the palette for the bands to run through, drifting slowly. The wires are grey, with a little of the palette.
+      // The colours: six from round the palette for the bands to run through (they move only as the palette's own Colour speed moves them, so
+      // that birds sitting in silence are exactly still). The wires are grey, with a little of the palette.
       const colorT = ((now * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
       s.colorT = colorT;
       for (let i = 0; i < 6; i++) palette(shared.uPal.value[i], colorT + i * (PALETTE.length / 6));
-      shared.uShift.value = (0.01 * s.clock) % 1;
       const g = getColor(colorT + PALETTE.length / 2);
       wireMat.uniforms.uColor.value.setRGB(0.32 + 0.14 * g[0] / 255, 0.32 + 0.14 * g[1] / 255, 0.35 + 0.14 * g[2] / 255, THREE.SRGBColorSpace);
     }
@@ -636,7 +635,7 @@
           solid: m.transparent === false && m.depthTest === true && m.depthWrite === true && m.side === THREE.DoubleSide && m.blending === THREE.NormalBlending,
           wireSeeThrough: wireMat.transparent === true && wireMat.depthWrite === false && wireMat.blending === THREE.NormalBlending, wireColor: srgb(wireMat.uniforms.uColor.value),
           wireOrder: wires.map((w) => w.mesh.renderOrder), wirePieces: wires.map((w) => w.mesh.geometry.index.count / 6),
-          pal: shared.uPal.value.map(srgb), shift: shared.uShift.value, given: [shared.uLen.value, shared.uLead.value],
+          pal: shared.uPal.value.map(srgb), given: [shared.uLen.value, shared.uLead.value],
           bounce: Array.from(flock.bounce), bounceV: Array.from(flock.bounceV), load: Array.from(flock.load),
           uploads: sent.map((at) => at.version).concat(wires.map((w) => w.at.version)),
           neverCulled: birds.frustumCulled === false && wires.every((w) => w.mesh.frustumCulled === false),

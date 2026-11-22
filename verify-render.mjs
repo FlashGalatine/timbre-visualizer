@@ -4292,6 +4292,286 @@ async function main() {
 
     }
 
+    // ── The boids (birds on a wire): a kit scene of birds that sit, fly up as a flock and land ──
+    {   // its own block: the names below are the boids' own
+    // Build the scene afresh, drive the level, the 32 bins and the mic's peak by hand, and read the
+    // canvas and the scene after each step. A step gives level, secs, and either all (every bin,
+    // 0..1) or bins ([[bin, 0..1], ...]); peak is the raw peak the thump hears (0 unless given);
+    // idle: true has the mic off, off: true has the mic and Idle animation off; knobs sets settings
+    // from that step on; gap: milliseconds the page stops drawing for, before the step; wobble: every
+    // other frame comes that share of a frame early and the rest that much late. Beside the scene,
+    // the flock is made again here from the arithmetic alone, frame for frame (the bands followed,
+    // the syllable, each fright as the scene reports it, every step of the birds and the wires,
+    // what each bird is sent), and model says how far the scene's own is from it.
+    const BOIDS = 'boids';
+    const birdRun = (steps, { fps = 60, knobs = null, hue = null, colorSpeed = null, gain = null } = {}) => wide.evaluate(({ id, steps, fps, knobs, hue, colorSpeed, gain }) => {
+      window.frame = function () {};
+      const saved = { frequencies, micActive, cfgIdleAnim, cfgColorHue, cfgColorSpeed, cfgGain, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz[id]);
+      try {
+        if (knobs) Object.assign(perViz[id], knobs);
+        if (hue !== null) cfgColorHue = hue;
+        if (colorSpeed !== null) cfgColorSpeed = colorSpeed;
+        if (gain !== null) cfgGain = gain;
+        TimbreScene.testLevel = 0;
+        micPeak = 0;
+        setActiveViz('visualizer'); setActiveViz(id);
+        const K = TimbreBoids, follow = TimbreScene.follow;
+        const knob = (name, otherwise = 50) => (typeof perViz[id][name] === 'number' ? perViz[id][name] : otherwise);
+        const m = { ok: true, bands: new Float32Array(8), fl: K.createFlock(K.SEED, K.countFor(knob('density'))), A: new Float32Array(K.BIRDS_MAX * 4), B: new Float32Array(K.BIRDS_MAX * 4),
+          trail: 0, flash: 0, clock: 0, thumps: 0, jostles: 0, random: K.rng(7), wire: new Float32Array((K.SEG + 1) * 6) };
+        const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), f = new Uint8Array(32), out = [];
+        let now = 100000 + 1000 / 120, last = null;
+        for (const st of steps) {
+          TimbreScene.testLevel = st.level;
+          micActive = !st.idle && !st.off;
+          cfgIdleAnim = st.off ? false : saved.cfgIdleAnim;
+          if (st.knobs) Object.assign(perViz[id], st.knobs);
+          f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
+          if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
+          frequencies = f;
+          micPeak = st.peak || 0;
+          let beats = 0, stepsTaken = 0, stepsMost = 0, stepsLeast = 99, flashMost = 0, pulseMost = 0, bounceMost = 0, flyingMost = 0, flyingLeast = 999, looseFrames = 0, phases = [], allSatAt = -1;
+          if (st.gap) { now += st.gap; m.ok = false; }   // what the machine does about a page that stopped is its own business: the flock is not made again past one
+          for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) {
+            const dt = (1 + (st.wobble || 0) * (i % 2 ? 1 : -1)) / fps;
+            now += 1000 * dt;
+            const before = window.__timbre.scene ? window.__timbre.scene.state : null, b0 = before ? before.beats : 0;
+            currentViz.draw(now, dt);
+            const live = window.__timbre.scene.state;
+            if (live.beats > b0) beats++;
+            stepsTaken += live.steps; if (live.steps > stepsMost) stepsMost = live.steps; if (live.steps < stepsLeast) stepsLeast = live.steps;
+            if (live.flash > flashMost) flashMost = live.flash; if (live.pulse > pulseMost) pulseMost = live.pulse;
+            for (const b of live.bounce) if (Math.abs(b) > bounceMost) bounceMost = Math.abs(b);
+            if (live.flying > flyingMost) flyingMost = live.flying; if (live.flying < flyingLeast) flyingLeast = live.flying;
+            if (live.loose) looseFrames++;
+            if (phases[phases.length - 1] !== live.phase) phases.push(live.phase);
+            if (live.sitting === live.birds) { if (allSatAt < 0) allSatAt = i; } else allSatAt = -1;
+            // The same frame, from the arithmetic alone.
+            const isLive = micActive || cfgIdleAnim, count = K.countFor(knob('density')), flame = K.settle(live.flame);
+            if (isLive) m.clock += dt;
+            if (count !== m.fl.n) K.reseat(m.fl, count);
+            for (let b = 0; b < 8; b++) {
+              let v = 0;
+              if (micActive) v = K.loudness(f, b, cfgGain); else if (cfgIdleAnim) v = K.idle(b, m.clock);
+              m.bands[b] = follow(m.bands[b], v, v > m.bands[b] ? K.RISE : K.FALL, dt);
+              if (v === 0) m.bands[b] = K.settle(m.bands[b]);
+            }
+            m.trail = follow(m.trail, flame, K.TRAIL, dt);
+            const pulse = K.pulseOf(flame, m.trail);
+            m.flash = K.settle(m.flash * Math.exp(-dt / K.FLASH_S));
+            if (live.thumps > m.thumps) { m.thumps = live.thumps; m.random = K.rng(1000 + m.thumps); K.fright(m.fl, count, m.random); m.flash = 1; }
+            else if (live.jostles > m.jostles) { m.jostles = live.jostles; K.fright(m.fl, count, m.random); m.flash = Math.max(m.flash, 0.6); }
+            const spread = K.spreadFor(knob('cohesion'));
+            if (isLive) K.advance(m.fl, count, dt, { flame, bands: m.bands, loose: live.phase === 'pieces', spread, pulse, random: m.random });
+            K.dress(m.A, m.B, m.fl, count, { kick: K.settle(live.kick), flash: m.flash, lead: m.fl.left });
+            m.count = count; m.pulse = pulse;
+          }
+          const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);   // row 0 is the bottom of the canvas
+          const s = window.__timbre.scene, state = s.state, P = state.points, V = state.speeds, ST = state.states, SA = state.sentA, SB = state.sentB, n = state.birds, bandOf = state.bandOf;
+          const mul = (mt, v) => [0, 1, 2, 3].map((r) => mt[r] * v[0] + mt[4 + r] * v[1] + mt[8 + r] * v[2] + mt[12 + r] * v[3]);
+          const spot = (x, y, z) => { const c = mul(state.proj, mul(state.view, mul(state.world, [x, y, z, 1]))); return [Math.floor((c[0] / c[3] * 0.5 + 0.5) * w), Math.floor((c[1] / c[3] * 0.5 + 0.5) * h)]; };
+          const alphaAt = (x, y, z) => { const [px0, py0] = spot(x, y, z); return px0 < 0 || py0 < 0 || px0 >= w || py0 >= h ? -1 : px[(py0 * w + px0) * 4 + 3]; };
+          // solid: pixels a bird or a wire covers. above: those above a line a little over the top wire (birds in
+          // the air). part: pixels half covered. edge: anything at the canvas's edge.
+          const lineY = spot(0, K.WIRE_Y[0] + 0.3, 0)[1];
+          let solid = 0, above = 0, part = 0, edge = 0, sx = 0, sum = 0;
+          const box = [w, -1, h, -1];
+          for (let i = 0; i < px.length; i += 4) {
+            const x = (i / 4) % w, y = Math.floor(i / 4 / w), a = px[i + 3];
+            if (a >= 250) {
+              solid++; sx += x; sum += px[i] + px[i + 1] + px[i + 2];
+              if (y > lineY) above++;
+              if (x < box[0]) box[0] = x; if (x > box[1]) box[1] = x; if (y < box[2]) box[2] = y; if (y > box[3]) box[3] = y;
+              if (x < 4 || y < 4 || x >= w - 4 || y >= h - 4) edge++;
+            } else if (a >= 25) { part++; if (x < 4 || y < 4 || x >= w - 4 || y >= h - 4) edge++; }
+          }
+          const diff = { n: 0, max: 0 };
+          if (last && last.length === px.length) for (let i = 0; i < px.length; i++) { const d = Math.abs(px[i] - last[i]); if (d) { diff.n++; if (d > diff.max) diff.max = d; } }
+          last = px;
+          // Where the middle of each bird falls on the canvas, and whether a bird is drawn there. band: the mean colour there, band by band (sitting birds only).
+          let onBird = 0, onCanvas = 0, speed = 0, flashing = 0, rollMost = 0, fromLead = 0;
+          const band = Array.from({ length: 8 }, () => [0, 0, 0, 0]), flyingBands = new Set(), sittingBands = new Set();
+          for (let i = 0; i < n; i++) {
+            const lead = ST[i] === 0 ? 0 : state.left, [x, y] = spot(P[i * 3] + V[i * 3] * lead, P[i * 3 + 1] + V[i * 3 + 1] * lead, P[i * 3 + 2] + V[i * 3 + 2] * lead);
+            if (x >= 0 && y >= 0 && x < w && y < h) { onCanvas++; const o = (y * w + x) * 4; if (px[o + 3] >= 250) { onBird++; if (ST[i] === 0) { const bd = band[bandOf[i]]; bd[0] += px[o]; bd[1] += px[o + 1]; bd[2] += px[o + 2]; bd[3]++; } } }
+            if (ST[i] === 1) { flyingBands.add(bandOf[i]); speed += Math.hypot(V[i * 3], V[i * 3 + 1], V[i * 3 + 2]); fromLead += Math.hypot(P[i * 3] - state.lead[0], P[i * 3 + 1] - state.lead[1], P[i * 3 + 2] - state.lead[2]); } else if (ST[i] === 0) sittingBands.add(bandOf[i]);
+            if (SB[i * 4 + 2] > 0.05) flashing++;
+            rollMost = Math.max(rollMost, Math.abs(SA[i * 4 + 2]));
+          }
+          // The wires: drawn where the arithmetic hangs them, solid in the middle and gone at the ends.
+          const wireMid = [0, 1, 2].map((wi) => alphaAt(0.03, (state.wires[wi][24 * 6 + 1] + state.wires[wi][24 * 6 + 4]) / 2, 0)), wireEnd = [0, 1, 2].map((wi) => alphaAt(-K.SPAN + 0.02, K.WIRE_Y[wi], 0));
+          const wireOff = [0, 1, 2].map((wi) => alphaAt(0.03, (state.wires[wi][24 * 6 + 1] + state.wires[wi][24 * 6 + 4]) / 2 - 0.2, 0));
+          // The flock made again, beside the scene's own.
+          const model = { ok: m.ok, count: m.count, gapP: 0, gapV: 0, gapH: 0, gapA: 0, gapB: 0, gapWire: 0, gapBands: 0, states: true };
+          if (m.count !== n) model.ok = false;
+          else {
+            const HD = state.headings;
+            for (let i = 0; i < n * 3; i++) { model.gapP = Math.max(model.gapP, Math.abs(P[i] - m.fl.p[i])); model.gapV = Math.max(model.gapV, Math.abs(V[i] - m.fl.v[i])); model.gapH = Math.max(model.gapH, Math.abs(HD[i] - m.fl.head[i])); }
+            for (let i = 0; i < n * 4; i++) { model.gapA = Math.max(model.gapA, Math.abs(SA[i] - m.A[i])); model.gapB = Math.max(model.gapB, Math.abs(SB[i] - m.B[i])); }
+            for (let i = 0; i < n; i++) if (ST[i] !== m.fl.state[i] || bandOf[i] !== m.fl.band[i]) model.states = false;
+            for (let wi = 0; wi < 3; wi++) { K.wirePoints(m.wire, m.fl, wi); for (let i = 0; i < m.wire.length; i++) model.gapWire = Math.max(model.gapWire, Math.abs(state.wires[wi][i] - m.wire[i])); }
+            for (let b = 0; b < 8; b++) model.gapBands = Math.max(model.gapBands, Math.abs(state.bands[b] - m.bands[b]));
+            model.pulse = Math.abs(state.pulse - m.pulse); model.flash = Math.abs(state.flash - m.flash); model.clock = Math.abs(state.clock - m.clock); model.left = Math.abs(state.left - m.fl.left);
+            model.lead = Math.abs(state.given[1] - m.fl.left); model.counts = state.sitting === m.fl.sitting && state.flying === m.fl.flying && state.coming === m.fl.coming;
+          }
+          const size = (b) => ({ w: b[1] < 0 ? 0 : b[1] - b[0] + 1, h: b[3] < 0 ? 0 : b[3] - b[2] + 1, x0: b[0], x1: b[1], y0: b[2], y1: b[3] });
+          const g = getColor(state.colorT + PALETTE.length / 2);
+          out.push({ state, model, solid, above, part, edge, beats, stepsTaken, stepsMost, stepsLeast, flashMost, pulseMost, bounceMost, flyingMost, flyingLeast, looseFrames, phases: phases.join(), allSatAt, onBird, onCanvas, flashing, rollMost,
+            speed: state.flying ? speed / state.flying : 0, fromLead: state.flying ? fromLead / state.flying : 0, flyingBands: [...flyingBands].sort().join(), sittingBands: [...sittingBands].sort().join(), wireMid, wireEnd, wireOff,
+            band: band.map((b) => (b[3] ? [b[0] / b[3], b[1] / b[3], b[2] / b[3]] : null)), bright: solid ? sum / solid : 0, centroidX: solid ? sx / solid : 0, box: size(box), cornerAlpha: px[3], canvas: [w, h], diff, kitCam: s.camera,
+            pal: [0, 1, 2, 3, 4, 5].map((i) => getColor(state.colorT + (i * PALETTE.length) / 6).slice(0, 3)), wireColor: [0, 1, 2].map((i) => Math.round((i === 2 ? 0.35 : 0.32) * 255 + 0.14 * g[i])) });
+        }
+        return out;
+      } finally {
+        frequencies = saved.frequencies; micActive = saved.micActive; cfgIdleAnim = saved.cfgIdleAnim; cfgColorHue = saved.cfgColorHue; cfgColorSpeed = saved.cfgColorSpeed; cfgGain = saved.cfgGain;
+        if (saved.micPeak !== undefined) micPeak = saved.micPeak;
+        Object.assign(perViz[id], knobs0); TimbreScene.testLevel = null;
+      }
+    }, { id: BOIDS, steps, fps, knobs, hue, colorSpeed, gain });
+    // A picture is as the last one was, but for the stray pixel this GPU allows itself (see the glass prism's block).
+    const same = (r) => r.diff.n <= 8 && r.diff.max <= 1;
+    // And a picture that has moved differs from the last step's in more of its numbers than this.
+    const MOVES = 1000;
+    // The flock made again from the arithmetic is the scene's own, to the last digit.
+    const remade = (r) => r.model.ok && r.model.gapP === 0 && r.model.gapV === 0 && r.model.gapH === 0 && r.model.gapA === 0 && r.model.gapB === 0 && r.model.gapWire === 0 && r.model.gapBands === 0 && r.model.states && r.model.counts
+      && r.model.pulse === 0 && r.model.flash === 0 && r.model.clock < 1e-9 && r.model.left === 0 && r.model.lead < 1e-9;
+    const still = { knobs: { cameraDrift: 0 }, colorSpeed: 0, gain: 1 };
+    const like = (c, d) => (c[0] * d[0] + c[1] * d[1] + c[2] * d[2]) / ((Math.hypot(...c) || 1) * (Math.hypot(...d) || 1));
+    // The colour of band b, from the six the scene was given and how far round they have drifted (as the shader has it, near enough for telling hues apart).
+    const tint = (r, b) => { const u = (b / 8) % 1 * 6, i = Math.floor(u), f0 = u - i, f = f0 * f0 * (3 - 2 * f0), a = r.state.pal[i % 6], c = r.state.pal[(i + 1) % 6]; return [0, 1, 2].map((k) => a[k] + (c[k] - a[k]) * f); };
+    // A thump, held for three frames; talking; and no sound at all.
+    const thump = { level: 0, secs: 0.05, peak: 1 }, talk = { level: 0.6, all: 0.5 }, hush = { level: 0 };
+
+    await activate(BOIDS);
+    const boState = await sceneState();
+    const sit = await birdRun([Object.assign({ secs: 1 }, hush), Object.assign({ secs: 0.5 }, hush)], still);
+    const ss = sit[1].state;
+    check('boids is a kit scene: solid birds on three wires, a transparent corner and nothing at the edge',
+      !!boState && boState.active === true && boState.targetSize[0] === 1728 && sit[1].solid > 20000 && sit[1].solid < 45000 && sit[1].cornerAlpha === 0 && sit[1].edge === 0
+      && ss.solid === true && ss.wireSeeThrough === true && ss.wireOrder.join() === '-1,-1,-1' && ss.wirePieces.join() === '48,48,48' && ss.neverCulled === true && ss.birds === 60 && ss.drawn === 60 && ss.per === 20 && ss.shapePoints === 122 && ss.triangles === 201
+      && ss.phase === 'whole' && ss.live === true && ss.given[0] === 0.25 && JSON.stringify(ss.pal) === JSON.stringify(sit[1].pal) && JSON.stringify(ss.wireColor) === JSON.stringify(sit[1].wireColor) && new Set(ss.pal.map((c) => c.join())).size >= 3,
+      JSON.stringify({ size: boState && boState.targetSize, solid: sit[1].solid, part: sit[1].part, edge: sit[1].edge, corner: sit[1].cornerAlpha, flags: [ss.solid, ss.wireSeeThrough, ss.neverCulled], drawn: ss.drawn, pal: ss.pal, want: sit[1].pal, wire: [ss.wireColor, sit[1].wireColor] }));
+    check('boids: in silence every bird sits on its wire, nothing is in the air, and the picture is exactly still', ss.sitting === 60 && ss.flying === 0 && ss.coming === 0 && sit[1].above === 0 && same(sit[1]) && sit[1].stepsTaken === 30 && sit[1].onCanvas === 60 && sit[1].onBird >= 58 && sit.every(remade),
+      JSON.stringify({ sitting: ss.sitting, above: sit[1].above, diff: sit[1].diff, steps: sit[1].stepsTaken, on: [sit[1].onBird, sit[1].onCanvas], model: sit[1].model }));
+    check('boids: the wires are drawn where they hang: solid in the middle, faded away at their ends, and nothing a little below them', sit[1].wireMid.every((a) => a >= 250) && sit[1].wireEnd.every((a) => a >= 0 && a < 60) && sit[1].wireOff.every((a) => a === 0),
+      JSON.stringify({ mid: sit[1].wireMid, end: sit[1].wireEnd, off: sit[1].wireOff }));
+    // The wires are a spectrum: the fish of a band... the birds of a band wear its colour, and the low bands sit at the left.
+    const wears = (r) => [0, 1, 2, 3].map((b) => [like(r.band[b] || [0, 0, 0], tint(r, b)) - like(r.band[b + 4] || [0, 0, 0], tint(r, b)), like(r.band[b + 4] || [0, 0, 0], tint(r, b + 4)) - like(r.band[b] || [0, 0, 0], tint(r, b + 4))]);
+    check('boids: each bird wears the colour of the band its stretch of wire listens to', wears(sit[1]).every(([a, c]) => a > 0.02 && c > 0.02) && sit[1].sittingBands === '0,1,2,3,4,5,6,7',
+      JSON.stringify(wears(sit[1]).map((p) => p.map((v) => +v.toFixed(3)))));
+
+    // Taking off.
+    const oneBand = await birdRun([Object.assign({ secs: 0.5 }, hush), { level: 0.05, bins: [[2, 1]], secs: 1.5 }], still);
+    check('boids: a band sends up the birds on its stretch of wire, and only them', oneBand[0].state.flying === 0 && oneBand[1].flyingBands === '2' && oneBand[1].state.flying >= 6 && oneBand[1].state.flying <= 9 && oneBand[1].state.sitting >= 51 && oneBand[1].sittingBands.includes('0') && oneBand[1].above > 3000 && oneBand[1].bounceMost > 0.008 && oneBand.every(remade),
+      JSON.stringify({ flying: oneBand[1].state.flying, bands: oneBand[1].flyingBands, sitting: oneBand[1].state.sitting, above: oneBand[1].above, bounce: oneBand[1].bounceMost, model: oneBand[1].model }));
+    const quietVoice = await birdRun([Object.assign({ secs: 0.5 }, hush), { level: 0.3, secs: 1.5 }], still), loudVoice = await birdRun([Object.assign({ secs: 0.5 }, hush), { level: 0.95, secs: 1.5 }], still);
+    check('boids: a quiet voice lifts the bold birds from all along the wires, and a loud one lifts them all', quietVoice[1].state.flying > 5 && quietVoice[1].state.flying < 50 && quietVoice[1].flyingBands.split(',').length >= 5 && loudVoice[1].state.flying === 60 && loudVoice[1].state.sitting === 0 && quietVoice.every(remade) && loudVoice.every(remade),
+      JSON.stringify({ quiet: [quietVoice[1].state.flying, quietVoice[1].flyingBands], loud: loudVoice[1].state.flying }));
+    const [gained] = await birdRun([{ level: 0.02, bins: [[5, 0.2]], secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0, gain: 3 });
+    check('boids: Gain makes a band louder to its birds', gained.flyingBands === '5' && gained.state.flying >= 3 && Math.abs(gained.state.bands[5] - 3 * Math.round(0.2 * 255) / 255) < 1e-4 && remade(gained), JSON.stringify({ flying: gained.state.flying, bands: gained.flyingBands, level: gained.state.bands[5] }));
+
+    // In the air, and home again.
+    const fly = await birdRun([Object.assign({ secs: 0.5 }, hush), Object.assign({ secs: 3 }, talk), Object.assign({ secs: 0.5 }, talk), Object.assign({ secs: 5 }, hush), Object.assign({ secs: 6 }, hush), Object.assign({ secs: 0.5 }, hush)], still);
+    check('boids: in the air the birds are a flock above the wires, each drawn where the arithmetic has it, and the picture moves', fly[1].state.flying === 60 && fly[2].diff.n > MOVES && fly[2].above > 15000 && fly[2].onCanvas === 60 && fly[2].onBird >= 0.9 * 60 && fly[2].speed > 0.9 && fly[2].fromLead < 1.4 && fly[2].edge === 0 && fly[2].box.y1 > fly[0].box.y1 + 150,
+      JSON.stringify({ flying: fly[1].state.flying, moved: fly[2].diff, above: fly[2].above, on: [fly[2].onBird, fly[2].onCanvas], speed: fly[2].speed, fromLead: fly[2].fromLead, box: [fly[0].box, fly[2].box] }));
+    check('boids: in a pause every bird comes home and lands on its own seat, the wires spring under them and hang still again, and then nothing changes', fly[3].state.sitting === 60 && fly[3].allSatAt > 120 && fly[3].allSatAt < 300 && fly[3].bounceMost > 0.03 && fly[4].state.sitting === 60 && fly[4].state.bounce.join() === '0,0,0' && fly[5].above === 0 && same(fly[5]) && fly.every(remade),
+      JSON.stringify({ sitting: fly.map((r) => r.state.sitting), satAt: fly[3].allSatAt, bounce: [fly[3].bounceMost, fly[4].state.bounce], diff: fly[5].diff, model: fly.map((r) => r.model.ok && r.model.gapP) }));
+    const loudFly = await birdRun([{ level: 0.95, all: 0.6, secs: 4 }], still), softFly = await birdRun([{ level: 0.35, all: 0.6, secs: 4 }], still);
+    check('boids: louder, the flock flies faster', loudFly[0].state.flying === 60 && softFly[0].state.flying === 60 && loudFly[0].speed > 1.15 * softFly[0].speed && Math.abs(loudFly[0].state.tau - softFly[0].state.tau) > 0.5,
+      JSON.stringify({ speed: [softFly[0].speed, loudFly[0].speed], tau: [softFly[0].state.tau, loudFly[0].state.tau] }));
+    const ripple = await birdRun([{ level: 0.4, all: 0.6, secs: 3 }, { level: 0.95, all: 0.6, secs: 0.15 }, { level: 0.95, all: 0.6, secs: 1.5 }], still);
+    check('boids: a syllable is a ripple of banking through the flock: birds roll and flash as it passes, and then it has passed', ripple[1].pulseMost > 0.9 && ripple[1].flashing > 15 && ripple[1].rollMost > 0.8 && ripple[2].flashing < ripple[1].flashing / 3 && ripple[1].bright > ripple[0].bright + 15 && ripple.every(remade),
+      JSON.stringify({ pulse: ripple[1].pulseMost, flashing: [ripple[0].flashing, ripple[1].flashing, ripple[2].flashing], roll: ripple[1].rollMost, bright: ripple.map((r) => r.bright) }));
+
+    // The fright.
+    const calm3 = { knobs: { cameraDrift: 0, settleSeconds: 3 }, colorSpeed: 0, gain: 1 };
+    const fr = await birdRun([Object.assign({ secs: 1 }, hush), thump, Object.assign({ secs: 0.5 }, hush), Object.assign({ secs: 2 }, hush), Object.assign({ secs: 7 }, hush), Object.assign({ secs: 3 }, hush), Object.assign({ secs: 0.5 }, hush)], calm3);
+    check('boids: a thump of the mic is a fright: every bird is up at once, and the wires spring', fr[0].state.sitting === 60 && fr[1].state.thumps === 1 && fr[1].state.phase === 'pieces' && fr[1].state.flying === 60 && fr[1].flashMost === 1 && fr[2].bounceMost > 0.03 && fr[2].above > 15000,
+      JSON.stringify({ sitting: fr[0].state.sitting, thumps: fr[1].state.thumps, phase: fr[1].state.phase, flying: fr[1].state.flying, flash: fr[1].flashMost, bounce: fr[2].bounceMost, above: fr[2].above }));
+    check('boids: while the fright lasts the birds stay in the air though it is silent, inside the picture; when it is over they come down and land', fr[3].state.flying === 60 && fr[3].state.loose === true && fr[3].flyingLeast === 60 && fr.every((r) => r.edge === 0) && fr[4].phases.includes('returning') && fr[4].state.sitting === 60 && fr[5].state.sitting === 60 && same(fr[6]) && fr.every(remade),
+      JSON.stringify({ flying: fr.map((r) => r.state.flying), loose: fr[3].state.loose, edge: fr.map((r) => r.edge), phases: fr.map((r) => r.phases), sitting: fr.map((r) => r.state.sitting), diff: fr[6].diff, model: fr.map((r) => r.model.ok && r.model.gapP) }));
+    const again = await birdRun([Object.assign({ secs: 1 }, hush), thump, Object.assign({ secs: 0.9 }, hush), thump, Object.assign({ secs: 0.4 }, hush)], calm3);
+    check('boids: a peak while the fright lasts startles the birds again', again[2].state.jostles === 0 && again[3].state.jostles === 1 && again[3].state.thumps === 1 && again[3].flashMost >= 0.6 && again[4].state.flying === 60 && again.every(remade),
+      JSON.stringify({ jostles: again.map((r) => r.state.jostles), flash: again[3].flashMost, model: again.map((r) => r.model.ok) }));
+    const [, , never] = await birdRun([Object.assign({ secs: 0.6 }, hush), thump, Object.assign({ secs: 0.5 }, hush)], { knobs: { cameraDrift: 0, frightSensitivity: 0 }, colorSpeed: 0, gain: 1 });
+    const lasts = [];
+    for (const secs of [1, 3]) { const r = await birdRun([Object.assign({ secs: 0.6 }, hush), thump, Object.assign({ secs: 6 }, hush)], { knobs: { cameraDrift: 0, settleSeconds: secs }, colorSpeed: 0, gain: 1 }); lasts.push(r[2].looseFrames / 60); }
+    check('boids: Fright sensitivity 0 is never frightened; Settle seconds is the calm wait before the fright is over', never.state.thumps === 0 && never.state.sitting === 60 && lasts[0] > 0.9 && lasts[0] < 1.2 && lasts[1] > 2.9 && lasts[1] < 3.2 && Math.abs(lasts[1] - lasts[0] - 2) < 0.05,
+      JSON.stringify({ never: [never.state.thumps, never.state.sitting], lasts }));
+    const [, deaf] = await birdRun([{ level: 0, idle: true, secs: 1 }, { level: 0, idle: true, secs: 0.3, peak: 1 }], still);
+    check('boids: with the mic off a peak frightens nothing', deaf.state.phase === 'whole' && deaf.state.thumps === 0 && deaf.flashMost === 0 && remade(deaf), JSON.stringify({ phase: deaf.state.phase, thumps: deaf.state.thumps }));
+
+    // The settings.
+    const dens = await birdRun([Object.assign({ secs: 0.5, knobs: { density: 0 } }, hush), Object.assign({ secs: 0.5, knobs: { density: 100 } }, hush), Object.assign({ secs: 2, knobs: { density: 100 } }, talk), Object.assign({ secs: 0.05, knobs: { density: 0 } }, talk), Object.assign({ secs: 6, knobs: { density: 0 } }, hush)], still);
+    check('boids: Density is how many birds there are, 36 to 84, re-seated at once, sitting or in the air', dens[0].state.drawn === 36 && dens[0].state.per === 12 && dens[0].state.sitting === 36 && dens[1].state.drawn === 84 && dens[1].state.sitting === 84 && dens[1].solid > 1.6 * dens[0].solid && dens[1].onBird >= 80 && dens[1].sittingBands === '0,1,2,3,4,5,6,7'
+      && dens[2].state.flying === 84 && dens[3].state.drawn === 36 && dens[3].state.flying === 36 && dens[4].state.sitting === 36 && dens.every(remade) && dens.every((r) => r.edge === 0),
+      JSON.stringify({ drawn: dens.map((r) => r.state.drawn), sitting: dens.map((r) => r.state.sitting), flying: dens.map((r) => r.state.flying), solid: dens.map((r) => r.solid), model: dens.map((r) => r.model.ok) }));
+    const coh = [];
+    for (const c of [0, 100]) coh.push((await birdRun([Object.assign({ secs: 5 }, talk)], { knobs: { cameraDrift: 0, cohesion: c }, colorSpeed: 0, gain: 1 }))[0]);
+    check('boids: Cohesion: a loose flock at 0, a tight one at 100', coh[0].state.spread === 2 && coh[1].state.spread === 0.5 && coh[0].fromLead > 1.12 * coh[1].fromLead && coh.every(remade),
+      JSON.stringify({ spread: coh.map((r) => r.state.spread), fromLead: coh.map((r) => r.fromLead), box: coh.map((r) => r.box.w) }));
+    const drift = [];
+    for (const d of [0, 50, 100]) drift.push((await birdRun([Object.assign({ secs: 0.5 }, hush)], { knobs: { cameraDrift: d }, colorSpeed: 0, gain: 1 }))[0]);
+    check('boids: Camera drift sways the camera: not at all at 0, twice as far at 100 as at 50', drift[0].state.orbit === 0 && Math.abs(drift[1].state.orbit) > 1e-3 && Math.abs(drift[2].state.orbit - 2 * drift[1].state.orbit) < 1e-9 && Math.abs(drift[1].kitCam[0]) > 0.01 && Math.abs(drift[0].kitCam[0]) < 1e-9 && drift.every(remade),
+      JSON.stringify({ orbit: drift.map((r) => r.state.orbit), cam: drift.map((r) => r.kitCam) }));
+
+    // The mic off: idle, and nothing live.
+    const idle = await birdRun([{ level: 0, idle: true, secs: 6 }, { level: 0, idle: true, secs: 0.5 }], still);
+    check('boids: with the mic off and Idle animation on, the bands swell in turn, and stretches of wire empty and fill', idle[0].flyingMost >= 6 && idle[0].flyingLeast < idle[0].flyingMost && idle[0].stepsTaken === 360 && idle[1].state.live === true && idle.every(remade),
+      JSON.stringify({ most: idle[0].flyingMost, least: idle[0].flyingLeast, steps: idle[0].stepsTaken, model: idle[0].model }));
+    const off = await birdRun([Object.assign({ secs: 2 }, talk), { level: 0, off: true, secs: 2 }, { level: 0, off: true, secs: 0.5 }, { level: 0, off: true, secs: 3 }, Object.assign({ secs: 6 }, hush)], still);
+    check('boids: with the mic and Idle animation off, nothing moves: birds in the air stop where they are, and the picture does not change; they land when the mic is back', off[0].state.flying === 60 && off[1].state.live === false && off[2].stepsTaken === 0 && off[3].stepsTaken === 0 && off[3].state.flying === 60 && same(off[2]) && same(off[3]) && off[3].state.clock === off[1].state.clock && off[3].above > 15000 && off[4].state.sitting === 60 && off.every(remade),
+      JSON.stringify({ flying: off.map((r) => r.state.flying), steps: off.map((r) => r.stepsTaken), diff: [off[2].diff, off[3].diff], sitting: off[4].state.sitting, model: off.map((r) => r.model.ok) }));
+    const offFright = await birdRun([Object.assign({ secs: 1 }, hush), thump, Object.assign({ secs: 0.5 }, hush), { level: 0, off: true, secs: 5 }, { level: 0, off: true, secs: 0.5 }, Object.assign({ secs: 2 }, hush), Object.assign({ secs: 7 }, hush)], calm3);
+    check('boids: the mic going off during a fright stops the birds in the air, and no time passes for the fright: it lasts its calm wait once the mic is back', offFright[3].phases === 'pieces' && offFright[4].state.flying === 60 && offFright[4].stepsTaken === 0 && same(offFright[4]) && offFright[5].phases === 'pieces' && offFright[5].state.flying === 60 && offFright[6].phases.startsWith('pieces,returning') && offFright[6].state.sitting === 60 && offFright.every(remade),
+      JSON.stringify({ phases: offFright.map((r) => r.phases), flying: offFright.map((r) => r.state.flying), diff: offFright[4].diff, sitting: offFright[6].state.sitting, model: offFright.map((r) => r.model.ok) }));
+
+    // The frame rate, frames early and late, and a long frame.
+    const [at60] = await birdRun([Object.assign({ secs: 2 }, talk)], still), [at30] = await birdRun([Object.assign({ secs: 2 }, talk)], Object.assign({ fps: 30 }, still));
+    const [early] = await birdRun([Object.assign({ secs: 2 + 1 / 60, wobble: 0.2 }, talk)], still);
+    check('boids: at 30 frames a second it takes two steps a frame; frames a fifth early and late are still one step each at 60, and each bird in the air is drawn as far on as the flock is ahead of or behind its steps', at60.stepsTaken === 120 && at30.stepsTaken === 120 && at60.stepsMost === 1 && at30.stepsMost === 2 && at30.stepsLeast === 2 && early.stepsLeast === 1 && early.stepsMost === 1 && early.stepsTaken === 121
+      && Math.abs(Math.abs(early.state.left) - 0.2 / 60) < 1e-9 && Math.abs(early.state.given[1] - early.state.left) < 1e-9 && at60.state.left === 0 && at60.state.given[1] === 0 && Math.abs(at30.speed - at60.speed) < 0.08 * at60.speed && remade(at30) && remade(early),
+      JSON.stringify({ steps: [at60.stepsTaken, at30.stepsTaken, early.stepsTaken], most: [at60.stepsMost, at30.stepsMost, early.stepsMost], left: early.state.left, given: early.state.given, speed: [at60.speed, at30.speed] }));
+    const [, longFrame] = await birdRun([Object.assign({ secs: 1 }, talk), Object.assign({ secs: 0.5, gap: 4000 }, talk)], Object.assign({ fps: 2 }, still));
+    check('boids: a frame that takes half a second is six steps and no more, and the birds are still in the picture', longFrame.stepsMost === 6 && longFrame.stepsTaken === 6 && longFrame.edge === 0 && longFrame.state.left === 0 && longFrame.onCanvas === 60,
+      JSON.stringify({ most: longFrame.stepsMost, taken: longFrame.stepsTaken, edge: longFrame.edge, left: longFrame.state.left, on: longFrame.onCanvas }));
+    await pushConfig((c) => { c.activeViz = BOIDS; c.placement.x = 30; });
+    await wide.waitForTimeout(300);
+    const [placed] = await birdRun([Object.assign({ secs: 1 }, hush)], still);
+    await pushConfig((c) => { c.placement.x = 0; });
+    await wide.waitForTimeout(300);
+    check('boids: Scene placement slides it', placed.centroidX - sit[1].centroidX > 150 && placed.solid > 0.9 * sit[1].solid, JSON.stringify({ x: [sit[1].centroidX, placed.centroidX], solid: [sit[1].solid, placed.solid] }));
+
+    // The small page.
+    const smallBirds = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz['boids']); window.frame = function () {}; try { perViz['boids'].cameraDrift = 0; TimbreScene.testLevel = 0; frequencies = new Uint8Array(32); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('boids');
+      const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+      const read = () => { gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); let solid = 0, edge = 0, top = 0; for (let i = 0; i < px.length; i += 4) if (px[i + 3] >= 250) { solid++; const x = (i / 4) % w, y = Math.floor(i / 4 / w); if (y > h / 2) top++; if (x < 2 || y < 2 || x >= w - 2 || y >= h - 2) edge++; } return { solid, edge, top }; };
+      let now = 200000;
+      for (let i = 0; i < 60; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      const sitting = read(), s = window.__timbre.scene.state, sat = s.sitting;
+      TimbreScene.testLevel = 0.9;
+      for (let i = 0; i < 180; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      const flying = read(), s2 = window.__timbre.scene.state;
+      return { canvas: [w, h], sitting, sat, flying, up: s2.flying };
+    } finally { TimbreScene.testLevel = null; window.frame = fr; frequencies = heard.frequencies; micActive = heard.micActive; if (heard.micPeak !== undefined) micPeak = heard.micPeak; Object.assign(perViz['boids'], knobs0); setActiveViz('visualizer'); } });
+    check('boids: on the small page the birds sit on their wires in the lower half and fly in the upper, inside the picture', smallBirds.sat === 60 && smallBirds.sitting.solid > 500 && smallBirds.sitting.top === 0 && smallBirds.sitting.edge === 0 && smallBirds.up === 60 && smallBirds.flying.top > 800 && smallBirds.flying.edge === 0,
+      JSON.stringify(smallBirds));
+    await wide.bringToFront();
+    await wide.waitForTimeout(300);
+    // Loud, in the air: a frame's script time, and a frame drawn and finished by the GPU.
+    const boCost = await wide.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz['boids']); window.frame = function () {}; try { perViz['boids'].density = 100; TimbreScene.testLevel = 0.9; frequencies = new Uint8Array(32).fill(255); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('boids');
+      const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), one = new Uint8Array(4); let now = performance.now();
+      for (let i = 0; i < 120; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      let script = 0, whole = 0;
+      for (let i = 0; i < 60; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); script += performance.now() - t; }
+      for (let i = 0; i < 60; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, one); whole += performance.now() - t; }
+      return { script: script / 60, whole: whole / 60, flying: window.__timbre.scene.state.flying }; } finally { TimbreScene.testLevel = null; window.frame = fr; frequencies = heard.frequencies; micActive = heard.micActive; if (heard.micPeak !== undefined) micPeak = heard.micPeak; Object.assign(perViz['boids'], knobs0); } });
+    check('boids: loud, with all 84 birds in the air, draw() averages under 2 ms of script time, and a frame drawn and finished by the GPU under 7 ms (' + boCost.script.toFixed(2) + ' and ' + boCost.whole.toFixed(2) + ' ms)',
+      boCost.flying === 84 && boCost.script < 2 && boCost.whole < 7, JSON.stringify(boCost));
+
+    }
+
     // Every kit scene, so the next one is covered without a new check.
     const gpuAfterSelect = (name) => wide.evaluate((n) => { setActiveViz('visualizer'); setActiveViz(n); currentViz.draw(performance.now(), 1 / 60); const s = window.__timbre.scene; return [s.memory.geometries, s.memory.textures, s.programs]; }, name);
     for (const name of T.VIZ_SCENES) {
@@ -4322,7 +4602,7 @@ async function main() {
       } finally { gl.createTexture = create; gl.deleteTexture = del; }
       return out;
     }, T.VIZ_SCENES);
-    const TEXTURES = { 'thanksgiving-harvest': 9, 'winter-aurora': 8, 'pride-ribbon': 5, 'bi-pride-ribbon': 5, 'ace-pride-ribbon': 5, 'trans-pride-ribbon': 5, 'july-fourth-stripes': 7, 'sunburst-3d': 5, 'mountains-3d': 5, 'phosphor': 4, 'chladni': 4, 'glass-prism': 4, 'metaball': 3, 'ink': 3, 'shards': 3, 'jelly': 3, 'school-of-fish': 2 };
+    const TEXTURES = { 'thanksgiving-harvest': 9, 'winter-aurora': 8, 'pride-ribbon': 5, 'bi-pride-ribbon': 5, 'ace-pride-ribbon': 5, 'trans-pride-ribbon': 5, 'july-fourth-stripes': 7, 'sunburst-3d': 5, 'mountains-3d': 5, 'phosphor': 4, 'chladni': 4, 'glass-prism': 4, 'metaball': 3, 'ink': 3, 'shards': 3, 'jelly': 3, 'school-of-fish': 2, 'boids': 2 };
     check('a scene deletes every GL texture it made, whichever scene ran before it',
       Object.keys(texturesLeft).length === T.VIZ_SCENES.length ** 2 && Object.entries(texturesLeft).every(([pair, [made, left]]) => made >= TEXTURES[pair.split(' then ')[1]] && left === 0), JSON.stringify(texturesLeft));
 

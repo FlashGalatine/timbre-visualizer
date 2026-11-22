@@ -32,15 +32,17 @@ the sound does is send them up.
   its nerve. Every bird's nerve is its own: a quiet word lifts the bold ones and a loud one
   lifts them all. As it leaves, the wire springs up.
 - **In the air** the birds are a real flock: each keeps clear of the birds near it and flies
-  the way they fly, and all follow a lead that wheels round the box above the wires. Louder,
-  the lead goes faster and swings wider. A bird banks into its turns, beats its wings harder to
+  the way they fly, and all follow a lead that wheels round the box above the wires. A bird
+  flies at a cruising speed and steers by turning, so the flock swirls about its lead. Louder,
+  the lead goes faster and swings wider and the birds fly faster. A bird banks into its turns, beats its wings harder to
   climb and glides when it sinks.
 - **A syllable** is a ripple of banking that runs back through the flock from the lead: each
   bird rolls and flashes as it passes.
 - **A pause.** A bird that has heard nothing for about a second glides back to its own place
   on its wire, spreads its wings to land, and folds them. The wire dips under it and springs.
 - **Silence**, with the mic on: every bird is sitting, and once the wires have stopped
-  swinging the picture is exactly still.
+  swinging the picture is exactly still. (So the birds' colours do not drift with the clock;
+  they move only as the palette's own Colour speed moves them.)
 - **With the mic off and Idle animation on**, the bands swell a little in turn, so stretches of
   wire empty and fill.
 - **With both off**, nothing moves: birds in the air stop where they are.
@@ -51,8 +53,8 @@ A hard peak is a fright. When it happens, and when it is over, is `TimbreHelix`'
 machine, the one DNA, Glass Prism, Jelly and School of Fish use.
 
 - Every bird, sitting or flying, bursts up and away at once, and the wires spring.
-- While the fright lasts the birds stay in the air, however quiet it is, and fly loose: wider
-  of the lead and faster.
+- While the fright lasts the birds stay in the air, however quiet it is, and fly loose: faster,
+  and each to its own part of the air, not after the lead.
 - A peak while it lasts startles them again.
 - After the calm wait the fright is over, and each bird goes by what it hears again: in
   silence they come down and land.
