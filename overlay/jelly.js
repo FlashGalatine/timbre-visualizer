@@ -815,7 +815,7 @@
         bg.setAttribute('lit', new THREE.BufferAttribute(bubLit.subarray(a, b), 1).setUsage(THREE.DynamicDrawUsage));
         bg.setAttribute('size', new THREE.BufferAttribute(bub.size.subarray(a, b), 1));
         const pts = new THREE.Points(bg, bubbleMat);
-        pts.frustumCulled = false; pts.renderOrder = 1;
+        pts.frustumCulled = false;   // when it is drawn is set each frame: with the cube, or with its own slab
         group.add(pts);
         bubbleSets.push(pts);
       }
@@ -1012,7 +1012,7 @@
           bands: Array.from(bands), sq: sq.slice(), trail, sinceReturn, left: body.left, pulled: body.pulled,
           turnedTo: [group.rotation.x, group.rotation.y, group.rotation.z], scale: group.scale.x,
           cube: { shown: far.visible && nearSide.visible, order: [far.renderOrder, nearSide.renderOrder], far: mat(far.material), near: mat(nearSide.material), sameSkin: far.geometry === nearSide.geometry },
-          slabs: slabs.map((sb, i) => ({ tile: tileOf(sb.far.geometry), faced: facedOf(sb.far.geometry), shown: sb.group.visible, at: sb.group.position.toArray(), turned: [sb.group.rotation.x, sb.group.rotation.y, sb.group.rotation.z], order: [sb.far.renderOrder, bubbleSets[i].renderOrder, sb.near.renderOrder],
+          slabs: slabs.map((sb, i) => ({ tile: tileOf(sb.far.geometry), faced: facedOf(sb.far.geometry), shown: sb.group.visible, at: sb.group.position.toArray(), turned: [sb.group.rotation.x, sb.group.rotation.y, sb.group.rotation.z], order: [sb.far.renderOrder, bubbleSets[i].renderOrder, sb.near.renderOrder], away: dist[i],
             far: mat(sb.far.material), near: mat(sb.near.material), points: sb.far.geometry.attributes.position.count, sameTile: sb.far.geometry === sb.near.geometry })),
           flight: { p: Array.from(sl.p), r: Array.from(sl.r), tp: Array.from(sl.tp), tr: Array.from(sl.tr), shown: Array.from(sl.shown), turned: Array.from(sl.turned), q: Array.from(sl.q), bend: Array.from(sl.bend), loose: Array.from(sl.loose), landed: Array.from(sl.landed) },
           bubbleSets: bubbleSets.map((b) => ({ count: b.geometry.attributes.position.count, order: b.renderOrder })), bubbleFirst: bubFirst.slice(), bubbleSlab: Array.from(bub.slab),

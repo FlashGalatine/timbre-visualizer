@@ -4229,9 +4229,11 @@ await import('./overlay/jelly.js');
     const count = (fps, secs) => { const b = K.createBody(); let n = 0, each = new Set(); for (let i = 0; i < Math.round(fps * secs); i++) { const k = K.advance(b, 1 / fps, 1, 0); n += k; each.add(k); } return { n, each: [...each].sort().join(), left: b.left }; };
     const c60 = count(60, 1), c30 = count(30, 1), c144 = count(144, 1), c240 = count(240, 1), c1000 = count(1000, 1);
     const long = K.createBody(), took = K.advance(long, 1, 1, 0), took2 = K.advance(long, 0, 1, 0), took3 = K.advance(long, NaN, 1, 0), took4 = K.advance(long, -1, 1, 0);
+    const part = K.createBody(), part1 = K.advance(part, 0.75 * K.STEP, 1, 0), partLeft = part.left, part2 = K.advance(part, 0.5 * K.STEP, 1, 0);
     ok(still && c60.n === 240 && c60.each === '4' && c30.n === 240 && c30.each === '8' && c144.n === 240 && c240.n === 240 && c240.each === '1' && Math.abs(c1000.n - 240) <= 1
-      && took === K.STEPS_MAX && long.left === 0 && took2 === 0 && took3 === 0 && took4 === 0 && long.left === 0,
-      'the body is stepped 240 times a second at any frame rate; a frame of a whole second takes 24 steps and lets the rest go');
+      && took === K.STEPS_MAX && long.left === 0 && took2 === 0 && took3 === 0 && took4 === 0 && long.left === 0
+      && part1 === 0 && near(partLeft, 0.75 * K.STEP, 1e-15) && part2 === 1 && near(part.left, 0.25 * K.STEP, 1e-12),
+      'the body is stepped 240 times a second at any frame rate, a step only once all of it has come due; a frame of a whole second takes 24 steps and lets the rest go');
   }
   {
     // The same sound, the same wobble at 30 and 60 frames a second: to the last digit when what pulls it does not change.
@@ -4331,6 +4333,8 @@ await import('./overlay/jelly.js');
     for (let i = 0; i < V; i++) if (!near(pos[i * 3], sk.points[i * 3] * wide, 1e-6) || !near(pos[i * 3 + 1], sk.points[i * 3 + 1] * 0.8, 1e-6) || !near(pos[i * 3 + 2], sk.points[i * 3 + 2] * wide, 1e-6)) squashed = false;
     for (let n = 0; n < NN; n++) { body.u[n * 3] = 0.1; body.vel[n * 3 + 2] = 2; }
     const measured = K.measure(body) === body && body.speed[MID] === 2 && body.speed[0] === 2 && near(body.most, 0.1, 1e-12);
+    const one = K.createBody(); one.u[0] = 0.3; one.u[1] = 0.4; K.measure(one);
+    const firstFar = near(one.most, 0.5, 1e-6);   // the furthest point is the furthest, wherever in the body it is
     const r2 = K.shape(pos, stir, body, sk.points, cells, fracs, 0, 0.22);
     let moved = true; for (let i = 0; i < V; i++) if (!near(pos[i * 3], sk.points[i * 3] + 0.1, 1e-6) || !near(pos[i * 3 + 1], sk.points[i * 3 + 1], 1e-6) || !near(stir[i], 0.44, 1e-6)) moved = false;
     for (let n = 0; n < NN; n++) body.u[n * 3] = -0.1;
@@ -4339,7 +4343,7 @@ await import('./overlay/jelly.js');
     for (let n = 0; n < NN; n++) body.vel[n * 3 + 2] = 50;
     K.measure(body);
     K.shape(pos, stir, body, sk.points, cells, fracs, 0, 0.22);
-    ok(same && measured && near(r0, WHOLE, 1e-6) && most(stir) === 1 && squashed && r1 > r0 && moved && r2 > r0 && near(body.most, 0.1, 1e-9) && near(r3, far3, 1e-6) && r3 > r0 && r4 === r5 && r6 === r7 && Number.isFinite(r4) && r6 !== r4
+    ok(same && measured && firstFar && near(r0, WHOLE, 1e-6) && most(stir) === 1 && squashed && r1 > r0 && moved && r2 > r0 && near(body.most, 0.1, 1e-9) && near(r3, far3, 1e-6) && r3 > r0 && r4 === r5 && r6 === r7 && Number.isFinite(r4) && r6 !== r4
       && K.shownSquash(0.2) === 0.2 && K.shownSquash(0.9) === 0.3 && K.shownSquash(-0.9) === -0.3 && near(K.wideFor(0.2) * K.wideFor(0.2) * (1 - 0.2), 1) && near(K.wideFor(-0.3) * K.wideFor(-0.3) * 1.3, 1) && K.wideFor(0) === 1,
       'at rest the skin is the rounded cube, its furthest point ' + r0.toFixed(4) + ' from the middle; squashed it is flatter and wider by as much as keeps its volume; it brightens where the body is moving');
   }

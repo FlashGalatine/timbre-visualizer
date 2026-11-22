@@ -3535,17 +3535,25 @@ async function main() {
           if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
           frequencies = f;
           micPeak = st.peak || 0;
-          let beats = 0, mostSeen = 0, stepsSeen = new Set(), landedAt = [], stopped = !!st.gap;
+          let beats = 0, mostSeen = 0, stepsSeen = new Set(), landedAt = [], stopped = !!st.gap, stale = 0, over = 0, shownGap = 0;
           if (st.gap) now += st.gap;
           for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) {
             now += 1000 / fps;
-            const before = window.__timbre.scene ? window.__timbre.scene.state : null, b0 = before ? before.beats : 0, l0 = before ? before.landed : 0, dt = 1 / fps;
+            const before = window.__timbre.scene ? window.__timbre.scene.state : null, b0 = before ? before.beats : 0, l0 = before ? before.landed : 0, sh0 = before ? before.shaped : -1, dt = 1 / fps;
             currentViz.draw(now, dt);
             const live = window.__timbre.scene.state, beat = live.beats > b0;
             if (beat) beats++;
             if (live.most > mostSeen) mostSeen = live.most;
             stepsSeen.add(live.steps);
             for (let k = l0; k < live.landed; k++) landedAt.push(i);
+            // stale: frames on which a cube whose squash or flash was not yet spent was not worked out and sent again. over: times a slab's squash or bend
+            // was past its limit. shownGap: how far what a slab was drawn with was from that squash and bend held to their limits.
+            if (live.phase === 'whole' && (live.sq[0] !== 0 || live.sq[1] !== 0 || live.flash !== 0) && live.shaped === sh0) stale++;
+            if (live.phase !== 'whole') for (let k = 0; k < 4; k++) {
+              const q = live.flight.q[k], bd = live.flight.bend[k];
+              if (Math.abs(q) > K.SQUASH_MAX || Math.abs(bd) > K.BEND_MAX) over++;
+              for (const mt of [live.slabs[k].far, live.slabs[k].near]) shownGap = Math.max(shownGap, Math.abs(mt.squash - K.shownSquash(q)), Math.abs(mt.bend - K.shownBend(bd)));
+            }
             if (micActive || cfgIdleAnim) m.clock += dt;
             const flame = live.flame, firm = K.firmOf(perViz[id].stiffness), rise = Math.max(0, flame - m.lastFlame);
             m.lastFlame = flame;
@@ -3636,7 +3644,7 @@ async function main() {
           }
           // Every point of the skin (or, apart, of the four slabs, bent, squashed, turned and carried as the arithmetic has them), as the camera saw it: the box
           // they lie in, in pixels, beside the box of what the GPU drew.
-          let boxGap = 99;
+          let boxGap = 99; const glint = [];
           if (state.world && state.view && state.proj && cover[1] >= 0) {
             const Wm = state.world, Vm = state.view, Pm = state.proj, seen = [Infinity, -Infinity, Infinity, -Infinity];
             const mul = (mt, v) => [mt[0] * v[0] + mt[4] * v[1] + mt[8] * v[2] + mt[12] * v[3], mt[1] * v[0] + mt[5] * v[1] + mt[9] * v[2] + mt[13] * v[3], mt[2] * v[0] + mt[6] * v[1] + mt[10] * v[2] + mt[14] * v[3], mt[3] * v[0] + mt[7] * v[1] + mt[11] * v[2] + mt[15] * v[3]];
@@ -3647,13 +3655,26 @@ async function main() {
               for (let i = 0; i < 4; i++) { const wide = K.slabWide(i); for (let j = 0; j < tile.length; j += 3) { K.bent(o, tile[j] * wide, tile[j + 1] * K.THIN, tile[j + 2] * wide, fl.q[i], fl.bend[i]); K.slabPoint(o, fl, i, o[0], o[1], o[2]); see(o[0], o[1], o[2]); } }
             }
             boxGap = Math.max(Math.abs(seen[0] - cover[0]), Math.abs(seen[1] - (cover[1] + 1)), Math.abs(seen[2] - cover[2]), Math.abs(seen[3] - (cover[3] + 1)));
+            // The bubbles: at each one that has jelly all round it, how much brighter the brightest pixel within it is than the jelly round it (the three colours added).
+            if (state.phase === 'whole' && state.px) {
+              if (!m.sizes) { const made = K.bubblesAt(K.SEED), by = Array.from({ length: K.BUBBLES }, (_, i) => i).sort((a, b) => made.slab[a] - made.slab[b] || a - b); m.sizes = by.map((i) => made.size[i]); }
+              const bub = state.bubbles, lum = (x, y) => { x = Math.round(x); y = Math.round(y); if (x < 0 || y < 0 || x >= w || y >= h) return -1; const i = (y * w + x) * 4; return px[i + 3] >= 100 ? px[i] + px[i + 1] + px[i + 2] : -1; };
+              for (let i = 0; i < m.sizes.length; i++) {
+                const mv = mul(Vm, mul(Wm, [bub[i * 3], bub[i * 3 + 1], bub[i * 3 + 2], 1])), c = mul(Pm, mv), cx = ((c[0] / c[3]) * 0.5 + 0.5) * w, cy = ((c[1] / c[3]) * 0.5 + 0.5) * h, R = 0.5 * Math.max(1.5, (m.sizes[i] * state.px) / -mv[2]);
+                let round = 0, inside = true, best = 0;
+                for (let a = 0; a < 8; a++) { const v = lum(cx + 1.6 * R * Math.cos((a * Math.PI) / 4), cy + 1.6 * R * Math.sin((a * Math.PI) / 4)); if (v < 0) inside = false; round += v; }
+                if (!inside) continue;
+                for (let y = Math.floor(cy - 0.8 * R); y <= Math.ceil(cy + 0.8 * R); y++) for (let x = Math.floor(cx - 0.8 * R); x <= Math.ceil(cx + 0.8 * R); x++) best = Math.max(best, lum(x, y));
+                glint.push(Math.round(best - round / 8));
+              }
+            }
           }
           let stirMost = 0, litMost = 0; { const st2 = state.stirred || [], bl = state.bubbleLit || []; for (const v of st2) if (v > stirMost) stirMost = v; for (const v of bl) if (v > litMost) litMost = v; }
           // Apart: what is drawn, worked out again from the slabs' flight.
-          const apart = { slabGap: 99, euler: 99, ride: 99, ranks: false, reachGap: 99, far: 0 };
+          const apart = { slabGap: 99, euler: 99, ride: 99, ranks: false, reachGap: 99, far: 0, away: 99 };
           if (state.phase && state.phase !== 'whole') {
             const fl = state.flight, sl = { shown: fl.shown, turned: fl.turned, q: fl.q, bend: fl.bend }, o = [0, 0, 0], bub = state.bubbles, home = state.bubbleHome, cam = s.camera;
-            apart.slabGap = 0; apart.euler = 0; apart.ride = 0;
+            apart.slabGap = 0; apart.euler = 0; apart.ride = 0; apart.away = 0;
             const dist = [];
             for (let i = 0; i < 4; i++) {
               const sb = state.slabs[i], want = [fl.shown[i * 3], K.slabAt(i) + fl.shown[i * 3 + 1], fl.shown[i * 3 + 2]];
@@ -3664,6 +3685,7 @@ async function main() {
               apart.euler = Math.max(apart.euler, Math.abs(o[0] - want[0] - e.x), Math.abs(o[1] - want[1] - e.y), Math.abs(o[2] - want[2] - e.z));
               const world = new THREE.Vector3(want[0], want[1], want[2]).applyEuler(new THREE.Euler(state.turnedTo[0], state.turnedTo[1], state.turnedTo[2], 'XYZ')).multiplyScalar(state.scale);
               dist.push(Math.hypot(world.x - cam[0], world.y - cam[1], world.z - cam[2]));
+              apart.away = Math.max(apart.away, Math.abs(dist[i] - sb.away));   // put in order by where the cube stands this frame, not the last
             }
             for (let i = 0; i < 46; i++) {
               const b = state.bubbleSlab[i];
@@ -3680,7 +3702,7 @@ async function main() {
             for (const key of ['p', 'r', 'tp', 'tr', 'shown', 'turned', 'q', 'bend', 'loose', 'landed']) for (let i = 0; i < fl[key].length; i++) model.gapFlight = Math.max(model.gapFlight, Math.abs(fl[key][i] - m.sl[key][i]));
           }
           const size = (b) => ({ w: b[1] < 0 ? 0 : b[1] - b[0] + 1, h: b[3] < 0 ? 0 : b[3] - b[2] + 1, x0: b[0], x1: b[1], y0: b[2], y1: b[3] });
-          out.push({ state, model, apart, boxGap, corners, latticeMost, midUp, mostSeen, stepsSeen: [...stepsSeen].sort().join(), landedAt, stirMost, litMost, jelly, part, light, edge, beats, foot, top,
+          out.push({ state, model, apart, boxGap, corners, latticeMost, midUp, mostSeen, stepsSeen: [...stepsSeen].sort().join(), landedAt, stale, over, shownGap, glint, stirMost, litMost, jelly, part, light, edge, beats, foot, top,
             alpha: jelly ? alpha / jelly : 0, bright: jelly ? sum / jelly : 0, centroidX: jelly ? sx / jelly : 0, box: size(box), cornerAlpha: px[3], canvas: [w, h], hash, diff, kitCam: s ? s.camera : null,
             pal: [0, 1, 2, 3, 4, 5].map((i) => getColor(state.colorT + (i * PALETTE.length) / 6).slice(0, 3)), bubbleColor: getColor(state.colorT + PALETTE.length / 2).slice(0, 3), haloColor: getColor(state.colorT + 1).slice(0, 3) });
         }
@@ -3696,8 +3718,8 @@ async function main() {
     const same = (r) => r.diff.n <= 8 && r.diff.max <= 1;
     // And a picture that has moved differs from the last step's in more of its numbers than this.
     const MOVES = 1000;
-    const remade = (r) => r.model.ok && r.model.gapU < 1e-12 && r.model.gapSq < 1e-12 && r.model.gapBands < 1e-12 && r.model.gapPos < 1e-6 && r.model.gapNorm < 1e-5 && r.model.gapReach < 1e-6 && r.model.gapBub < 1e-6 && r.model.gapLit < 1e-6;
-    const reworked = (r) => r.model.gapFlight < 1e-12 && r.apart.slabGap < 1e-12 && r.apart.euler < 1e-9 && r.apart.ride < 1e-5 && r.apart.ranks && r.apart.reachGap < 1e-9;
+    const remade = (r) => r.model.ok && r.model.gapU < 1e-12 && r.model.gapSq < 1e-12 && r.model.gapBands < 1e-12 && r.model.gapPos < 1e-6 && r.model.gapNorm < 1e-5 && r.model.gapReach < 1e-6 && r.model.gapBub < 1e-6 && r.model.gapLit < 1e-6 && r.stale === 0;
+    const reworked = (r) => r.model.gapFlight < 1e-12 && r.apart.slabGap < 1e-12 && r.apart.euler < 1e-9 && r.apart.ride < 1e-5 && r.apart.ranks && r.apart.reachGap < 1e-9 && r.apart.away < 1e-9 && r.shownGap < 1e-12;
     // How many pixels of the picture a unit is, one unit from the camera, on the wide page at its own size.
     const PX = 624 / (2 * Math.tan(Math.PI / 12));
     // How far, in pixels, the box the GPU drew may be from the box the arithmetic gives. Measured (0.85 at most, whole or apart), and set at twice that.
@@ -3732,6 +3754,12 @@ async function main() {
       JSON.stringify({ most: hs.most, sq: hs.sq, reach: hs.reach, steps: jeHush.stepsSeen, model: jeHush.model, boxGap: jeHush.boxGap }));
     check('jelly: the cube at rest is drawn as it was measured', Math.abs(jeHush.jelly - CUBE_PIXELS) < 0.03 * CUBE_PIXELS && gap([jeHush.box.x0, jeHush.box.x1, jeHush.box.y0, jeHush.box.y1], CUBE_BOX) <= 4 && Math.abs(jeHush.alpha - CUBE_ALPHA) < 6 && Math.abs(jeHush.bright - CUBE_BRIGHT) < 25 && jeHush.edge === 0,
       JSON.stringify({ jelly: jeHush.jelly, box: [jeHush.box.x0, jeHush.box.x1, jeHush.box.y0, jeHush.box.y1], alpha: jeHush.alpha, bright: jeHush.bright, part: jeHush.part, light: jeHush.light }));
+    // How much brighter than the jelly round it a bubble's brightest pixel must be to count as drawn, the three colours added, of 765. Measured: 46 to 168 at
+    // all 46 bubbles; with no bubbles drawn, four places pass it (where the jelly's own highlights are).
+    const GLINT = 40;
+    const glinting = (r) => r.glint.filter((v) => v > GLINT).length;
+    check('jelly: its bubbles are drawn: at most of them, a glint brighter than the jelly round it', jeHush.glint.length >= 30 && glinting(jeHush) >= 0.7 * jeHush.glint.length,
+      JSON.stringify({ glints: jeHush.glint }));
     const [jeSoft, jeBeat] = await jellyRun([{ level: 0.05, all: 0.5, secs: 1 }, { level: 0.9, all: 0.8, secs: 1 }], { gain: 1 });
     check('jelly: every point of the body is where the arithmetic puts it, frame for frame: the bands followed, the pulls, the lift, the slaps, the squash, the skin and the way it faces', remade(jeLoud) && remade(jeSoft) && remade(jeBeat) && jeSoft.state.beats === 0 && jeBeat.state.beats >= 1
       && jeBeat.model.slaps === jeBeat.state.slaps && jeBeat.state.slaps === jeBeat.state.beats && jeBeat.mostSeen > 0.15 && jeLoud.mostSeen > 0.15,
@@ -3786,6 +3814,18 @@ async function main() {
     for (const fps of [12, 14]) slow[fps] = (await jellyRun([{ level: 0.3, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, peak: 1, secs: 1 / fps }, { level: 0.3, all: 0.5, secs: 3 }], { ...quick, fps }))[2];
     check('jelly: at 12 and 14 frames a second, where one frame carries the top slab past its landing, all four slabs have still landed when the cube sets', [12, 14].every((fps) => slow[fps].state.phase === 'whole' && slow[fps].state.landed === 4 && slow[fps].state.thumps === 1 && remade(slow[fps])),
       JSON.stringify({ landed: [slow[12].state.landed, slow[14].state.landed], phase: [slow[12].state.phase, slow[14].state.phase], model: [slow[12].model, slow[14].model] }));
+    const [, , whole2, , back2] = await jellyRun([{ level: 0.3, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, peak: 1, secs: 1 / 60 }, { level: 0.3, all: 0.5, secs: 3.5 }, { level: 0.9, all: 0.5, peak: 1, secs: 1 / 60 }, { level: 0.3, all: 0.5, secs: 1.2 }], quick);
+    check('jelly: knocked apart a second time, the slabs take as long to drop back as they did the first', whole2.state.phase === 'whole' && whole2.state.landed === 4 && remade(whole2) && back2.state.phase === 'returning' && back2.state.thumps === 2 && back2.state.landed === 4
+      && back2.state.flight.landed.join() === '0,0,0,0' && back2.state.sinceReturn > 0.1 && back2.state.sinceReturn < 0.3 && reworked(back2),
+      JSON.stringify({ phase: [whole2.state.phase, back2.state.phase], thumps: back2.state.thumps, landed: [whole2.state.landed, back2.state.landed], since: back2.state.sinceReturn, flight: back2.model.gapFlight, apart: back2.apart }));
+    const [, , thSoft] = await jellyRun([{ level: 0.3, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, peak: 1, secs: 1 / 60 }, { level: 0.3, all: 0.5, secs: 0.3 }], { ...still, knobs: { cameraDrift: 0, reconnectSeconds: 1, stiffness: 0 } });
+    check('jelly: Stiffness sets how fast a slab wobbles too, and a slab is never drawn flatter, taller or more bent than its limits', thSoft.state.phase === 'pieces' && Math.abs(thSoft.state.firm - 0.5) < 1e-12 && reworked(thSoft) && gap(thSoft.state.flight.bend, th2.state.flight.bend) > 0.01
+      && th2.over > 0 && th2.shownGap === 0 && thSoft.shownGap === 0,
+      JSON.stringify({ bend: [th2.state.flight.bend, thSoft.state.flight.bend], over: [th2.over, thSoft.over], shown: [th2.shownGap, thSoft.shownGap], flight: thSoft.model.gapFlight }));
+    check('jelly: the flash of a thump and of a landing brightens the jelly when there is no beat', [th1, th2, th3, th4, th5, th6].every((r) => r.state.given[1] === Math.max(r.state.kick, r.state.flash)) && th5.state.flash > th5.state.kick + 0.05,
+      JSON.stringify({ given: [th1, th2, th3, th4, th5, th6].map((r) => [r.state.given[1], r.state.kick, r.state.flash]) }));
+    check('jelly: apart, each slab keeps its own layer\'s colour: the lowest is the first layer\'s and the highest the last\'s', like(th3.foot, tint(th3, 0)) > like(th3.foot, tint(th3, 3)) + 0.1 && like(th3.top, tint(th3, 3)) > like(th3.top, tint(th3, 0)) + 0.1,
+      JSON.stringify({ foot: [th3.foot, tint(th3, 0)], top: [th3.top, tint(th3, 3)], like: [like(th3.foot, tint(th3, 0)), like(th3.foot, tint(th3, 3)), like(th3.top, tint(th3, 3)), like(th3.top, tint(th3, 0))] }));
     const [, never] = await jellyRun([{ level: 0.3, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, peak: 1, secs: 0.5 }], { ...still, knobs: { cameraDrift: 0, shatterSensitivity: 0 } });
     const [, micOff] = await jellyRun([{ level: 0.3, all: 0.5, secs: 1 }, { level: null, idle: true, peak: 1, secs: 0.5 }], still);
     check('jelly: Shatter sensitivity 0 never knocks it apart, and nor does a peak with the mic off', never.state.phase === 'whole' && never.state.thumps === 0 && micOff.state.phase === 'whole' && micOff.state.thumps === 0 && remade(never) && remade(micOff),
@@ -3871,10 +3911,13 @@ async function main() {
       micPeak = 1; now += 1000 / 60; currentViz.draw(now, 1 / 60); micPeak = 0;
       for (let i = 0; i < 40; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
       const apart = read(), s = window.__timbre.scene;
-      return { name: window.__timbre.currentVizName, scale: s && s.renderScale, phases: [phase0, s && s.state.phase], zoom: s && s.state.zoom, whole, apart, canvas: [w, h] }; } finally { Object.assign(perViz.jelly, knobs0); TimbreScene.testLevel = null; window.frame = fr; frequencies = heard.frequencies; micActive = heard.micActive; if (heard.micPeak !== undefined) micPeak = heard.micPeak; } });
+      return { name: window.__timbre.currentVizName, scale: s && s.renderScale, phases: [phase0, s && s.state.phase], zoom: s && s.state.zoom, px: s && s.state.px, drawnFor: s && s.state.drawnFor, proj5: s && s.state.proj[5], whole, apart, canvas: [w, h] }; } finally { Object.assign(perViz.jelly, knobs0); TimbreScene.testLevel = null; window.frame = fr; frequencies = heard.frequencies; micActive = heard.micActive; if (heard.micPeak !== undefined) micPeak = heard.micPeak; } });
     check('jelly: the Size slider halves it, and the small page draws it too, whole and knocked apart, all of it in the picture', halved.box.w < 0.62 * placed0.box.w && halved.box.w > 0.38 * placed0.box.w && halved.jelly < 0.31 * placed0.jelly && halved.jelly > 0.19 * placed0.jelly
       && smallJelly.name === JELLY && smallJelly.scale >= 2 && smallJelly.phases.join() === 'whole,pieces' && smallJelly.whole.edge === 0 && smallJelly.apart.edge === 0 && smallJelly.whole.jelly > 0.03 * smallJelly.canvas[0] * smallJelly.canvas[1] && smallJelly.apart.jelly > 0.02 * smallJelly.canvas[0] * smallJelly.canvas[1] && smallJelly.zoom < 1,
       JSON.stringify({ box: [placed0.box.w, halved.box.w], jelly: [placed0.jelly, halved.jelly], small: smallJelly }));
+    check('jelly: a bubble is as many pixels across as the picture makes it: with the picture enlarged, and on the small page', Math.abs(big[2].state.proj[5] - 1.25 / Math.tan(Math.PI / 12)) < 1e-6 && Math.abs(big[2].state.px - 1.25 * PX * big[2].state.zoom) < 1e-6
+      && smallJelly.drawnFor === smallJelly.scale && Math.abs(smallJelly.px - (smallJelly.scale * smallJelly.canvas[1] * smallJelly.proj5 * smallJelly.zoom) / 2) < 1e-6,
+      JSON.stringify({ big: [big[2].state.px, big[2].state.proj[5], big[2].state.zoom], small: [smallJelly.px, smallJelly.drawnFor, smallJelly.scale, smallJelly.canvas, smallJelly.proj5, smallJelly.zoom] }));
     await pushConfig((c) => { c.placement.size = 100; });
     await wide.waitForTimeout(300);
     // Loud, whole and then apart: a frame's script time, and a frame drawn and finished by the GPU.

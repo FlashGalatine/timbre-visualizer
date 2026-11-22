@@ -135,3 +135,47 @@ shaders or the phases of the thump. What it found, and what was done:
 
 Also since the review: the render checks make the slabs' flight and the bubbles again from
 the arithmetic, frame for frame, and take up the body again once the cube has set.
+
+## Breaking it on purpose
+
+Each change was made to a copy of the branch and the checks run against it. A change that
+nothing failed for got a check, or the line it changed was removed as doing nothing. Each run
+began with nothing broken, which passed.
+
+- **The arithmetic, first**: 151 breaks, 130 caught. Twenty of the 21 that slipped past got a
+  check. The other was a small allowance added to the count of steps come due: it changed
+  nothing at any frame rate tried, and was removed.
+- **The arithmetic again, after the review**: those twenty and eighteen breaks of the lines
+  the review changed and of the wiring. 38 breaks, 36 caught. The two: a step taken before
+  all of it had come due, and the body's furthest point being only the last one looked at.
+  Both have checks.
+- **The scene** (`definition()` and the shaders, against the render block): 112 breaks, 102
+  caught. The ten:
+  1. **The bubbles not drawn at all.** Nothing had looked for them in the picture. A check
+     now finds each bubble on the canvas and wants a glint brighter than the jelly round it:
+     all 46 show one, by 46 to 168 of 765; with none drawn, four places do (the jelly's own
+     highlights).
+  2. **The time since the slabs started back not begun again.** A second thump's slabs would
+     have been home at once. A check knocks the cube apart twice.
+  3. **Stiffness left out of a slab's own wobble.** A check runs the thump at Stiffness 0.
+  4. **A slab drawn with its squash and bend not held to their limits.** Now checked on every
+     frame it is apart; the thump's own run passes the limits 44 times.
+  5. **The slabs put in order before the cube's turn for the frame was set** (the review's
+     fifth finding, put back). The scene now says how far each slab was from the camera when
+     it was put in order, and the checks want that to be this frame's.
+  6. **The flash left out of what brightens the jelly.** The one check that read it did so on
+     a frame with a beat. It is now read through the thump and the return.
+  7. **A bubble's size taking no account of the picture's size.** Checked with the picture
+     enlarged a quarter and on the small page, whose picture is four times as sharp.
+  8. **Each slab coloured as the middle of the cube.** A check reads the colour of the lowest
+     and of the highest slab.
+  9. **The bubbles' place in the drawing order as built.** It is set every frame, so the line
+     did nothing, and is gone.
+  10. **The cube counted as at rest whatever its squash and its flash.** Not caught, and it
+      cannot be as the numbers stand: after a landing, a beat or a syllable the body goes on
+      moving for 4.2 to 5.6 seconds, the squash for 2.1 to 4.6 and the flash for 2.6, at any
+      Stiffness, so the body is never at rest first. The two conditions stay as a guard should
+      a number change, and every frame of every run is now held to them: a cube whose squash
+      or flash is unspent must have been worked out and sent again.
+
+Run again against the new checks, the eleven that could be caught were.
