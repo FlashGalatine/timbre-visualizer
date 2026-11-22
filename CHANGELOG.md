@@ -224,9 +224,10 @@ traceability.
   nerve: a quiet word lifts the bold ones and a loud one lifts them all. In the air they are
   a real flock that follows a lead wheeling above the wires, banking into their turns; each
   syllable is a ripple of banking that runs back through the flock. In a pause each bird
-  glides back to its own seat and lands, the wire springs under it, and in silence the
-  picture comes to rest. A thump of the mic is a fright: every bird bursts up at once and
-  stays up while it lasts. The birds and the wires are solid, so they show over a bright
+  comes round behind its own seat and lands on it, the wire springs under it, and in silence
+  the birds and the wires come to rest. A thump of the mic is a fright: every bird bursts up
+  at once and stays up while it lasts, and none leaves the picture. With the mic off and Idle
+  animation on, stretches of wire empty and fill while most birds sit. The birds and the wires are solid, so they show over a bright
   backdrop too. The effect's name and id are unchanged.
 - **Jelly is now a cube of jelly that the sound wobbles**, a scene on the scene kit. The
   lattice of small balls and lines is gone. A rounded cube of clear jelly floats in the box,

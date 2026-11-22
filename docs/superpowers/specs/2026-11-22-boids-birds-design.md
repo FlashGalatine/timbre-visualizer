@@ -31,20 +31,23 @@ the sound does is send them up.
 - **Taking off.** A bird takes off when its band sounds, or when the voice is loud enough for
   its nerve. Every bird's nerve is its own: a quiet word lifts the bold ones and a loud one
   lifts them all. As it leaves, the wire springs up.
-- **In the air** the birds are a real flock: each keeps clear of the birds near it and flies
-  the way they fly, and all follow a lead that wheels round the box above the wires. A bird
+- **In the air** the birds are a real flock: each keeps clear of the flying birds near it and
+  flies the way they fly, and all follow a lead that wheels round the box above the wires. A bird
   flies at a cruising speed and steers by turning, so the flock swirls about its lead. Louder,
   the lead goes faster and swings wider and the birds fly faster. A bird banks into its turns, beats its wings harder to
   climb and glides when it sinks.
 - **A syllable** is a ripple of banking that runs back through the flock from the lead: each
   bird rolls and flashes as it passes.
-- **A pause.** A bird that has heard nothing for about a second glides back to its own place
-  on its wire, spreads its wings to land, and folds them. The wire dips under it and springs.
+- **A pause.** A bird that has heard nothing for about a second comes home: over the top wire
+  and round behind its own seat, then down onto it, wings wide, flying toward us. It folds its
+  wings as it settles. The wire dips under it and springs. It leaves by the front, so a bird
+  never flies through one that sits.
 - **Silence**, with the mic on: every bird is sitting, and once the wires have stopped
-  swinging the picture is exactly still. (So the birds' colours do not drift with the clock;
-  they move only as the palette's own Colour speed moves them.)
+  swinging the birds and the wires are exactly still. (So the birds' colours do not drift
+  with the clock. The palette's own Colour speed still moves them, and Camera drift still
+  sways the camera.)
 - **With the mic off and Idle animation on**, the bands swell a little in turn, so stretches of
-  wire empty and fill.
+  wire empty and fill, and most birds sit. (The voice is the mic's alone.)
 - **With both off**, nothing moves: birds in the air stop where they are.
 
 ## A thump of the mic
@@ -52,7 +55,8 @@ the sound does is send them up.
 A hard peak is a fright. When it happens, and when it is over, is `TimbreHelix`'s shatter
 machine, the one DNA, Glass Prism, Jelly and School of Fish use.
 
-- Every bird, sitting or flying, bursts up and away at once, and the wires spring.
+- Every bird, sitting or flying, bursts up and away at once, and the wires spring. However
+  often it happens, no bird leaves the picture.
 - While the fright lasts the birds stay in the air, however quiet it is, and fly loose: faster,
   and each to its own part of the air, not after the lead.
 - A peak while it lasts startles them again.
@@ -64,7 +68,7 @@ machine, the one DNA, Glass Prism, Jelly and School of Fish use.
 | Setting | 0 | 50 | 100 |
 |---|---|---|---|
 | Cohesion (as before) | a loose flock, spread wide | as shown | a tight flock |
-| Density | 36 birds | 60 birds | 84 birds |
+| Density | 36 birds | 60 birds | 84 birds, each a little smaller, to have room |
 | Fright sensitivity | never frightened | as DNA's Shatter sensitivity at 50 | at the lightest peak |
 | Settle seconds (0 to 10, default 3) | the fright is over at once | 3 s of calm | 10 s |
 | Camera drift | still | sways gently | sways twice as far |
@@ -85,6 +89,9 @@ are: it is made to fill the frame at 100.
 - The effect keeps its id `boids` and its name. It becomes a kit scene, the last listed.
 - Changing Density re-seats the birds: the rows close up or spread, and the birds that sit
   move to their new places at once.
+- The middle wire's seats are half a seat along from the others'.
+- A bird in the air is drawn turning round and up or down at a rate that can be seen, and
+  never steeper than about 70 degrees, so it never spins about itself.
 
 ## Not in this design
 

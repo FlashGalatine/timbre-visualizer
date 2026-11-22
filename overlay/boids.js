@@ -4,9 +4,9 @@
 // wires are a spectrum: each stretch listens to one of the eight lowest bands, low at the left.
 //
 // The voice sends the birds up. A bird takes off when its band sounds, or when the voice is
-// loud enough for its nerve. In the air they are a real flock: each keeps clear of the birds
-// near it and flies the way they fly, and all follow a lead that wheels round the box. In a
-// pause each bird glides back to its own seat and lands, and the wire springs under it. A
+// loud enough for its nerve. In the air they are a real flock: each keeps clear of the flying
+// birds near it and flies the way they fly, and all follow a lead that wheels round the box. In
+// a pause each bird comes round behind its own seat and lands on it, and the wire springs. A
 // thump of the mic is a fright: every bird bursts up at once and stays up while it lasts.
 //
 // Everything here but `definition()` is arithmetic, so that `verify` can check it under Node.
@@ -29,10 +29,12 @@
   const SPRING = 300, SPRING_DAMP = 6;      // a wire's swing: how stiff, and how soon it stops
   const LEAVE = 0.18, LAND_KICK = 0.25, BOUNCE_MAX = 0.08;   // what a bird leaving and a bird landing do to its wire, and the furthest a wire swings
   const SIZE = 0.25, PERCH = 0.34;          // a middling bird's length, and how far above its wire its middle sits, of its own length
+  const FIT = 0.14, JITTER = 0.15;          // the room along its wire a bird needs at its full size (with less, every bird is smaller), and how far from the middle of its seat one may sit, of a seat
   const AIR = [1.75, 0.7, 0.75], AIR_Y = 0.62;   // the air the flock keeps to: an egg this far each way, about this height
   const WALL = 8, WALL_FROM = 0.95;         // how hard a bird is turned back at the edge of its air, and from where
   const WALL_OUT = 1.1, WALL_SLOW = 0.85;   // well outside its air (this many times as far out) and still heading out, it keeps this much of its speed each step
   const ROOM = 0.85;                        // a bird's place by the lead is kept within this share of its air
+  const HARD = [2.15, 0.8, 1.0], HARD_FROM = 0.8, KEEP = 3;   // all the air there is, an egg about the same height: from this share of the way out a bird loses its speed outward, and at its edge it has none
   const CRUISE = [1.1, 1.0];                // how fast the flock flies in silence, and how much faster at the loudest
   const LOOSE_FAST = 1.3;                   // frightened, the birds fly this much faster, and each makes for its own part of the air and not for the lead
   const LEAD_RATE = [0.45, 0.9];            // how fast the lead goes round, and how much faster at the loudest
@@ -43,15 +45,19 @@
   const LEVEL = 0.7, ALIGN = 0.7;           // how much of the climb to its place it steers by (it flies more level than straight at it), and how much it takes the way its neighbours fly
   const NEAR = 0.7, CLEAR = 0.4, PART = 2.5;   // how far it looks for neighbours, how far apart two birds keep, and how hard they steer off each other
   const TOP = 4.2;                          // no bird flies faster than this
-  const HOME_HIGH = 0.3, HOME_NEAR = 0.45;  // coming home a bird first makes for this far above its seat, until it is this near
-  const HOME_FAST = 2, HOME_SLOW = [0.4, 4.5], HOME_SEEK = 5;   // how fast it comes home at least; near its seat, its least speed and its speed for each unit left; how hard it steers
-  const LANDED = 0.05;                      // it has landed when this near its seat
-  const UP = [1.7, 0.5, 0.9, 0.7], UP_HARD = [1.8, 0.6, 3, 1.6];   // a bird leaves its wire this fast upward (and up to this much more), and up to this much sideways and in depth; frightened, harder
+  const HOME_HIGH = 0.3, HOME_BACK = 0.45, HOME_NEAR = 0.55;   // coming home a bird first makes for this far above its seat and this far behind it, until it is this near
+  const HOME_OVER = 0.35, HOME_CLEAR = 0.3; // until it is this far behind the wires it keeps this far above the top one, clear of the birds that sit
+  const HOME_FAST = 2, HOME_SLOW = [0.25, 2.5], HOME_SEEK = [5, 10];   // how fast it comes home at least; near its seat, its least speed and its speed for each unit left; how hard it steers, coming and landing
+  const LANDED = 0.02;                      // it has landed when this near its seat
+  const UP = [1.7, 0.5, 0.9, 1.0], UP_HARD = [1.8, 0.6, 3, 1.6];   // a bird leaves its wire this fast upward (and up to this much more), up to half this much the way it faces, and up to this much forward, off the wires; frightened, harder and any way
+  const OFF = [0, 0.6, 0.8];                // the way a bird flies until it is clear of the wires: up, and away from them on the side it is on
+  const PANE = [0.1, 0.25];                 // below the top wire a flying bird comes no nearer the wires than this, and from this far off it slows toward them
   const THROWN = [5, 1, 2.5, 3];            // a fright throws a flying bird: up to this much sideways, this much up and up to this much more, and up to this much in depth
   const BANK = 0.22, BANK_MAX = 1.1, BANK_RATE = 6;   // how far a bird rolls for how hard it turns, at most, and how fast
   const FLAP_RATE = 7, BEAT = [13, 9];      // how fast its beating follows what it needs, and its wings' beat in radians a second: at rest in the air, and more at full effort
   const FOLD_RATE = 6, UNFOLD_RATE = 12;    // how fast it folds its wings, and opens them
   const TURN_HEAD = 10, FACE_RATE = 8;      // how fast it turns to head the way it flies, and to sit the way it sits
+  const YAW_MAX = 9, PITCH_MAX = 1.2;       // it is drawn turning round at most this many radians a second, and heading up or down at most this steeply, in radians (so it is always level, and never on its back)
   const NERVE = [0.10, 0.42], STAY = [0.5, 0.8];   // the least nerve and how much more a bird may have; how long it stays up after its call, at least, and how much longer it may
   const CALL = [1.25, 0.7];                 // what its band and what the voice count for, as its call
   const RISE = 20, FALL = 5;                // how fast a band is followed, up and down, a second
@@ -79,9 +85,10 @@
     if (!bins || band >= bins.length) return 0;
     return Math.min(1, (bins[band] / 255) * gain);
   }
-  // With the mic off and Idle animation on, the bands swell a little in turn.
+  // With the mic off and Idle animation on, the bands swell a little in turn: each for about a
+  // third of the time, and not enough for the shyest birds.
   function idle(b, t) {
-    return Math.max(0, 0.16 + 0.3 * Math.sin(0.9 * t + 1.4 * b));
+    return Math.max(0, 0.45 * Math.sin(0.45 * t + 1.4 * b) - 0.2);
   }
   // All but nothing is nothing, so that what dies away comes to rest.
   function settle(v) {
@@ -147,7 +154,7 @@
   }
   // How high bird i's middle is when it sits.
   function seatY(fl, i) {
-    return wireY(fl, fl.wire[i], fl.seatX[i]) + PERCH * SIZE * fl.size[i];
+    return wireY(fl, fl.wire[i], fl.seatX[i]) + PERCH * SIZE * fl.fit * fl.size[i];
   }
   // Wire w as a ribbon: two points for each of SEG + 1 places along it, above and below.
   function wirePoints(out, fl, w) {
@@ -170,7 +177,7 @@
       fold: new Float32Array(N), flap: new Float32Array(N), roll: new Float32Array(N), heard: new Float32Array(N),
       wire: new Int32Array(N), slot: new Int32Array(N), band: new Int32Array(N), seatX: new Float32Array(N),
       bounce: new Float32Array(WIRES), bounceV: new Float32Array(WIRES), load: new Float32Array(WIRES),
-      hist: new Float32Array(HISTORY), at: 0, tau: 0, lead: [0, AIR_Y, 0], left: 0, n: 0, per: 0, sitting: 0, flying: 0, coming: 0,
+      hist: new Float32Array(HISTORY), at: 0, tau: 0, lead: [0, AIR_Y, 0], left: 0, n: 0, per: 0, fit: 1, sitting: 0, flying: 0, coming: 0,
     };
     for (let i = 0; i < N; i++) {
       const a = i * 3;
@@ -219,14 +226,16 @@
     tally(fl);
   }
   // The rows for n birds: bird i is on wire i % 3, in seat floor(i / 3) from the left, and
-  // listens to the band of its stretch of wire. Birds that join sit; birds that sit move to
-  // their new seats; a bird in the air flies on, and has a new seat to come home to.
+  // listens to the band of its stretch of wire. The middle wire's seats are half a seat along
+  // from the others', so that no bird sits right above another. Birds that join sit; birds that
+  // sit move to their new seats; a bird in the air flies on, and has a new seat to come home to.
+  // With less room to a seat than a bird needs, every bird is smaller.
   function reseat(fl, n) {
     const per = n / WIRES, was = fl.n;
-    fl.n = n; fl.per = per;
+    fl.n = n; fl.per = per; fl.fit = Math.min(1, ((2 * REACH) / per) * (1 - JITTER) / FIT);
     for (let i = 0; i < n; i++) {
       fl.wire[i] = i % WIRES; fl.slot[i] = Math.floor(i / WIRES);
-      fl.seatX[i] = -REACH + (2 * REACH) * (fl.slot[i] + 0.5 + 0.3 * fl.jit[i]) / per + (fl.wire[i] - 1) * 0.04;
+      fl.seatX[i] = -REACH + (2 * REACH) * (fl.slot[i] + 0.5 + JITTER * fl.jit[i] + (fl.wire[i] === 1 ? 0.25 : -0.25)) / per;
       fl.band[i] = Math.min(BANDS - 1, Math.floor((BANDS * fl.slot[i]) / per));
       if (i >= was) fl.state[i] = 0;
     }
@@ -240,12 +249,14 @@
     out[0] = LEAD[0] * wide * Math.sin(0.62 * tau); out[1] = AIR_Y + LEAD[1] * Math.sin(0.97 * tau + 1.0); out[2] = LEAD[2] * wide * Math.sin(1.27 * tau + 0.4);
   }
 
-  // Bird i leaves its wire (hard, in a fright), and the wire springs up after it. A bird
+  // Bird i leaves its wire: up, the way it faces, and forward, off the wires (hard and any way,
+  // in a fright, when every bird leaves at once), and the wire springs up after it. A bird
   // already in the air only goes on flying.
   function takeOff(fl, i, hard, random) {
     if (fl.state[i] === 0) {
       const a = i * 3, u = hard ? UP_HARD : UP;
-      fl.v[a] = (random() - 0.5) * u[2]; fl.v[a + 1] = u[0] + u[1] * random(); fl.v[a + 2] = (random() - 0.2) * u[3];
+      const r1 = random(), r2 = random(), r3 = random();
+      fl.v[a] = hard ? (r1 - 0.5) * u[2] : Math.sign(fl.face[a]) * 0.5 * r1 * u[2]; fl.v[a + 1] = u[0] + u[1] * r2; fl.v[a + 2] = hard ? (r3 - 0.2) * u[3] : (0.5 + 0.5 * r3) * u[3];
       fl.bounceV[fl.wire[i]] += LEAVE;
     }
     fl.state[i] = 1;
@@ -295,8 +306,10 @@
         if (turning < 1e-4) for (let c = 0; c < 3; c++) fl.head[a + c] = fl.face[a + c];
         continue;
       }
+      // Called again on its way home, it flies again; but one that is already landing lands
+      // first, and leaves from its seat (unless it is a fright, when no bird is left sitting).
       if (fl.state[i] === 1 && !up) fl.state[i] = 2;
-      else if (fl.state[i] === 2 && up) fl.state[i] = 1;
+      else if (fl.state[i] === 2 && up && (how.loose || fl.p[a + 2] >= PANE[0] || Math.hypot(fl.seatX[i] - fl.p[a], seatY(fl, i) - fl.p[a + 1], fl.p[a + 2]) >= HOME_NEAR)) fl.state[i] = 1;
 
       const x = fl.p[a], y = fl.p[a + 1], z = fl.p[a + 2], ox = fl.v[a], oy = fl.v[a + 1], oz = fl.v[a + 2];
       let landing = 0;
@@ -327,21 +340,48 @@
           dx -= push * nx; dy -= push * ny; dz -= push * nz;
           leaving = e > WALL_OUT && hx * nx + hy * ny + hz * nz > 0;
         }
+        // Until it is clear of the wires (above the top one, or well in front of them) it flies up and away from them, on the side of them it is on, past the birds that sit. That is then all it steers by.
+        if (!how.loose && y < WIRE_Y[0] + HOME_OVER && z < HOME_CLEAR) { dx = OFF[0]; dy = OFF[1]; dz = z < 0 ? -OFF[2] : OFF[2]; }
         const dl = Math.hypot(dx, dy, dz) || 1e-6, turn = Math.min(1, (TURN[0] + TURN[1] * flame) * STEP);
         let nx = hx + (dx / dl - hx) * turn, ny = hy + (dy / dl - hy) * turn, nz = hz + (dz / dl - hz) * turn;
         const nl = Math.hypot(nx, ny, nz) || 1e-6;
         sp += (cruise * fast * clamp(0.7 + 0.5 * tl, 0.8, 1.3) - sp) * Math.min(1, SPEED_RATE * STEP);
         if (leaving) sp *= WALL_SLOW;
         fl.v[a] = (nx / nl) * sp; fl.v[a + 1] = (ny / nl) * sp; fl.v[a + 2] = (nz / nl) * sp;
+        // No bird's middle leaves the picture, however it was thrown: near the edge of all the
+        // air there is it loses its speed outward, and at the edge it has none.
+        const qx = x / HARD[0], qy = (y - AIR_Y) / HARD[1], qz = z / HARD[2], q = Math.hypot(qx, qy, qz);
+        if (q > HARD_FROM) {
+          let mx = qx / HARD[0], my = qy / HARD[1], mz = qz / HARD[2];
+          const ml = Math.hypot(mx, my, mz) || 1;
+          mx /= ml; my /= ml; mz /= ml;
+          const outward = fl.v[a] * mx + fl.v[a + 1] * my + fl.v[a + 2] * mz;
+          if (outward > 0) {
+            // It turns along the edge and keeps what speed it can, so that it does not hang there.
+            const lost = outward * clamp((q - HARD_FROM) / (1 - HARD_FROM), 0, 1);
+            fl.v[a] -= lost * mx; fl.v[a + 1] -= lost * my; fl.v[a + 2] -= lost * mz;
+            const kept = Math.hypot(fl.v[a], fl.v[a + 1], fl.v[a + 2]), more = kept > 1e-6 ? Math.min(sp / kept, KEEP) : 1;
+            fl.v[a] *= more; fl.v[a + 1] *= more; fl.v[a + 2] *= more;
+          }
+        }
+        // Below the top wire it does not cross the wires: it stays on the side of them it is on.
+        if (!how.loose && y < WIRE_Y[0] + HOME_OVER) {
+          const sideOf = z < 0 ? -1 : 1, toward = -sideOf * fl.v[a + 2];
+          if (toward > 0) fl.v[a + 2] += sideOf * toward * (1 - clamp((Math.abs(z) - PANE[0]) / (PANE[1] - PANE[0]), 0, 1));
+        }
         fl.fold[i] += (0 - fl.fold[i]) * Math.min(1, UNFOLD_RATE * STEP);
       } else {
-        // Home: to above its seat, then down onto it, slowing, wings wide.
+        // Home: round behind the wires (above the top one until it is clear of them), to above
+        // and behind its seat, then down and forward onto it, slowing, wings wide. So it comes
+        // in flying toward us, and pitches up to sit with its breast to us, as it sits.
         const sx = fl.seatX[i], sy = seatY(fl, i), dx = sx - x, dy = sy - y, dz = -z, d = Math.hypot(dx, dy, dz);
         if (d < LANDED) { perch(fl, i); fl.bounceV[fl.wire[i]] -= LAND_KICK; continue; }
-        landing = d < HOME_NEAR ? 1 : 0;
-        const ty = dy + (landing ? 0 : HOME_HIGH), tl = Math.hypot(dx, ty, dz) || 1, sp = landing ? Math.max(HOME_SLOW[0], HOME_SLOW[1] * d) : Math.max(HOME_FAST, cruise);
-        const k = Math.min(1, HOME_SEEK * STEP);
-        fl.v[a] += ((dx / tl) * sp - ox) * k; fl.v[a + 1] += ((ty / tl) * sp - oy) * k; fl.v[a + 2] += ((dz / tl) * sp - oz) * k;
+        landing = d < HOME_NEAR && z < PANE[0] ? 1 : 0;   // near its seat, and not in front of it
+        let ty = dy, tz = dz;
+        if (!landing) { tz -= HOME_BACK; ty = (z > -HOME_CLEAR ? Math.max(sy + HOME_HIGH, WIRE_Y[0] + HOME_OVER) : sy + HOME_HIGH) - y; }
+        const tl = Math.hypot(dx, ty, tz) || 1, sp = landing ? Math.max(HOME_SLOW[0], HOME_SLOW[1] * d) : Math.max(HOME_FAST, cruise);
+        const k = Math.min(1, HOME_SEEK[landing] * STEP);
+        fl.v[a] += ((dx / tl) * sp - ox) * k; fl.v[a + 1] += ((ty / tl) * sp - oy) * k; fl.v[a + 2] += ((tz / tl) * sp - oz) * k;
         fl.fold[i] += (0 - fl.fold[i]) * Math.min(1, UNFOLD_RATE * STEP);
       }
       let sp = Math.hypot(fl.v[a], fl.v[a + 1], fl.v[a + 2]);
@@ -355,12 +395,17 @@
       const want = landing ? 1 : fl.v[a + 1] < -0.45 ? 0.16 : clamp(0.5 + 0.35 * fl.v[a + 1] + 0.03 * Math.hypot(ax, ay, az), 0.4, 1);
       fl.flap[i] += (want - fl.flap[i]) * Math.min(1, FLAP_RATE * STEP);
       fl.beat[i] += STEP * (BEAT[0] + BEAT[1] * fl.flap[i]) / Math.sqrt(fl.size[i]);
-      // It heads the way it flies; landing, it turns to sit the way it sits.
+      // It heads the way it flies; landing, it turns to sit the way it sits. It is drawn turning
+      // as a bird turns: round, no faster than can be seen, and up or down, never past steep. So
+      // it is always level about its heading, and never heads straight up, where that means nothing.
       const down = landing ? clamp(1 - Math.hypot(fl.seatX[i] - fl.p[a], seatY(fl, i) - fl.p[a + 1], fl.p[a + 2]) / HOME_NEAR, 0, 1) : 0;
-      let hl = 0;
-      for (let c = 0; c < 3; c++) { fl.head[a + c] += ((1 - down) * fl.v[a + c] / sp + down * fl.face[a + c] - fl.head[a + c]) * Math.min(1, TURN_HEAD * STEP); hl += fl.head[a + c] * fl.head[a + c]; }
-      hl = Math.sqrt(hl) || 1;
-      for (let c = 0; c < 3; c++) fl.head[a + c] /= hl;
+      const tx = (1 - down) * fl.v[a] / sp + down * fl.face[a], ty = (1 - down) * fl.v[a + 1] / sp + down * fl.face[a + 1], tz = (1 - down) * fl.v[a + 2] / sp + down * fl.face[a + 2], level = Math.hypot(tx, tz);
+      const yaw0 = Math.atan2(fl.head[a + 2], fl.head[a]), pitch0 = Math.asin(clamp(fl.head[a + 1], -1, 1));
+      let round = level > 1e-4 ? Math.atan2(tz, tx) - yaw0 : 0;
+      round -= 2 * Math.PI * Math.round(round / (2 * Math.PI));   // the shorter way round
+      const yaw = yaw0 + clamp(round * Math.min(1, TURN_HEAD * STEP), -YAW_MAX * STEP, YAW_MAX * STEP);
+      const pitch = pitch0 + (clamp(Math.atan2(ty, level), -PITCH_MAX, PITCH_MAX) - pitch0) * Math.min(1, TURN_HEAD * STEP);
+      fl.head[a] = Math.cos(pitch) * Math.cos(yaw); fl.head[a + 1] = Math.sin(pitch); fl.head[a + 2] = Math.cos(pitch) * Math.sin(yaw);
     }
     fl.hist[fl.at] = how.pulse || 0; fl.at = (fl.at + 1) % HISTORY;
     tally(fl);
@@ -402,7 +447,7 @@
       const far = Math.hypot(fl.p[a] - fl.lead[0], fl.p[a + 1] - fl.lead[1], fl.p[a + 2] - fl.lead[2]), ago = Math.min(WAVE_MAX, Math.floor(far * WAVE));
       const wave = st === 1 ? fl.hist[(fl.at - 1 - ago + 2 * HISTORY) % HISTORY] : 0;
       const f = settle(Math.max(wave, st === 1 ? KICK_FLASH * how.kick : 0, st === 0 ? 0 : how.flash));
-      A[q] = fl.size[i]; A[q + 1] = fl.beat[i] + (st === 0 ? 0 : lead * (BEAT[0] + BEAT[1] * fl.flap[i]) / Math.sqrt(fl.size[i]));
+      A[q] = fl.fit * fl.size[i]; A[q + 1] = fl.beat[i] + (st === 0 ? 0 : lead * (BEAT[0] + BEAT[1] * fl.flap[i]) / Math.sqrt(fl.size[i]));
       A[q + 2] = fl.roll[i] + WAVE_ROLL * wave * (i % 2 ? 1 : -1); A[q + 3] = fl.band[i];
       B[q] = fl.flap[i]; B[q + 1] = fl.fold[i]; B[q + 2] = f; B[q + 3] = 0;
     }
@@ -438,7 +483,8 @@
         p.y += abs(reach) * s; p.z = z0 + reach * c;
         n = vec3(0.0, c, -sd * s);
       }
-      vec3 f = normalize(iFwd), r = normalize(cross(f, vec3(0.0, 1.0, 0.0)) + vec3(0.0, 0.0, 1e-5)), u = normalize(cross(r, f));
+      // Level about its heading. (It never heads straight up or down: see PITCH_MAX.)
+      vec3 f = normalize(iFwd), r = normalize(cross(f, vec3(0.0, 1.0, 0.0))), u = cross(r, f);
       float cr = cos(iA.z), sr = sin(iA.z);
       vec3 u2 = u * cr + r * sr, r2 = r * cr - u * sr;
       vec4 w = modelMatrix * vec4(iPos + iVel * uLead + iA.x * uLen * (f * p.x + u2 * p.y + r2 * p.z), 1.0);
@@ -504,7 +550,7 @@
     // What the checks read. clock: seconds the scene has been live. birds: how many there are.
     // sitting, flying, coming: how many are doing which. steps: flock steps taken this frame.
     // phase: the fright's (whole, pieces or returning); loose: whether it is on.
-    const s = { flame: 0, kick: 0, clock: 0, live: false, orbit: 0, colorT: 0, birds: 0, sitting: 0, flying: 0, coming: 0, steps: 0, stepped: 0, beats: 0, pulse: 0, spread: 1,
+    const s = { flame: 0, kick: 0, clock: 0, live: false, orbit: 0, colorT: 0, birds: 0, sitting: 0, flying: 0, coming: 0, steps: 0, stepped: 0, pulse: 0, spread: 1,
       phase: 'whole', loose: false, thumps: 0, jostles: 0, flash: 0 };
 
     function build(k) {
@@ -527,7 +573,8 @@
       shared = { uPal: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Color()) }, uLen: { value: SIZE }, uLead: { value: 0 } };
       birds = new THREE.Mesh(geo, new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, side: THREE.DoubleSide, uniforms: shared }));
       birds.frustumCulled = false;
-      // The wires: thin ribbons that fade out toward their ends, drawn before the birds.
+      // The wires: thin ribbons that fade out toward their ends. They are see-through, so three
+      // draws them after the birds, which are solid; they write no depth.
       wireMat = new THREE.ShaderMaterial({ vertexShader: WIRE_VERT, fragmentShader: WIRE_FRAG, transparent: true, depthWrite: false, side: THREE.DoubleSide, uniforms: { uColor: { value: new THREE.Color() } } });
       for (let w = 0; w < WIRES; w++) {
         const g = new THREE.BufferGeometry(), pos = new Float32Array((SEG + 1) * 6), fade = new Float32Array((SEG + 1) * 2), index = [];
@@ -540,7 +587,7 @@
         const at = new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage);
         g.setAttribute('position', at); g.setAttribute('fade', new THREE.BufferAttribute(fade, 1)); g.setIndex(index);
         const mesh = new THREE.Mesh(g, wireMat);
-        mesh.frustumCulled = false; mesh.renderOrder = -1;
+        mesh.frustumCulled = false;
         group.add(mesh);
         wires.push({ pos, at, mesh });
       }
@@ -562,7 +609,8 @@
       // With the mic and Idle animation both off, the birds stop where they are.
       s.live = !!(micActive || cfgIdleAnim);
       if (s.live) s.clock += dt;
-      const flame = s.flame = settle(audio.flame);
+      // The voice is the mic's: with the mic off, Idle animation moves the bands and nothing else.
+      const flame = s.flame = settle(micActive ? audio.flame : 0);
       s.kick = settle(audio.kick);
       const n = countFor(knob('density'));
       if (n !== flock.n) reseat(flock, n);   // Density changed: the rows close up or spread
@@ -578,7 +626,6 @@
       }
       trail = follow(trail, flame, TRAIL, dt);
       s.pulse = pulseOf(flame, trail);
-      if (audio.beat) s.beats++;
 
       // The fright. The machine says when: a hard peak with the mic on sends every bird up, a
       // peak while it lasts startles them again, and after a calm wait it is over. The peak is
@@ -639,9 +686,9 @@
           drawn: geo.instanceCount, shapePoints: geo.attributes.position.count, triangles: geo.index.count / 3,
           solid: m.transparent === false && m.depthTest === true && m.depthWrite === true && m.side === THREE.DoubleSide && m.blending === THREE.NormalBlending,
           wireSeeThrough: wireMat.transparent === true && wireMat.depthWrite === false && wireMat.blending === THREE.NormalBlending, wireColor: srgb(wireMat.uniforms.uColor.value),
-          wireOrder: wires.map((w) => w.mesh.renderOrder), wirePieces: wires.map((w) => w.mesh.geometry.index.count / 6),
+          wirePieces: wires.map((w) => w.mesh.geometry.index.count / 6),
           pal: shared.uPal.value.map(srgb), given: [shared.uLen.value, shared.uLead.value],
-          bounce: Array.from(flock.bounce), bounceV: Array.from(flock.bounceV), load: Array.from(flock.load),
+          bounce: Array.from(flock.bounce), bounceV: Array.from(flock.bounceV), load: Array.from(flock.load), fit: flock.fit,
           uploads: sent.map((at) => at.version).concat(wires.map((w) => w.at.version)),
           neverCulled: birds.frustumCulled === false && wires.every((w) => w.mesh.frustumCulled === false),
           // How the scene stands and how the camera saw the last frame, so that a check can say where on the canvas a bird was drawn.
@@ -665,8 +712,8 @@
   }
 
   globalThis.TimbreBoids = {
-    BANDS, WIRES, PER_MIN, PER_MAX, BIRDS_MAX, SEED, STEP, STEPS_MAX, WIRE_Y, SPAN, REACH, SAG, LOAD_SAG, SEG, WIRE_HALF, FADE, SPRING, SPRING_DAMP, LEAVE, LAND_KICK, BOUNCE_MAX, SIZE, PERCH,
-    AIR, AIR_Y, WALL, WALL_FROM, CRUISE, LOOSE_FAST, LEAD_RATE, LEAD, LEAD_WIDE, PLACE, TURN, SPEED_RATE, LEVEL, ALIGN, NEAR, CLEAR, PART, ROOM, WALL_OUT, WALL_SLOW, TOP, HOME_HIGH, HOME_NEAR, HOME_FAST, HOME_SLOW, HOME_SEEK, LANDED,
+    BANDS, WIRES, PER_MIN, PER_MAX, BIRDS_MAX, SEED, STEP, STEPS_MAX, WIRE_Y, SPAN, REACH, SAG, LOAD_SAG, SEG, WIRE_HALF, FADE, SPRING, SPRING_DAMP, LEAVE, LAND_KICK, BOUNCE_MAX, SIZE, PERCH, FIT, JITTER,
+    AIR, AIR_Y, HARD, HARD_FROM, KEEP, WALL, WALL_FROM, CRUISE, LOOSE_FAST, LEAD_RATE, LEAD, LEAD_WIDE, PLACE, TURN, SPEED_RATE, LEVEL, ALIGN, NEAR, CLEAR, PART, ROOM, WALL_OUT, WALL_SLOW, TOP, HOME_HIGH, HOME_BACK, HOME_NEAR, HOME_OVER, HOME_CLEAR, HOME_FAST, HOME_SLOW, HOME_SEEK, LANDED, OFF, PANE, YAW_MAX, PITCH_MAX,
     UP, UP_HARD, THROWN, BANK, BANK_MAX, BANK_RATE, FLAP_RATE, BEAT, FOLD_RATE, UNFOLD_RATE, TURN_HEAD, FACE_RATE, NERVE, STAY, CALL, RISE, FALL, TRAIL, PULSE, HISTORY, WAVE, WAVE_MAX, WAVE_ROLL, KICK_FLASH, FLASH_S,
     SWAY, ORBIT_RATE, LINGER, FOV, PITCH, FRAME,
     VERT, FRAG, WIRE_VERT, WIRE_FRAG,

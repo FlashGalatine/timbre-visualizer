@@ -5189,12 +5189,13 @@ await import('./overlay/boids.js');
 
   ok(K.BANDS === 8 && K.WIRES === 3 && K.PER_MIN === 12 && K.PER_MAX === 28 && K.BIRDS_MAX === 84 && K.SEED === 20261123 && K.STEP === 1 / 60 && K.STEPS_MAX === 6
     && JSON.stringify(K.WIRE_Y) === '[-0.45,-0.95,-1.45]' && K.SPAN === 2 && K.REACH === 1.65 && K.SAG === 0.12 && K.LOAD_SAG === 0.03 && K.SEG === 48 && K.WIRE_HALF === 0.011 && K.FADE === 0.45
-    && K.SPRING === 300 && K.SPRING_DAMP === 6 && K.LEAVE === 0.18 && K.LAND_KICK === 0.25 && K.BOUNCE_MAX === 0.08 && K.SIZE === 0.25 && K.PERCH === 0.34
-    && JSON.stringify(K.AIR) === '[1.75,0.7,0.75]' && K.AIR_Y === 0.62 && K.FOV === 30 && K.PITCH === 6 && JSON.stringify(K.FRAME) === '{"width":5,"height":3.9,"center":[0,0,0]}' && K.LINGER === 0.08,
+    && K.SPRING === 300 && K.SPRING_DAMP === 6 && K.LEAVE === 0.18 && K.LAND_KICK === 0.25 && K.BOUNCE_MAX === 0.08 && K.SIZE === 0.25 && K.PERCH === 0.34 && K.FIT === 0.14 && K.JITTER === 0.15
+    && JSON.stringify(K.AIR) === '[1.75,0.7,0.75]' && K.AIR_Y === 0.62 && JSON.stringify(K.HARD) === '[2.15,0.8,1]' && K.HARD_FROM === 0.8 && K.KEEP === 3 && K.FOV === 30 && K.PITCH === 6 && JSON.stringify(K.FRAME) === '{"width":5,"height":3.9,"center":[0,0,0]}' && K.LINGER === 0.08,
     'the sizes: three wires, 12 to 28 birds to a wire, steps of 1/60 s, an egg of air above the wires and a frame of 5 by 3.9');
   ok(JSON.stringify(K.CRUISE) === '[1.1,1]' && K.LOOSE_FAST === 1.3 && JSON.stringify(K.LEAD_RATE) === '[0.45,0.9]' && JSON.stringify(K.LEAD) === '[1,0.3,0.45]' && JSON.stringify(K.LEAD_WIDE) === '[0.7,0.3]'
     && JSON.stringify(K.PLACE) === '[0.8,0.4,0.5]' && JSON.stringify(K.TURN) === '[3.5,2]' && K.SPEED_RATE === 3 && K.LEVEL === 0.7 && K.ALIGN === 0.7 && K.NEAR === 0.7 && K.CLEAR === 0.4 && K.PART === 2.5 && K.WALL === 8 && K.WALL_FROM === 0.95 && K.WALL_OUT === 1.1 && K.WALL_SLOW === 0.85 && K.ROOM === 0.85 && K.TOP === 4.2
-    && K.HOME_HIGH === 0.3 && K.HOME_NEAR === 0.45 && K.HOME_FAST === 2 && JSON.stringify(K.HOME_SLOW) === '[0.4,4.5]' && K.HOME_SEEK === 5 && K.LANDED === 0.05
+    && K.HOME_HIGH === 0.3 && K.HOME_BACK === 0.45 && K.HOME_NEAR === 0.55 && K.HOME_OVER === 0.35 && K.HOME_CLEAR === 0.3 && K.HOME_FAST === 2 && JSON.stringify(K.HOME_SLOW) === '[0.25,2.5]' && JSON.stringify(K.HOME_SEEK) === '[5,10]' && K.LANDED === 0.02
+    && JSON.stringify(K.UP) === '[1.7,0.5,0.9,1]' && JSON.stringify(K.UP_HARD) === '[1.8,0.6,3,1.6]' && JSON.stringify(K.OFF) === '[0,0.6,0.8]' && JSON.stringify(K.PANE) === '[0.1,0.25]' && K.YAW_MAX === 9 && K.PITCH_MAX === 1.2
     && K.BANK === 0.22 && K.BANK_MAX === 1.1 && K.BANK_RATE === 6 && K.FLAP_RATE === 7 && JSON.stringify(K.BEAT) === '[13,9]' && K.FOLD_RATE === 6 && K.UNFOLD_RATE === 12 && K.TURN_HEAD === 10 && K.FACE_RATE === 8
     && JSON.stringify(K.NERVE) === '[0.1,0.42]' && JSON.stringify(K.STAY) === '[0.5,0.8]' && JSON.stringify(K.CALL) === '[1.25,0.7]' && K.RISE === 20 && K.FALL === 5 && K.TRAIL === 8 && K.PULSE === 5
     && K.HISTORY === 64 && K.WAVE === 22 && K.WAVE_MAX === 40 && K.WAVE_ROLL === 0.8 && K.KICK_FLASH === 0.5 && K.FLASH_S === 0.3 && K.SWAY === 0.12 && K.ORBIT_RATE === 0.13,
@@ -5207,11 +5208,11 @@ await import('./overlay/boids.js');
   ok(K.spreadFor(0) === 2 && K.spreadFor(50) === 1 && K.spreadFor(100) === 0.5 && near(K.spreadFor(75), Math.SQRT1_2) && K.spreadFor(-20) === 2 && K.spreadFor(300) === 0.5 && K.spreadFor(undefined) === 1 && K.spreadFor('x') === 1,
     'Cohesion 0 is a flock spread twice as wide, 100 one half as wide; anything that is not a number is 50');
   ok(K.loudness(null, 0, 1) === 0 && K.loudness([255], 3, 1) === 0 && near(K.loudness([51, 255], 0, 1), 0.2) && K.loudness([51, 255], 1, 2) === 1 && near(K.loudness([51, 255], 0, 2), 0.4)
-    && near(K.idle(0, 0), 0.16) && near(K.idle(3, 2), Math.max(0, 0.16 + 0.3 * Math.sin(0.9 * 2 + 1.4 * 3))) && K.idle(2, 1.6) === 0
+    && K.idle(0, 0) === 0 && near(K.idle(0, 3), 0.45 * Math.sin(1.35) - 0.2) && K.idle(3, 5) === 0 && near(K.idle(1, 1), 0.45 * Math.sin(0.45 + 1.4) - 0.2) && K.idle(2, 1.6) === 0 && near(K.idle(0, Math.PI / 0.9), 0.25)
     && K.settle(5e-5) === 0 && K.settle(-5e-5) === 0 && K.settle(0.3) === 0.3 && K.settle(5e-3) === 5e-3 && K.settle(-0.3) === -0.3
     && near(K.callOf(0.4, 0), 0.5) && near(K.callOf(0, 0.6), 0.42) && near(K.callOf(0.4, 0.9), 0.63) && near(K.callOf(0.6, 0.9), 0.75)
     && K.pulseOf(0.5, 0.5) === 0 && K.pulseOf(0.2, 0.5) === 0 && near(K.pulseOf(0.6, 0.5), 0.5) && K.pulseOf(1, 0.2) === 1,
-    'a band is its bin of 255 times Gain, at most 1; idle, the bands swell in turn; all but nothing is nothing; a bird\'s call is its band and a quarter more, or seven tenths of the voice, whichever is louder; a syllable is how much louder it has just become');
+    'a band is its bin of 255 times Gain, at most 1; idle, the bands swell in turn, a quarter at most and each for about a third of the time; all but nothing is nothing; a bird\'s call is its band and a quarter more, or seven tenths of the voice, whichever is louder; a syllable is how much louder it has just become');
   {
     const a = K.rng(5), b = K.rng(5), c = K.rng(6), xs = [a(), a(), a()], ys = [b(), b(), b()], zs = [c(), c(), c()];
     ok(xs.join() === ys.join() && xs.join() !== zs.join() && xs.every((v) => v >= 0 && v < 1), 'its random numbers are the same for the same seed');
@@ -5266,7 +5267,7 @@ await import('./overlay/boids.js');
     for (let j = 0; j <= K.SEG; j++) { const x = -K.SPAN + 2 * K.SPAN * j / K.SEG, y = K.wireY(fl, 1, x); if (!near(pts[j * 6], x, 1e-6) || !near(pts[j * 6 + 1], y + K.WIRE_HALF, 1e-6) || pts[j * 6 + 2] !== 0 || !near(pts[j * 6 + 3], x, 1e-6) || !near(pts[j * 6 + 4], y - K.WIRE_HALF, 1e-6) || pts[j * 6 + 5] !== 0) ribbon = false; }
     ok(near(K.wireY(fl, 0, K.SPAN), K.WIRE_Y[0], 1e-9) && near(K.wireY(fl, 0, -K.SPAN), K.WIRE_Y[0], 1e-9) && near(K.wireY(fl, 0, 0), K.WIRE_Y[0] - K.SAG, 1e-9) && near(K.wireY(fl, 0, 1), K.WIRE_Y[0] - K.SAG * 0.75, 1e-9)
       && near(K.wireY(fl, 1, 0), K.WIRE_Y[1] - K.SAG - 0.5 * K.LOAD_SAG, 1e-9) && near(K.wireY(fl, 2, 0), K.WIRE_Y[2] - K.SAG - K.LOAD_SAG + 0.05, 1e-7) && near(K.wireY(fl, 2, 1), K.WIRE_Y[2] - (K.SAG + K.LOAD_SAG) * 0.75 + 0.05 * Math.cos(Math.PI / 4), 1e-7)
-      && near(K.seatY(fl, 4), K.wireY(fl, 1, fl.seatX[4]) + K.PERCH * K.SIZE * fl.size[4], 1e-9) && ribbon,
+      && near(K.seatY(fl, 4), K.wireY(fl, 1, fl.seatX[4]) + K.PERCH * K.SIZE * fl.fit * fl.size[4], 1e-9) && ribbon,
       'a wire hangs from its two ends and sags 0.12 in the middle, a little more for the birds on it, and swings most in the middle; a bird sits a third of its length above its wire; the wire is drawn as a ribbon 0.022 thick');
   }
 
@@ -5356,9 +5357,10 @@ await import('./overlay/boids.js');
       && near(slow.tau, 6 * (K.LEAD_RATE[0] + 0.3 * K.LEAD_RATE[1]), 1e-6) && near(fast.tau, 6 * (K.LEAD_RATE[0] + 0.9 * K.LEAD_RATE[1]), 1e-6) && speed(fast) > 1.2 * speed(slow),
       'in the air the flock follows a lead that wheels above the wires, each bird clear of the others, inside its air and above the wires; louder, the lead goes faster and swings wider and the birds fly faster');
     const tight = K.createFlock(), wide = K.createFlock();
-    run(tight, N, 6, how({ flame: 0.6, bands: loudBands(0.6), spread: 0.5 })); run(wide, N, 6, how({ flame: 0.6, bands: loudBands(0.6), spread: 2 }));
     const round = (f) => mean(N, (i) => len([f.p[i * 3] - f.lead[0], f.p[i * 3 + 1] - f.lead[1], f.p[i * 3 + 2] - f.lead[2]]));
-    ok(round(wide) > 1.25 * round(tight), 'Cohesion: a loose flock flies wider of its lead than a tight one');
+    const over = (f, spread) => { const hh = how({ flame: 0.6, bands: loudBands(0.6), spread }); run(f, N, 4, hh); let s = 0; for (let k = 0; k < 480; k++) { K.advance(f, N, K.STEP, hh); s += round(f) / 480; } return s; };
+    const wideBy = over(wide, 2), tightBy = over(tight, 0.5);
+    ok(wideBy > 1.15 * tightBy, 'Cohesion: over eight seconds a loose flock flies wider of its lead than a tight one — ' + [wideBy, tightBy].map((v) => v.toFixed(3)));
   }
 
   // The steps come due at 1/60 s, whatever the frame rate.
@@ -5550,12 +5552,133 @@ await import('./overlay/boids.js');
       'one step of a bird in the air, by hand: it turns 3.5 radians a second (and 2 more at the loudest) toward its place, more level than straight at it; its speed goes 3 a second toward its cruising speed; it moves; and its wings beat, harder the harder it works');
   }
 
+  // What the review found.
+  {
+    // A bird never spins about itself. Its drawn up, as the shader makes it from its heading and its roll.
+    const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]], unit = (v) => { const l = len(v) || 1; return v.map((c) => c / l); };
+    const upOf = (fl, i, roll) => { const f = at(fl.head, i), r = unit(cross(f, [0, 1, 0])), u = cross(r, f), c = Math.cos(roll), s = Math.sin(roll); return [0, 1, 2].map((k) => u[k] * c + r[k] * s); };
+    const angle = (a, b) => Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2])));
+    let upTurn = 0, headTurn = 0, steepest = 0, flew = 0;
+    for (const fright of [false, true]) {
+      const n = 84, fl = K.createFlock(K.SEED, n), h = how({ flame: 0.9, bands: loudBands(0.9), loose: fright }), A = new Float32Array(n * 4), B = new Float32Array(n * 4);
+      if (fright) K.fright(fl, n, K.rng(1001));
+      let was = null;
+      for (let k = 0; k < 480; k++) {
+        if (k === 240) { h.flame = 0; h.bands = new Float32Array(8); h.loose = false; }
+        K.advance(fl, n, K.STEP, h);
+        K.dress(A, B, fl, n, { kick: 0, flash: 0, lead: 0 });
+        const now = [];
+        for (let i = 0; i < n; i++) { now.push([upOf(fl, i, A[i * 4 + 2]), at(fl.head, i)]); if (fl.state[i] !== 0) { flew++; steepest = Math.max(steepest, Math.abs(fl.head[i * 3 + 1])); } }
+        if (was) for (let i = 0; i < n; i++) { upTurn = Math.max(upTurn, angle(was[i][0], now[i][0])); headTurn = Math.max(headTurn, angle(was[i][1], now[i][1])); }
+        was = now;
+      }
+    }
+    ok(flew > 40000 && upTurn < 0.4 && headTurn < 0.3 && steepest <= Math.sin(K.PITCH_MAX) + 1e-6 && steepest > 0.9,
+      'a bird never spins about itself: taking off, in a fright and landing, its back turns less than 0.4 radians in a step and its heading less than 0.3, and it never heads steeper than 1.2 radians — ' + [upTurn, headTurn, steepest].map((v) => v.toFixed(3)));
+  }
+  {
+    // No bird leaves the picture, as the kit's camera frames it, however often it is frightened.
+    const view = { frame: K.FRAME, fov: K.FOV, pitch: K.PITCH }, sway = K.swayFor(100);
+    let high = 0, wide = 0, low = 0, outOfAir = 0;
+    const watch = (fl, n) => {
+      for (let i = 0; i < n; i++) {
+        const m = K.SIZE * fl.fit * fl.size[i] * (fl.state[i] === 0 ? 0.98 : 1.2), box = { min: [-m, -m, -m], max: [m, m, m] };   // room for its tail, or for its open wings
+        for (const o of [-sway, 0, sway]) { const b = TimbreScene.reach(box, view, 0, 0, 0, 1, fl.p[i * 3], fl.p[i * 3 + 1], fl.p[i * 3 + 2], o); high = Math.max(high, b[1]); low = Math.min(low, b[0]); wide = Math.max(wide, -b[2], b[3]); }
+        if (fl.state[i] === 1 && fl.p[i * 3 + 1] > K.AIR_Y) outOfAir = Math.max(outOfAir, len([fl.p[i * 3] / K.HARD[0], (fl.p[i * 3 + 1] - K.AIR_Y) / K.HARD[1], fl.p[i * 3 + 2] / K.HARD[2]]));
+      }
+    };
+    const loud = K.createFlock(K.SEED, 84), hl = how({ flame: 1, bands: loudBands(1), spread: 2 });
+    for (let k = 0; k < 900; k++) { K.advance(loud, 84, K.STEP, hl); watch(loud, 84); }
+    const scared = K.createFlock(K.SEED, 84), hs = how({ flame: 1, bands: loudBands(1), spread: 2, loose: true });
+    K.fright(scared, 84, K.rng(1003));
+    for (let k = 0; k < 900; k++) { if (k % 36 === 0 && k) K.fright(scared, 84, hs.random); K.advance(scared, 84, K.STEP, hs); watch(scared, 84); }
+    ok(high < K.FRAME.height / 2 && low > -K.FRAME.height / 2 && wide < K.FRAME.width / 2 && high > 1.6 && outOfAir < 1.02 && outOfAir > 0.9,
+      'no bird leaves the picture: at the loudest and widest, and frightened again every 0.6 s for fifteen seconds, every bird and its open wings stay inside the frame of 5 by 3.9 as the camera sways, and no bird\'s middle leaves all the air there is — ' + [high, low, wide, outOfAir].map((v) => v.toFixed(3)));
+  }
+  {
+    // Coming home and taking off, a bird keeps clear of the birds that sit and of the other wires; it comes home from behind and lands softly.
+    let closest = 9, wireCrossed = 0, inFront = -9, towardUs = 0, landings = 0, fastest = 0, jump = 0, dip = 0, belowWire = 0;
+    const watch = (n, quiet) => {
+      const fl = K.createFlock(K.SEED, n), h = how();
+      for (let k = 0; k < 1320; k++) {
+        const loudNow = quiet ? k < 720 && k % 240 < 120 : k < 180;
+        h.flame = loudNow ? (quiet ? 0.3 : 0.9) : 0; h.bands = loudNow && !quiet ? loudBands(0.8) : new Float32Array(8);
+        const before = Int8Array.from(fl.state), pb = Float32Array.from(fl.p), vb = Float32Array.from(fl.v);
+        K.advance(fl, n, K.STEP, h);
+        for (let i = 0; i < n; i++) {
+          const p = at(fl.p, i);
+          if (before[i] === 2 && fl.state[i] === 0) { landings++; if (vb[i * 3 + 2] > 0) towardUs++; fastest = Math.max(fastest, len(at(vb, i))); jump = Math.max(jump, len([p[0] - pb[i * 3], p[1] - pb[i * 3 + 1], p[2] - pb[i * 3 + 2]])); }
+          if (fl.state[i] === 0) continue;
+          for (let j = 0; j < n; j++) if (fl.state[j] === 0) closest = Math.min(closest, len([fl.p[j * 3] - p[0], fl.p[j * 3 + 1] - p[1], fl.p[j * 3 + 2] - p[2]]));
+          for (let w = 0; w < 3; w++) if (w !== fl.wire[i] && Math.abs(p[0]) < K.SPAN - K.FADE && Math.abs(p[2]) < 0.04 && Math.abs(p[1] - K.wireY(fl, w, p[0])) < 0.06) wireCrossed++;
+          if (fl.state[i] !== 2) continue;
+          const sy = K.seatY(fl, i), d = len([fl.seatX[i] - p[0], sy - p[1], p[2]]);
+          if (d < 0.3) inFront = Math.max(inFront, p[2]);
+          if (Math.abs(p[0] - fl.seatX[i]) < 0.15 && Math.abs(p[2]) < 0.15) { dip = Math.max(dip, sy - p[1]); if (p[1] < K.wireY(fl, fl.wire[i], p[0])) belowWire++; }
+        }
+      }
+      return fl.sitting === n;
+    };
+    const home = watch(60, false) && watch(84, false) && watch(60, true) && watch(84, true);
+    ok(home && landings > 250 && closest > 0.07 && wireCrossed === 0 && inFront < 0.05 && towardUs > 0.9 * landings && fastest < 0.3 && jump <= K.LANDED + 1e-6 && dip < 0.02 && belowWire === 0,
+      'coming home and taking off, no bird comes within 0.07 of one that sits or crosses another wire; a bird near its seat is never in front of it, and nine in ten touch down flying toward us; it comes down at under 0.3 a second, lands within 0.02 of its seat, and never dips under it — ' + [landings, closest.toFixed(3), wireCrossed, inFront.toFixed(3), towardUs, fastest.toFixed(3), jump.toFixed(4), dip.toFixed(4), belowWire]);
+  }
+  {
+    // A bird leaves its wire the way it faces and forward; frightened, any way. Among the wires a flying bird makes for the side of them it is on. One called again as it lands, lands first.
+    const fl = K.createFlock(), rnd = K.rng(5);
+    let faced = true, forward = true, hardAny = [9, -9];
+    for (let i = 0; i < 30; i++) { K.takeOff(fl, i, false, rnd); const v = at(fl.v, i); if (v[0] * fl.face[i * 3] < 0 || Math.abs(v[0]) > 0.45 + 1e-6 || v[1] < 1.7 || v[1] > 2.2 + 1e-6) faced = false; if (v[2] < 0.5 - 1e-6 || v[2] > 1 + 1e-6) forward = false; }
+    for (let i = 30; i < 60; i++) { K.takeOff(fl, i, true, rnd); hardAny = [Math.min(hardAny[0], fl.v[i * 3 + 2]), Math.max(hardAny[1], fl.v[i * 3 + 2])]; }
+    const side = (z, loose) => { const f = K.createFlock(K.SEED, 36); f.state[0] = 1; f.heard[0] = 1; put(f.p, 0, [0.4, -0.8, z]); put(f.v, 0, [0, 1.2, 0]); for (let k = 0; k < 20; k++) K.stepFlock(f, 1, how({ loose })); return f.v[2]; };
+    const c = K.createFlock(), bands = new Float32Array(8), ci = 31; bands[c.band[ci]] = 0.8;
+    run(c, N, 0.5, how({ bands }));
+    let k = 0;
+    const far = () => len([c.seatX[ci] - c.p[ci * 3], K.seatY(c, ci) - c.p[ci * 3 + 1], c.p[ci * 3 + 2]]);
+    while (k++ < 600 && !(c.state[ci] === 2 && far() < K.HOME_NEAR - 0.05 && c.p[ci * 3 + 2] < 0)) K.stepFlock(c, N, how());
+    const landing = c.state[ci] === 2;
+    K.stepFlock(c, N, how({ bands }));
+    const still = c.state[ci] === 2;
+    let sat = -1, leftAt = -1;
+    for (let j = 0; j < 200 && leftAt < 0; j++) { K.stepFlock(c, N, how({ bands })); if (c.state[ci] === 0 && sat < 0) sat = j; else if (sat >= 0 && c.state[ci] === 1) leftAt = j; }
+    const scared = K.createFlock(); run(scared, N, 0.5, how({ bands })); k = 0;
+    const farS = () => len([scared.seatX[ci] - scared.p[ci * 3], K.seatY(scared, ci) - scared.p[ci * 3 + 1], scared.p[ci * 3 + 2]]);
+    while (k++ < 600 && !(scared.state[ci] === 2 && farS() < K.HOME_NEAR - 0.05 && scared.p[ci * 3 + 2] < 0)) K.stepFlock(scared, N, how());
+    K.stepFlock(scared, N, how({ loose: true }));
+    ok(faced && forward && hardAny[0] < -0.1 && hardAny[1] > 1 && side(0.05, false) > 0.5 && side(-0.05, false) < -0.5 && Math.abs(side(0.05, true)) < 0.2
+      && landing && still && sat >= 0 && leftAt === sat + 1 && scared.state[ci] === 1,
+      'a bird leaves its wire up, the way it faces and forward, and in a fright any way; among the wires a flying bird makes for the side of them it is on; and one called again as it lands, lands first and leaves from its seat, unless it is a fright');
+  }
+  {
+    // Idle: the bands alone, and they leave most of the birds sitting. Crowded, every bird is smaller. The rows are staggered.
+    const fl = K.createFlock(), bands = new Float32Array(8), h = how({ bands });
+    let most = 0, least = 99, sum = 0; const flew = new Set(), back = new Set();
+    for (let k = 0; k < 3600; k++) {
+      for (let b = 0; b < 8; b++) { const v = K.idle(b, k / 60); bands[b] += (v - bands[b]) * (1 - Math.exp(-(v > bands[b] ? K.RISE : K.FALL) / 60)); if (v === 0) bands[b] = K.settle(bands[b]); }
+      K.advance(fl, N, K.STEP, h);
+      const up = N - fl.sitting; most = Math.max(most, up); least = Math.min(least, up); sum += up / 3600;
+      for (let i = 0; i < N; i++) { if (fl.state[i] !== 0) flew.add(i); else if (flew.has(i)) back.add(i); }
+    }
+    let room = true, staggered = true; const fits = [];
+    for (const n of [36, 48, 60, 72, 84]) {
+      const f = K.createFlock(K.SEED, n), seat = (2 * K.REACH) / (n / 3);
+      fits.push(f.fit);
+      for (let i = 0; i + 3 < n; i++) if (f.seatX[i + 3] - f.seatX[i] < K.FIT * f.fit - 1e-6) room = false;
+      for (let i = 1; i < n; i += 3) if (Math.abs(f.seatX[i] - f.seatX[i - 1]) < (0.5 - K.JITTER) * seat - 1e-6 || Math.abs(f.seatX[i] - f.seatX[i + 1]) < (0.5 - K.JITTER) * seat - 1e-6 || Math.abs(f.seatX[i]) > K.REACH) staggered = false;
+    }
+    const big = K.createFlock(K.SEED, 84), A = new Float32Array(84 * 4), B = new Float32Array(84 * 4);
+    K.dress(A, B, big, 84, { kick: 0, flash: 0, lead: 0 });
+    ok(most <= 36 && least === 0 && sum > 15 && sum < 30 && flew.size >= 45 && back.size === flew.size
+      && fits[0] === 1 && fits[2] === 1 && near(fits[3], (3.3 / 24) * 0.85 / 0.14, 1e-9) && near(fits[4], (3.3 / 28) * 0.85 / 0.14, 1e-9) && room && staggered
+      && near(A[5 * 4], big.fit * big.size[5], 1e-6) && near(K.seatY(big, 5), K.wireY(big, big.wire[5], big.seatX[5]) + K.PERCH * K.SIZE * big.fit * big.size[5], 1e-9),
+      'idle, the bands alone send the birds up: over a minute never more than six in ten are off the wires, about a third on the whole, and most fly at some time and sit again; with less room to a seat than a bird needs every bird is smaller, by as much; and the middle wire\'s seats are between the others\' — ' + [most, least, sum.toFixed(1), flew.size, back.size, fits.map((v) => v.toFixed(3))]);
+  }
+
   // The scene.
   {
     const def = K.definition();
     ok(def.fov === 30 && def.pitch === 6 && def.cooling.join() === '0.08,0.08,0.08' && typeof def.build === 'function' && typeof def.update === 'function' && typeof def.debug === 'function'
       && JSON.stringify(def.frame) === JSON.stringify(K.FRAME) && def.frame !== K.FRAME && def.frame.center !== K.FRAME.center && K.definition().frame !== def.frame
-      && ['iPos', 'iVel', 'iFwd', 'iA', 'iB', 'uLead', 'modelMatrix', 'wing', 'iVel * uLead'].every((w) => K.VERT.includes(w)) && ['uPal', 'vBand / 8.0', 'gl_FrontFacing'].every((w) => K.FRAG.includes(w)) && !K.FRAG.includes('uShift') && /gl_FragColor = vec4\(col, 1\.0\)/.test(K.FRAG)
+      && ['iPos', 'iVel', 'iFwd', 'iA', 'iB', 'uLead', 'modelMatrix', 'wing', 'iVel * uLead', 'iA.x * uLen', '(1.0 - 0.94 * iB.y)', 'mix(p.x, -0.02 - 0.42 * t, iB.y)', 'float ang = (1.0 - iB.y) * (', 'cross(f, vec3(0.0, 1.0, 0.0))'].every((w) => K.VERT.includes(w)) && ['(under ? below : top)', 'smoothstep(-0.35, 0.45, vUp)'].every((w) => K.FRAG.includes(w)) && ['uPal', 'vBand / 8.0', 'gl_FrontFacing'].every((w) => K.FRAG.includes(w)) && !K.FRAG.includes('uShift') && /gl_FragColor = vec4\(col, 1\.0\)/.test(K.FRAG)
       && K.WIRE_VERT.includes('fade') && K.WIRE_FRAG.includes('uColor'),
       'the scene definition gives the kit its frame, its camera and its two halves, and a frame of its own each time; the birds are drawn solid');
   }

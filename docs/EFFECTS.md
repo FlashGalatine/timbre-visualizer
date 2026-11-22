@@ -1187,12 +1187,13 @@ of the mic. `factories/boids.js` is one line,
 `VIZ_FACTORIES['boids'] = TimbreScene.factory(() => TimbreBoids.definition())`. It follows the
 school of fish closely. It offers:
 
-- **The sound and the settings.** `loudness`, `idle` and `settle` as the jelly has them.
+- **The sound and the settings.** `loudness` and `settle` as the jelly has them.
   `countFor(density)` is how many birds there are: 36 at Density 0, 60 at 50, 84 at 100, the
   same number to each wire. `spreadFor(cohesion)` is how wide of the lead the birds' places
   are: twice as wide at Cohesion 0, half as wide at 100. `callOf(band, flame)` is a bird's
   call: its band (and a quarter more) or seven tenths of the voice, whichever is louder.
-  `pulseOf(flame, trail)` is a syllable.
+  `pulseOf(flame, trail)` is a syllable. `idle(band, t)` is a band with the mic off and Idle
+  animation on: each swells for about a third of the time, to a quarter at most.
 - **One bird.** `birdShape()`: a body with a head, closed at both ends, a tail, a beak and two
   wings, beak toward +x and back toward +y. Each point's `wing` says how far out along a
   wing it is (0 for all but the wings), with the sign of its side.
@@ -1204,20 +1205,39 @@ school of fish closely. It offers:
   what is its own: its size, its nerve, how long it stays up after its call, its place by the
   lead and the way it sits. `state` is 0 sitting, 1 flying, 2 coming home. `reseat(fl, n)`
   makes the rows for `n` birds: bird `i` is on wire `i % 3`, in seat `floor(i / 3)` from the
-  left, and listens to the band of its stretch of wire. Birds that join sit, birds that sit
-  move to their new seats, and a bird in the air flies on.
+  left, and listens to the band of its stretch of wire. The middle wire's seats are half a
+  seat along from the others', so that no bird sits right above another. With less room to a
+  seat than a bird needs (`FIT`), every bird is smaller by as much (`fl.fit`: 1 up to 60
+  birds, 0.72 at 84). Birds that join sit, birds that sit move to their new seats, and a bird
+  in the air flies on.
 - **Flying.** `leadAt(out, tau, flame)` is the lead, which wheels above the wires, wider and
   faster the louder it is. `placeOf(out, fl, i, wide, loose)` is a bird's own place: by the
   lead, or, in a fright, its own part of the air; always inside the air (`AIR`, `ROOM`).
-  `takeOff(fl, i, hard, random)` sends a sitting bird up and springs its wire.
+  `takeOff(fl, i, hard, random)` sends a sitting bird up, the way it faces and forward, off
+  the wires (in a fright, harder and any way), and springs its wire.
   `stepFlock(fl, n, how)` is one step of `STEP` (1/60 s) of the wires and the birds. A
   sitting bird takes off when its call is louder than its nerve, or in a fright. A flying
-  bird flies at its cruising speed and steers by turning: toward its place, off any bird too
-  close, the way the birds near it fly, and back from the edge of its air, which is above
-  the wires; it banks into its turn and beats harder to climb. A bird that has heard nothing for its
-  `stay` comes home: to above its seat, then down onto it, slowing, and `perch` puts it
-  exactly there; it folds its wings and turns to sit as it sits over the next second. `advance(fl, n, dt, how)` takes a step once half of it has come due, six at
-  most in a frame; `fl.left` is how far the flock is behind its steps, or ahead.
+  bird flies at its cruising speed and steers by turning: toward its place, off any flying
+  bird too close, the way the birds near it fly, and back from the edge of its air. It banks
+  into its turn and beats harder to climb. `advance(fl, n, dt, how)` takes a step once half
+  of it has come due, six at most in a frame; `fl.left` is how far the flock is behind its
+  steps, or ahead.
+- **Staying in the picture.** `HARD` is all the air there is, an egg a little larger than
+  `AIR`: from `HARD_FROM` of the way out a flying bird loses its speed outward, and at the
+  edge it has none, so it turns along the edge. However often the birds are frightened, no
+  bird and its open wings leave the frame.
+- **Among the wires.** A bird leaves by the front and comes home round the back. Until a
+  flying bird is clear of the wires (above the top one, or well in front) it flies up and
+  away from them on the side it is on (`OFF`), and below the top wire it does not cross them
+  (`PANE`). A bird that has heard nothing for its `stay` comes home: over the top wire to
+  above and behind its seat, then down and forward onto it, slowing, and `perch` puts it
+  exactly there; it folds its wings and turns to sit as it sits over the next second. So it
+  comes in flying toward us and pitches up to sit with its breast to us, and it passes no
+  bird that sits. One that is called again as it lands, lands first and leaves from its seat.
+- **How it is drawn heading.** A bird in the air is drawn turning as a bird turns: round, at
+  most `YAW_MAX` radians a second, and up or down, never steeper than `PITCH_MAX`. So it is
+  always level about its heading (but for its bank), and never heads straight up, where
+  "level" means nothing.
 - **The fright.** `fright(fl, n, random)`: every bird is up at once; one that was sitting
   leaves hard, one in the air is thrown off its way. While `how.loose` is set every bird
   stays up, flies faster and makes for its own part of the air.
@@ -1231,11 +1251,15 @@ school of fish closely. It offers:
 Things worth knowing:
 
 - In silence, with the mic on, every bird ends up sitting, the wires stop swinging, and then
-  the picture is exactly still: every number that is drawn settles to a fixed value. That is
-  why the birds' colours do not drift with the clock, as the fish's do; they move only as the
-  palette's own Colour speed moves them.
+  every number the birds and the wires are drawn with has settled to a fixed value. What
+  still moves is not theirs: the palette, which drifts with its own Colour speed, and the
+  camera, which sways with Camera drift. (That is why the birds' colours do not drift with
+  the clock, as the fish's do.) The checks that say "exactly still" turn both off.
+- The voice is the mic's alone. With the mic off and Idle animation on, the kit's own idle
+  swell is not heard as a voice: the bands move the birds, and most of them sit.
 - The birds are one instanced mesh, solid, drawn with the depth buffer. The wires are thin
-  ribbons that fade out toward their ends, drawn before the birds.
+  ribbons that fade out toward their ends. They are see-through, so three.js draws them after
+  the birds; they test depth and write none.
 - The flock is stepped in fixed steps whatever the frame rate, a step coming due at its half,
   and a bird in the air is drawn as far on along its way as the flock is ahead of or behind
   its steps (`uLead`), as the school of fish does it. A step weighs the wires once, as it
@@ -1244,9 +1268,13 @@ Things worth knowing:
   fright: birds in the air stop where they are.
 - Nothing comes from `Math.random`. A thump flushes the birds by the number of the thump.
 - When a fright starts and ends is `TimbreHelix.createShatter`'s machine; Fright sensitivity
-  and Settle seconds are its two settings under names that fit birds.
+  and Settle seconds are its two settings under names that fit birds. (The machine waits at
+  least 0.3 s of calm, so Settle seconds 0 is that.)
 - The scene is made to fill the frame at Scene Size 100. Enlarged past that it is cropped, as
   the landscape scenes are: nothing here is drawn smaller to stay in.
+- A folded wing is drawn as nothing: a sitting bird is its body, its tail and its beak.
+- A bird's nerve starts at 0.10, so a band that sits at about 0.08 with nobody talking (hum,
+  or a noisy room at a high Gain) keeps the boldest birds of its stretch in the air.
 
 ## Wire format (for driving Timbre from elsewhere)
 
