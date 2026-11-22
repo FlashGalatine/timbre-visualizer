@@ -3503,9 +3503,11 @@ async function main() {
     // hears (0 unless given); idle: true has the mic off, off: true has the mic and Idle animation
     // off; knobs sets settings from that step on. Beside the scene, the soft body is made again here
     // from the arithmetic alone, frame for frame, for as long as the cube is whole (the bands
-    // followed, what pulls, the lift, the slaps, the squash, every step of the lattice), and model
-    // says how far the scene's own is from it. Apart, what is drawn is worked out again from the
-    // slabs' flight as the scene reports it.
+    // followed, what pulls, the lift, the slaps, the squash, every step of the lattice, the skin and
+    // the bubbles), and model says how far the scene's own is from it. Apart, the slabs' flight is
+    // made again the same way (the throw of each thump, the flight, each slab's own wobble, the way
+    // back and the landings), and what is drawn is worked out again from it. gap: milliseconds the
+    // page stops drawing for, before the step.
     const JELLY = 'jelly';
     const jellyRun = (steps, { fps = 60, knobs = null, hue = null, colorSpeed = null, gain = null } = {}) => wide.evaluate(({ id, steps, fps, knobs, hue, colorSpeed, gain }) => {
       window.frame = function () {};
@@ -3521,7 +3523,7 @@ async function main() {
         const K = TimbreJelly, follow = TimbreScene.follow;
         const sk = K.skin(K.SKIN), V = sk.points.length / 3, cells = new Int32Array(V), fracs = new Float32Array(V * 3);
         for (let i = 0; i < V; i++) K.locate(cells, fracs, i, sk.points[i * 3], sk.points[i * 3 + 1], sk.points[i * 3 + 2]);
-        const m = { ok: true, bands: new Float32Array(8), body: K.createBody(), sq: [0, 0], trail: 0, lastFlame: 0, slaps: 0, clock: 0 };
+        const m = { ok: true, bands: new Float32Array(8), body: K.createBody(), sq: [0, 0], trail: 0, lastFlame: 0, slaps: 0, clock: 0, sl: K.createSlabs(), random: null, since: 0, phase: 'whole', thumps: 0, jostles: 0, bub: null };
         const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), f = new Uint8Array(32), out = [];
         let now = 100000 + 1000 / 120, last = null;
         for (const st of steps) {
@@ -3533,7 +3535,8 @@ async function main() {
           if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
           frequencies = f;
           micPeak = st.peak || 0;
-          let beats = 0, mostSeen = 0, stepsSeen = new Set(), landedAt = [];
+          let beats = 0, mostSeen = 0, stepsSeen = new Set(), landedAt = [], stopped = !!st.gap;
+          if (st.gap) now += st.gap;
           for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) {
             now += 1000 / fps;
             const before = window.__timbre.scene ? window.__timbre.scene.state : null, b0 = before ? before.beats : 0, l0 = before ? before.landed : 0, dt = 1 / fps;
@@ -3544,16 +3547,28 @@ async function main() {
             stepsSeen.add(live.steps);
             for (let k = l0; k < live.landed; k++) landedAt.push(i);
             if (micActive || cfgIdleAnim) m.clock += dt;
-            if (live.phase !== 'whole') m.ok = false;
-            if (m.ok) {
-              const flame = live.flame, firm = K.firmOf(perViz[id].stiffness), rise = Math.max(0, flame - m.lastFlame);
-              m.lastFlame = flame;
-              for (let b = 0; b < 8; b++) {
-                let v = 0;
-                if (micActive) v = K.loudness(frequencies, b, cfgGain); else if (cfgIdleAnim) v = K.idle(b, m.clock);
-                m.bands[b] = follow(m.bands[b], v, v > m.bands[b] ? K.RISE : K.FALL, dt);
-                if (v === 0) m.bands[b] = K.settle(m.bands[b]);
-              }
+            const flame = live.flame, firm = K.firmOf(perViz[id].stiffness), rise = Math.max(0, flame - m.lastFlame);
+            m.lastFlame = flame;
+            for (let b = 0; b < 8; b++) {
+              let v = 0;
+              if (micActive) v = K.loudness(frequencies, b, cfgGain); else if (cfgIdleAnim) v = K.idle(b, m.clock);
+              m.bands[b] = follow(m.bands[b], v, v > m.bands[b] ? K.RISE : K.FALL, dt);
+              if (v === 0) m.bands[b] = K.settle(m.bands[b]);
+            }
+            // The thump, by what the scene says happened: it came apart, was thrown again, started back, set, or (the page having stopped) was put back whole.
+            if (live.thumps > m.thumps) { m.thumps = live.thumps; m.random = K.rng(1000 + m.thumps); K.throwSlabs(m.sl, 1, m.random, true); m.ok = false; }
+            else if (live.jostles > m.jostles) { m.jostles = live.jostles; if (m.phase === 'returning') { K.resumeSlabs(m.sl); K.throwSlabs(m.sl, K.REBLAST, m.random, false); } else K.throwSlabs(m.sl, K.JOSTLE, m.random, false); }
+            else if (live.phase === 'returning' && m.phase !== 'returning') { K.startBack(m.sl); m.since = 0; }
+            else if (live.phase === 'whole' && m.phase !== 'whole') {
+              K.homeSlabs(m.sl); m.sq[0] = 0; m.sq[1] = 0; m.ok = true;
+              if (stopped) K.calm(m.body); else { K.land(m.body); m.sq[1] = K.LAND_SQUASH; }
+            } else if (live.phase === 'returning') m.since += dt;
+            m.phase = live.phase; stopped = false;
+            if (live.phase !== 'whole') {
+              m.trail = flame;
+              K.wobbleSlabs(m.sl, dt, rise, m.bands, firm);
+              if (live.phase === 'pieces') { K.flySlabs(m.sl, dt); K.showSlabs(m.sl, m.clock); } else K.placeSlabs(m.sl, Math.min(1, m.since / TimbreHelix.RETURN_S), m.clock);
+            } else if (m.ok) {
               K.pull(m.body, m.bands, firm);
               m.trail = follow(m.trail, flame, K.TRAIL, dt);
               if (flame === 0) m.trail = K.settle(m.trail);
@@ -3568,10 +3583,12 @@ async function main() {
           // jelly: pixels the jelly covers (it is see-through, so its alpha is well under 255). part: pixels at its rim. light: pixels of light over the
           // background (its own light, behind it). edge: anything at the canvas's edge. alpha: the jelly's mean alpha.
           let jelly = 0, part = 0, light = 0, edge = 0, sx = 0, alpha = 0, sum = 0, hash = 2166136261;
+          const cover = [w, -1, h, -1];   // the box of everything the jelly covers, its rim included
           for (let i = 0; i < px.length; i++) hash = Math.imul(hash ^ px[i], 16777619) >>> 0;
           const box = [w, -1, h, -1];
           for (let i = 0; i < px.length; i += 4) {
             const x = (i / 4) % w, y = Math.floor(i / 4 / w), rgb = px[i] + px[i + 1] + px[i + 2], a = px[i + 3];
+            if (a >= 25) { if (x < cover[0]) cover[0] = x; if (x > cover[1]) cover[1] = x; if (y < cover[2]) cover[2] = y; if (y > cover[3]) cover[3] = y; }
             if (a >= 100) {
               jelly++; sx += x; alpha += a; sum += rgb;
               if (x < box[0]) box[0] = x; if (x > box[1]) box[1] = x; if (y < box[2]) box[2] = y; if (y > box[3]) box[3] = y;
@@ -3597,17 +3614,39 @@ async function main() {
           let latticeMost = 0; for (let i = 0; i < lattice.length; i++) if (Math.abs(lattice[i]) > latticeMost) latticeMost = Math.abs(lattice[i]);
           const mid = (4 + 9 * (4 + 9 * 4)) * 3, midUp = lattice[mid + 1];
           // The body made again from the arithmetic.
-          const model = { ok: m.ok, gapU: 99, gapSq: 99, gapBands: 99, gapPos: 99, gapNorm: 99, gapReach: 99, clock: m.clock, slaps: m.slaps };
-          if (m.ok) {
+          const model = { ok: m.ok && state.phase === 'whole', gapU: 99, gapSq: 99, gapBands: 99, gapPos: 99, gapNorm: 99, gapReach: 99, gapBub: 99, gapLit: 99, gapFlight: 99, clock: m.clock, slaps: m.slaps };
+          if (model.ok) {
             model.gapU = 0; for (let i = 0; i < lattice.length; i++) model.gapU = Math.max(model.gapU, Math.abs(lattice[i] - m.body.u[i]));
             model.gapSq = Math.max(Math.abs(m.sq[0] - state.sq[0]), Math.abs(m.sq[1] - state.sq[1]));
             model.gapBands = 0; for (let b = 0; b < 8; b++) model.gapBands = Math.max(model.gapBands, Math.abs(m.bands[b] - state.bands[b]));
             const pos = new Float32Array(V * 3), stir = new Float32Array(V), norm = new Float32Array(V * 3), facing = state.facing;
+            K.measure(m.body);
             const reach = K.shape(pos, stir, m.body, sk.points, cells, fracs, m.sq[0], K.STIR);
             K.normalsOf(pos, sk.index, norm);
             model.gapPos = 0; model.gapNorm = 0;
             for (let i = 0; i < pos.length; i++) { model.gapPos = Math.max(model.gapPos, Math.abs(pos[i] - points[i])); model.gapNorm = Math.max(model.gapNorm, Math.abs(norm[i] - facing[i])); }
             model.gapReach = Math.abs(reach - state.reach);
+            // The bubbles, read off the same body, and lit by how fast it moves round them and by a flash.
+            if (!m.bub) { const home = Float32Array.from(state.bubbleHome), n = home.length / 3, c = new Int32Array(n), fr = new Float32Array(n * 3); for (let i = 0; i < n; i++) K.locate(c, fr, i, home[i * 3], home[i * 3 + 1], home[i * 3 + 2]); m.bub = { home, c, fr, n }; }
+            const bp = new Float32Array(m.bub.n * 3), bl = new Float32Array(m.bub.n), bub = state.bubbles, lit = state.bubbleLit;
+            K.shape(bp, bl, m.body, m.bub.home, m.bub.c, m.bub.fr, m.sq[0], K.STIR_BUBBLE);
+            model.gapBub = 0; model.gapLit = 0;
+            for (let i = 0; i < bp.length; i++) model.gapBub = Math.max(model.gapBub, Math.abs(bp[i] - bub[i]));
+            for (let i = 0; i < bl.length; i++) model.gapLit = Math.max(model.gapLit, Math.abs(Math.fround(Math.min(1, bl[i] + 0.5 * state.flash)) - lit[i]));
+          }
+          // Every point of the skin (or, apart, of the four slabs, bent, squashed, turned and carried as the arithmetic has them), as the camera saw it: the box
+          // they lie in, in pixels, beside the box of what the GPU drew.
+          let boxGap = 99;
+          if (state.world && state.view && state.proj && cover[1] >= 0) {
+            const Wm = state.world, Vm = state.view, Pm = state.proj, seen = [Infinity, -Infinity, Infinity, -Infinity];
+            const mul = (mt, v) => [mt[0] * v[0] + mt[4] * v[1] + mt[8] * v[2] + mt[12] * v[3], mt[1] * v[0] + mt[5] * v[1] + mt[9] * v[2] + mt[13] * v[3], mt[2] * v[0] + mt[6] * v[1] + mt[10] * v[2] + mt[14] * v[3], mt[3] * v[0] + mt[7] * v[1] + mt[11] * v[2] + mt[15] * v[3]];
+            const see = (x, y, z) => { const c = mul(Pm, mul(Vm, mul(Wm, [x, y, z, 1]))), px2 = ((c[0] / c[3]) * 0.5 + 0.5) * w, py2 = ((c[1] / c[3]) * 0.5 + 0.5) * h; if (px2 < seen[0]) seen[0] = px2; if (px2 > seen[1]) seen[1] = px2; if (py2 < seen[2]) seen[2] = py2; if (py2 > seen[3]) seen[3] = py2; };
+            if (state.phase === 'whole') for (let i = 0; i < points.length; i += 3) see(points[i], points[i + 1], points[i + 2]);
+            else {
+              const tile = K.skin(K.SLAB_SKIN).points, fl = state.flight, o = [0, 0, 0];
+              for (let i = 0; i < 4; i++) { const wide = K.slabWide(i); for (let j = 0; j < tile.length; j += 3) { K.bent(o, tile[j] * wide, tile[j + 1] * K.THIN, tile[j + 2] * wide, fl.q[i], fl.bend[i]); K.slabPoint(o, fl, i, o[0], o[1], o[2]); see(o[0], o[1], o[2]); } }
+            }
+            boxGap = Math.max(Math.abs(seen[0] - cover[0]), Math.abs(seen[1] - (cover[1] + 1)), Math.abs(seen[2] - cover[2]), Math.abs(seen[3] - (cover[3] + 1)));
           }
           let stirMost = 0, litMost = 0; { const st2 = state.stirred || [], bl = state.bubbleLit || []; for (const v of st2) if (v > stirMost) stirMost = v; for (const v of bl) if (v > litMost) litMost = v; }
           // Apart: what is drawn, worked out again from the slabs' flight.
@@ -3636,9 +3675,12 @@ async function main() {
             apart.ranks = byFar.every((i, rank) => state.slabs[i].order.join() === [rank * 3, rank * 3 + 1, rank * 3 + 2].join());
             apart.reachGap = Math.abs(K.reachOf(sl) - state.reach);
             apart.far = Math.max(...[0, 1, 2, 3].map((i) => Math.hypot(fl.shown[i * 3], fl.shown[i * 3 + 1], fl.shown[i * 3 + 2])));
+            // The flight made again from the arithmetic.
+            model.gapFlight = 0;
+            for (const key of ['p', 'r', 'tp', 'tr', 'shown', 'turned', 'q', 'bend', 'loose', 'landed']) for (let i = 0; i < fl[key].length; i++) model.gapFlight = Math.max(model.gapFlight, Math.abs(fl[key][i] - m.sl[key][i]));
           }
           const size = (b) => ({ w: b[1] < 0 ? 0 : b[1] - b[0] + 1, h: b[3] < 0 ? 0 : b[3] - b[2] + 1, x0: b[0], x1: b[1], y0: b[2], y1: b[3] });
-          out.push({ state, model, apart, corners, latticeMost, midUp, mostSeen, stepsSeen: [...stepsSeen].sort().join(), landedAt, stirMost, litMost, jelly, part, light, edge, beats, foot, top,
+          out.push({ state, model, apart, boxGap, corners, latticeMost, midUp, mostSeen, stepsSeen: [...stepsSeen].sort().join(), landedAt, stirMost, litMost, jelly, part, light, edge, beats, foot, top,
             alpha: jelly ? alpha / jelly : 0, bright: jelly ? sum / jelly : 0, centroidX: jelly ? sx / jelly : 0, box: size(box), cornerAlpha: px[3], canvas: [w, h], hash, diff, kitCam: s ? s.camera : null,
             pal: [0, 1, 2, 3, 4, 5].map((i) => getColor(state.colorT + (i * PALETTE.length) / 6).slice(0, 3)), bubbleColor: getColor(state.colorT + PALETTE.length / 2).slice(0, 3), haloColor: getColor(state.colorT + 1).slice(0, 3) });
         }
@@ -3654,8 +3696,12 @@ async function main() {
     const same = (r) => r.diff.n <= 8 && r.diff.max <= 1;
     // And a picture that has moved differs from the last step's in more of its numbers than this.
     const MOVES = 1000;
-    const remade = (r) => r.model.ok && r.model.gapU < 1e-12 && r.model.gapSq < 1e-12 && r.model.gapBands < 1e-12 && r.model.gapPos < 1e-6 && r.model.gapNorm < 1e-5 && r.model.gapReach < 1e-6;
-    const reworked = (r) => r.apart.slabGap < 1e-12 && r.apart.euler < 1e-9 && r.apart.ride < 1e-5 && r.apart.ranks && r.apart.reachGap < 1e-9;
+    const remade = (r) => r.model.ok && r.model.gapU < 1e-12 && r.model.gapSq < 1e-12 && r.model.gapBands < 1e-12 && r.model.gapPos < 1e-6 && r.model.gapNorm < 1e-5 && r.model.gapReach < 1e-6 && r.model.gapBub < 1e-6 && r.model.gapLit < 1e-6;
+    const reworked = (r) => r.model.gapFlight < 1e-12 && r.apart.slabGap < 1e-12 && r.apart.euler < 1e-9 && r.apart.ride < 1e-5 && r.apart.ranks && r.apart.reachGap < 1e-9;
+    // How many pixels of the picture a unit is, one unit from the camera, on the wide page at its own size.
+    const PX = 624 / (2 * Math.tan(Math.PI / 12));
+    // How far, in pixels, the box the GPU drew may be from the box the arithmetic gives. Measured (0.85 at most, whole or apart), and set at twice that.
+    const BOX_GAP = 1.7;
     const still = { knobs: { cameraDrift: 0 }, colorSpeed: 0, gain: 1 };
     const like = (c, d) => (c[0] * d[0] + c[1] * d[1] + c[2] * d[2]) / ((Math.hypot(...c) || 1) * (Math.hypot(...d) || 1));
     // The colour of layer n, from the six the scene was given and how far round they have drifted (as the shader has it, near enough for telling hues apart).
@@ -3674,22 +3720,24 @@ async function main() {
     check('jelly is a kit scene: a see-through cube with its bubbles and a light behind it, a transparent corner and nothing at the edge',
       !!jeState && jeState.active === true && jeState.targetSize[0] === 1728 && jeLoud.jelly > 0.8 * CUBE_PIXELS && jeLoud.cornerAlpha === 0 && jeLoud.edge === 0 && jeLoud.alpha > 150 && jeLoud.alpha < 240 && jeLoud.light > 100 && jeHush.light === 0
         && ls.phase === 'whole' && ls.cube.shown === true && ls.cube.order.join() === '0,2' && ls.cube.sameSkin === true && ls.cube.far.solid && ls.cube.near.solid && ls.cube.far.side === 'back' && ls.cube.near.side === 'front' && ls.cube.far.back === 1 && ls.cube.near.back === 0
-        && ls.cube.far.layer === -1 && ls.cube.near.layer === -1 && ls.slabs.length === 4 && ls.slabs.every((sb, i) => sb.shown === false && sb.far.layer === i && sb.near.layer === i && sb.far.side === 'back' && sb.near.side === 'front' && sb.far.back === 1 && sb.near.back === 0 && sb.far.solid && sb.near.solid && sb.points === 6 * 14 * 14 + 2 && sb.sameTile)
+        && ls.cube.far.layer === -1 && ls.cube.near.layer === -1 && ls.slabs.length === 4 && ls.slabs.every((sb, i) => sb.shown === false && sb.far.layer === i && sb.near.layer === i && sb.far.side === 'back' && sb.near.side === 'front' && sb.far.back === 1 && sb.near.back === 0 && sb.far.solid && sb.near.solid && sb.points === 6 * 14 * 14 + 2 && sb.sameTile
+          && Math.abs(sb.tile[0] - Math.pow(1 - Math.pow(Math.abs(-0.75 + 0.5 * i), 5), 0.2)) < 1e-6 && Math.abs(sb.tile[1] - 0.25) < 1e-6 && Math.abs(sb.tile[2] - sb.tile[0]) < 1e-6 && sb.faced === true)
+        && ls.neverCulled === true && ls.drawnFor === 1 && Math.abs(ls.px - PX * ls.zoom) < 1e-6
         && ls.skinPoints === 6 * 26 * 26 + 2 && ls.triangles === 12 * 26 * 26 && ls.bubbleLight === true && ls.bubbleSets.length === 4 && ls.bubbleSets.reduce((n, b) => n + b.count, 0) === 46 && ls.bubbleSets.every((b, i) => b.order === 1 && b.count === ls.bubbleFirst[i + 1] - ls.bubbleFirst[i] && b.count > 0)
-        && ls.bubbleSlab.every((b, i) => i === 0 || b >= ls.bubbleSlab[i - 1]) && ls.halo.order === -1 && gap(ls.halo.at, [0, 0, -1.2]) < 1e-12 && ls.halo.size === 5.2 && ls.given[0] === ls.flame && ls.given[1] === Math.max(ls.kick, ls.flash) && ls.firm === 1 && ls.scale === ls.zoom,
+        && ls.bubbleSlab.every((b, i) => i === 0 || b >= ls.bubbleSlab[i - 1]) && ls.halo.order === -1 && gap(ls.halo.at, [0, 0, -1.2]) < 1e-12 && Math.abs(ls.halo.size - 5.2 * ls.zoom) < 1e-12 && ls.given[0] === ls.flame && ls.given[1] === Math.max(ls.kick, ls.flash) && ls.firm === 1 && ls.scale === ls.zoom,
       JSON.stringify({ size: jeState && jeState.targetSize, jelly: jeLoud.jelly, part: jeLoud.part, light: jeLoud.light, alpha: jeLoud.alpha, corner: jeLoud.cornerAlpha, edge: jeLoud.edge, box: jeLoud.box }));
     const hs = jeHush.state;
     check('jelly: in silence the cube is at rest, every point of its skin where the rounded cube has it', jeHush.latticeMost === 0 && hs.most === 0 && hs.sq[0] === 0 && hs.sq[1] === 0 && hs.bands.every((b) => b === 0) && hs.flame === 0 && hs.lift === 0 && hs.pulled === false
-      && Math.abs(hs.reach - WHOLE) < 1e-6 && hs.room === 1 && hs.zoom === 1 && hs.limit === 2 && hs.steps === 4 && jeHush.stepsSeen === '4' && remade(jeHush) && jeHush.stirMost === 0 && jeHush.litMost === 0 && hs.phase === 'whole' && hs.thumps === 0,
-      JSON.stringify({ most: hs.most, sq: hs.sq, reach: hs.reach, steps: jeHush.stepsSeen, model: jeHush.model }));
+      && Math.abs(hs.reach - WHOLE) < 1e-6 && hs.room === 1 && hs.zoom === 1 && hs.limit === 2 && hs.steps === 4 && jeHush.stepsSeen === '4' && remade(jeHush) && jeHush.stirMost === 0 && jeHush.litMost === 0 && hs.phase === 'whole' && hs.thumps === 0 && jeHush.boxGap < BOX_GAP,
+      JSON.stringify({ most: hs.most, sq: hs.sq, reach: hs.reach, steps: jeHush.stepsSeen, model: jeHush.model, boxGap: jeHush.boxGap }));
     check('jelly: the cube at rest is drawn as it was measured', Math.abs(jeHush.jelly - CUBE_PIXELS) < 0.03 * CUBE_PIXELS && gap([jeHush.box.x0, jeHush.box.x1, jeHush.box.y0, jeHush.box.y1], CUBE_BOX) <= 4 && Math.abs(jeHush.alpha - CUBE_ALPHA) < 6 && Math.abs(jeHush.bright - CUBE_BRIGHT) < 25 && jeHush.edge === 0,
       JSON.stringify({ jelly: jeHush.jelly, box: [jeHush.box.x0, jeHush.box.x1, jeHush.box.y0, jeHush.box.y1], alpha: jeHush.alpha, bright: jeHush.bright, part: jeHush.part, light: jeHush.light }));
     const [jeSoft, jeBeat] = await jellyRun([{ level: 0.05, all: 0.5, secs: 1 }, { level: 0.9, all: 0.8, secs: 1 }], { gain: 1 });
     check('jelly: every point of the body is where the arithmetic puts it, frame for frame: the bands followed, the pulls, the lift, the slaps, the squash, the skin and the way it faces', remade(jeLoud) && remade(jeSoft) && remade(jeBeat) && jeSoft.state.beats === 0 && jeBeat.state.beats >= 1
       && jeBeat.model.slaps === jeBeat.state.slaps && jeBeat.state.slaps === jeBeat.state.beats && jeBeat.mostSeen > 0.15 && jeLoud.mostSeen > 0.15,
       JSON.stringify({ model: [jeLoud.model, jeBeat.model], beats: jeBeat.state.beats, most: [jeLoud.mostSeen, jeBeat.mostSeen] }));
-    check('jelly: loud, the cube is pulled out of shape and stays in the picture', jeLoud.state.most > 0.1 && jeLoud.state.reach > WHOLE + 0.05 && jeLoud.state.reach * jeLoud.state.zoom <= 2 + 1e-9 && jeLoud.edge === 0 && jeLoud.box.w > jeHush.box.w && jeLoud.state.pulled === true && jeLoud.stirMost >= 0,
-      JSON.stringify({ most: jeLoud.state.most, reach: jeLoud.state.reach, zoom: jeLoud.state.zoom, box: [jeHush.box.w, jeLoud.box.w] }));
+    check('jelly: loud, the cube is pulled out of shape and stays in the picture', jeLoud.state.most > 0.1 && jeLoud.state.reach > WHOLE + 0.05 && jeLoud.state.reach * jeLoud.state.zoom <= 2 + 1e-9 && jeLoud.edge === 0 && jeLoud.box.w > jeHush.box.w && jeLoud.state.pulled === true && jeLoud.boxGap < BOX_GAP,
+      JSON.stringify({ boxGap: jeLoud.boxGap, most: jeLoud.state.most, reach: jeLoud.state.reach, zoom: jeLoud.state.zoom, box: [jeHush.box.w, jeLoud.box.w] }));
 
     // The sound.
     const oneBand = [];
@@ -3702,8 +3750,8 @@ async function main() {
       JSON.stringify({ bands: [bandHalf.state.bands[0], bandGain.state.bands[0], bandHush.state.bands[0]], corner: [bandHalf.corners[0], bandGain.corners[0]], hush: bandHush.latticeMost }));
     const [, syl1, syl2, syl3] = await jellyRun([{ level: 0, secs: 0.5 }, { level: 0.9, secs: 0.1 }, { level: 0.9, secs: 0.25 }, { level: 0.9, secs: 6 }], still);
     check('jelly: a syllable lifts the middle and squashes the body, which springs back past its shape and settles; the lift is forgotten', syl1.state.lift > 0.15 && syl1.state.sq[0] > 0.05 && syl1.midUp > 0.005 && syl1.box.w > jeHush.box.w && syl1.box.h < jeHush.box.h && syl2.state.sq[0] < -0.02
-      && Math.abs(syl3.state.sq[0]) < 1e-3 && syl3.state.lift < 0.01 && syl3.latticeMost < 0.01 && syl1.state.beats <= 1 && remade(syl1) && remade(syl2) && remade(syl3),
-      JSON.stringify({ lift: [syl1.state.lift, syl3.state.lift], sq: [syl1.state.sq[0], syl2.state.sq[0], syl3.state.sq[0]], rest: syl3.latticeMost, midUp: syl1.midUp, box: [jeHush.box, syl1.box], beats: syl1.state.beats }));
+      && Math.abs(syl3.state.sq[0]) < 1e-3 && syl3.state.lift < 0.01 && syl3.latticeMost < 0.01 && syl1.state.beats <= 1 && syl1.boxGap < BOX_GAP && syl2.boxGap < BOX_GAP && remade(syl1) && remade(syl2) && remade(syl3),
+      JSON.stringify({ lift: [syl1.state.lift, syl3.state.lift], sq: [syl1.state.sq[0], syl2.state.sq[0], syl3.state.sq[0]], rest: syl3.latticeMost, boxGap: [syl1.boxGap, syl2.boxGap], midUp: syl1.midUp, box: [jeHush.box, syl1.box], beats: syl1.state.beats }));
     const [beat0, beat1, beat2] = await jellyRun([{ level: 0.1, secs: 1 }, { level: 0.9, secs: 0.05 }, { level: 0.9, secs: 0.12 }], still);
     check('jelly: a beat slaps a face: the body is set moving, the skin brightens where it moves and the bubbles light', beat0.state.beats === 0 && beat0.state.slaps === 0 && beat1.state.beats === 1 && beat1.state.slaps === 1 && beat1.state.kick > 0.5 && beat1.stirMost > 0.3 && beat1.litMost > 0.5 && beat0.stirMost < 0.05
       && beat2.mostSeen > 0.05 && beat1.bright > beat0.bright && remade(beat1) && remade(beat2),
@@ -3722,17 +3770,22 @@ async function main() {
       { level: 0.3, all: 0.5, secs: 0.4 }, { level: 0.3, all: 0.5, secs: 0.9 }, { level: 0.3, all: 0.5, secs: 0.5 }, { level: 0, secs: 12 }, { level: 0, secs: 1 }];
     const [th0, th1, th2, th3, th4, th5, th6, th7, th8] = await jellyRun(thumpSteps, quick);
     check('jelly: a thump knocks the cube apart into its four layers, each a slab of one colour, thrown clear', th0.state.phase === 'whole' && th0.state.thumps === 0 && th1.state.phase === 'pieces' && th1.state.thumps === 1 && th1.state.flash > 0.9 && th1.state.cube.shown === false && th1.state.slabs.every((sb) => sb.shown === true)
-      && th1.state.flight.q.every((q) => q > 0.15) && th2.apart.far > 0.5 && th3.apart.far > 0.4 && th3.apart.far < 2.4 && th2.state.flight.loose.every((l) => l > 0.5 && l < 0.7) && [th1, th2, th3].every((r) => reworked(r) && r.edge === 0 && r.jelly > 0.3 * CUBE_PIXELS && r.state.reach * r.state.zoom <= r.state.limit + 1e-9)
-      && th3.state.zoom < 0.95 && th3.state.zoom === th3.state.scale && [0, 1, 2].every((i) => th3.state.slabs[i].at[1] < th3.state.slabs[i + 1].at[1]) && th2.diff.n > MOVES && th3.diff.n > MOVES && th3.state.steps === 0 && th3.state.most === 0,
-      JSON.stringify({ phase: [th0.state.phase, th1.state.phase], flash: th1.state.flash, far: [th2.apart.far, th3.apart.far], zoom: [th1.state.zoom, th2.state.zoom, th3.state.zoom], reach: th3.state.reach, apart: [th1.apart, th2.apart, th3.apart], edge: [th1.edge, th2.edge, th3.edge], jelly: [th1.jelly, th3.jelly] }));
+      && th1.state.flight.q.every((q) => q > 0.15) && th1.litMost > 0.4 && th1.state.given[1] === 1 && th3.bright > 0.6 * CUBE_BRIGHT && th3.state.uploads[3] - th2.state.uploads[3] === 30 && Math.abs(th3.state.px - PX * th3.state.zoom) < 1e-6 && th2.apart.far > 0.5 && th3.apart.far > 0.4 && th3.apart.far < 2.4 && th2.state.flight.loose.every((l) => l > 0.5 && l < 0.7) && [th1, th2, th3].every((r) => reworked(r) && r.edge === 0 && r.jelly > 0.3 * CUBE_PIXELS && r.state.reach * r.state.zoom <= r.state.limit + 1e-9)
+      && th3.state.zoom < 0.95 && th3.state.zoom === th3.state.scale && [th1, th2, th3].every((r) => r.boxGap < BOX_GAP) && Math.max(...th2.state.flight.q.map(Math.abs)) > 0.02 && Math.max(...th2.state.flight.bend.map(Math.abs)) > 0.05 && Math.abs(th3.state.halo.size - 5.2 * th3.state.zoom) < 1e-12 && [0, 1, 2].every((i) => th3.state.slabs[i].at[1] < th3.state.slabs[i + 1].at[1]) && th2.diff.n > MOVES && th3.diff.n > MOVES && th3.state.steps === 0 && th3.state.most === 0,
+      JSON.stringify({ boxGap: [th1.boxGap, th2.boxGap, th3.boxGap], bent: [th2.state.flight.q, th2.state.flight.bend], phase: [th0.state.phase, th1.state.phase], flash: th1.state.flash, far: [th2.apart.far, th3.apart.far], zoom: [th1.state.zoom, th2.state.zoom, th3.state.zoom], reach: th3.state.reach, apart: [th1.apart, th2.apart, th3.apart], edge: [th1.edge, th2.edge, th3.edge], jelly: [th1.jelly, th3.jelly] }));
     check('jelly: after the calm wait the slabs drop back from the bottom up, each landing once, and set into one cube that wobbles and comes to rest', th3.state.phase === 'pieces' && th4.state.phase === 'returning' && th4.state.landed === 0 && reworked(th4) && th5.state.phase === 'returning' && th5.state.landed >= 2 && th5.state.landed <= 3
-      && th5.state.flight.landed.join().startsWith('1,1') && reworked(th5) && th6.state.phase === 'whole' && th6.state.landed === 4 && th6.state.cube.shown === true && th6.state.slabs.every((sb) => sb.shown === false) && th6.mostSeen > 0.05 && th6.state.thumps === 1
+      && th5.state.flight.landed.join().startsWith('1,1') && th5.state.flash > 0.1 && th5.state.flash < 0.3 && reworked(th5) && th6.state.zoom < 0.999 && th6.state.zoom > th5.state.zoom && remade(th6) && remade(th7)
+      && th6.state.bubbleSets.every((b) => b.order === 1) && th6.state.flight.shown.every((v) => v === 0) && th6.state.phase === 'whole' && th6.state.landed === 4 && th6.state.cube.shown === true && th6.state.slabs.every((sb) => sb.shown === false) && th6.mostSeen > 0.05 && th6.state.thumps === 1
       && th6.landedAt.length + th5.landedAt.length === 4 && th7.state.zoom === 1 && th7.latticeMost === 0 && th7.state.sq[0] === 0 && th7.state.sq[1] === 0 && th7.state.flash === 0 && th8.latticeMost === 0 && th8.state.shaped === th7.state.shaped && Math.abs(th8.jelly - CUBE_PIXELS) < 0.03 * CUBE_PIXELS && [th4, th5, th6].every((r) => r.edge === 0),
-      JSON.stringify({ phase: [th3.state.phase, th4.state.phase, th5.state.phase, th6.state.phase], landed: [th4.state.landed, th5.state.landed, th6.state.landed], at: [th5.landedAt, th6.landedAt], most: th6.mostSeen, zoom: [th6.state.zoom, th7.state.zoom], rest: th7.latticeMost, shaped: [th7.state.shaped, th8.state.shaped], jelly: th8.jelly }));
+      JSON.stringify({ phase: [th3.state.phase, th4.state.phase, th5.state.phase, th6.state.phase], landed: [th4.state.landed, th5.state.landed, th6.state.landed], at: [th5.landedAt, th6.landedAt], most: th6.mostSeen, flash: th5.state.flash, model: [th6.model, th7.model], zoom: [th5.state.zoom, th6.state.zoom, th7.state.zoom], rest: th7.latticeMost, shaped: [th7.state.shaped, th8.state.shaped], jelly: th8.jelly }));
     const [, , , again1, back1, again2] = await jellyRun([{ level: 0.3, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, peak: 1, secs: 1 / 60 }, { level: 0.3, all: 0.5, secs: 0.8 }, { level: 0.9, all: 0.5, peak: 1, secs: 1 / 60 }, { level: 0.3, all: 0.5, secs: 1.9 }, { level: 0.9, all: 0.5, peak: 1, secs: 1 / 60 }], quick);
     check('jelly: a peak while it is apart throws the slabs again, and one while they are dropping back breaks the return off where they are', again1.state.phase === 'pieces' && again1.state.jostles === 1 && again1.state.thumps === 1 && Math.abs(again1.state.flash - 0.3) < 0.05 && back1.state.phase === 'returning' && back1.state.landed >= 1
       && again2.state.phase === 'pieces' && again2.state.jostles === 2 && again2.state.flight.landed.join() === '0,0,0,0' && again2.state.flash > 0.55 && reworked(again1) && reworked(again2) && again2.edge === 0,
       JSON.stringify({ phase: [again1.state.phase, back1.state.phase, again2.state.phase], jostles: [again1.state.jostles, again2.state.jostles], flash: [again1.state.flash, again2.state.flash], landed: [back1.state.landed, again2.state.flight.landed] }));
+    const slow = {};
+    for (const fps of [12, 14]) slow[fps] = (await jellyRun([{ level: 0.3, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, peak: 1, secs: 1 / fps }, { level: 0.3, all: 0.5, secs: 3 }], { ...quick, fps }))[2];
+    check('jelly: at 12 and 14 frames a second, where one frame carries the top slab past its landing, all four slabs have still landed when the cube sets', [12, 14].every((fps) => slow[fps].state.phase === 'whole' && slow[fps].state.landed === 4 && slow[fps].state.thumps === 1 && remade(slow[fps])),
+      JSON.stringify({ landed: [slow[12].state.landed, slow[14].state.landed], phase: [slow[12].state.phase, slow[14].state.phase], model: [slow[12].model, slow[14].model] }));
     const [, never] = await jellyRun([{ level: 0.3, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, peak: 1, secs: 0.5 }], { ...still, knobs: { cameraDrift: 0, shatterSensitivity: 0 } });
     const [, micOff] = await jellyRun([{ level: 0.3, all: 0.5, secs: 1 }, { level: null, idle: true, peak: 1, secs: 0.5 }], still);
     check('jelly: Shatter sensitivity 0 never knocks it apart, and nor does a peak with the mic off', never.state.phase === 'whole' && never.state.thumps === 0 && micOff.state.phase === 'whole' && micOff.state.thumps === 0 && remade(never) && remade(micOff),
@@ -3741,11 +3794,13 @@ async function main() {
     await pushConfig((c) => { c.activeViz = JELLY; c.placement.size = 125; });
     await wide.waitForTimeout(400);
     const big = await jellyRun([{ level: 0.3, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, peak: 1, secs: 1 / 60 }, { level: 0.9, all: 0.9, secs: 0.4 }, { level: 0.9, all: 0.9, secs: 1 }], { ...still, knobs: { cameraDrift: 100, reconnectSeconds: 10 } });
+    const bigLoud = await jellyRun([{ level: 0.9, all: 1, secs: 1.5 }, { level: 0.1, all: 1, secs: 0.2 }, { level: 0.9, all: 1, secs: 0.15 }, { level: 0.9, all: 1, secs: 0.3 }], { ...still, knobs: { cameraDrift: 100, stiffness: 0 } });
     await pushConfig((c) => { c.activeViz = JELLY; c.placement.size = 100; });
     await wide.waitForTimeout(400);
-    check('jelly: apart, with the picture enlarged a quarter and the camera swaying, the slabs are drawn smaller still and all of them stay in the picture', big[2].state.phase === 'pieces' && Math.abs(big[2].state.limit - 1.6) < 1e-9 && Math.abs(big[0].state.limit - 2) < 1e-9
+    check('jelly: with the picture enlarged a quarter and the camera swaying, the softest cube at its loudest is drawn smaller to stay in the picture, and so are the slabs when it is apart', big[2].state.phase === 'pieces' && Math.abs(big[2].state.limit - 1.6) < 1e-9 && Math.abs(big[0].state.limit - 1.6) < 1e-9
+      && bigLoud.every((r) => r.state.phase === 'whole' && r.edge === 0 && r.state.reach * r.state.zoom <= 1.6 + 1e-9 && remade(r)) && Math.min(...bigLoud.map((r) => r.state.zoom)) < 0.97 && Math.max(...bigLoud.map((r) => r.state.reach)) > 1.7
       && [big[1], big[2], big[3]].every((r) => r.edge === 0 && r.state.reach * r.state.zoom <= 1.6 + 1e-9) && big[3].state.zoom < th3.state.zoom,
-      JSON.stringify({ limit: [big[0].state.limit, big[2].state.limit], zoom: [big[2].state.zoom, big[3].state.zoom, th3.state.zoom], edge: [big[1].edge, big[2].edge, big[3].edge] }));
+      JSON.stringify({ loud: bigLoud.map((r) => [r.state.reach, r.state.zoom, r.edge]), limit: [big[0].state.limit, big[2].state.limit], zoom: [big[2].state.zoom, big[3].state.zoom, th3.state.zoom], edge: [big[1].edge, big[2].edge, big[3].edge] }));
 
     // The colours.
     const [hue0] = await jellyRun([{ level: 0, secs: 1 }], { ...still, hue: 0 }), [hue2] = await jellyRun([{ level: 0, secs: 1 }], { ...still, hue: 2 });
@@ -3758,9 +3813,16 @@ async function main() {
     const [noDrift] = await jellyRun([{ level: 0.8, all: 0.8, secs: 3 }], { gain: 1, knobs: { cameraDrift: 0 } }), [drift] = await jellyRun([{ level: 0.8, all: 0.8, secs: 3 }], { gain: 1, knobs: { cameraDrift: 100 } });
     check('jelly: Camera drift 0 holds the camera still; 100 doubles the sway', noDrift.state.orbit === 0 && Math.abs(jeLoud.state.orbit) > 0.005 && Math.abs(drift.state.orbit - 2 * jeLoud.state.orbit) < 1e-9 && Math.abs(noDrift.kitCam[0]) < 1e-6 && Math.abs(drift.kitCam[0]) > 1.5 * Math.abs(jeLoud.kitCam[0]) && drift.edge === 0,
       JSON.stringify({ orbit: [noDrift.state.orbit, jeLoud.state.orbit, drift.state.orbit], x: [noDrift.kitCam[0], jeLoud.kitCam[0], drift.kitCam[0]] }));
-    const [turn1] = await jellyRun([{ level: 0, secs: 2 }], still), [turn2] = await jellyRun([{ level: 0, secs: 9 }], still);
+    const [turn1, turn2] = await jellyRun([{ level: 0, secs: 2 }, { level: 0, secs: 7 }], still);
     check('jelly: the cube turns slowly to and fro, three of its faces showing', gap(turn1.state.turnedTo, [0.42 + 0.06 * Math.sin(0.22 + 1), 0.62 + 0.35 * Math.sin(0.34), 0]) < 1e-9 && gap(turn2.state.turnedTo, [0.42 + 0.06 * Math.sin(0.99 + 1), 0.62 + 0.35 * Math.sin(1.53), 0]) < 1e-9
-      && Math.abs(turn2.state.shift - 0.135) < 1e-9 && turn2.diff.n >= 0, JSON.stringify({ turned: [turn1.state.turnedTo, turn2.state.turnedTo], shift: turn2.state.shift }));
+      && Math.abs(turn2.state.shift - 0.135) < 1e-9 && turn2.diff.n > MOVES, JSON.stringify({ turned: [turn1.state.turnedTo, turn2.state.turnedTo], shift: turn2.state.shift }));
+    const [longIdle] = await jellyRun([{ level: null, idle: true, secs: 70 }], still);
+    check('jelly: its colours drift slowly round the palette, and the drift stays a share of once round', Math.abs(longIdle.state.clock - 70) < 1e-6 && Math.abs(longIdle.state.shift - 0.05) < 1e-6 && remade(longIdle), JSON.stringify({ clock: longIdle.state.clock, shift: longIdle.state.shift }));
+    const [, , stopFly, stopped, stoppedOn] = await jellyRun([{ level: 0.3, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, peak: 1, secs: 1 / 60 }, { level: 0.3, all: 0.5, secs: 0.3 }, { level: 0.3, all: 0.5, gap: 5000, secs: 1 / 60 }, { level: 0.3, all: 0.5, secs: 0.5 }], quick);
+    check('jelly: a page that stopped drawing while it was apart finds the cube whole, at rest and its own size', stopFly.state.phase === 'pieces' && stopFly.state.zoom < 1 && stopped.state.phase === 'whole' && stopped.state.thumps === 1 && stopped.state.cube.shown === true && stopped.state.slabs.every((sb) => sb.shown === false)
+      && stopped.state.flash === 0 && stopped.state.zoom === 1 && stopped.state.scale === 1 && stopped.state.flight.shown.every((v) => v === 0) && stopped.state.flight.q.every((v) => v === 0) && stopped.state.bubbleSets.every((b) => b.order === 1) && stopped.latticeMost < 0.01
+      && remade(stopped) && remade(stoppedOn) && stoppedOn.state.phase === 'whole' && stopped.edge === 0,
+      JSON.stringify({ phase: [stopFly.state.phase, stopped.state.phase], zoom: [stopFly.state.zoom, stopped.state.zoom], flash: stopped.state.flash, most: stopped.latticeMost, model: [stopped.model, stoppedOn.model] }));
 
     // The same at any frame rate.
     const fpsSteps = [{ level: 0.05, all: 0.5, secs: 1 }, { level: 0.9, all: 0.8, secs: 1 }, { level: 0.2, bins: [[1, 0.9], [4, 0.6]], secs: 0.3 }];
@@ -3784,7 +3846,7 @@ async function main() {
       && muted2.state.sq[0] === 0 && muted2.state.sq[1] === 0 && muted2.state.flame === 0 && muted2.state.kick === 0 && muted2.state.lift === 0 && muted2.state.bands.every((b) => b === 0) && same(muted3) && muted3.state.shaped === muted2.state.shaped && remade(muted2),
       JSON.stringify({ most: [live1.state.most, muted1.latticeMost, muted2.latticeMost], sq: muted2.state.sq, beats: live1.state.beats, differs: muted3.diff }));
     const [, , , mutedApart, mutedBack, mutedRest, mutedStill] = await jellyRun([{ level: 0.3, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, peak: 1, secs: 1 / 60 }, { level: 0.3, all: 0.5, secs: 0.2 }, { level: null, off: true, secs: 0.4 }, { level: null, off: true, secs: 2.4 }, { level: null, off: true, secs: 14 }, { level: null, off: true, secs: 1 }], quick);
-    check('jelly: muted while it is apart, the slabs hang still, drop back after the wait, set, and then nothing moves', mutedApart.state.phase === 'pieces' && mutedApart.state.live === false && mutedBack.state.phase === 'whole' && mutedBack.state.landed === 4 && mutedRest.latticeMost === 0 && mutedRest.state.zoom === 1
+    check('jelly: muted while it is apart, the slabs fly on to their places and sway no more, drop back after the wait, set, and then nothing moves', mutedApart.state.phase === 'pieces' && mutedApart.state.live === false && reworked(mutedApart) && mutedBack.state.phase === 'whole' && mutedBack.state.landed === 4 && mutedRest.latticeMost === 0 && mutedRest.state.zoom === 1
       && mutedRest.state.sq[0] === 0 && mutedRest.state.flash === 0 && same(mutedStill) && Math.abs(mutedStill.jelly - CUBE_PIXELS) < 0.03 * CUBE_PIXELS,
       JSON.stringify({ phase: [mutedApart.state.phase, mutedBack.state.phase], landed: mutedBack.state.landed, rest: mutedRest.latticeMost, zoom: mutedRest.state.zoom, differs: mutedStill.diff }));
 
@@ -3827,8 +3889,8 @@ async function main() {
       micPeak = 1; now += 1000 / 60; currentViz.draw(now, 1 / 60); micPeak = 0;
       const b = time();
       return { whole: a, apart: b, most: window.__timbre.scene.state.most }; } finally { TimbreScene.testLevel = null; window.frame = fr; frequencies = heard.frequencies; micActive = heard.micActive; if (heard.micPeak !== undefined) micPeak = heard.micPeak; } });
-    check('jelly: loud, draw() averages under 3 ms of script time whole and apart, and a frame drawn and finished by the GPU under 7 ms (' + jeCost.whole.script.toFixed(2) + ' and ' + jeCost.whole.whole.toFixed(2) + ' ms whole, ' + jeCost.apart.script.toFixed(2) + ' and ' + jeCost.apart.whole.toFixed(2) + ' apart)',
-      jeCost.whole.phase === 'whole' && jeCost.apart.phase === 'pieces' && jeCost.whole.script < 3 && jeCost.whole.whole < 7 && jeCost.apart.script < 3 && jeCost.apart.whole < 7, JSON.stringify(jeCost));
+    check('jelly: loud, draw() averages under 2 ms of script time whole and apart, and a frame drawn and finished by the GPU under 7 ms (' + jeCost.whole.script.toFixed(2) + ' and ' + jeCost.whole.whole.toFixed(2) + ' ms whole, ' + jeCost.apart.script.toFixed(2) + ' and ' + jeCost.apart.whole.toFixed(2) + ' apart)',
+      jeCost.whole.phase === 'whole' && jeCost.apart.phase === 'pieces' && jeCost.whole.script < 2 && jeCost.whole.whole < 7 && jeCost.apart.script < 2 && jeCost.apart.whole < 7, JSON.stringify(jeCost));
 
     }
 

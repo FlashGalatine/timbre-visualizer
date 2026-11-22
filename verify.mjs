@@ -4071,6 +4071,11 @@ await import('./overlay/jelly.js');
     && K.ROOM === 2 && near(K.WHOLE, WHOLE) && K.ZOOM_BACK === 2 && K.FLY_MAX === 2.4 && K.FOV === 30 && K.PITCH === 6 && JSON.stringify(K.FRAME) === '{"width":5.4,"height":4.2,"center":[0,0,0]}'
     && K.FLASH_S === 0.3 && K.REBLAST === 0.8 && K.JOSTLE === 0.55 && K.BACK_LAG === 0.16 && K.BACK_DROP === 0.48 && K.SWAY === 0.1 && K.LOOSEN === 3,
     'the sizes: a lattice of nine points an edge, four layers, steps of 1/240 s, and room for a ball of 2');
+  ok(K.STIR === 0.22 && K.STIR_BUBBLE === 0.45 && K.SEED === 20261122 && K.LINGER === 0.08 && K.definition().cooling.join() === '0.08,0.08,0.08' && K.APART === 0.9 && K.SCATTER === 1.3 && K.SCATTER_UP === 0.3 && K.TILT === 1.1 && K.TWIST === 1.5
+    && K.THROW === 5 && K.SPIN === 7 && K.FLY_RATE === 6.5 && K.FLY_DAMP === 0.355 && K.TURN_RATE === 5 && K.TURN_DAMP === 0.3 && K.KNOCKED === 0.24 && K.SLAB_RATE === 16 && K.SLAB_DAMP === 0.19 && K.BEND_RATE === 11 && K.BEND_DAMP === 0.146
+    && K.SLAB_KICK === 4 && K.BEND_KICK === 5 && K.BEND_KICK_RANGE === 5 && K.PLOP === 3.6 && K.PLOP_BEND === 3 && K.SHAKE === 1.6 && K.SHAKE_BEND === 1.5 && K.LAND_NEAR === 0.8 && K.LAND_AT === 0.9
+    && near(K.pxOf(624, 1), 624 / (2 * Math.tan(Math.PI / 12))) && near(K.pxOf(624, 2), 2 * K.pxOf(624, 1)) && near(K.pxOf(312, 1), K.pxOf(624, 1) / 2),
+    'the rest of its numbers: how it brightens, where its bubbles are, how a slab is thrown, flies, flaps and lands; and how many pixels a unit is');
 
   // The settings and the sound.
   ok(near(K.firmOf(0), 0.5) && K.firmOf(50) === 1 && near(K.firmOf(100), 2) && near(K.firmOf(-40), 0.5) && near(K.firmOf(400), 2) && K.firmOf(undefined) === 1 && K.firmOf(NaN) === 1 && K.firmOf('9') === 1 && near(K.firmOf(75), Math.SQRT2),
@@ -4125,7 +4130,7 @@ await import('./overlay/jelly.js');
     ok(unit && worst > 0.985, 'the way each point of the skin faces, found from the triangles round it, is the way the rounded cube faces there (worst ' + worst.toFixed(4) + ')');
   }
   ok(K.layerOf(-1) === 0 && K.layerOf(-0.75) === 0 && near(K.layerOf(-0.5), 0.5) && K.layerOf(-0.25) === 1 && near(K.layerOf(0), 1.5) && K.layerOf(0.25) === 2 && near(K.layerOf(0.5), 2.5) && K.layerOf(0.75) === 3 && K.layerOf(1) === 3 && K.layerOf(9) === 3 && K.layerOf(-9) === 0
-    && K.layerOf(-0.45) > 0.5 && K.layerOf(-0.45) < 1 && K.layerOf(-0.42) === 1 && K.layerOf(-0.58) === 0
+    && near(K.layerOf(-0.45), 0.944606, 1e-5) && near(K.layerOf(-0.55), 0.055394, 1e-5) && K.layerOf(-0.42) === 1 && K.layerOf(-0.58) === 0
     && [0, 1, 2, 3].every((i) => near(K.slabAt(i), -0.75 + 0.5 * i) && K.slabOf(K.slabAt(i)) === i && K.layerOf(K.slabAt(i)) === i)
     && K.slabOf(-1) === 0 && K.slabOf(1) === 3 && K.slabOf(-0.51) === 0 && K.slabOf(-0.49) === 1 && K.slabOf(7) === 3 && K.slabOf(-7) === 0
     && near(K.slabWide(0), Math.pow(1 - Math.pow(0.75, 5), 0.2)) && K.slabWide(0) === K.slabWide(3) && near(K.slabWide(1), Math.pow(1 - Math.pow(0.25, 5), 0.2)) && K.slabWide(1) === K.slabWide(2) && K.slabWide(1) > K.slabWide(0),
@@ -4186,6 +4191,34 @@ await import('./overlay/jelly.js');
     ok(inward && most(body.u) === 0 && Math.hypot(body.vel[nearest * 3], body.vel[nearest * 3 + 1], body.vel[nearest * 3 + 2]) === fastest && fastest <= K.SLAP && fastest > 0.9 * K.SLAP
       && Math.hypot(body.vel[farSide * 3], body.vel[farSide * 3 + 1], body.vel[farSide * 3 + 2]) < 0.05,
       'a slap sets the body moving toward its middle, hardest at the place struck and hardly at all on the far side');
+  }
+  {
+    // One step of the body, by hand.
+    const h = 1 / 240, a = K.createBody();
+    for (let n = 0; n < NN; n++) a.vel[n * 3 + 1] = 1;
+    K.stepBody(a, 1, 0);
+    const moved = [MID, cornerNode(3), idx(8, 4, 2)].every((n) => near(a.vel[n * 3 + 1], 1 - 3 * h, 1e-15) && near(a.u[n * 3 + 1], h * (1 - 3 * h), 1e-15) && a.u[n * 3] === 0 && a.vel[n * 3 + 2] === 0);
+    const lifted = (firm, lift) => { const b = K.createBody(); for (let n = 0; n < NN; n++) b.u[n * 3 + 1] = 0.1; return K.stepBody(b, firm, lift); };
+    const b = lifted(1, 0), b2 = lifted(2, 0), b3 = lifted(1, 0.1);
+    const held = near(b.vel[MID * 3 + 1], -h * 265 * 0.1, 1e-15) && near(b.vel[cornerNode(0) * 3 + 1], -h * 5 * 0.1, 1e-15) && near(b2.vel[MID * 3 + 1], 2 * b.vel[MID * 3 + 1], 1e-15) && most(b3.vel) < 1e-15;   // not nothing: six tenths added up are not six times a tenth, to the last digit
+    const c = K.createBody(); c.u[MID * 3 + 1] = 0.1;
+    K.stepBody(c, 1, 0);
+    const up = idx(4, 5, 4), side = idx(5, 4, 4), before = idx(3, 4, 4), far = idx(6, 4, 4);
+    const joined = near(c.vel[MID * 3 + 1], -h * (6 * 520 + 265) * 0.1, 1e-13) && near(c.vel[up * 3 + 1], h * 520 * 0.1, 1e-15) && c.vel[side * 3 + 1] === c.vel[up * 3 + 1] && c.vel[before * 3 + 1] === c.vel[up * 3 + 1] && c.vel[far * 3 + 1] === 0 && c.vel[side * 3] === 0;
+    const d = K.createBody(); d.vel[MID * 3] = 1;
+    K.stepBody(d, 1, 0);
+    const slowed = near(d.vel[MID * 3], 1 - h * (6 * 7 + 3), 1e-15) && near(d.vel[side * 3], h * 7, 1e-15) && d.vel[before * 3] === d.vel[side * 3] && d.vel[up * 3] === d.vel[side * 3] && d.vel[far * 3] === 0;
+    ok(moved && held && joined && slowed, 'one step of the body, by hand: it moves as fast as it is going and slows by 3 a second; a point is drawn to its place by its hold (twice as hard in jelly twice as firm) and not at all when the lift is where it is; '
+      + 'to its neighbours by the spring between them; and a point moving against its neighbours is slowed by them and carries them with it, each alike');
+    // What is not rest.
+    const faint = K.createBody(), fb = new Float32Array(8); fb[0] = 0.0602; run(faint, fb, 4);
+    const raised = run(K.createBody(), quiet, 4, 60, 1, 5e-5);
+    const drifting = K.createBody(); for (let n = 0; n < NN; n++) drifting.vel[n * 3 + 1] = 0.01;
+    K.pull(drifting, quiet, 1); K.advance(drifting, h, 1, 0);
+    const stillMoving = !K.atRest(drifting) && most(drifting.u) < 1e-4;
+    for (let i = 0; i < 24; i++) K.advance(drifting, h, 1, 0);
+    ok(faint.pulled && most(faint.u) > 3e-5 && most(faint.u) < 1e-4 && !K.atRest(faint) && near(raised.u[MID * 3 + 1], 5e-5, 5e-6) && stillMoving && most(drifting.u) > 5e-4,
+      'a faint pull, a small lift and a slow drift are not taken for rest (the pull holds it ' + most(faint.u).toExponential(1) + ' out)');
   }
   {
     // At rest it stays at rest, to the last digit.
@@ -4268,7 +4301,7 @@ await import('./overlay/jelly.js');
   }
   {
     // Reading the lattice between its points.
-    const body = K.createBody(), lin = (x, y, z) => [0.1 * x - 0.2 * y + 0.05 * z + 0.3, 0.4 * y, -0.3 * z + 0.1 * x];
+    const body = K.createBody(), lin = (x, y, z) => [0.1 * x - 0.2 * y + 0.05 * z + 0.3, 0.15 * x + 0.4 * y - 0.1 * z, 0.1 * x + 0.2 * y - 0.3 * z];
     for (let n = 0; n < NN; n++) { const v = lin(body.home[n * 3], body.home[n * 3 + 1], body.home[n * 3 + 2]); body.u[n * 3] = v[0]; body.u[n * 3 + 1] = v[1]; body.u[n * 3 + 2] = v[2]; }
     const pts = [[0, 0, 0], [0.33, -0.71, 0.12], [1, 1, 1], [-1, -1, -1], [0.999, -0.5, 0.25], [-0.125, 0.875, -1]];
     const cells = new Int32Array(pts.length), fracs = new Float32Array(pts.length * 3), out = [0, 0, 0];
@@ -4297,11 +4330,16 @@ await import('./overlay/jelly.js');
     let squashed = true; const wide = 1 / Math.sqrt(0.8);
     for (let i = 0; i < V; i++) if (!near(pos[i * 3], sk.points[i * 3] * wide, 1e-6) || !near(pos[i * 3 + 1], sk.points[i * 3 + 1] * 0.8, 1e-6) || !near(pos[i * 3 + 2], sk.points[i * 3 + 2] * wide, 1e-6)) squashed = false;
     for (let n = 0; n < NN; n++) { body.u[n * 3] = 0.1; body.vel[n * 3 + 2] = 2; }
+    const measured = K.measure(body) === body && body.speed[MID] === 2 && body.speed[0] === 2 && near(body.most, 0.1, 1e-12);
     const r2 = K.shape(pos, stir, body, sk.points, cells, fracs, 0, 0.22);
     let moved = true; for (let i = 0; i < V; i++) if (!near(pos[i * 3], sk.points[i * 3] + 0.1, 1e-6) || !near(pos[i * 3 + 1], sk.points[i * 3 + 1], 1e-6) || !near(stir[i], 0.44, 1e-6)) moved = false;
+    for (let n = 0; n < NN; n++) body.u[n * 3] = -0.1;
+    const r3 = K.shape(pos, stir, body, sk.points, cells, fracs, 0, 0.22); let far3 = 0; for (let i = 0; i < V; i++) far3 = Math.max(far3, Math.hypot(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]));
+    const r4 = K.shape(pos, stir, body, sk.points, cells, fracs, 0.9, 0.22), r5 = K.shape(pos, stir, body, sk.points, cells, fracs, 0.3, 0.22), r6 = K.shape(pos, stir, body, sk.points, cells, fracs, -0.9, 0.22), r7 = K.shape(pos, stir, body, sk.points, cells, fracs, -0.3, 0.22);
     for (let n = 0; n < NN; n++) body.vel[n * 3 + 2] = 50;
+    K.measure(body);
     K.shape(pos, stir, body, sk.points, cells, fracs, 0, 0.22);
-    ok(same && near(r0, WHOLE, 1e-6) && most(stir) === 1 && squashed && r1 > r0 && moved && r2 > r0 && near(body.most, 0.1, 1e-9)
+    ok(same && measured && near(r0, WHOLE, 1e-6) && most(stir) === 1 && squashed && r1 > r0 && moved && r2 > r0 && near(body.most, 0.1, 1e-9) && near(r3, far3, 1e-6) && r3 > r0 && r4 === r5 && r6 === r7 && Number.isFinite(r4) && r6 !== r4
       && K.shownSquash(0.2) === 0.2 && K.shownSquash(0.9) === 0.3 && K.shownSquash(-0.9) === -0.3 && near(K.wideFor(0.2) * K.wideFor(0.2) * (1 - 0.2), 1) && near(K.wideFor(-0.3) * K.wideFor(-0.3) * 1.3, 1) && K.wideFor(0) === 1,
       'at rest the skin is the rounded cube, its furthest point ' + r0.toFixed(4) + ' from the middle; squashed it is flatter and wider by as much as keeps its volume; it brightens where the body is moving');
   }
@@ -4336,12 +4374,15 @@ await import('./overlay/jelly.js');
     }
     const ordered = [0, 1, 2].every((i) => K.slabAt(i) + sl.tp[i * 3 + 1] < K.slabAt(i + 1) + sl.tp[i * 3 + 4]);
     // Thrown again, not fresh: on top of what it has, from where it is.
-    const was = { v: Array.from(sl.v), q: Array.from(sl.q), qv: Array.from(sl.qv) };
+    const was = { v: Array.from(sl.v), q: Array.from(sl.q), qv: Array.from(sl.qv), rv: Array.from(sl.rv), bv: Array.from(sl.bv) };
     for (let i = 0; i < 12; i++) sl.p[i] = 0.1;
-    K.throwSlabs(sl, 0.5, seq([0.5]), false);
+    K.throwSlabs(sl, 0.5, seq([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.9, 0.9, 0.9, 0.2, 0.5]), false);   // for each slab: its place, its turn, its spin, which way it flaps, how hard
     let again = true;
-    for (let i = 0; i < 4; i++) { const j = i * 3; if (!near(sl.tp[j], 0) || !near(sl.tp[j + 1], 0.9 * K.slabAt(i)) || !near(sl.v[j], was.v[j] + (0 - 0.1) * 5 * 0.5, 1e-12) || sl.q[i] !== was.q[i] || !near(sl.qv[i], was.qv[i] - 2, 1e-12) || sl.p[j] !== 0.1) again = false; }
-    ok(zero && bounds && kicked && ordered && Array.from(sl2.tp).join() !== Array.from(sl3.tp).join() && Array.from(sl2.bv).join() !== Array.from(sl3.bv).join() && (() => { const f = K.createSlabs(); K.throwSlabs(f, 1, K.rng(1001), true); return Array.from(f.tp).join() === Array.from(sl2.tp).join() && Array.from(f.rv).join() === Array.from(sl2.rv).join(); })() && again,
+    for (let i = 0; i < 4; i++) { const j = i * 3; if (!near(sl.tp[j], 0) || !near(sl.tp[j + 1], 0.9 * K.slabAt(i)) || !near(sl.v[j], was.v[j] + (0 - 0.1) * 5 * 0.5, 1e-12) || sl.q[i] !== was.q[i] || !near(sl.qv[i], was.qv[i] - 2, 1e-12) || sl.p[j] !== 0.1
+      || !near(sl.rv[j], was.rv[j] + 1.4, 1e-12) || !near(sl.rv[j + 2], was.rv[j + 2] + 1.4, 1e-12) || !near(sl.bv[i], was.bv[i] - 3.75, 1e-12)) again = false; }
+    const lo = K.createSlabs(); lo.loose.fill(1); lo.landed.fill(1); lo.p.fill(3); lo.bend.fill(0.2); K.throwSlabs(lo, 1, K.rng(5), true);
+    const afresh = most(lo.loose) === 0 && most(lo.landed) === 0 && most(lo.p) === 0 && most(lo.bend) === 0;
+    ok(zero && bounds && kicked && ordered && Array.from(sl2.tp).join() !== Array.from(sl3.tp).join() && Array.from(sl2.bv).join() !== Array.from(sl3.bv).join() && (() => { const f = K.createSlabs(); K.throwSlabs(f, 1, K.rng(1001), true); return Array.from(f.tp).join() === Array.from(sl2.tp).join() && Array.from(f.rv).join() === Array.from(sl2.rv).join(); })() && again && afresh,
       'a thump throws each slab toward a place of its own, still in the stack\'s order, squashed and set flapping; the same thump is the same throw; a second throw adds to the first');
   }
   {
@@ -4376,9 +4417,9 @@ await import('./overlay/jelly.js');
     for (let i = 0; i < 120; i++) K.flySlabs(sl, 1 / 60);
     K.showSlabs(sl, 5);
     const shown = Array.from(sl.shown), turned = Array.from(sl.turned), loose = Array.from(sl.loose);
-    const r4 = sl.r[4]; sl.r[4] = 2 * Math.PI + 0.3;
+    const r4 = sl.r[4]; sl.r[4] = 2 * Math.PI + 0.3; sl.landed.fill(1);
     K.startBack(sl);
-    const started = Array.from(sl.from).join() === shown.join() && near(sl.fromR[4], 0.3, 1e-12) && near(sl.fromR[0], sl.r[0]) && most(sl.v) === 0 && most(sl.rv) === 0 && Array.from(sl.looseFrom).join() === loose.join();
+    const started = Array.from(sl.from).join() === shown.join() && near(sl.fromR[4], 0.3, 1e-12) && near(sl.fromR[0], sl.r[0]) && most(sl.v) === 0 && most(sl.rv) === 0 && most(sl.landed) === 0 && Array.from(sl.looseFrom).join() === loose.join();
     sl.fromR[4] = r4; sl.r[4] = r4;
     const n0 = K.placeSlabs(sl, 0, 5);
     let atStart = n0 === 0; for (let i = 0; i < 12; i++) if (!near(sl.shown[i], shown[i], 1e-12) || !near(sl.turned[i], turned[i], 1e-9)) atStart = false;
@@ -4401,6 +4442,10 @@ await import('./overlay/jelly.js');
     ok(sl.landed[2] === 1 && sl.qv[2] === 3.6 && sl.bv[2] === 3 && sl.qv[0] === 1.6 && sl.qv[1] === 1.6 && sl.bv[0] === -1.5 && sl.bv[1] === 1.5 && sl.qv[3] === 0 && sl.bv[3] === 0 && sl.landed[0] === 0
       && (() => { const t = K.createSlabs(); K.plop(t, 1); return t.bv[1] === -3 && t.bv[0] === -1.5 && t.qv[2] === 0; })(),
       'a slab that lands squashes and flaps, and shakes the slabs beneath it less; a slab above it feels nothing');
+    // Slabs still in the air when the cube sets (a frame so long that it carried the last one past its landing) have landed all the same.
+    const late = K.createSlabs(); K.plop(late, 0); K.plop(late, 1);
+    const n1 = K.landAll(late), n2 = K.landAll(late), n3 = K.landAll(K.createSlabs());
+    ok(n1 === 2 && n2 === 0 && n3 === 4 && Array.from(late.landed).join() === '1,1,1,1' && late.qv[3] === 0, 'slabs that had not landed when the cube sets are counted as landed, once');
     // The voice and the bands still move a slab in the air.
     const a = K.createSlabs(), b = K.createSlabs(), bands = new Float32Array([0.9, 0.1, 0.2, 0.2, 0, 0.8, 0.5, 0.5]);
     K.wobbleSlabs(a, 0.12, 0.3, bands, 1); K.wobbleSlabs(b, 0.06, 0.3, bands, 1); K.wobbleSlabs(b, 0.06, 0, bands, 1);
@@ -4408,18 +4453,19 @@ await import('./overlay/jelly.js');
     const d = K.createSlabs(), e = K.createSlabs(); K.wobbleSlabs(d, 0.05, 1, quiet, 1); K.wobbleSlabs(e, 0.05, 1, quiet, 4);
     ok(near(a.q[0], b.q[0], 1e-12) && near(a.bend[0], b.bend[0], 1e-12) && near(a.bv[3], b.bv[3], 1e-12) && a.q[0] > 0 && a.q[1] === a.q[0]
       && near(c.bend[0], K.BEND_LEAN * 0.8, 1e-7) && c.bend[1] === 0 && near(c.bend[2], K.BEND_LEAN * -0.8, 1e-7) && c.bend[3] === 0 && c.bv[0] === 0 && c.q[0] === 0
-      && d.bend[0] > 0 && d.bend[1] < 0 && near(d.bend[0], -d.bend[1], 1e-12) && e.q[0] < d.q[0] * 0.95 && K.BEND_LEAN === 0.21 && K.SLAB_VOICE === 2.2 && K.BEND_VOICE === 3,
+      && d.bend[0] > 0 && d.bend[1] < 0 && near(d.bend[0], -d.bend[1], 1e-12) && e.q[0] < d.q[0] * 0.95 && e.bend[0] < d.bend[0] * 0.9 && K.BEND_LEAN === 0.21 && K.SLAB_VOICE === 2.2 && K.BEND_VOICE === 3,
       'in the air a slab still squashes with each syllable and leans with its own two bands, by 0.21 of how much louder one is than the other; a firmer slab springs back sooner');
   }
   {
     // Coming back, thrown again: flight takes up from where each slab is drawn.
     const sl = K.createSlabs(); K.throwSlabs(sl, 1, K.rng(1005), true);
     for (let i = 0; i < 90; i++) K.flySlabs(sl, 1 / 60);
-    K.showSlabs(sl, 3); K.startBack(sl); K.placeSlabs(sl, 0.3, 3);
+    K.showSlabs(sl, 3); K.startBack(sl); K.placeSlabs(sl, 0.55, 3);
     const shown = Array.from(sl.shown), turned = Array.from(sl.turned), landed = Array.from(sl.landed).join();
     K.resumeSlabs(sl); K.showSlabs(sl, 3);
     let same = true; for (let i = 0; i < 12; i++) if (!near(sl.shown[i], shown[i], 1e-9) || !near(sl.turned[i], turned[i], 1e-9)) same = false;
-    ok(same && landed === '0,0,0,0' && most(sl.v) === 0, 'a slab on its way back that is thrown again is drawn, at that moment, exactly where it was');
+    ok(same && landed === '1,0,0,0' && most(sl.landed) === 0 && most(sl.v) === 0, 'a slab on its way back that is thrown again is drawn, at that moment, exactly where it was, and one that had landed is in the air again');
+    sl.landed.fill(1);
     const home = K.homeSlabs(sl);
     ok(home === sl && ['p', 'v', 'r', 'rv', 'tp', 'tr', 'from', 'fromR', 'shown', 'turned', 'q', 'qv', 'bend', 'bv', 'loose', 'looseFrom', 'landed'].every((k) => most(sl[k]) === 0), 'set into one cube again, nothing is left of the slabs\' flight');
   }
@@ -4474,11 +4520,11 @@ await import('./overlay/jelly.js');
   {
     const z = [1]; let t = 0.6; const steps = []; for (let i = 0; i < 5; i++) { t = K.zoomAfter(t, 1, 0.1); steps.push(t); }
     let back = 0.5, n = 0; while (back !== 1 && n < 2000) { back = K.zoomAfter(back, 1, 1 / 60); n++; }
-    ok(K.limitFor(1, true) === 2 && K.limitFor(0.4, true) === 2 && near(K.limitFor(1.25, true), 1.6) && near(K.limitFor(2, true), K.WHOLE) && K.limitFor(2, false) === 2 && K.limitFor(1, false) === 2 && K.limitFor(undefined, true) === 2
+    ok(K.limitFor(1) === 2 && K.limitFor(0.4) === 2 && near(K.limitFor(1.25), 1.6) && near(K.limitFor(2), K.WHOLE) && near(K.limitFor(9), K.WHOLE) && K.limitFor(undefined) === 2 && K.limitFor(NaN) === 2 && K.limitFor.length === 1
       && K.roomFor(1.5, 2) === 1 && K.roomFor(2, 2) === 1 && near(K.roomFor(4, 2), 0.5) && near(K.roomFor(3, 1.5), 0.5) && K.roomFor(3) === 2 / 3
       && K.zoomAfter(1, 0.7, 0.01) === 0.7 && K.zoomAfter(0.9, 0.7, 5) === 0.7 && near(K.zoomAfter(0.6, 1, 0.1), 0.6 + 0.4 * (1 - Math.exp(-0.2))) && steps.every((v, i) => i === 0 || v > steps[i - 1]) && back === 1 && n < 600
       && near(K.zoomAfter(K.zoomAfter(0.6, 1, 0.05), 1, 0.05), K.zoomAfter(0.6, 1, 0.1), 1e-12) && K.zoomAfter(0.5, 0.8, 0) === 0.5,
-      'whole, it has room for a ball of 2; apart, less by as much as the Scene Size slider enlarges the picture, but never less than the cube at rest takes; it is drawn smaller at once and grows back slowly, to exactly its size');
+      'it has room for a ball of 2, less by as much as the Scene Size slider enlarges the picture, but never less than the cube at rest takes; it is drawn smaller at once and grows back slowly, to exactly its size');
   }
   {
     // The cube set again: the last landing shakes it from the top.
@@ -4510,6 +4556,18 @@ await import('./overlay/jelly.js');
   ok(T.VIZ_SCENES.includes('jelly') && T.VIZ_USES_3D.includes('jelly') && JSON.stringify(T.DEFAULT_PER_VIZ['jelly']) === '{"stiffness":50,"shatterSensitivity":50,"reconnectSeconds":3,"cameraDrift":50}' && JSON.stringify(T.PER_VIZ_MAX['jelly']) === '{"reconnectSeconds":10}'
     && T.VIZ_SCENES[T.VIZ_SCENES.length - 1] === 'jelly',
     'jelly is a kit scene, the last listed, with Stiffness, the two thump settings and Camera drift');
+  ok(!('jelly' in T.VIZ_LABELS), 'jelly keeps the name it is listed by');
+  // The files.
+  const pages = [];
+  for (const p of ['300x220', '1440x1080', '1920x1080']) {
+    const html = await readFile(resolve(__dirname, `overlay/mic-visualizers-${p}.html`), 'utf8');
+    const pos = html.indexOf('src="jelly.js"');
+    pages.push(pos > html.indexOf('src="shards.js"') && pos > html.indexOf('src="scene-kit.js"') && pos < html.indexOf('src="factories/') && html.split('src="jelly.js"').length === 2 && html.split('src="factories/jelly.js"').length === 2 && html.includes('src="helix.js"'));
+  }
+  ok(pages.every(Boolean), 'all three overlay pages load jelly.js once, after the scene kit and shards.js and before the factories, and the shatter machine it uses');
+  const jellyFactory = await readFile(resolve(__dirname, 'overlay/factories/jelly.js'), 'utf8');
+  ok(/VIZ_FACTORIES\['jelly'\] = TimbreScene\.factory\(\(\) => TimbreJelly\.definition\(\)\);/.test(jellyFactory) && !/WebGLRenderer/.test(jellyFactory), 'the effect is the kit\'s factory around the jelly\'s definition, with no renderer of its own');
+  ok(!/Math\.random/.test(await readFile(resolve(__dirname, 'overlay/jelly.js'), 'utf8')), 'the jelly takes no numbers from Math.random, so a thump throws its slabs the same way every time');
   const oldJelly = T.sanitizeConfig({ activeViz: 'jelly', perViz: { 'jelly': { stiffness: 80, reconnectSeconds: 99 } } });
   ok(oldJelly.activeViz === 'jelly' && JSON.stringify(oldJelly.perViz['jelly']) === '{"stiffness":80,"shatterSensitivity":50,"reconnectSeconds":10,"cameraDrift":50}', 'a saved pre-redesign jelly config keeps its stiffness and gains the new defaults; Reconnect seconds is held to 10');
 }

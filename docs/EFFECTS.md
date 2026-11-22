@@ -1039,7 +1039,8 @@ thump of the mic knocks apart into its layers. `factories/jelly.js` is one line,
   lattice's points. `shape(pos, lit, body, home, cells, fracs, q, gain)` puts points where
   the body has them, squashed by `q` (`shownSquash`, `wideFor`: flatter is wider by as much
   as keeps the volume), says how fast the body is moving at each, and returns how far the
-  furthest is from the middle. The cube's skin and its bubbles are both drawn this way.
+  furthest is from the middle. `measure(body)` comes first: it finds how fast each point of
+  the body is going. The cube's skin and its bubbles are both drawn this way.
 - **A spring let go.** `spring(sw, dt, rate, damp, to)` is where a spring would be `dt` on,
   not a step toward it, so two half steps are one whole. The body's squash, each slab's
   flight, its turning, its own squash and its flapping are all this.
@@ -1049,15 +1050,17 @@ thump of the mic knocks apart into its layers. `factories/jelly.js` is one line,
   air or on the stack; `showSlabs(sl, clock)` is where each is drawn (never further than
   `FLY_MAX` from where it sat, and swaying once it is loose). `startBack`, `backShare(u, i)`,
   `placeSlabs(sl, u, clock)` and `plop(sl, i)` are the way back: from the bottom up, each
-  speeding up into a landing that shakes the slabs beneath it. `resumeSlabs` takes flight up
+  speeding up into a landing that shakes the slabs beneath it; `landAll(sl)` counts as landed
+  any slab still in the air when the cube sets. `resumeSlabs` takes flight up
   again from where the slabs are drawn; `homeSlabs` puts them away. `bent(out, x, y, z, q,
   bend)` is a point of a slab squashed and bent, as the slab's shader does it;
   `slabPoint(out, sl, i, x, y, z)` is where a point of a slab is drawn; `slabHalf` and
   `reachOf(sl)` say how far anything of the slabs can be from the middle.
-- **Room.** `limitFor(enlarged, apart)`, `roomFor(reach, limit)` and `zoomAfter(zoom, room,
-  dt)`: nothing is drawn further than `ROOM` (2) from the middle; apart, less by as much as
-  the Scene Size slider enlarges the picture, but never less than the cube at rest takes
-  (`WHOLE`). It is drawn smaller at once and grows back slowly.
+- **Room.** `limitFor(enlarged)`, `roomFor(reach, limit)` and `zoomAfter(zoom, room, dt)`:
+  nothing is drawn further than `ROOM` (2) from the middle, whole or apart; less by as much
+  as the Scene Size slider enlarges the picture, but never less than the cube at rest takes
+  (`WHOLE`), so a picture enlarged past about 140% no longer holds all of the cube. It is
+  drawn smaller at once and grows back slowly.
 - **Camera and light.** `turnAt(out, clock)`, `orbitAt(t, drift)`, `glowOf(out, flame, kick,
   flash)`, `flareOf(kick, flash)`, `pxOf(height, zoom)`.
 - `definition()`: the scene, for `TimbreScene.factory()`.
@@ -1075,7 +1078,7 @@ Things worth knowing:
 - The body is held softly, not pinned: a band that pulls a corner draws the middle after it
   by a little under a third of the corner's move.
 - A firmer body is pulled harder (by the square root of how firm), or Stiffness 100 would
-  show a quarter of the movement instead of 0.7 of it.
+  show half of the movement instead of 0.7 of it.
 - The scene's `debug()` gives its long lists (`points`, `facing`, `stirred`, `bubbles`,
   `bubbleLit`, `bubbleHome`, `lattice`) only when one is asked for by name; they are not
   among its own keys, so reading the whole state every frame stays cheap.
@@ -1084,6 +1087,14 @@ Things worth knowing:
   flight while it is apart (`reworked`).
 - The slabs are rounded tiles of their own. Stacked, they are not the cube's skin point for
   point; the knock and the last landing hide the change.
+- A step of the body moves every point by where the others were at the start of the step.
+  Taking the points one after another, each seeing the ones before it already moved, lets a
+  body that is pulled evenly drift out of its symmetry.
+- The scene's `debug()` also gives `world`, `view` and `proj`: how the cube stands and how
+  the camera saw the last frame. The checks carry every point of the skin, or of the four
+  slabs as the arithmetic bends, squashes and turns them, to the canvas with these, and want
+  the box they lie in to be the box the GPU drew, to within `BOX_GAP` pixels. That is what
+  holds the slab's shader to `bent()`.
 
 ## Wire format (for driving Timbre from elsewhere)
 

@@ -34,7 +34,8 @@ before slow wobbles do. The skin is drawn from the lattice.
   body, the skin brightens where it is moving and the bubbles light as it passes.
 - **A pause** lets it wobble to rest. At rest it is exactly still.
 - **With the mic off and Idle animation on**, the corners swell a little in turn.
-- **With both off**, it rests and the picture does not change.
+- **With both off**, it rests, and the picture does not change (with Camera drift at 0 and
+  the palette's Colour speed at 0: those two follow the clock in every kit scene).
 
 ## A thump of the mic
 
@@ -50,7 +51,8 @@ settings.
   already there.
 - When the last has landed they are one cube again, which wobbles from the landing.
 - While it is apart everything is drawn as much smaller as keeps all of it in the picture. It
-  shrinks at once and grows back slowly.
+  shrinks at once and grows back slowly. The same rule holds the whole cube in the picture
+  when it is pulled far out of shape.
 
 ## Settings
 
@@ -68,7 +70,8 @@ It joins the kit scenes, so the shared Scene placement sliders apply to it.
 - All timing comes from the caller's `dt`. The soft body is stepped in fixed steps of 1/240 s
   with what is left carried to the next frame, so the same sound gives the same wobble at 30
   and at 60 frames a second. Everything else is exact for any step.
-- Nothing is drawn outside the picture, whole or apart, at any Scene Size.
+- Nothing is drawn outside the picture, whole or apart, at any Scene Size at which the cube
+  at rest fits (up to about 140%).
 - At rest nothing changes: no number, and no pixel beyond the GPU's stray one.
 - The arithmetic is separate from the drawing, as `globalThis.TimbreJelly`, importable under
   Node, with no global touched at load time.

@@ -8,7 +8,9 @@
 //
 // All timing comes from the caller (dt in seconds), never from counting frames. The body is
 // stepped in fixed steps of STEP seconds, what is left of a frame carried to the next, so the
-// same sound gives the same wobble at any frame rate; everything else is exact for any step.
+// same sound gives the same wobble at any frame rate. The springs (the body's squash, a slab's
+// flight, turn, squash and flap) are worked out exactly for any step. What the sound adds (a
+// syllable's push, a slap, the bands' pulls) is taken once a frame, at its start.
 //
 // Valid as BOTH a classic <script> and an ES module (it only assigns `globalThis.TimbreJelly`),
 // like glass-prism.js, so verify.mjs can import it under Node. Nothing here may touch
@@ -200,8 +202,9 @@
       for (let n = 0; n < NN; n++) { const d = Math.hypot(home[n * 3] - cx, home[n * 3 + 1] - cy, home[n * 3 + 2] - cz); w[n] = Math.exp(-d * d / (2 * PULL_NEAR * PULL_NEAR)); }
       corner.push({ w, way: [cx / Math.sqrt(3), cy / Math.sqrt(3), cz / Math.sqrt(3)] });
     }
-    // left: time not yet stepped. pulled: whether any band pulls. most: how far its furthest point is from its place, as last drawn.
-    return { u: new Float64Array(NN * 3), vel: new Float64Array(NN * 3), force: new Float64Array(NN * 3), speed: new Float64Array(NN), home, hold, near, corner, left: 0, pulled: false, most: 0 };
+    // push: what moves each point in the step being taken. speed: how fast each is going, and most: how far the furthest is from its place, as last
+    // measured. left: time not yet stepped. pulled: whether any band pulls.
+    return { u: new Float64Array(NN * 3), vel: new Float64Array(NN * 3), force: new Float64Array(NN * 3), push: new Float64Array(NN * 3), speed: new Float64Array(NN), home, hold, near, corner, left: 0, pulled: false, most: 0 };
   }
 
   // What the bands pull with: each on its own corner, outward, by as much as it is louder than
@@ -241,8 +244,10 @@
   }
 
   // One step of STEP seconds. firm: how firm the jelly is. lift: how far up the middle is held.
+  // Every point is pushed by where the others were, and how fast, at the start of the step, so
+  // the order the points are taken in does not matter and a body pulled evenly stays even.
   function stepBody(body, firm, lift) {
-    const U = body.u, V = body.vel, F = body.force, near = body.near, hold = body.hold, NN = hold.length, ks = SPRING * firm, h = STEP;
+    const U = body.u, V = body.vel, F = body.force, A = body.push, near = body.near, hold = body.hold, NN = hold.length, ks = SPRING * firm, h = STEP;
     for (let n = 0; n < NN; n++) {
       const a = n * 3;
       let ux = 0, uy = 0, uz = 0, vx = 0, vy = 0, vz = 0, cnt = 0;
@@ -253,11 +258,11 @@
         ux += U[b]; uy += U[b + 1]; uz += U[b + 2]; vx += V[b]; vy += V[b + 1]; vz += V[b + 2]; cnt++;
       }
       const hd = hold[n] * firm;
-      V[a] += h * (ks * (ux - cnt * U[a]) + VISC * (vx - cnt * V[a]) - hd * U[a] - DAMP * V[a] + F[a]);
-      V[a + 1] += h * (ks * (uy - cnt * U[a + 1]) + VISC * (vy - cnt * V[a + 1]) - hd * (U[a + 1] - lift) - DAMP * V[a + 1] + F[a + 1]);
-      V[a + 2] += h * (ks * (uz - cnt * U[a + 2]) + VISC * (vz - cnt * V[a + 2]) - hd * U[a + 2] - DAMP * V[a + 2] + F[a + 2]);
+      A[a] = ks * (ux - cnt * U[a]) + VISC * (vx - cnt * V[a]) - hd * U[a] - DAMP * V[a] + F[a];
+      A[a + 1] = ks * (uy - cnt * U[a + 1]) + VISC * (vy - cnt * V[a + 1]) - hd * (U[a + 1] - lift) - DAMP * V[a + 1] + F[a + 1];
+      A[a + 2] = ks * (uz - cnt * U[a + 2]) + VISC * (vz - cnt * V[a + 2]) - hd * U[a + 2] - DAMP * V[a + 2] + F[a + 2];
     }
-    for (let a = 0; a < U.length; a++) U[a] += h * V[a];
+    for (let a = 0; a < U.length; a++) { V[a] += h * A[a]; U[a] += h * V[a]; }
     return body;
   }
 
@@ -281,7 +286,7 @@
   function advance(body, dt, firm, lift) {
     if (!(dt > 0)) return 0;
     body.left += dt;
-    let n = Math.floor(body.left / STEP + 1e-9);
+    let n = Math.floor(body.left / STEP);
     if (n >= STEPS_MAX) { n = STEPS_MAX; body.left = 0; } else body.left -= n * STEP;
     for (let i = 0; i < n; i++) stepBody(body, firm, lift);
     if (n > 0 && !body.pulled && lift === 0) {
@@ -341,19 +346,27 @@
     return 1 / Math.sqrt(1 - q);
   }
 
-  // Points of the resting cube (home, with their cells and fracs) as the body has them, into
-  // pos, squashed by q; and into lit how fast the body is moving at each, times gain, at most 1.
-  // Returns how far the furthest is from the middle.
-  const D = [0, 0, 0];
-  function shape(pos, lit, body, home, cells, fracs, q, gain) {
-    const U = body.u, V = body.vel, S = body.speed, NN = S.length, shown = shownSquash(q), tall = 1 - shown, wide = wideFor(shown);
-    let most = 0, reach = 0;
+  // How fast each point of the body is going (body.speed), and how far the furthest is from
+  // its place (body.most). shape() reads the speeds, so this comes first.
+  function measure(body) {
+    const U = body.u, V = body.vel, S = body.speed, NN = S.length;
+    let most = 0;
     for (let n = 0; n < NN; n++) {
       const a = n * 3, d = Math.hypot(U[a], U[a + 1], U[a + 2]);
       S[n] = Math.hypot(V[a], V[a + 1], V[a + 2]);
       if (d > most) most = d;
     }
     body.most = most;
+    return body;
+  }
+
+  // Points of the resting cube (home, with their cells and fracs) as the body has them, into
+  // pos, squashed by q; and into lit how fast the body is moving at each (as last measured),
+  // times gain, at most 1. Returns how far the furthest is from the middle.
+  const D = [0, 0, 0];
+  function shape(pos, lit, body, home, cells, fracs, q, gain) {
+    const U = body.u, S = body.speed, shown = shownSquash(q), tall = 1 - shown, wide = wideFor(shown);
+    let reach = 0;
     for (let i = 0, n = cells.length; i < n; i++) {
       const j = i * 3;
       sample(D, U, cells[i], fracs[j], fracs[j + 1], fracs[j + 2]);
@@ -490,6 +503,14 @@
     return sl;
   }
 
+  // The cube sets: every slab that had not landed has landed. A frame long enough to carry
+  // the top slab past its landing brings the end of the return in the same frame. Returns how many.
+  function landAll(sl) {
+    let n = 0;
+    for (let i = 0; i < LAYERS; i++) if (!sl.landed[i]) { sl.landed[i] = 1; n++; }
+    return n;
+  }
+
   // u (0..1) of the way through the return: each slab has come the square of its share of
   // the way home, so it speeds up into its landing, and sways less the nearer it is. A slab
   // that has arrived lands, once. Returns how many landed.
@@ -575,11 +596,11 @@
 
   // ── Room in the picture ─────────────────────────────────────────────────────
 
-  // How far from the middle anything may be drawn. Whole: ROOM. Apart: less by as much as the
-  // Scene Size slider has enlarged the picture (`enlarged`: 1 is as it comes), so the slabs
-  // stay in it, but never less than the cube at rest takes.
-  function limitFor(enlarged, apart) {
-    if (!apart) return ROOM;
+  // How far from the middle anything may be drawn: ROOM, less by as much as the Scene Size
+  // slider has enlarged the picture (`enlarged`: 1 is as it comes), so that a cube pulled out of
+  // shape, or its slabs, stay in it; but never less than the cube at rest takes. Enlarged
+  // until the resting cube fills the picture, it has no more room than that.
+  function limitFor(enlarged) {
     return Math.max(ROOM / Math.max(1, Number.isFinite(enlarged) ? enlarged : 1), WHOLE);
   }
 
@@ -722,10 +743,10 @@
     const bands = new Float32Array(BANDS), body = createBody(), sl = createSlabs(), sq = [0, 0], glow = [0, 0], turned = [0, 0, 0], point = [0, 0, 0];
     // The shatter machine counts its own pieces; these stand in for the slabs, which fly in 3D here.
     const stubs = Array.from({ length: LAYERS }, () => ({ cx: 500, cy: 500 }));
-    let THREE = null, HX = null, machine = null, random = null, group = null, far = null, nearSide = null, halo = null, shared = null, bubbleMat = null, tmp = null;
+    let THREE = null, HX = null, machine = null, random = null, group = null, far = null, nearSide = null, halo = null, shared = null, bubbleMat = null, tmp = null, camera = null;
     let geo = null, home = null, index = null, cells = null, fracs = null, pos = null, norm = null, stir = null;
     let bub = null, bubCells = null, bubFracs = null, bubPos = null, bubLit = null, bubFirst = null;
-    const slabs = [], bubbleSets = [], order = [0, 1, 2, 3], dist = [0, 0, 0, 0];
+    const slabs = [], bubbleSets = [], order = [0, 1, 2, 3], dist = [0, 0, 0, 0], furthestFirst = (a, b) => dist[b] - dist[a];
     let trail = 0, lastFlame = 0, sinceReturn = 0, drawnAtRest = false;
     // What the checks read. clock: seconds the scene has been live. firm: how firm the jelly is.
     // steps: body steps taken this frame. most: how far its furthest point is from its place.
@@ -737,6 +758,7 @@
 
     function build(k) {
       THREE = k.THREE;
+      camera = k.camera;
       HX = TimbreHelix;
       machine = HX.createShatter({ random: HX.rng(7) });
       random = rng(7);
@@ -775,7 +797,7 @@
         fm.frustumCulled = nm.frustumCulled = false;
         g.add(fm, nm); g.visible = false; g.position.y = slabAt(i);
         group.add(g);
-        slabs.push({ group: g, far: fm, near: nm });
+        slabs.push({ group: g, far: fm, near: nm, squash: [fm.material.uniforms.uSquash, nm.material.uniforms.uSquash], bend: [fm.material.uniforms.uBend, nm.material.uniforms.uBend] });
       }
       // The bubbles, slab by slab, so that each slab's can be drawn with it.
       const made = bubblesAt(SEED), by = Array.from({ length: BUBBLES }, (_, i) => i).sort((a, b) => made.slab[a] - made.slab[b] || a - b);
@@ -825,6 +847,32 @@
       for (const b of bubbleSets) { b.geometry.attributes.position.needsUpdate = true; b.geometry.attributes.lit.needsUpdate = true; }
     }
 
+    // Apart: the slabs put where their flight has them, the furthest from the camera first so
+    // that a nearer one is drawn over it, each slab's bubbles between its two sides and riding in it.
+    function arrange() {
+      group.updateMatrixWorld(true);
+      for (let i = 0; i < LAYERS; i++) {
+        const j = i * 3, sb = slabs[i], squash = shownSquash(sl.q[i]), bend = shownBend(sl.bend[i]);
+        sb.group.position.set(sl.shown[j], slabAt(i) + sl.shown[j + 1], sl.shown[j + 2]);
+        sb.group.rotation.set(sl.turned[j], sl.turned[j + 1], sl.turned[j + 2]);
+        sb.squash[0].value = sb.squash[1].value = squash;
+        sb.bend[0].value = sb.bend[1].value = bend;
+        sb.group.updateMatrixWorld(true);
+        dist[i] = sb.group.getWorldPosition(tmp).distanceTo(camera.position);
+        order[i] = i;
+      }
+      order.sort(furthestFirst);
+      for (let rank = 0; rank < LAYERS; rank++) { const i = order[rank]; slabs[i].far.renderOrder = rank * 3; bubbleSets[i].renderOrder = rank * 3 + 1; slabs[i].near.renderOrder = rank * 3 + 2; }
+      for (let i = 0; i < BUBBLES; i++) {
+        const j = i * 3, b = bub.slab[i];
+        bent(point, bub.home[j], bub.home[j + 1] - slabAt(b), bub.home[j + 2], sl.q[b], sl.bend[b]);
+        slabPoint(point, sl, b, point[0], point[1], point[2]);
+        bubPos[j] = point[0]; bubPos[j + 1] = point[1]; bubPos[j + 2] = point[2];
+        bubLit[i] = Math.min(1, 0.5 * s.flash + Math.min(0.6, Math.abs(sl.qv[b]) * 0.12));
+      }
+      sendBubbles();
+    }
+
     function update(k, audio, now, dt) {
       const t = now / 1000, follow = TimbreScene.follow;
       s.orbit = k.orbit = orbitAt(t, knob('cameraDrift'));
@@ -871,6 +919,7 @@
         startBack(sl);
         sinceReturn = 0;
       } else if (event === 'whole' || event === 'reset') {
+        if (event === 'whole') s.landed += landAll(sl);   // a frame so long that it passed the last landing
         homeSlabs(sl);
         show(true);
         sq[0] = 0; sq[1] = 0;
@@ -893,6 +942,7 @@
         spring(sq, dt, SQUASH_RATE * Math.sqrt(firm), SQUASH_DAMP);
         const resting = atRest(body) && sq[0] === 0 && sq[1] === 0 && s.flash === 0;
         if (!resting || !drawnAtRest) {
+          measure(body);
           s.reach = shape(pos, stir, body, home, cells, fracs, sq[0], STIR);
           normalsOf(pos, index, norm);
           shape(bubPos, bubLit, body, bub.home, bubCells, bubFracs, sq[0], STIR_BUBBLE);
@@ -915,37 +965,16 @@
         }
         s.reach = reachOf(sl);
         s.squash = sl.q[0];
-        group.updateMatrixWorld(true);
-        for (let i = 0; i < LAYERS; i++) {
-          const j = i * 3, sb = slabs[i];
-          sb.group.position.set(sl.shown[j], slabAt(i) + sl.shown[j + 1], sl.shown[j + 2]);
-          sb.group.rotation.set(sl.turned[j], sl.turned[j + 1], sl.turned[j + 2]);
-          for (const m of [sb.far, sb.near]) { m.material.uniforms.uSquash.value = shownSquash(sl.q[i]); m.material.uniforms.uBend.value = shownBend(sl.bend[i]); }
-          sb.group.updateMatrixWorld(true);
-          dist[i] = sb.group.getWorldPosition(tmp).distanceTo(k.camera.position);
-          order[i] = i;
-        }
-        // The furthest slab first, so that a nearer one is drawn over it; each slab's bubbles between its two sides.
-        order.sort((a, b) => dist[b] - dist[a]);
-        for (let rank = 0; rank < LAYERS; rank++) { const i = order[rank]; slabs[i].far.renderOrder = rank * 3; bubbleSets[i].renderOrder = rank * 3 + 1; slabs[i].near.renderOrder = rank * 3 + 2; }
-        // Each bubble rides in its slab.
-        for (let i = 0; i < BUBBLES; i++) {
-          const j = i * 3, b = bub.slab[i];
-          bent(point, bub.home[j], bub.home[j + 1] - slabAt(b), bub.home[j + 2], sl.q[b], sl.bend[b]);
-          slabPoint(point, sl, b, point[0], point[1], point[2]);
-          bubPos[j] = point[0]; bubPos[j + 1] = point[1]; bubPos[j + 2] = point[2];
-          bubLit[i] = Math.min(1, 0.5 * s.flash + Math.min(0.6, Math.abs(sl.qv[b]) * 0.12));
-        }
-        sendBubbles();
       }
 
       // Swollen or apart, it is drawn smaller by as much as keeps all of it in the picture: at once, and back slowly.
-      s.limit = limitFor(k.camera.zoom, s.phase !== 'whole');
+      s.limit = limitFor(k.camera.zoom);
       s.room = roomFor(s.reach, s.limit);
       s.zoom = zoomAfter(s.zoom, s.room, dt);
       group.scale.setScalar(s.zoom);
       turnAt(turned, s.clock);
       group.rotation.set(turned[0], turned[1], turned[2]);
+      if (s.phase !== 'whole') arrange();
 
       // The colours: six from round the palette for the layers to run through, drifting slowly.
       const colorT = ((now * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
@@ -959,7 +988,7 @@
       s.px = bubbleMat.uniforms.uPx.value = pxOf(s.drawnFor * canvas3d.height, k.camera.zoom) * s.zoom;
       glowOf(glow, flame, kick, s.flash);
       palette(halo.material.color, colorT + 1).multiplyScalar(glow[0]);
-      halo.scale.setScalar(glow[1]);
+      halo.scale.setScalar(glow[1] * s.zoom);
     }
 
     return {
@@ -974,13 +1003,16 @@
         // What is drawn, read back from the meshes and their uniforms.
         const out = { r: 0, g: 0, b: 0 };
         const srgb = (c) => { c.getRGB(out, THREE.SRGBColorSpace); return [Math.round(out.r * 255), Math.round(out.g * 255), Math.round(out.b * 255)]; };
+        // A slab's tile as built: how far it reaches along x, y and z; and whether every way it faces is one long.
+        const tileOf = (g) => { const p = g.attributes.position.array, far = [0, 0, 0]; for (let i = 0; i < p.length; i++) if (Math.abs(p[i]) > far[i % 3]) far[i % 3] = Math.abs(p[i]); return far; };
+        const facedOf = (g) => { const n = g.attributes.normal.array; for (let i = 0; i < n.length; i += 3) if (Math.abs(Math.hypot(n[i], n[i + 1], n[i + 2]) - 1) > 1e-4) return false; return true; };
         const mat = (m) => ({ back: m.uniforms.uBack.value, layer: m.uniforms.uLayer.value, squash: m.uniforms.uSquash.value, bend: m.uniforms.uBend.value,
           solid: m.blending === THREE.NormalBlending && m.transparent === true && m.depthWrite === false && m.depthTest === false, side: m.side === THREE.BackSide ? 'back' : m.side === THREE.FrontSide ? 'front' : 'both' });
         const d = Object.assign({
           bands: Array.from(bands), sq: sq.slice(), trail, sinceReturn, left: body.left, pulled: body.pulled,
           turnedTo: [group.rotation.x, group.rotation.y, group.rotation.z], scale: group.scale.x,
           cube: { shown: far.visible && nearSide.visible, order: [far.renderOrder, nearSide.renderOrder], far: mat(far.material), near: mat(nearSide.material), sameSkin: far.geometry === nearSide.geometry },
-          slabs: slabs.map((sb, i) => ({ shown: sb.group.visible, at: sb.group.position.toArray(), turned: [sb.group.rotation.x, sb.group.rotation.y, sb.group.rotation.z], order: [sb.far.renderOrder, bubbleSets[i].renderOrder, sb.near.renderOrder],
+          slabs: slabs.map((sb, i) => ({ tile: tileOf(sb.far.geometry), faced: facedOf(sb.far.geometry), shown: sb.group.visible, at: sb.group.position.toArray(), turned: [sb.group.rotation.x, sb.group.rotation.y, sb.group.rotation.z], order: [sb.far.renderOrder, bubbleSets[i].renderOrder, sb.near.renderOrder],
             far: mat(sb.far.material), near: mat(sb.near.material), points: sb.far.geometry.attributes.position.count, sameTile: sb.far.geometry === sb.near.geometry })),
           flight: { p: Array.from(sl.p), r: Array.from(sl.r), tp: Array.from(sl.tp), tr: Array.from(sl.tr), shown: Array.from(sl.shown), turned: Array.from(sl.turned), q: Array.from(sl.q), bend: Array.from(sl.bend), loose: Array.from(sl.loose), landed: Array.from(sl.landed) },
           bubbleSets: bubbleSets.map((b) => ({ count: b.geometry.attributes.position.count, order: b.renderOrder })), bubbleFirst: bubFirst.slice(), bubbleSlab: Array.from(bub.slab),
@@ -989,6 +1021,9 @@
           halo: { size: halo.scale.x, light: [halo.material.color.r, halo.material.color.g, halo.material.color.b], order: halo.renderOrder, at: halo.position.toArray() },
           uploads: [geo.attributes.position.version, geo.attributes.normal.version, geo.attributes.stir.version, bubbleSets[0].geometry.attributes.position.version],
           skinPoints: pos.length / 3, triangles: index.length / 3,
+          neverCulled: [far, nearSide, ...bubbleSets, ...slabs.map((sb) => sb.far), ...slabs.map((sb) => sb.near)].every((o) => o.frustumCulled === false),
+          // How the cube stands and how the camera saw the last frame, so that a check can say where on the canvas a point of it was drawn.
+          world: group.matrixWorld.toArray(), view: camera.matrixWorldInverse.toArray(), proj: camera.projectionMatrix.toArray(),
         }, s);
         // The long lists, made only when asked for.
         Object.defineProperty(d, 'points', { get: () => Array.from(pos) });
@@ -1010,8 +1045,8 @@
     REBLAST, JOSTLE, LAND, LAND_NEAR, LAND_AT, LAND_SQUASH, ROOM, WHOLE, ZOOM_BACK, FLASH_S, LINGER, FOV, PITCH, FRAME,
     VERT, SLAB_VERT, FRAG, BUBBLE_VERT, BUBBLE_FRAG,
     loudness, idle, settle, firmOf, rng, rounded, skin, normalsOf, layerOf, slabOf, slabAt, slabWide, bubblesAt,
-    createBody, pull, slapAt, slap, stepBody, atRest, calm, advance, land, locate, sample, sampleOne, shownSquash, wideFor, shape, spring,
-    createSlabs, throwSlabs, flySlabs, wobbleSlabs, swayAt, showSlabs, shortWay, startBack, backShare, plop, placeSlabs, resumeSlabs, homeSlabs, shownBend, bent, slabPoint, slabHalf, reachOf,
+    createBody, pull, slapAt, slap, stepBody, atRest, calm, advance, land, locate, sample, sampleOne, shownSquash, wideFor, measure, shape, spring,
+    createSlabs, throwSlabs, flySlabs, wobbleSlabs, swayAt, showSlabs, shortWay, startBack, backShare, plop, landAll, placeSlabs, resumeSlabs, homeSlabs, shownBend, bent, slabPoint, slabHalf, reachOf,
     limitFor, roomFor, zoomAfter, turnAt, orbitAt, glowOf, flareOf, pxOf, definition,
   };
 })();
