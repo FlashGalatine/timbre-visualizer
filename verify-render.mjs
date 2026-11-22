@@ -4464,7 +4464,7 @@ async function main() {
       const fresh = await freshPage();
       const first = await fresh.evaluate(async () => {
         window.frame = function () {};
-        setActiveViz('boids');
+        setActiveViz('rose');
         await new Promise((r) => setTimeout(r, 900));
         currentViz.draw(performance.now(), 1 / 60);
         const gl = document.getElementById('vizCanvas3D').getContext('webgl2');
