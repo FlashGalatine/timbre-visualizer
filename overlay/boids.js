@@ -203,7 +203,6 @@
     fl.state[i] = 0;
     fl.p[a] = fl.seatX[i]; fl.p[a + 1] = seatY(fl, i); fl.p[a + 2] = 0;
     fl.v[a] = fl.v[a + 1] = fl.v[a + 2] = 0;
-    fl.heard[i] = 0;
   }
   // How many birds are sitting, flying and coming home.
   function tally(fl) {

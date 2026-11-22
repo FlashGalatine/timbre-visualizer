@@ -5528,7 +5528,7 @@ await import('./overlay/boids.js');
     ok(made(0, () => how({ loose: true })) === made(5, () => how({ loose: true })) && made(0, () => how({ flame: 1 })) !== made(5, () => how({ flame: 1 })) && near1(0.45) === near1(-1.6),
       'frightened, the birds fly the same wherever the lead is; and a bird in the air takes no notice of one that is sitting');
     // No bird flies faster than 4.2, however it was thrown.
-    const t = K.createFlock(); run(t, N, 2, how({ flame: 0.9, bands: loudBands(0.7) })); K.fright(t, N, K.rng(3));
+    const t = K.createFlock(); run(t, N, 2, how({ flame: 0.9, bands: loudBands(0.7) })); K.fright(t, N, K.rng(3)); put(t.v, 5, [6, 2, 0]);
     let over = 0, fastest = 0;
     for (let i = 0; i < N; i++) if (len(at(t.v, i)) > K.TOP) over++;
     K.stepFlock(t, N, how({ loose: true }));
