@@ -3943,7 +3943,8 @@ async function main() {
     // canvas and the scene after each step. A step gives level, secs, and either all (every bin,
     // 0..1) or bins ([[bin, 0..1], ...]); peak is the raw peak the thump hears (0 unless given);
     // idle: true has the mic off, off: true has the mic and Idle animation off; knobs sets settings
-    // from that step on; gap: milliseconds the page stops drawing for, before the step. Beside the
+    // from that step on; gap: milliseconds the page stops drawing for, before the step; wobble: every
+    // other frame comes that share of a frame early and the rest that much late. Beside the
     // scene, the school is made again here from the arithmetic alone, frame for frame (the bands
     // followed, the syllable, the dart, each fright as the scene reports it, every step of the
     // school and of the bubbles, what each fish is sent, the room it needs), and model says how far
@@ -3963,7 +3964,7 @@ async function main() {
         const K = TimbreSchool, follow = TimbreScene.follow, ease = (t) => t * t * (3 - 2 * t);
         const knob = (name, otherwise = 50) => (typeof perViz[id][name] === 'number' ? perViz[id][name] : otherwise);
         const m = { ok: true, bands: new Float32Array(8), sc: K.createSchool(), bub: K.createBubbles(), A: new Float32Array(K.FISH_MAX * 4), B: new Float32Array(K.FISH_MAX * 4),
-          trail: 0, dart: 0, flash: 0, clock: 0, since: 0, phase: 'whole', thumps: 0, jostles: 0, wholeAs: 0, zoom: 1, random: K.rng(7) };
+          trail: 0, dart: 0, flash: 0, clock: 0, since: 0, phase: 'whole', thumps: 0, jostles: 0, wholeAs: 0, zoom: 1, random: K.rng(7), shown: K.countFor(knob('density')) };
         const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), f = new Uint8Array(32), out = [];
         let now = 100000 + 1000 / 120, last = null;
         for (const st of steps) {
@@ -3975,15 +3976,16 @@ async function main() {
           if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
           frequencies = f;
           micPeak = st.peak || 0;
-          let beats = 0, stepsTaken = 0, stepsMost = 0, flashMost = 0, pulseMost = 0, dartMost = 0, zoomLeast = 9, needMost = 0, fills = 0, firstPhase = null, phases = [], returningAt = -1, wholeAt = -1;
+          let beats = 0, stepsTaken = 0, stepsMost = 0, stepsLeast = 99, flashMost = 0, pulseMost = 0, dartMost = 0, zoomLeast = 9, needMost = 0, fills = 0, firstPhase = null, phases = [], returningAt = -1, wholeAt = -1;
           if (st.gap) { now += st.gap; m.ok = false; }   // what the machine does about a page that stopped is its own business: the school is not made again past one
           for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) {
-            now += 1000 / fps;
-            const before = window.__timbre.scene ? window.__timbre.scene.state : null, b0 = before ? before.beats : 0, dt = 1 / fps;
+            const dt = (1 + (st.wobble || 0) * (i % 2 ? 1 : -1)) / fps;
+            now += 1000 * dt;
+            const before = window.__timbre.scene ? window.__timbre.scene.state : null, b0 = before ? before.beats : 0;
             currentViz.draw(now, dt);
             const live = window.__timbre.scene.state, beat = live.beats > b0;
             if (beat) beats++;
-            stepsTaken += live.steps; if (live.steps > stepsMost) stepsMost = live.steps;
+            stepsTaken += live.steps; if (live.steps > stepsMost) stepsMost = live.steps; if (live.steps < stepsLeast) stepsLeast = live.steps;
             if (live.flash > flashMost) flashMost = live.flash; if (live.pulse > pulseMost) pulseMost = live.pulse; if (live.dart > dartMost) dartMost = live.dart;
             if (live.zoom < zoomLeast) zoomLeast = live.zoom; if (live.need > needMost) needMost = live.need;
             if (live.need * live.zoom * live.enlarged > fills) fills = live.need * live.zoom * live.enlarged;
@@ -3994,6 +3996,8 @@ async function main() {
             // The same frame, from the arithmetic alone.
             const isLive = micActive || cfgIdleAnim, count = K.countFor(knob('density')), flame = K.settle(live.flame);
             if (isLive) m.clock += dt;
+            if (count > m.shown) K.join(m.sc, m.shown, count);
+            m.shown = count;
             for (let b = 0; b < 8; b++) {
               let v = 0;
               if (micActive) v = K.loudness(f, b, cfgGain); else if (cfgIdleAnim) v = K.idle(b, m.clock);
@@ -4010,11 +4014,11 @@ async function main() {
             else if (live.phase === 'returning' && m.phase === 'pieces') { m.sc.form = K.nextForm(m.wholeAs); m.since = 0; }
             else if (live.phase === 'whole' && m.phase === 'returning') { m.wholeAs = m.sc.form; m.flash = Math.max(m.flash, 0.45); }
             else if (live.phase === 'whole' && m.phase === 'pieces') m.ok = false;   // put back whole by the machine (the mic went off): not made again here
-            else if (live.phase === 'returning') m.since += dt;
+            else if (live.phase === 'returning') m.since += isLive ? dt : 0;
             m.phase = live.phase;
             const g = m.phase === 'whole' ? 1 : m.phase === 'pieces' ? 0 : ease(Math.min(1, m.since / TimbreHelix.RETURN_S));
             if (isLive) K.advance(m.sc, count, dt, { gain: g, apart: m.phase === 'pieces', back: m.phase === 'returning', flame, dart: m.dart, bands: m.bands, pulse, random: m.random, bubbles: m.bub });
-            K.dress(m.A, m.B, m.sc, count, { whole: m.phase !== 'pieces', dart: m.dart, flash: m.flash, bands: m.bands, dt });
+            K.dress(m.A, m.B, m.sc, count, { whole: m.phase !== 'pieces', dart: m.dart, flash: m.flash, bands: m.bands, dt, lead: m.sc.left });
             m.need = K.needOf(m.sc, count, K.swayFor(knob('cameraDrift')));
             m.zoom = K.zoomAfter(m.zoom, K.roomFor(m.need, live.enlarged), dt);
             m.count = count; m.g = g; m.pulse = pulse;
@@ -4052,6 +4056,12 @@ async function main() {
             const o = (y * w + x) * 4;
             if (px[o + 3] >= 250) { onFish++; const bd = band[i % 8]; bd[0] += px[o]; bd[1] += px[o + 1]; bd[2] += px[o + 2]; bd[3]++; }
           }
+          const sizes = state.sizes, at = (x, y, z) => { const c = mul(state.proj, mul(state.view, mul(state.world, [x, y, z, 1]))), px0 = Math.floor((c[0] / c[3] * 0.5 + 0.5) * w), py0 = Math.floor((c[1] / c[3] * 0.5 + 0.5) * h); return px0 < 0 || py0 < 0 || px0 >= w || py0 >= h ? -1 : px[(py0 * w + px0) * 4 + 3]; };
+          const nose = { big: 0, bigOn: 0, small: 0, smallOff: 0 };
+          for (let i = 0; i < n; i++) {
+            if (i % 8 === 0) { const r = 0.8 * 0.17 * sizes[i], a = at(P[i * 3] + D[i * 3] * r, P[i * 3 + 1] + D[i * 3 + 1] * r, P[i * 3 + 2] + D[i * 3 + 2] * r); if (a >= 0) { nose.big++; if (a >= 250) nose.bigOn++; } }
+            if (i % 8 === 7) { const r = 0.95 * 0.17, a = at(P[i * 3] + D[i * 3] * r, P[i * 3 + 1] + D[i * 3 + 1] * r, P[i * 3 + 2] + D[i * 3 + 2] * r); if (a >= 0) { nose.small++; if (a < 250) nose.smallOff++; } }
+          }
           // The school made again, beside the scene's own.
           const model = { ok: m.ok, count: m.count, gapP: 0, gapD: 0, gapA: 0, gapB: 0, gapBub: 0, gapBands: 0 };
           if (m.count !== n) model.ok = false;
@@ -4066,11 +4076,11 @@ async function main() {
             model.form = m.sc.form === state.formAt; model.gain = Math.abs(state.gain - m.g); model.pulse = Math.abs(state.pulse - m.pulse); model.flash = Math.abs(state.flash - m.flash); model.dart = Math.abs(state.dart - m.dart);
             model.clock = Math.abs(state.clock - m.clock);
           }
-          let speed = 0, glowing = 0, flashing = 0, rollMost = 0;
+          let speed = 0, glowing = 0, flashing = 0, rollMost = 0, leadMost = 0;
           const sp = state.speeds;
-          for (let i = 0; i < n; i++) { speed += sp[i] / n; if (SB[i * 4 + 1] > 0.05) glowing++; if (SB[i * 4] > 0.05) flashing++; rollMost = Math.max(rollMost, Math.abs(SA[i * 4 + 2])); }
+          for (let i = 0; i < n; i++) { speed += sp[i] / n; if (SB[i * 4 + 1] > 0.05) glowing++; if (SB[i * 4] > 0.05) flashing++; rollMost = Math.max(rollMost, Math.abs(SA[i * 4 + 2])); leadMost = Math.max(leadMost, Math.abs(SB[i * 4 + 3])); }
           const size = (b) => ({ w: b[1] < 0 ? 0 : b[1] - b[0] + 1, h: b[3] < 0 ? 0 : b[3] - b[2] + 1, x0: b[0], x1: b[1], y0: b[2], y1: b[3] });
-          out.push({ state, model, fish, part, light, edge, middle, beats, stepsTaken, stepsMost, flashMost, pulseMost, dartMost, zoomLeast, needMost, fills, firstPhase, phases: phases.join(), returningAt, wholeAt, onFish, onCanvas, speed, glowing, flashing, rollMost,
+          out.push({ state, model, fish, part, light, edge, middle, beats, stepsTaken, stepsMost, stepsLeast, leadMost, nose, flashMost, pulseMost, dartMost, zoomLeast, needMost, fills, firstPhase, phases: phases.join(), returningAt, wholeAt, onFish, onCanvas, speed, glowing, flashing, rollMost,
             band: band.map((b) => (b[3] ? [b[0] / b[3], b[1] / b[3], b[2] / b[3]] : null)), glowOf: [0, 1, 2, 3, 4, 5, 6, 7].map((b) => SB[b * 4 + 1]),
             bright: fish ? sum / fish : 0, centroidX: fish ? sx / fish : 0, box: size(box), cornerAlpha: px[3], canvas: [w, h], diff, kitCam: s.camera,
             pal: [0, 1, 2, 3, 4, 5].map((i) => getColor(state.colorT + (i * PALETTE.length) / 6).slice(0, 3)), bubbleColor: getColor(state.colorT + PALETTE.length / 2).slice(0, 3) });
@@ -4136,10 +4146,15 @@ async function main() {
     check('school of fish: each fish listens to one of the eight lowest bands: while a band sounds its fish, and only they, glow', bandLow.glowing === 36 && bandLow.glowOf[0] === 1 && bandLow.glowOf.slice(1).every((v) => v === 0) && bandHigh.glowing === 36 && bandHigh.glowOf[7] === 1 && bandHigh.glowOf.slice(0, 7).every((v) => v === 0) && bandOver.glowing === 0
       && remade(bandLow) && remade(bandHigh),
       JSON.stringify({ low: [bandLow.glowing, bandLow.glowOf], high: [bandHigh.glowing, bandHigh.glowOf], over: bandOver.glowing }));
+    check('school of fish: a fish whose band sounds is seen to glow: the school is brighter for it', bandLow.bright > bandOver.bright + 12 && bandHigh.bright > bandOver.bright + 2.5,
+      JSON.stringify({ bright: [bandOver.bright, bandLow.bright, bandHigh.bright] }));
     // A beat.
     const beatRun = await fishRun([{ level: 0.05, all: 0.2, secs: 1.5 }, { level: 0.95, all: 0.2, secs: 0.1 }, { level: 0.95, all: 0.2, secs: 0.5 }], still);
     check('school of fish: a beat makes the whole school dart, and flash', beatRun[0].beats === 0 && beatRun[0].dartMost === 0 && beatRun[1].beats === 1 && beatRun[1].dartMost === 1 && beatRun[1].flashing === 288 && beatRun[2].speed > 2 * beatRun[0].speed && beatRun.every(remade),
       JSON.stringify({ beats: beatRun.map((r) => r.beats), dart: beatRun.map((r) => r.dartMost), flashing: beatRun[1].flashing, speed: beatRun.map((r) => r.speed), model: beatRun[1].model }));
+
+    check('school of fish: a flash is seen: the school is brighter on the beat than before it', beatRun[1].bright > beatRun[0].bright + 18,
+      JSON.stringify({ bright: beatRun.map((r) => r.bright) }));
 
     // The fright.
     const quick = { knobs: { cameraDrift: 0, regroupSeconds: 1 }, colorSpeed: 0, gain: 1 }, talk = { level: 0.5, all: 0.5 };
@@ -4156,6 +4171,8 @@ async function main() {
     const wears = (r) => [0, 1, 2, 3].map((b) => [like(r.band[b] || [0, 0, 0], tint(r, b)) - like(r.band[b + 4] || [0, 0, 0], tint(r, b)), like(r.band[b + 4] || [0, 0, 0], tint(r, b + 4)) - like(r.band[b] || [0, 0, 0], tint(r, b + 4))]);
     check('school of fish: each fish wears its band\'s colour of the palette', wears(fr[2]).every(([a, c]) => a > 0.02 && c > 0.02),
       JSON.stringify(wears(fr[2]).map((p) => p.map((v) => +v.toFixed(3)))));
+    check('school of fish: each fish is drawn its own size: a big fish reaches four fifths of the way to its nose, and a small one stops well short of where a middling fish\'s nose would be', fr[2].nose.big === 36 && fr[2].nose.bigOn >= 0.85 * 36 && fr[2].nose.small === 36 && fr[2].nose.smallOff >= 0.6 * 36,
+      JSON.stringify(fr[2].nose));
     const round = [Object.assign({ secs: 1 }, talk), thump, Object.assign({ secs: 6 }, talk), thump, Object.assign({ secs: 6 }, talk), thump, Object.assign({ secs: 6 }, talk)];
     const forms = await fishRun(round, Object.assign({}, quick, { knobs: { cameraDrift: 0, regroupSeconds: 0.5, density: 0 } }));
     check('school of fish: the shapes go round with each fright: ball, ring, column, ball', forms.map((r) => r.state.form).join() === 'ball,ball,ring,ring,column,column,ball' && forms[6].state.thumps === 3 && forms[6].state.phase === 'whole' && forms[4].box.h > 1.1 * forms[4].box.w && forms[2].box.w > 1.15 * forms[2].box.h && forms.every(remade) && forms.every((r) => r.edge === 0),
@@ -4185,6 +4202,10 @@ async function main() {
     const dens = await fishRun([{ level: 0.4, all: 0.4, secs: 1, knobs: { density: 0 } }, { level: 0.4, all: 0.4, secs: 1, knobs: { density: 100 } }, { level: 0.4, all: 0.4, secs: 0.05, knobs: { density: 50 } }], still);
     check('school of fish: Density is how many fish there are, 96 to 480, changed at once', dens[0].state.drawn === 96 && dens[0].state.fish === 96 && dens[1].state.drawn === 480 && dens[2].state.drawn === 288 && dens[1].fish > 2 * dens[0].fish && dens[0].onCanvas === 96 && dens[1].onCanvas === 480 && dens[1].glowing === 480 && dens.every(remade) && dens.every((r) => r.edge === 0),
       JSON.stringify({ drawn: dens.map((r) => r.state.drawn), fish: dens.map((r) => r.fish), on: dens.map((r) => [r.onFish, r.onCanvas]), model: dens.map((r) => r.model) }));
+    const joined = await fishRun([Object.assign({ secs: 0.6, knobs: { density: 0 } }, talk), thump, Object.assign({ secs: 1 }, talk), Object.assign({ secs: 0.05, knobs: { density: 100 } }, talk), Object.assign({ secs: 2 }, talk)], { knobs: { cameraDrift: 0, regroupSeconds: 10 }, colorSpeed: 0, gain: 1 });
+    check('school of fish: Density raised while they are scattered: the fish that join go in among the others, and the school stays scattered and in the picture', joined[2].state.drawn === 96 && joined[3].state.drawn === 480 && joined[4].state.drawn === 480 && joined[4].state.phase === 'pieces' && joined[4].onCanvas === 480
+      && joined[4].box.w > 0.9 * joined[2].box.w && joined[4].zoomLeast > 0.8 * joined[2].state.zoom && joined[4].fish > 2 * joined[2].fish && joined.every(remade) && joined.every((r) => r.edge === 0),
+      JSON.stringify({ drawn: joined.map((r) => r.state.drawn), box: [joined[2].box, joined[4].box], zoom: [joined[2].state.zoom, joined[4].zoomLeast], fish: [joined[2].fish, joined[4].fish], model: joined.map((r) => r.model) }));
     const drift = [];
     // Scattered, it is the width of the school that needs the room, and a camera that sways needs more of it.
     for (const d of [0, 50, 100]) drift.push((await fishRun([Object.assign({ secs: 0.6 }, talk), thump, Object.assign({ secs: 1 }, talk)], { knobs: { cameraDrift: d, regroupSeconds: 3, density: 0 }, colorSpeed: 0, gain: 1 }))[2]);
@@ -4200,14 +4221,19 @@ async function main() {
     const off = await fishRun([{ level: 0.8, all: 0.8, secs: 1 }, { level: 0, off: true, secs: 2 }, { level: 0, off: true, secs: 0.5 }, { level: 0, off: true, secs: 3 }], still);
     check('school of fish: with the mic and Idle animation off, nothing moves: no step is taken and the picture does not change', off[1].state.live === false && off[2].stepsTaken === 0 && off[3].stepsTaken === 0 && same(off[2]) && same(off[3]) && off[3].state.clock === off[1].state.clock && off[3].fish > 70000 && off.every(remade),
       JSON.stringify({ live: off[1].state.live, steps: off.map((r) => r.stepsTaken), diff: [off[2].diff, off[3].diff], clock: [off[1].state.clock, off[3].state.clock], model: off.map((r) => r.model.ok) }));
-    const offApart = await fishRun([Object.assign({ secs: 1 }, talk), thump, Object.assign({ secs: 0.5 }, talk), { level: 0, off: true, secs: 4 }, { level: 0, off: true, secs: 0.5 }], { knobs: { cameraDrift: 0, regroupSeconds: 10 }, colorSpeed: 0, gain: 1 });
-    check('school of fish: the mic going off while they are scattered leaves them where they are, and still', offApart[2].state.phase === 'pieces' && offApart[3].stepsTaken === 0 && offApart[4].stepsTaken === 0 && same(offApart[4]) && offApart[4].edge === 0 && offApart[4].fish > 70000 && offApart.every(remade),
-      JSON.stringify({ phases: offApart.map((r) => r.phases), steps: offApart[4].stepsTaken, diff: offApart[4].diff }));
+    const offApart = await fishRun([Object.assign({ secs: 1 }, talk), thump, Object.assign({ secs: 0.5 }, talk), { level: 0, off: true, secs: 5 }, { level: 0, off: true, secs: 0.5 }, Object.assign({ secs: 2 }, talk), Object.assign({ secs: 4 }, talk)], { knobs: { cameraDrift: 0, regroupSeconds: 3 }, colorSpeed: 0, gain: 1 });
+    check('school of fish: the mic going off while they are scattered leaves them where they are, and still, however long; no time passes for the fright, and they stream back only once the mic has been on for the rest of the calm wait', offApart[2].state.phase === 'pieces' && offApart[3].phases === 'pieces' && offApart[3].stepsTaken === 0 && offApart[4].stepsTaken === 0 && offApart[4].state.phase === 'pieces' && offApart[4].state.form === 'ball' && same(offApart[4]) && offApart[4].edge === 0 && offApart[4].fish > 70000
+      && offApart[5].phases === 'pieces' && offApart[6].phases === 'pieces,returning,whole' && offApart[6].returningAt >= 25 && offApart[6].returningAt <= 35 && offApart[6].state.form === 'ring' && offApart.every(remade),
+      JSON.stringify({ phases: offApart.map((r) => r.phases), steps: offApart.map((r) => r.stepsTaken), diff: offApart[4].diff, back: offApart[6].returningAt, form: offApart[6].state.form, model: offApart.map((r) => r.model.ok) }));
 
     // The frame rate, a long frame, and the Size slider.
     const [at60] = await fishRun([{ level: 0.5, all: 0.5, secs: 2 }], still), [at30] = await fishRun([{ level: 0.5, all: 0.5, secs: 2 }], Object.assign({ fps: 30 }, still));
     check('school of fish: at 30 frames a second it takes two steps a frame, and swims as fast and as wide as at 60', at60.stepsTaken === 120 && at30.stepsTaken === 120 && at60.stepsMost === 1 && at30.stepsMost === 2 && Math.abs(at30.speed - at60.speed) < 0.05 * at60.speed && Math.abs(at30.state.need - at60.state.need) < 0.08 && remade(at30),
       JSON.stringify({ steps: [at60.stepsTaken, at30.stepsTaken], most: [at60.stepsMost, at30.stepsMost], speed: [at60.speed, at30.speed], need: [at60.state.need, at30.state.need] }));
+    const [early] = await fishRun([{ level: 0.5, all: 0.5, secs: 2 + 1 / 60, wobble: 0.2 }], still), [early30] = await fishRun([{ level: 0.5, all: 0.5, secs: 2 + 1 / 60, wobble: 0.2 }], Object.assign({ fps: 30 }, still));
+    check('school of fish: frames a fifth early and late are still one step each at 60 frames a second and two at 30, and each fish is drawn as far on as the school is ahead of or behind its steps', early.stepsLeast === 1 && early.stepsMost === 1 && early.stepsTaken === 121 && early30.stepsLeast === 2 && early30.stepsMost === 2
+      && Math.abs(Math.abs(early.state.left) - 0.2 / 60) < 1e-9 && early.leadMost > 0.002 && early.leadMost < 0.2 / 60 * 4 && at60.leadMost === 0 && at60.state.left === 0 && remade(early) && remade(early30),
+      JSON.stringify({ steps: [early.stepsLeast, early.stepsMost, early.stepsTaken, early30.stepsLeast, early30.stepsMost], left: early.state.left, lead: [early.leadMost, at60.leadMost], model: early.model }));
     const [, longFrame] = await fishRun([{ level: 0.5, all: 0.5, secs: 1 }, { level: 0.5, all: 0.5, secs: 0.5, gap: 4000 }], Object.assign({ fps: 2 }, still));
     check('school of fish: a frame that takes half a second is six steps and no more, and the school is still in the picture', longFrame.stepsMost === K.STEPS_MAX && longFrame.stepsTaken === K.STEPS_MAX && longFrame.edge === 0 && longFrame.fish > 70000 && longFrame.state.left === 0,
       JSON.stringify({ most: longFrame.stepsMost, taken: longFrame.stepsTaken, edge: longFrame.edge, fish: longFrame.fish, left: longFrame.state.left }));

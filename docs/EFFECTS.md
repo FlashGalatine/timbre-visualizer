@@ -1115,7 +1115,8 @@ control panel shows it as "School of Fish" (`VIZ_LABELS`). It offers:
   is (`p`), the way it heads (`d`), how fast it swims (`sp`), its size and band (fish `i`
   listens to band `i % 8`; the low bands are the big fish), its own tilted round of the ball
   (`axis`, `shell`) and its place in the ring and in the column (`off`, `off2`, `high`). It
-  starts as a ball. Only the first `n` fish are stepped and drawn.
+  starts as a ball. Only the first `n` fish are stepped and drawn; `join(sc, from, to)` puts
+  fish that come in when Density is raised beside fish already there, of their own band.
 - **Steering.** `steer(out, sc, i, form, tight, loud)` is where the school wants fish `i` to
   swim: round with the rest, and toward its own place in the shape (`FORMS`: ball, ring,
   column; each leans toward the viewer by `LEAN`). It returns how far the fish is from that
@@ -1124,9 +1125,10 @@ control panel shows it as "School of Fish" (`VIZ_LABELS`). It offers:
   close. `wantOf(size, gain, hurry, flame, loud, dart)` is how fast it wants to swim.
 - **Steps.** `stepSchool(sc, n, how)` is one step of `STEP` (1/60 s): each fish turns a
   little toward where it is steered, its speed goes toward the speed it wants, it moves, and
-  its tail beats faster the faster it swims. `advance(sc, n, dt, how)` takes the whole steps
-  that have come due, `STEPS_MAX` (6) at most in a frame, and forgets the rest; each step
-  also remembers the syllable for the shimmer and steps the bubbles.
+  its tail beats faster the faster it swims. `advance(sc, n, dt, how)` takes a step once half
+  of it has come due, `STEPS_MAX` (6) at most in a frame, and forgets the rest; each step
+  also remembers the syllable for the shimmer and steps the bubbles. `sc.left` is then how
+  far the school is behind its steps, or ahead of them.
 - **The fright.** `bolt(sc, n, strength, random, fresh)` sends each fish a share of the way
   to the edge of an egg-shaped space (`EGG`), away from the middle of the school, and gives
   it the speed that gets it there in a dash; `toEdge(sc, i)` is how far that edge is. A fish
@@ -1137,7 +1139,8 @@ control panel shows it as "School of Fish" (`VIZ_LABELS`). It offers:
   it hears of the shimmer now: the syllable of that share of `ROUND_S` (0.7 s) ago, fainter
   the further round. `dress(A, B, sc, n, how)` is what each fish is sent to be drawn with:
   its size, its tail's beat, how far it has rolled onto its side, its band, its flash, its
-  glow and how wide its tail swings.
+  glow, how wide its tail swings, and how far on along its way to draw it (`lead`, which is
+  `sc.left`): a fish is drawn where it will be, or was, between two steps.
 - **The bubbles.** `createBubbles(seed)` and `stepBubbles(b, sc, n, pulse)`: bubbles leave
   the school from where a fish is, as fast as the syllable is loud, rise for `BUBBLE_S`
   (2.6 s) and are put away.
@@ -1157,9 +1160,15 @@ Things worth knowing:
   swimming wave, rolls it and places it.
 - The school is the only thing here that is stepped and not worked out exactly, so it is
   stepped in fixed steps whatever the frame rate: the same sound gives the same school, fish
-  for fish, at 30, 60 and 120 frames a second. Each fish looks at every other each step, so
-  a step costs the square of the number of fish: about a millisecond at Density 100.
+  for fish, at 30, 60 and 120 frames a second. Frames never come exactly on time, so a step is
+  taken once half of it has come due: a frame a little early or late is then still one step
+  at 60 frames a second (two at 30), where a step taken only when all of it had come due
+  would be none and then two, and the fish would judder. What is left over moves each fish
+  along its way as it is drawn. Each fish looks at every other each step, so a step costs
+  the square of the number of fish: a little over a millisecond at Density 100.
 - With the mic and Idle animation both off no step is taken: the fish stop where they are.
+  No time passes for the fright either, so a scattered school stays scattered, and streams
+  back only once the mic has been on for the rest of the calm wait.
 - Nothing comes from `Math.random`. A thump scatters the fish by the number of the thump, so
   the same thump scatters the same school the same way.
 - When the school bolts and when it regroups is `TimbreHelix.createShatter`'s machine, as for

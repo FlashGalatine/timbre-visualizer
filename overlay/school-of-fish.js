@@ -47,6 +47,7 @@
   const BEAT = 5, BEAT_FAST = 11;           // its tail's beat, in radians a second: idling, and more for each unit of speed
   const BOLT = [0.5, 0.45];                 // a bolting fish goes this share of the way to the edge of the egg, and up to this much more
   const REBOLT = 0.8, JOSTLE = 0.6;         // a peak while they are streaming back, and one while they are apart, beside the thump's 1
+  const JOIN = 0.15;                        // a fish that joins is put within this much, each way, of one already there
   const ARRIVE = 0.3, LOITER = 0.4, ROAM = 0.92;   // a wandering fish is there when this close; its next place is within this much of where its fright left it; one caught outside the egg comes back to within this share of it
   const WALL = 3, WALL_FROM = 0.9, WALL_SLOW = 0.88;   // outside the egg: how hard it is turned back, from where, and how much of its speed it keeps each step while still heading out
   const RISE = 20, FALL = 5;                // how fast a band is followed, up and down, a second
@@ -266,21 +267,36 @@
     }
   }
 
-  // The steps that have come due after dt more seconds: a step only once all of it has, and
-  // STEPS_MAX at most, the rest forgotten. Each step also remembers the syllable (how.pulse)
-  // for the shimmer and, given how.bubbles, steps them. Says how many steps it took.
+  // The steps that have come due after dt more seconds. A step is taken once half of it has
+  // come due: frames never come exactly on time, and this way one that is a little early or
+  // late is still one step at 60 frames a second, not none and then two. STEPS_MAX at most, the
+  // rest forgotten. `left` is then how far the school is behind its steps (or, below 0, ahead
+  // of them): what is drawn allows for it (see dress). Each step also remembers the syllable
+  // (how.pulse) for the shimmer and, given how.bubbles, steps them. Says how many steps it took.
   function advance(sc, n, dt, how) {
     sc.left += dt;
     let steps = 0;
-    while (sc.left >= STEP && steps < STEPS_MAX) {
+    while (sc.left >= STEP / 2 && steps < STEPS_MAX) {
       stepSchool(sc, n, how);
       sc.hist[sc.at] = how.pulse || 0; sc.at = (sc.at + 1) % HISTORY;
       if (how.bubbles) stepBubbles(how.bubbles, sc, n, how.pulse || 0);
       sc.left -= STEP;
       steps++;
     }
-    if (sc.left >= STEP) sc.left = 0;
+    if (sc.left >= STEP / 2) sc.left = 0;
     return steps;
+  }
+
+  // Density raised: fish `from` up to `to` join. Each is put beside a fish already there, of
+  // its own band, heading and swimming as that one does and with its places to loiter, a
+  // little way off (by JOIN). Where it was left when it last swam, if it ever did, is forgotten.
+  function join(sc, from, to) {
+    if (from <= 0) return;
+    for (let i = from; i < to; i++) {
+      const a = i * 3, j = i % from, b = j * 3, off = [JOIN * sc.off[i], JOIN * sc.off2[i], JOIN * sc.high[i]];
+      for (let c = 0; c < 3; c++) { sc.p[a + c] = sc.p[b + c] + off[c]; sc.home[a + c] = sc.home[b + c] + off[c]; sc.roam[a + c] = sc.roam[b + c] + off[c]; sc.d[a + c] = sc.d[b + c]; }
+      sc.sp[i] = sc.sp[j]; sc.flash[i] = 0;
+    }
   }
 
   // The fright: each of the first n fish bolts. Fresh from the school, away from its middle
@@ -333,15 +349,17 @@
   }
   // What each of the first n fish is sent, four numbers into A and four into B:
   //   A: its size, where its tail is in its beat, how far it has rolled onto its side, its band
-  //   B: its flash, its glow, how wide its tail swings, nothing
-  // `how`: whole (the school is not apart), dart, flash (the fright's), bands, dt.
+  //   B: its flash, its glow, how wide its tail swings, how far on along its way it is drawn
+  // `how`: whole (the school is not apart), dart, flash (the fright's), bands, dt, and lead:
+  // the seconds the school is behind its steps (sc.left; below 0, ahead). A fish is drawn that
+  // much further on, and its tail that much on in its beat, so that it moves evenly between steps.
   function dress(A, B, sc, n, how) {
-    const keep = Math.exp(-how.dt / FLASH_KEEP_S);
+    const keep = Math.exp(-how.dt / FLASH_KEEP_S), lead = how.lead || 0;
     for (let i = 0; i < n; i++) {
       const q = i * 4;
       const f = sc.flash[i] = settle(Math.max(how.whole ? heard(sc, roundOf(sc, i, sc.form)) : 0, DART_FLASH * how.dart, how.flash, sc.flash[i] * keep));
-      A[q] = sc.size[i]; A[q + 1] = sc.beat[i]; A[q + 2] = sc.side[i] * ROLL * f; A[q + 3] = sc.band[i];
-      B[q] = f; B[q + 1] = Math.min(1, 1.3 * how.bands[sc.band[i]]); B[q + 2] = 0.10 + 0.10 * Math.min(1, sc.sp[i] / 1.5); B[q + 3] = 0;
+      A[q] = sc.size[i]; A[q + 1] = sc.beat[i] + lead * (BEAT + BEAT_FAST * sc.sp[i]) / Math.sqrt(sc.size[i]); A[q + 2] = sc.side[i] * ROLL * f; A[q + 3] = sc.band[i];
+      B[q] = f; B[q + 1] = Math.min(1, 1.3 * how.bands[sc.band[i]]); B[q + 2] = 0.10 + 0.10 * Math.min(1, sc.sp[i] / 1.5); B[q + 3] = lead * sc.sp[i];
     }
   }
 
@@ -415,7 +433,7 @@
   const VERT = `
     attribute float fin;
     attribute vec3 iPos, iFwd;
-    attribute vec4 iA, iB;            // size, tail's place in its beat, roll, band;  flash, glow, how wide the tail swings, -
+    attribute vec4 iA, iB;            // size, tail's place in its beat, roll, band;  flash, glow, how wide the tail swings, how far on along its way
     uniform float uLen;
     varying vec3 vN, vW, vL; varying float vBand, vFlash, vGlow, vFin, vUp;
     void main() {
@@ -424,11 +442,11 @@
       float along = clamp((0.55 - p.x) / 1.55, 0.0, 1.5), s = pow(along, 1.6), ph = iA.y + 3.0 * p.x;
       float slope = iB.z * (s * 3.0 * cos(ph) - (1.6 / 1.55) * pow(along, 0.6) * sin(ph));
       p.z += iB.z * s * sin(ph);
-      n = normalize(vec3(n.x - slope * n.z, n.y, n.z + slope * n.x));
-      vec3 f = normalize(iFwd), r = normalize(cross(f, vec3(0.0, 1.0, 0.0))), u = cross(r, f);
+      n = normalize(vec3(n.x - slope * n.z, n.y, n.z));
+      vec3 f = normalize(iFwd), r = normalize(cross(f, vec3(0.0, 1.0, 0.0)) + vec3(0.0, 0.0, 1e-5)), u = normalize(cross(r, f));
       float cr = cos(iA.z), sr = sin(iA.z);
       vec3 u2 = u * cr + r * sr, r2 = r * cr - u * sr;
-      vec4 w = modelMatrix * vec4(iPos + iA.x * uLen * (f * p.x + u2 * p.y + r2 * p.z), 1.0);
+      vec4 w = modelMatrix * vec4(iPos + f * iB.w + iA.x * uLen * (f * p.x + u2 * p.y + r2 * p.z), 1.0);
       vL = position; vUp = normal.y; vBand = iA.w; vFlash = iB.x; vGlow = iB.y; vFin = fin;
       vW = w.xyz; vN = normalize(mat3(modelMatrix) * (f * n.x + u2 * n.y + r2 * n.z));
       gl_Position = projectionMatrix * viewMatrix * w;
@@ -507,9 +525,9 @@
     // The shatter machine counts its own pieces; these stand in for the fish, which swim in 3D here.
     const stubs = Array.from({ length: 4 }, () => ({ cx: 500, cy: 500 }));
     const how = { gain: 1, apart: false, back: false, flame: 0, dart: 0, bands, pulse: 0, random: null, bubbles };
-    const look = { whole: true, dart: 0, flash: 0, bands, dt: 0 };
+    const look = { whole: true, dart: 0, flash: 0, bands, dt: 0, lead: 0 };
     let THREE = null, HX = null, machine = null, group = null, fish = null, geo = null, sent = [], shared = null, bubbleGeo = null, bubbleMat = null, points = null, camera = null;
-    let trail = 0, sinceReturn = 0, dart = 0, wholeAs = 0;
+    let trail = 0, sinceReturn = 0, dart = 0, wholeAs = 0, shown = 0;
     // What the checks read. clock: seconds the scene has been live. fish: how many are drawn.
     // steps: school steps taken this frame. phase: whole, pieces or returning. form: the shape
     // it is, or is streaming back to. gain: how much of the school there is (1 together, 0
@@ -534,7 +552,7 @@
       geo.setIndex(new THREE.BufferAttribute(shape.index, 1));
       const each = (name, array, n) => { const at = new THREE.InstancedBufferAttribute(array, n).setUsage(THREE.DynamicDrawUsage); geo.setAttribute(name, at); sent.push(at); };
       each('iPos', school.p, 3); each('iFwd', school.d, 3); each('iA', A, 4); each('iB', B, 4);
-      s.fish = geo.instanceCount = countFor(knob('density'));
+      shown = countFor(knob('density'));
       shared = { uPal: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Color()) }, uShift: { value: 0 }, uT: { value: 0 }, uLen: { value: LEN } };
       fish = new THREE.Mesh(geo, new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: FRAG, side: THREE.DoubleSide, uniforms: shared }));
       fish.frustumCulled = false;
@@ -569,7 +587,8 @@
       const flame = s.flame = settle(audio.flame);
       s.kick = settle(audio.kick);
       const n = s.fish = countFor(knob('density'));
-      geo.instanceCount = n;
+      if (n > shown) join(school, shown, n);   // Density raised: the new fish go in among the others
+      shown = geo.instanceCount = n;
 
       // Each band is followed: quick up, slower down.
       for (let b = 0; b < BANDS; b++) {
@@ -589,11 +608,12 @@
 
       // The fright. The machine says when: a hard peak with the mic on scatters the school, a
       // peak while it is apart makes the fish bolt again, and after a calm wait they come back.
-      // The peak is the raw input level, before Gain, as DNA hears it.
+      // The peak is the raw input level, before Gain, as DNA hears it. With nothing live no time
+      // passes for it: fish that have stopped where they are do not come back in the meantime.
       s.flash = settle(s.flash * Math.exp(-dt / FLASH_S));
-      const was = machine.state;
+      const was = machine.state, passed = s.live ? dt : 0;
       const event = machine.step({
-        now, dt, live: !!micActive,
+        now, dt: passed, live: !!micActive,
         peak: typeof micPeak === 'number' ? micPeak : HX.peakOf(typeof waveform === 'undefined' ? null : waveform),
         threshold: HX.threshold(knob('frightSensitivity')), reconnectS: knob('regroupSeconds', 3),
         W: 1000, H: 1000, scale: 1, cut: () => stubs,
@@ -615,7 +635,7 @@
       } else if (event === 'reset') {
         wholeAs = school.form;   // the page had stopped drawing: it resumes as a school, in the shape it was or was coming back to
         s.flash = 0;
-      } else if (machine.state === 'returning') sinceReturn += dt;   // in step with the machine's own progress through the return
+      } else if (machine.state === 'returning') sinceReturn += passed;   // in step with the machine's own progress through the return
       s.phase = machine.state;
       s.form = FORMS[school.form];
       s.gain = s.phase === 'whole' ? 1 : s.phase === 'pieces' ? 0 : ease(Math.min(1, sinceReturn / HX.RETURN_S));
@@ -625,7 +645,7 @@
       how.flame = flame; how.dart = dart; how.pulse = s.pulse;
       s.steps = s.live ? advance(school, n, dt, how) : 0;
       s.stepped += s.steps;
-      look.whole = s.phase !== 'pieces'; look.dart = dart; look.flash = s.flash; look.dt = dt;
+      look.whole = s.phase !== 'pieces'; look.dart = dart; look.flash = s.flash; look.dt = dt; look.lead = school.left;
       dress(A, B, school, n, look);
       for (const at of sent) at.needsUpdate = true;
       bubbleGeo.attributes.position.needsUpdate = true; bubbleGeo.attributes.lit.needsUpdate = true;
@@ -689,10 +709,10 @@
 
   globalThis.TimbreSchool = {
     BANDS, PER_MIN, PER_MAX, FISH_MAX, SEED, STEP, STEPS_MAX, NEAR, CLEAR, BASE, START, LEN, TAIL, EGG, LEAN, FORMS, BALL, AXIS_TILT, RING, RING_WIDE, RING_HIGH, COLUMN, COLUMN_WIDE, COLUMN_HIGH,
-    SWING, TIGHT, PULL, PULL_MAX, STAY, WITH, STAY_APART, WITH_APART, PART, TURN, TURN_LOUD, TURN_APART, TURN_BACK, HURRY, BOLT_FAST, BOLT_STIFF, SPEED_RATE, DASH, BEAT, BEAT_FAST, BOLT, REBOLT, JOSTLE, ARRIVE, LOITER, ROAM, WALL, WALL_FROM, WALL_SLOW,
+    SWING, TIGHT, PULL, PULL_MAX, STAY, WITH, STAY_APART, WITH_APART, PART, TURN, TURN_LOUD, TURN_APART, TURN_BACK, HURRY, BOLT_FAST, BOLT_STIFF, SPEED_RATE, DASH, BEAT, BEAT_FAST, BOLT, REBOLT, JOSTLE, JOIN, ARRIVE, LOITER, ROAM, WALL, WALL_FROM, WALL_SLOW,
     RISE, FALL, TRAIL, PULSE, ROUND_S, FADE, HISTORY, ROLL, DART_S, FLASH_S, FLASH_KEEP_S, DART_FLASH, BUBBLES, BUBBLE_S, BUBBLE_RATE, FILL, ZOOM_BACK, SWAY, ORBIT_RATE, LINGER, FOV, PITCH, FRAME,
     VERT, FRAG, BUBBLE_VERT, BUBBLE_FRAG,
-    countFor, loudness, idle, settle, rng, fishShape, createSchool, steer, flock, toEdge, loiterTo, wander, wantOf, stepSchool, advance, bolt, nextForm,
+    countFor, loudness, idle, settle, rng, fishShape, createSchool, steer, flock, toEdge, loiterTo, wander, wantOf, stepSchool, advance, join, bolt, nextForm,
     pulseOf, roundOf, heard, dress, createBubbles, stepBubbles, needOf, roomFor, zoomAfter, swayFor, orbitAt, pxOf, definition,
   };
 })();

@@ -46,7 +46,8 @@ It starts as a ball.
   fish glows, swims faster and swings wider of the middle.
 - **A beat** makes the whole school dart forward, and flash.
 - **With the mic off and Idle animation on**, the bands swell a little in turn.
-- **With both off**, nothing moves: the fish stop where they are, and the picture does not
+- **With both off**, nothing moves: the fish stop where they are (scattered, if they were
+  scattered: no time passes for the fright either), and the picture does not
   change (with Camera drift at 0 and the palette's Colour speed at 0, which follow the clock
   in every kit scene).
 
@@ -84,8 +85,12 @@ here.
 - `overlay/school-of-fish.js` is `globalThis.TimbreSchool`: the arithmetic (the fish's shape,
   the school and its steps, the shimmer, the bubbles, how much room it needs) and the scene's
   definition for the scene kit. `overlay/factories/school-of-fish.js` is one line.
-- The school is stepped at a fixed 1/60 s, so it swims the same at any frame rate. It takes
-  no numbers from `Math.random`: a thump scatters the fish the same way every time.
+- The school is stepped at a fixed 1/60 s, so it swims the same at any frame rate. A step is
+  taken once half of it has come due, and each fish is drawn as far on along its way as the
+  school is ahead of or behind its steps, so that frames that come a little early or late do
+  not make the fish judder. It takes no numbers from `Math.random`: a thump scatters the fish
+  the same way every time.
+- Fish that join when Density is raised are put beside fish already there, of their own band.
 - The fish are one instanced mesh; where each is, the way it faces, its roll, its tail's beat
   and its glow are per-fish numbers sent each frame, and the shader bends and places it.
 - Effect id `school-of-fish`, shown as "School of Fish". It is listed after Boids. It is a
