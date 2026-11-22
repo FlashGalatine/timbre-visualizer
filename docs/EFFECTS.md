@@ -1003,6 +1003,88 @@ Worth knowing before drawing another thing made of many solid pieces:
   shard is drawn a little smaller than its polygon, so the cracks show and the light
   behind leaks through.
 
+## The jelly (`TimbreJelly`)
+
+`overlay/jelly.js` is the Jelly effect, as `globalThis.TimbreJelly`: a rounded cube of clear
+jelly, set in four layers of the palette's colours, that wobbles as a soft body and that a
+thump of the mic knocks apart into its layers. `factories/jelly.js` is one line,
+`VIZ_FACTORIES['jelly'] = TimbreScene.factory(() => TimbreJelly.definition())`. It offers:
+
+- **The sound and the settings.** `loudness(bins, band, gain)` reads one of the eight lowest
+  bins; `idle(b, t)` is what a band pretends to hear with the mic off; `settle(v)` makes
+  nothing of a level within a ten-thousandth of nothing. `firmOf(stiffness)` is how firm the
+  jelly is: half as firm at Stiffness 0, twice at 100, and 50 for anything that is not a number.
+- **The shape.** `rounded(out, x, y, z)` draws a point of a cube in onto the rounded cube
+  (the fifth powers of its three numbers add up to 1). `skin(n)` is its skin, `n` squares
+  along an edge: one closed sheet, every point shared by the squares round it, every
+  triangle facing out. `normalsOf(pos, index, norm)` finds the way each point faces from
+  the triangles round it. `layerOf(y)` is the layer at a height of the resting cube, as the
+  number of its colour, and between two numbers in the narrow band where two layers meet;
+  `slabOf(y)`, `slabAt(i)` and `slabWide(i)` are the slab a height belongs to, the height of
+  a slab's middle and how wide the cube is there. `bubblesAt(seed)` is where its 46 bubbles are.
+- **The body.** `createBody()` is a lattice of 9 x 9 x 9 points filling the cube: how far
+  each is from its place (`u`) and how fast it is going (`vel`). `pull(body, bands, firm)`
+  sets what the bands pull with: each on its own corner (`CORNER`), outward, by as much as
+  it is louder than `QUIET` (0.06). `slapAt(out, n)` is where the nth beat slaps it and
+  `slap(body, n)` the slap. `stepBody(body, firm, lift)` is one step of `STEP` (1/240 s):
+  each point is drawn toward where its neighbours are, toward the lift of the middle by a
+  spring that is hard at the middle and all but gone 0.8 out, and slowed, the more the
+  faster it moves against its neighbours. `advance(body, dt, firm, lift)` takes as many
+  whole steps as have come due (at most `STEPS_MAX`), carries the rest to the next frame,
+  and puts a body that has all but stopped exactly at rest when nothing pulls it.
+  `atRest(body)`, `calm(body)` and `land(body)` ask whether it is at rest, put it there, and
+  put it there moving down at its top, as the last slab's landing leaves it.
+- **The skin.** `locate(cells, fracs, at, x, y, z)` finds where in the lattice a point of the
+  resting cube lies; `sample` and `sampleOne` read a field there, evenly between the
+  lattice's points. `shape(pos, lit, body, home, cells, fracs, q, gain)` puts points where
+  the body has them, squashed by `q` (`shownSquash`, `wideFor`: flatter is wider by as much
+  as keeps the volume), says how fast the body is moving at each, and returns how far the
+  furthest is from the middle. The cube's skin and its bubbles are both drawn this way.
+- **A spring let go.** `spring(sw, dt, rate, damp, to)` is where a spring would be `dt` on,
+  not a step toward it, so two half steps are one whole. The body's squash, each slab's
+  flight, its turning, its own squash and its flapping are all this.
+- **The slabs.** `createSlabs()` is the four slabs in flight. `throwSlabs(sl, strength,
+  random, fresh)` gives each a place to make for and a push; `flySlabs(sl, dt)` is the
+  flight; `wobbleSlabs(sl, dt, rise, bands, firm)` is each slab's own squash and flap, in the
+  air or on the stack; `showSlabs(sl, clock)` is where each is drawn (never further than
+  `FLY_MAX` from where it sat, and swaying once it is loose). `startBack`, `backShare(u, i)`,
+  `placeSlabs(sl, u, clock)` and `plop(sl, i)` are the way back: from the bottom up, each
+  speeding up into a landing that shakes the slabs beneath it. `resumeSlabs` takes flight up
+  again from where the slabs are drawn; `homeSlabs` puts them away. `bent(out, x, y, z, q,
+  bend)` is a point of a slab squashed and bent, as the slab's shader does it;
+  `slabPoint(out, sl, i, x, y, z)` is where a point of a slab is drawn; `slabHalf` and
+  `reachOf(sl)` say how far anything of the slabs can be from the middle.
+- **Room.** `limitFor(enlarged, apart)`, `roomFor(reach, limit)` and `zoomAfter(zoom, room,
+  dt)`: nothing is drawn further than `ROOM` (2) from the middle; apart, less by as much as
+  the Scene Size slider enlarges the picture, but never less than the cube at rest takes
+  (`WHOLE`). It is drawn smaller at once and grows back slowly.
+- **Camera and light.** `turnAt(out, clock)`, `orbitAt(t, drift)`, `glowOf(out, flame, kick,
+  flash)`, `flareOf(kick, flash)`, `pxOf(height, zoom)`.
+- `definition()`: the scene, for `TimbreScene.factory()`.
+
+Things worth knowing:
+
+- The jelly is a solid you can see through, drawn with ordinary blending and no depth test,
+  in a fixed order: its far side, its bubbles (these are light), its near side. Apart, the
+  slabs are put in order each frame, the furthest from the camera first, each with its own
+  bubbles between its two sides.
+- The body is the only thing here that is stepped and not worked out exactly, so it is
+  stepped in fixed steps whatever the frame rate. The same pull, slap and lift give the same
+  body at 30, 60 and 120 frames a second to the last digit; with real sound the bands are
+  read once a frame, so two frame rates differ a little, and the check allows 0.02.
+- The body is held softly, not pinned: a band that pulls a corner draws the middle after it
+  by a little under a third of the corner's move.
+- A firmer body is pulled harder (by the square root of how firm), or Stiffness 100 would
+  show a quarter of the movement instead of 0.7 of it.
+- The scene's `debug()` gives its long lists (`points`, `facing`, `stirred`, `bubbles`,
+  `bubbleLit`, `bubbleHome`, `lattice`) only when one is asked for by name; they are not
+  among its own keys, so reading the whole state every frame stays cheap.
+- The checks make the body again from the arithmetic beside the scene, frame for frame,
+  while the cube is whole (`remade`), and work out again what is drawn from the slabs'
+  flight while it is apart (`reworked`).
+- The slabs are rounded tiles of their own. Stacked, they are not the cube's skin point for
+  point; the knock and the last landing hide the change.
+
 ## Wire format (for driving Timbre from elsewhere)
 
 Anything that can call a Streamer.bot action can drive Timbre:

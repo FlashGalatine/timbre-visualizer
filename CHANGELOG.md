@@ -20,6 +20,12 @@ traceability.
 - **Scene kit**: `TimbreScene.createHistory(size, hz)` is a memory of a level for things
   that travel, read by sample (`byAge`) or by age in seconds (`heard`). A scene's camera is
   now in place before its first `update`. See `docs/EFFECTS.md` ("Kit scenes").
+- **Jelly settings**: `shatterSensitivity` (0 to 100, default 50: how hard a thump of the mic
+  knocks the cube apart; 0 never does), `reconnectSeconds` (0 to 10, default 3: the calm wait
+  before its layers drop back) and `cameraDrift` (0 to 100, default 50) for the Jelly effect.
+  `stiffness` stays, and is now how firm the jelly is (half as firm at 0, twice at 100). What
+  the new Jelly is made of is in `overlay/jelly.js` (`TimbreJelly`), loaded by all three
+  overlay pages and by `verify` under Node, and documented in `docs/EFFECTS.md` ("The jelly").
 - **Shards settings**: `bloom` (0 to 100, default 50: how far the sound opens the pane;
   at 0 it stays shut and only its lights change, at 100 it opens twice as far) and
   `cameraDrift` (0 to 100, default 50) for the Shards effect. `density` stays, and is now
@@ -186,6 +192,19 @@ traceability.
 
 ### Changed
 
+- **Jelly is now a cube of jelly that the sound wobbles**, a scene on the scene kit. The
+  lattice of small balls and lines is gone. A rounded cube of clear jelly floats in the box,
+  set in four layers of the palette's colours, with small bubbles caught inside it. It is a
+  soft body held at its middle, so whatever moves it reaches the outside late, and the
+  outside overshoots and wobbles. Each syllable lifts the middle and squashes the body, which
+  springs back; each of the eight lowest bands pulls one of the eight corners outward; a beat
+  slaps a face, and a wave runs through the body while the bubbles light. A pause lets it
+  wobble to rest. A thump of the mic knocks the cube apart into its four layers: each is a
+  slab of one colour that is thrown clear, tumbles and flaps on its own, and after a calm
+  wait they drop back onto the stack from the bottom up, each landing with a plop, and set
+  into one cube again. When it comes apart and when it comes back is the shatter that DNA and
+  Glass Prism use. It is drawn as a solid you can see through, not as light, so it shows over
+  a bright backdrop too. It joins the kit scenes, so the Scene placement sliders apply to it.
 - `verify:render`: the checks that Sunburst, Mountains 3D, Phosphor, Chladni and Metaball
   hold still with the mic and Idle animation off, or once muted, no longer fail on a stray
   pixel. They compared two pictures' hashes, and this GPU now and then draws a pixel or

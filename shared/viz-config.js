@@ -38,7 +38,7 @@
     'thanksgiving-harvest', 'winter-aurora',
     'pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes',
     'sunburst-3d', 'mountains-3d', 'phosphor', 'chladni', 'glass-prism', 'metaball', 'ink',
-    'shards',
+    'shards', 'jelly',
   ];
 
   // The name the control panel shows, where the id no longer says what the effect
@@ -100,7 +100,7 @@
     'phosphor':      { depth: 50, cameraDrift: 50, rotateX: 0, rotateY: 0, rotateZ: 0 },
     'ink':           { swirl: 50, density: 50, glass: 50, cameraDrift: 50 },
     'shards':        { density: 50, bloom: 50, cameraDrift: 50 },
-    'jelly':         { stiffness: 50 },
+    'jelly':         { stiffness: 50, shatterSensitivity: 50, reconnectSeconds: 3, cameraDrift: 50 },
     'boids':         { cohesion: 50 },
     'rose':          {},
     'spring-blossoms': { petalDensity: 50, windStrength: 50 },
@@ -124,7 +124,7 @@
   };
 
   // Per-knob max overrides for numeric perViz values; default max is 100.
-  const PER_VIZ_MAX = { 'dna': { reconnectSeconds: 10 }, 'pulse-rings': { reconnectSeconds: 10 }, 'orbit': { planets: 9 }, 'chladni': { rotateX: 360, rotateY: 360, rotateZ: 360 }, 'glass-prism': { reconnectSeconds: 10 },
+  const PER_VIZ_MAX = { 'dna': { reconnectSeconds: 10 }, 'pulse-rings': { reconnectSeconds: 10 }, 'orbit': { planets: 9 }, 'chladni': { rotateX: 360, rotateY: 360, rotateZ: 360 }, 'glass-prism': { reconnectSeconds: 10 }, 'jelly': { reconnectSeconds: 10 },
     'mountains-3d': { rotateX: 360, rotateY: 360, rotateZ: 360 }, 'phosphor': { rotateX: 360, rotateY: 360, rotateZ: 360 } };
 
   // Shared knob group for any visualizer that loads a 3D STL model. Whichever

@@ -113,7 +113,7 @@ console.log('\n[1] table consistency');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['thanksgiving-harvest']) === '{"candleGlow":50,"leafDensity":50,"cameraDrift":50}', 'thanksgiving knobs');
   ok(T.VIZ_SCENES.indexOf('winter-aurora') === 1 && T.VIZ_SCENES.indexOf('thanksgiving-harvest') === 0, 'winter-aurora is the second kit scene');
   const FLAG_IDS = ['pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes'];
-  ok(JSON.stringify(T.VIZ_SCENES) === JSON.stringify(['thanksgiving-harvest', 'winter-aurora', ...FLAG_IDS, 'sunburst-3d', 'mountains-3d', 'phosphor', 'chladni', 'glass-prism', 'metaball', 'ink', 'shards']) && FLAG_IDS.every((n) => T.VIZ_USES_3D.includes(n)), 'the five flags are kit scenes, listed after winter-aurora');
+  ok(JSON.stringify(T.VIZ_SCENES) === JSON.stringify(['thanksgiving-harvest', 'winter-aurora', ...FLAG_IDS, 'sunburst-3d', 'mountains-3d', 'phosphor', 'chladni', 'glass-prism', 'metaball', 'ink', 'shards', 'jelly']) && FLAG_IDS.every((n) => T.VIZ_USES_3D.includes(n)), 'the five flags are kit scenes, listed after winter-aurora');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['pride-ribbon']) === '{"wind":50,"heartRate":50,"stripeStyle":0,"cameraDrift":50}'
     && ['bi', 'ace', 'trans'].every((p) => JSON.stringify(T.DEFAULT_PER_VIZ[p + '-pride-ribbon']) === '{"wind":50,"heartRate":50,"cameraDrift":50}'), 'pride flag knobs');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['july-fourth-stripes']) === '{"wind":50,"starTwinkle":50,"burstChance":50,"cameraDrift":50}', 'fourth of july flag knobs');
@@ -4029,7 +4029,7 @@ await import('./overlay/shards.js');
   }
 
   // The table.
-  ok(T.VIZ_SCENES[T.VIZ_SCENES.length - 1] === 'shards' && T.VIZ_USES_3D.includes('shards'), 'shards is a kit scene, the last listed');
+  ok(T.VIZ_SCENES.includes('shards') && T.VIZ_USES_3D.includes('shards'), 'shards is a kit scene');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['shards']) === '{"density":50,"bloom":50,"cameraDrift":50}' && !('shards' in T.PER_VIZ_MAX), 'shards knobs: density, bloom and camera drift, all 0 to 100');
   const oldShards = T.sanitizeConfig({ activeViz: 'shards', perViz: { 'shards': { density: 80 } } });
   ok(oldShards.activeViz === 'shards' && JSON.stringify(oldShards.perViz['shards']) === '{"density":80,"bloom":50,"cameraDrift":50}', 'a saved pre-redesign shards config keeps its density and gains the new defaults');
@@ -4046,6 +4046,472 @@ await import('./overlay/shards.js');
   const factory = await readFile(resolve(__dirname, 'overlay/factories/shards.js'), 'utf8');
   ok(/VIZ_FACTORIES\['shards'\] = TimbreScene\.factory\(\(\) => TimbreShards\.definition\(\)\);/.test(factory) && !/WebGLRenderer/.test(factory), 'the effect is the kit\'s factory around the pane\'s definition, with no renderer of its own');
   ok(!/Math\.random/.test(await readFile(resolve(__dirname, 'overlay/shards.js'), 'utf8')), 'the pane takes no numbers from Math.random, so it breaks the same way every time');
+}
+
+console.log('\n[22] jelly');
+await import('./overlay/scene-kit.js');
+await import('./overlay/jelly.js');
+{
+  const K = globalThis.TimbreJelly;
+  const near = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol;
+  const NN = K.G * K.G * K.G, idx = (i, j, k) => i + K.G * (j + K.G * k);
+  const MID = idx(4, 4, 4);
+  const most = (a) => { let m = 0; for (let i = 0; i < a.length; i++) if (Math.abs(a[i]) > m) m = Math.abs(a[i]); return m; };
+  const finite = (a) => { for (let i = 0; i < a.length; i++) if (!Number.isFinite(a[i])) return false; return true; };
+  const quiet = new Float32Array(8);
+  // A body pulled by these bands for `secs`, in frames of 1/fps.
+  const run = (body, bands, secs, fps = 60, firm = 1, lift = 0) => { K.pull(body, bands, firm); for (let i = 0, n = Math.round(secs * fps); i < n; i++) K.advance(body, 1 / fps, firm, lift); return body; };
+  const cornerNode = (c) => idx(c & 1 ? 8 : 0, c & 4 ? 8 : 0, c & 2 ? 8 : 0);
+  const WHOLE = Math.sqrt(3) * Math.pow(3, -1 / 5);
+
+  ok(K.BANDS === 8 && K.G === 9 && K.SKIN === 26 && K.SLAB_SKIN === 14 && K.ROUND === 5 && K.LAYERS === 4 && K.THIN === 0.25 && K.BUBBLES === 46
+    && K.SPRING === 520 && K.HOLD === 260 && K.HOLD_WITHIN === 0.8 && K.REST === 5 && K.DAMP === 3 && K.VISC === 7 && K.STEP === 1 / 240 && K.STEPS_MAX === 24
+    && K.RISE === 20 && K.FALL === 5 && K.QUIET === 0.06 && K.PULL === 40 && K.PULL_NEAR === 0.5 && K.SLAP === 3.4 && K.SLAP_NEAR === 0.6 && K.JOLT === 0.34 && K.TRAIL === 2.5
+    && K.SQUASH_RATE === 14.5 && K.SQUASH_DAMP === 0.17 && K.SQUASH_MAX === 0.3 && K.SQUASH_BEAT === 2.6 && K.SQUASH_VOICE === 3.8
+    && K.ROOM === 2 && near(K.WHOLE, WHOLE) && K.ZOOM_BACK === 2 && K.FLY_MAX === 2.4 && K.FOV === 30 && K.PITCH === 6 && JSON.stringify(K.FRAME) === '{"width":5.4,"height":4.2,"center":[0,0,0]}'
+    && K.FLASH_S === 0.3 && K.REBLAST === 0.8 && K.JOSTLE === 0.55 && K.BACK_LAG === 0.16 && K.BACK_DROP === 0.48 && K.SWAY === 0.1 && K.LOOSEN === 3,
+    'the sizes: a lattice of nine points an edge, four layers, steps of 1/240 s, and room for a ball of 2');
+
+  // The settings and the sound.
+  ok(near(K.firmOf(0), 0.5) && K.firmOf(50) === 1 && near(K.firmOf(100), 2) && near(K.firmOf(-40), 0.5) && near(K.firmOf(400), 2) && K.firmOf(undefined) === 1 && K.firmOf(NaN) === 1 && K.firmOf('9') === 1 && near(K.firmOf(75), Math.SQRT2),
+    'Stiffness 0 is half as firm, 100 twice; anything that is not a number is 50');
+  ok(K.loudness(null, 0, 1) === 0 && K.loudness([255], 3, 1) === 0 && near(K.loudness([51, 255], 0, 1), 0.2) && K.loudness([51, 255], 1, 2) === 1 && near(K.loudness([51], 0, 2), 0.4)
+    && K.idle(0, 0) >= 0 && [0, 1, 2, 3, 4, 5, 6, 7].every((b) => [0, 1.3, 7.7, 40].every((t) => K.idle(b, t) >= 0 && K.idle(b, t) <= 0.46 + 1e-9 && near(K.idle(b, t), Math.max(0, 0.16 + 0.3 * Math.sin(0.9 * t + 1.4 * b)))))
+    && K.settle(0.00009) === 0 && K.settle(0.0002) === 0.0002 && K.settle(0) === 0,
+    'a band is as loud as its bin, times Gain; idle bands swell a little in turn; all but silent is silent');
+
+  // The shape.
+  {
+    const o = [0, 0, 0], on = (p) => Math.pow(Math.abs(p[0]), 5) + Math.pow(Math.abs(p[1]), 5) + Math.pow(Math.abs(p[2]), 5);
+    const face = K.rounded([0, 0, 0], 1, 0, 0).slice(), corner = K.rounded([0, 0, 0], 1, -1, 1).slice(), edge = K.rounded([0, 0, 0], 1, 1, 0).slice(), any = K.rounded(o, 0.3, -1, 0.7);
+    ok(near(face[0], 1) && face[1] === 0 && face[2] === 0 && near(corner[0], Math.pow(3, -0.2)) && near(corner[1], -Math.pow(3, -0.2)) && near(corner[2], Math.pow(3, -0.2))
+      && near(edge[0], Math.pow(2, -0.2)) && near(edge[1], Math.pow(2, -0.2)) && edge[2] === 0 && near(on(any), 1) && any === o && near(any[0] / any[2], 0.3 / 0.7) && any[1] < 0,
+      'a point of a cube is drawn in toward the middle onto the rounded cube: a face\'s middle stays, a corner comes in most');
+  }
+  {
+    const closed = (sk) => {
+      const edges = new Map(); let outward = true, inRange = true;
+      const P = sk.points, I = sk.index, n = P.length / 3;
+      for (let t = 0; t < I.length; t += 3) {
+        const a = I[t], b = I[t + 1], c = I[t + 2];
+        if (a >= n || b >= n || c >= n) inRange = false;
+        for (const [p, q] of [[a, b], [b, c], [c, a]]) edges.set(p + '>' + q, (edges.get(p + '>' + q) || 0) + 1);
+        const ux = P[b * 3] - P[a * 3], uy = P[b * 3 + 1] - P[a * 3 + 1], uz = P[b * 3 + 2] - P[a * 3 + 2], vx = P[c * 3] - P[a * 3], vy = P[c * 3 + 1] - P[a * 3 + 1], vz = P[c * 3 + 2] - P[a * 3 + 2];
+        const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+        if (!(nx * (P[a * 3] + P[b * 3] + P[c * 3]) + ny * (P[a * 3 + 1] + P[b * 3 + 1] + P[c * 3 + 1]) + nz * (P[a * 3 + 2] + P[b * 3 + 2] + P[c * 3 + 2]) > 0)) outward = false;
+      }
+      let paired = true;
+      for (const [key, count] of edges) { const [p, q] = key.split('>'); if (count !== 1 || edges.get(q + '>' + p) !== 1) paired = false; }
+      let onIt = true; const seen = new Set();
+      for (let i = 0; i < n; i++) {
+        if (!near(Math.pow(Math.abs(P[i * 3]), 5) + Math.pow(Math.abs(P[i * 3 + 1]), 5) + Math.pow(Math.abs(P[i * 3 + 2]), 5), 1, 1e-5)) onIt = false;
+        seen.add(P[i * 3].toFixed(5) + ',' + P[i * 3 + 1].toFixed(5) + ',' + P[i * 3 + 2].toFixed(5));
+      }
+      return { n, tris: I.length / 3, outward, inRange, paired, onIt, distinct: seen.size === n };
+    };
+    const small = closed(K.skin(2)), full = closed(K.skin(K.SKIN)), slab = closed(K.skin(K.SLAB_SKIN));
+    ok(small.n === 26 && small.tris === 48 && full.n === 6 * 26 * 26 + 2 && full.tris === 12 * 26 * 26 && slab.n === 6 * 14 * 14 + 2
+      && [small, full, slab].every((c) => c.outward && c.inRange && c.paired && c.onIt && c.distinct),
+      'the skin is one closed sheet on the rounded cube: every point shared, every edge between exactly two triangles, every triangle facing out');
+    const sk = K.skin(K.SKIN), norm = new Float32Array(sk.points.length);
+    K.normalsOf(sk.points, sk.index, norm);
+    let worst = 1, unit = true;
+    for (let i = 0; i < sk.points.length; i += 3) {
+      const g = [0, 1, 2].map((a) => Math.sign(sk.points[i + a]) * Math.pow(Math.abs(sk.points[i + a]), 4)), l = Math.hypot(g[0], g[1], g[2]);
+      const d = (norm[i] * g[0] + norm[i + 1] * g[1] + norm[i + 2] * g[2]) / l;
+      if (d < worst) worst = d;
+      if (!near(Math.hypot(norm[i], norm[i + 1], norm[i + 2]), 1, 1e-5)) unit = false;
+    }
+    ok(unit && worst > 0.985, 'the way each point of the skin faces, found from the triangles round it, is the way the rounded cube faces there (worst ' + worst.toFixed(4) + ')');
+  }
+  ok(K.layerOf(-1) === 0 && K.layerOf(-0.75) === 0 && near(K.layerOf(-0.5), 0.5) && K.layerOf(-0.25) === 1 && near(K.layerOf(0), 1.5) && K.layerOf(0.25) === 2 && near(K.layerOf(0.5), 2.5) && K.layerOf(0.75) === 3 && K.layerOf(1) === 3 && K.layerOf(9) === 3 && K.layerOf(-9) === 0
+    && K.layerOf(-0.45) > 0.5 && K.layerOf(-0.45) < 1 && K.layerOf(-0.42) === 1 && K.layerOf(-0.58) === 0
+    && [0, 1, 2, 3].every((i) => near(K.slabAt(i), -0.75 + 0.5 * i) && K.slabOf(K.slabAt(i)) === i && K.layerOf(K.slabAt(i)) === i)
+    && K.slabOf(-1) === 0 && K.slabOf(1) === 3 && K.slabOf(-0.51) === 0 && K.slabOf(-0.49) === 1 && K.slabOf(7) === 3 && K.slabOf(-7) === 0
+    && near(K.slabWide(0), Math.pow(1 - Math.pow(0.75, 5), 0.2)) && K.slabWide(0) === K.slabWide(3) && near(K.slabWide(1), Math.pow(1 - Math.pow(0.25, 5), 0.2)) && K.slabWide(1) === K.slabWide(2) && K.slabWide(1) > K.slabWide(0),
+    'four layers of equal height, each running softly into the next over a narrow band; a slab is one layer, as wide as the cube is at its height');
+
+  // The body.
+  {
+    const body = K.createBody();
+    let pairs = true, counts = true;
+    for (let k = 0; k < 9; k++) for (let j = 0; j < 9; j++) for (let i = 0; i < 9; i++) {
+      const n = idx(i, j, k); let c = 0;
+      for (let e = 0; e < 6; e++) { const m = body.near[n * 6 + e]; if (m < 0) break; c++; let back = false; for (let f = 0; f < 6; f++) if (body.near[m * 6 + f] === n) back = true; if (!back) pairs = false; }
+      const want = (i > 0) + (i < 8) + (j > 0) + (j < 8) + (k > 0) + (k < 8);
+      if (c !== want) counts = false;
+      if (!near(body.home[n * 3], -1 + i / 4) || !near(body.home[n * 3 + 1], -1 + j / 4) || !near(body.home[n * 3 + 2], -1 + k / 4)) counts = false;
+    }
+    ok(body.u.length === NN * 3 && body.vel.length === NN * 3 && body.force.length === NN * 3 && body.near.length === NN * 6 && pairs && counts && body.left === 0 && body.pulled === false
+      && near(body.hold[MID], K.REST + K.HOLD) && body.hold[cornerNode(0)] === K.REST && body.hold[idx(8, 4, 4)] === K.REST && near(body.hold[idx(5, 4, 4)], K.REST + K.HOLD * Math.pow(1 - 0.25 / 0.8, 2))
+      && body.corner.length === 8 && [0, 1, 2, 3, 4, 5, 6, 7].every((c) => body.corner[c].w[cornerNode(c)] === 1 && body.corner[c].w[cornerNode(7 - c)] < 1e-10
+        && near(body.corner[c].way[0], (c & 1 ? 1 : -1) / Math.sqrt(3)) && near(body.corner[c].way[1], (c & 4 ? 1 : -1) / Math.sqrt(3)) && near(body.corner[c].way[2], (c & 2 ? 1 : -1) / Math.sqrt(3))),
+      'the body: each point joined to the neighbours it has, held hard at the middle and hardly at all from 0.8 out');
+    const bits = (c) => (c & 1) + ((c >> 1) & 1) + ((c >> 2) & 1);
+    ok(K.CORNER.slice().sort().join() === '0,1,2,3,4,5,6,7' && [0, 1, 2, 3, 4, 5, 6].every((b) => bits(K.CORNER[b] ^ K.CORNER[b + 1]) >= 2),
+      'each band has a corner of its own, and neighbours in pitch never pull corners that share an edge');
+
+    K.pull(body, quiet, 1);
+    const none = most(body.force) === 0 && body.pulled === false;
+    const one = new Float32Array(8); one[0] = 1;
+    K.pull(body, one, 1);
+    const c0 = cornerNode(K.CORNER[0]), w0 = body.corner[K.CORNER[0]].way, f0 = [body.force[c0 * 3], body.force[c0 * 3 + 1], body.force[c0 * 3 + 2]];
+    const amp = K.PULL * (1 - K.QUIET);
+    const far0 = cornerNode(7 - K.CORNER[0]);
+    const hush = new Float32Array(8).fill(0.06); K.pull(body, hush, 1); const hushed = most(body.force) === 0 && body.pulled === false;
+    const firm = K.createBody(); K.pull(firm, one, 4);
+    ok(none && hushed && body.pulled === false && near(f0[0], amp * w0[0], 1e-9) && near(f0[1], amp * w0[1], 1e-9) && near(f0[2], amp * w0[2], 1e-9)
+      && near(firm.force[c0 * 3], 2 * f0[0], 1e-9) && firm.pulled === true && Math.abs(firm.force[far0 * 3]) < 1e-8,
+      'a band pulls its corner outward by as much as it is louder than 0.06, and pulls a firmer body harder so that it still shows');
+  }
+  {
+    const p = [0, 0, 0], places = [];
+    for (let n = 0; n < 12; n++) places.push(K.slapAt([0, 0, 0], n).slice());
+    const again = K.slapAt(p, 5);
+    const apart = places.every((a, i) => i === 0 || Math.hypot(a[0] - places[i - 1][0], a[1] - places[i - 1][1], a[2] - places[i - 1][2]) > 0.5);
+    ok(again === p && again.join() === places[5].join() && places.every((a) => Math.abs(a[1]) <= 0.63 + 1e-9 && Math.hypot(a[0], a[2]) <= 0.9 + 1e-9 && Math.hypot(a[0], a[1], a[2]) > 0.75) && apart,
+      'a beat slaps the next of a fixed round of places on the body\'s sides, each well away from the last');
+    const body = K.createBody(); K.slap(body, 0);
+    const at = places[0], l = Math.hypot(at[0], at[1], at[2]);
+    let inward = true, nearest = -1, nd = Infinity, fastest = 0;
+    for (let n = 0; n < NN; n++) {
+      const d = Math.hypot(body.home[n * 3] - at[0], body.home[n * 3 + 1] - at[1], body.home[n * 3 + 2] - at[2]);
+      const v = [body.vel[n * 3], body.vel[n * 3 + 1], body.vel[n * 3 + 2]], sp = Math.hypot(v[0], v[1], v[2]);
+      if (d < nd) { nd = d; nearest = n; }
+      if (sp > fastest) fastest = sp;
+      if (!near(sp, K.SLAP * Math.exp(-d * d / (2 * K.SLAP_NEAR * K.SLAP_NEAR)), 1e-9)) inward = false;
+      if (sp > 1e-12 && !near((v[0] * at[0] + v[1] * at[1] + v[2] * at[2]) / (sp * l), -1, 1e-9)) inward = false;
+    }
+    const farSide = idx(at[0] > 0 ? 0 : 8, 4, at[2] > 0 ? 0 : 8);
+    ok(inward && most(body.u) === 0 && Math.hypot(body.vel[nearest * 3], body.vel[nearest * 3 + 1], body.vel[nearest * 3 + 2]) === fastest && fastest <= K.SLAP && fastest > 0.9 * K.SLAP
+      && Math.hypot(body.vel[farSide * 3], body.vel[farSide * 3 + 1], body.vel[farSide * 3 + 2]) < 0.05,
+      'a slap sets the body moving toward its middle, hardest at the place struck and hardly at all on the far side');
+  }
+  {
+    // At rest it stays at rest, to the last digit.
+    const body = K.createBody();
+    run(body, quiet, 2);
+    const still = most(body.u) === 0 && most(body.vel) === 0 && K.atRest(body);
+    // The steps: fixed, whatever the frame.
+    const count = (fps, secs) => { const b = K.createBody(); let n = 0, each = new Set(); for (let i = 0; i < Math.round(fps * secs); i++) { const k = K.advance(b, 1 / fps, 1, 0); n += k; each.add(k); } return { n, each: [...each].sort().join(), left: b.left }; };
+    const c60 = count(60, 1), c30 = count(30, 1), c144 = count(144, 1), c240 = count(240, 1), c1000 = count(1000, 1);
+    const long = K.createBody(), took = K.advance(long, 1, 1, 0), took2 = K.advance(long, 0, 1, 0), took3 = K.advance(long, NaN, 1, 0), took4 = K.advance(long, -1, 1, 0);
+    ok(still && c60.n === 240 && c60.each === '4' && c30.n === 240 && c30.each === '8' && c144.n === 240 && c240.n === 240 && c240.each === '1' && Math.abs(c1000.n - 240) <= 1
+      && took === K.STEPS_MAX && long.left === 0 && took2 === 0 && took3 === 0 && took4 === 0 && long.left === 0,
+      'the body is stepped 240 times a second at any frame rate; a frame of a whole second takes 24 steps and lets the rest go');
+  }
+  {
+    // The same sound, the same wobble at 30 and 60 frames a second: to the last digit when what pulls it does not change.
+    const bands = new Float32Array([0.9, 0.2, 0.6, 0, 0.4, 0.8, 0.1, 0.5]);
+    const a = K.createBody(), b = K.createBody(), c = K.createBody();
+    K.slap(a, 3); K.slap(b, 3); K.slap(c, 3);
+    run(a, bands, 1.5, 60, 1, 0.1); run(b, bands, 1.5, 30, 1, 0.1); run(c, bands, 1.5, 120, 1, 0.1);
+    let same = true; for (let i = 0; i < a.u.length; i++) if (a.u[i] !== b.u[i] || a.u[i] !== c.u[i] || a.vel[i] !== b.vel[i]) same = false;
+    ok(same && most(a.u) > 0.05 && finite(a.u), 'the same pull, slap and lift give the same body at 30, 60 and 120 frames a second, to the last digit');
+  }
+  {
+    // A slap rings and dies away; the body ends exactly at rest.
+    const body = K.createBody(); K.slap(body, 0);
+    const at = K.slapAt([0, 0, 0], 0);
+    const nearNode = idx(Math.round((at[0] + 1) * 4), Math.round((at[1] + 1) * 4), Math.round((at[2] + 1) * 4)), farNode = idx(8 - Math.round((at[0] + 1) * 4), Math.round((at[1] + 1) * 4), 8 - Math.round((at[2] + 1) * 4));
+    const mag = (n) => Math.hypot(body.u[n * 3], body.u[n * 3 + 1], body.u[n * 3 + 2]);
+    let tNear = -1, tFar = -1, peakFar = 0, peak = 0;
+    K.pull(body, quiet, 1);
+    for (let i = 0; i < 240; i++) {
+      K.advance(body, 1 / 240, 1, 0);
+      if (tNear < 0 && mag(nearNode) > 0.02) tNear = i; if (tFar < 0 && mag(farNode) > 0.02) tFar = i;
+      peakFar = Math.max(peakFar, mag(farNode)); peak = Math.max(peak, most(body.u));
+    }
+    const ringing = !K.atRest(body);
+    for (let i = 0; i < 60 * 14; i++) K.advance(body, 1 / 60, 1, 0);
+    ok(tNear >= 0 && tFar > tNear + 20 && tFar < 150 && peakFar > 0.02 && peak > 0.1 && peak < 0.6 && ringing && K.atRest(body) && most(body.u) === 0 && most(body.vel) === 0,
+      'a slap\'s wave reaches the far side a good tenth of a second after the near (near at step ' + tNear + ', far at ' + tFar + ', most ' + peak.toFixed(3) + '), rings, and leaves the body exactly at rest');
+  }
+  {
+    // Held at the middle: a pull on a corner moves the corner, not the middle; let go, it comes back.
+    const one = new Float32Array(8); one[2] = 1;
+    const c = K.CORNER[2], node = cornerNode(c), body = run(K.createBody(), one, 4), way = body.corner[c].way;
+    const cu = [body.u[node * 3], body.u[node * 3 + 1], body.u[node * 3 + 2]], along = cu[0] * way[0] + cu[1] * way[1] + cu[2] * way[2], off = Math.hypot(cu[0] - along * way[0], cu[1] - along * way[1], cu[2] - along * way[2]);
+    const mid = Math.hypot(body.u[MID * 3], body.u[MID * 3 + 1], body.u[MID * 3 + 2]);
+    const opposite = cornerNode(7 - c), opp = Math.hypot(body.u[opposite * 3], body.u[opposite * 3 + 1], body.u[opposite * 3 + 2]);
+    const soft = run(K.createBody(), one, 4, 60, 0.5), hard = run(K.createBody(), one, 4, 60, 2);
+    const dAt = (b) => Math.hypot(b.u[node * 3], b.u[node * 3 + 1], b.u[node * 3 + 2]);
+    run(body, quiet, 14);
+    ok(along > 0.3 && along < 0.5 && off < 1e-6 && mid < along / 3 && mid > along / 5 && opp < along / 3 && near(dAt(soft) / along, Math.SQRT2, 0.01) && near(dAt(hard) / along, Math.SQRT1_2, 0.01) && K.atRest(body) && most(body.u) === 0,
+      'a band at full pulls its corner out by ' + along.toFixed(3) + ' along the corner\'s own line, and the softly held middle after it by under a third of that (' + mid.toFixed(3) + '); softer jelly goes 1.4 times as far, firmer 0.7; let go, it comes back to rest');
+  }
+  {
+    // Lifted at the middle, the whole body follows, the outside last.
+    const body = K.createBody(); K.pull(body, quiet, 1);
+    let midFirst = -1, cornFirst = -1; const cn = cornerNode(5);
+    for (let i = 0; i < 240; i++) { K.advance(body, 1 / 240, 1, 0.2); if (midFirst < 0 && body.u[MID * 3 + 1] > 0.1) midFirst = i; if (cornFirst < 0 && body.u[cn * 3 + 1] > 0.1) cornFirst = i; }
+    for (let i = 0; i < 60 * 12; i++) K.advance(body, 1 / 60, 1, 0.2);
+    let all = true; for (let n = 0; n < NN; n++) if (!near(body.u[n * 3 + 1], 0.2, 2e-4) || Math.abs(body.u[n * 3]) > 2e-4 || Math.abs(body.u[n * 3 + 2]) > 2e-4) all = false;
+    ok(midFirst >= 0 && cornFirst > midFirst + 15 && all && !K.atRest(body), 'a lift of the middle carries the whole body with it, the corners a good while after the middle (' + midFirst + ' and ' + cornFirst + ' steps)');
+  }
+  {
+    // Fine ripples die before slow wobbles do.
+    const fine = K.createBody(), slow = K.createBody();
+    for (let k = 0; k < 9; k++) for (let j = 0; j < 9; j++) for (let i = 0; i < 9; i++) { const n = idx(i, j, k); fine.u[n * 3 + 1] = ((i + j + k) % 2 ? 0.1 : -0.1); slow.u[n * 3 + 1] = 0.1 * Math.sin(Math.PI * i / 8); }
+    const energy = (b) => { let e = 0; for (let i = 0; i < b.u.length; i++) e += b.u[i] * b.u[i] + b.vel[i] * b.vel[i] / K.SPRING; return e; };
+    const f0 = energy(fine), s0 = energy(slow);
+    run(fine, quiet, 0.25, 240); run(slow, quiet, 0.25, 240);
+    ok(energy(fine) / f0 < 0.02 && energy(slow) / s0 > 0.15 && energy(slow) / s0 > 10 * energy(fine) / f0, 'a quarter of a second on, a point-to-point ripple has all but gone and a slow wobble has not ('
+      + (energy(fine) / f0).toFixed(4) + ' and ' + (energy(slow) / s0).toFixed(3) + ' of what they had)');
+  }
+  {
+    // The loudest din, the softest and the firmest jelly: it never runs away.
+    const worst = (firm) => { const b = K.createBody(), full = new Float32Array(8).fill(1); let m = 0; K.pull(b, full, firm); for (let i = 0; i < 60 * 20; i++) { if (i % 14 === 0) K.slap(b, i / 14); K.advance(b, 1 / 60, firm, i % 30 < 15 ? K.JOLT : 0); m = Math.max(m, most(b.u)); } return { m, ok: finite(b.u) && finite(b.vel) }; };
+    const a = worst(0.5), b = worst(1), c = worst(2), d = worst(2.0001);
+    ok(a.ok && b.ok && c.ok && d.ok && a.m < 1.6 && b.m < 1.2 && c.m < 0.9 && c.m < b.m && b.m < a.m, 'twenty seconds of every band at full, a slap four times a second and the middle thrown up and down: the body stays whole at Stiffness 0, 50 and 100 (it moves at most '
+      + a.m.toFixed(2) + ', ' + b.m.toFixed(2) + ' and ' + c.m.toFixed(2) + ')');
+  }
+  {
+    // Reading the lattice between its points.
+    const body = K.createBody(), lin = (x, y, z) => [0.1 * x - 0.2 * y + 0.05 * z + 0.3, 0.4 * y, -0.3 * z + 0.1 * x];
+    for (let n = 0; n < NN; n++) { const v = lin(body.home[n * 3], body.home[n * 3 + 1], body.home[n * 3 + 2]); body.u[n * 3] = v[0]; body.u[n * 3 + 1] = v[1]; body.u[n * 3 + 2] = v[2]; }
+    const pts = [[0, 0, 0], [0.33, -0.71, 0.12], [1, 1, 1], [-1, -1, -1], [0.999, -0.5, 0.25], [-0.125, 0.875, -1]];
+    const cells = new Int32Array(pts.length), fracs = new Float32Array(pts.length * 3), out = [0, 0, 0];
+    let exact = true, inCell = true;
+    pts.forEach((p, i) => {
+      K.locate(cells, fracs, i, p[0], p[1], p[2]);
+      const got = K.sample(out, body.u, cells[i], fracs[i * 3], fracs[i * 3 + 1], fracs[i * 3 + 2]), want = lin(p[0], p[1], p[2]);
+      if (got !== out || !near(got[0], want[0], 3e-5) || !near(got[1], want[1], 3e-5) || !near(got[2], want[2], 3e-5)) exact = false;   // a point on the cube's far sides is read a ten-thousandth of a cell inside
+      const ci = cells[i] % 9, cj = Math.floor(cells[i] / 9) % 9, ck = Math.floor(cells[i] / 81);
+      if (ci > 7 || cj > 7 || ck > 7 || fracs[i * 3] < 0 || fracs[i * 3] > 1 || fracs[i * 3 + 1] > 1 || fracs[i * 3 + 2] > 1) inCell = false;
+    });
+    K.locate(cells, fracs, 0, 5, -5, 0); const held = K.sample(out, body.u, cells[0], fracs[0], fracs[1], fracs[2]).slice(), edge = lin(1, -1, 0);
+    const speed = new Float64Array(NN); for (let n = 0; n < NN; n++) speed[n] = 2 + body.home[n * 3];
+    K.locate(cells, fracs, 1, 0.3, 0.1, -0.6);
+    ok(exact && inCell && near(held[0], edge[0], 1e-3) && near(held[1], edge[1], 1e-3) && near(K.sampleOne(speed, cells[1], fracs[3], fracs[4], fracs[5]), 2.3, 1e-5),
+      'between its points the lattice is read off evenly: a field that changes evenly is read back exactly anywhere in the cube, and a point outside is read at the cube\'s side');
+  }
+  {
+    // The skin drawn from the body.
+    const sk = K.skin(K.SKIN), V = sk.points.length / 3, cells = new Int32Array(V), fracs = new Float32Array(V * 3), pos = new Float32Array(V * 3), stir = new Float32Array(V);
+    for (let i = 0; i < V; i++) K.locate(cells, fracs, i, sk.points[i * 3], sk.points[i * 3 + 1], sk.points[i * 3 + 2]);
+    const body = K.createBody();
+    const r0 = K.shape(pos, stir, body, sk.points, cells, fracs, 0, 0.22);
+    let same = true; for (let i = 0; i < pos.length; i++) if (pos[i] !== sk.points[i]) same = false;
+    const r1 = K.shape(pos, stir, body, sk.points, cells, fracs, 0.2, 0.22);
+    let squashed = true; const wide = 1 / Math.sqrt(0.8);
+    for (let i = 0; i < V; i++) if (!near(pos[i * 3], sk.points[i * 3] * wide, 1e-6) || !near(pos[i * 3 + 1], sk.points[i * 3 + 1] * 0.8, 1e-6) || !near(pos[i * 3 + 2], sk.points[i * 3 + 2] * wide, 1e-6)) squashed = false;
+    for (let n = 0; n < NN; n++) { body.u[n * 3] = 0.1; body.vel[n * 3 + 2] = 2; }
+    const r2 = K.shape(pos, stir, body, sk.points, cells, fracs, 0, 0.22);
+    let moved = true; for (let i = 0; i < V; i++) if (!near(pos[i * 3], sk.points[i * 3] + 0.1, 1e-6) || !near(pos[i * 3 + 1], sk.points[i * 3 + 1], 1e-6) || !near(stir[i], 0.44, 1e-6)) moved = false;
+    for (let n = 0; n < NN; n++) body.vel[n * 3 + 2] = 50;
+    K.shape(pos, stir, body, sk.points, cells, fracs, 0, 0.22);
+    ok(same && near(r0, WHOLE, 1e-6) && most(stir) === 1 && squashed && r1 > r0 && moved && r2 > r0 && near(body.most, 0.1, 1e-9)
+      && K.shownSquash(0.2) === 0.2 && K.shownSquash(0.9) === 0.3 && K.shownSquash(-0.9) === -0.3 && near(K.wideFor(0.2) * K.wideFor(0.2) * (1 - 0.2), 1) && near(K.wideFor(-0.3) * K.wideFor(-0.3) * 1.3, 1) && K.wideFor(0) === 1,
+      'at rest the skin is the rounded cube, its furthest point ' + r0.toFixed(4) + ' from the middle; squashed it is flatter and wider by as much as keeps its volume; it brightens where the body is moving');
+  }
+
+  // A spring let go.
+  {
+    const a = [1, 0], b = [1, 0]; K.spring(a, 0.2, 12, 0.3); K.spring(b, 0.1, 12, 0.3); K.spring(b, 0.1, 12, 0.3);
+    const c = [0, 3], d = [0, 3]; K.spring(c, 0.07, 9, 0.2, 0.5); for (let i = 0; i < 7; i++) K.spring(d, 0.01, 9, 0.2, 0.5);
+    const e = [1, 0]; let low = 0; for (let i = 0; i < 4000; i++) { K.spring(e, 0.001, 10, 0.25); if (e[0] < low) low = e[0]; }
+    const g = [0.3, -2]; for (let i = 0; i < 600; i++) K.spring(g, 1 / 60, 14.5, 0.17, 0.25);
+    const h = [0.25, 0]; K.spring(h, 0.5, 8, 0.4, 0.25);
+    const ret = K.spring(a, 0, 12, 0.3);
+    ok(near(a[0], b[0], 1e-12) && near(a[1], b[1], 1e-12) && near(c[0], d[0], 1e-12) && near(c[1], d[1], 1e-12) && near(low, -Math.exp(-Math.PI * 0.25 / Math.sqrt(1 - 0.0625)), 2e-3)
+      && g[0] === 0.25 && g[1] === 0 && h[0] === 0.25 && h[1] === 0 && ret === a,
+      'a spring let go swings past where it is going by a share its damping sets, and comes to rest there exactly; two half steps are one whole');
+  }
+
+  // The slabs.
+  {
+    const sl = K.createSlabs(), zero = ['p', 'v', 'r', 'rv', 'tp', 'tr', 'from', 'fromR', 'shown', 'turned'].every((k) => sl[k].length === 12 && most(sl[k]) === 0)
+      && ['q', 'qv', 'bend', 'bv', 'loose', 'looseFrom'].every((k) => sl[k].length === 4 && most(sl[k]) === 0) && sl.landed.length === 4;
+    const seq = (vals) => { let i = 0; return () => vals[i++ % vals.length]; };
+    K.throwSlabs(sl, 1, K.rng(1001), true);
+    const sl2 = K.createSlabs(); K.throwSlabs(sl2, 1, K.rng(1001), true);
+    const sl3 = K.createSlabs(); K.throwSlabs(sl3, 1, K.rng(1002), true);
+    let bounds = true, kicked = true;
+    for (let i = 0; i < 4; i++) {
+      const j = i * 3;
+      if (Math.abs(sl.tp[j]) > 0.65 || Math.abs(sl.tp[j + 2]) > 0.65 || Math.abs(sl.tp[j + 1] - 0.9 * K.slabAt(i)) > 0.15 || Math.abs(sl.tr[j]) > 0.55 || Math.abs(sl.tr[j + 1]) > 0.75 || Math.abs(sl.tr[j + 2]) > 0.55) bounds = false;
+      for (let a = 0; a < 3; a++) if (!near(sl.v[j + a], 5 * sl.tp[j + a], 1e-12) || Math.abs(sl.rv[j + a]) > 3.5 || sl.p[j + a] !== 0 || sl.r[j + a] !== 0) kicked = false;
+      if (sl.q[i] !== 0.24 || sl.qv[i] !== -4 || sl.bend[i] !== 0 || Math.abs(sl.bv[i]) < 5 || Math.abs(sl.bv[i]) > 10 || sl.landed[i] !== 0 || sl.loose[i] !== 0) kicked = false;
+    }
+    const ordered = [0, 1, 2].every((i) => K.slabAt(i) + sl.tp[i * 3 + 1] < K.slabAt(i + 1) + sl.tp[i * 3 + 4]);
+    // Thrown again, not fresh: on top of what it has, from where it is.
+    const was = { v: Array.from(sl.v), q: Array.from(sl.q), qv: Array.from(sl.qv) };
+    for (let i = 0; i < 12; i++) sl.p[i] = 0.1;
+    K.throwSlabs(sl, 0.5, seq([0.5]), false);
+    let again = true;
+    for (let i = 0; i < 4; i++) { const j = i * 3; if (!near(sl.tp[j], 0) || !near(sl.tp[j + 1], 0.9 * K.slabAt(i)) || !near(sl.v[j], was.v[j] + (0 - 0.1) * 5 * 0.5, 1e-12) || sl.q[i] !== was.q[i] || !near(sl.qv[i], was.qv[i] - 2, 1e-12) || sl.p[j] !== 0.1) again = false; }
+    ok(zero && bounds && kicked && ordered && Array.from(sl2.tp).join() !== Array.from(sl3.tp).join() && Array.from(sl2.bv).join() !== Array.from(sl3.bv).join() && (() => { const f = K.createSlabs(); K.throwSlabs(f, 1, K.rng(1001), true); return Array.from(f.tp).join() === Array.from(sl2.tp).join() && Array.from(f.rv).join() === Array.from(sl2.rv).join(); })() && again,
+      'a thump throws each slab toward a place of its own, still in the stack\'s order, squashed and set flapping; the same thump is the same throw; a second throw adds to the first');
+  }
+  {
+    const sl = K.createSlabs(), half = K.createSlabs();
+    K.throwSlabs(sl, 1, K.rng(1003), true); K.throwSlabs(half, 1, K.rng(1003), true);
+    let over = 0;
+    K.flySlabs(sl, 0.2); K.flySlabs(half, 0.1); K.flySlabs(half, 0.1);
+    let exact = true; for (let i = 0; i < 12; i++) if (!near(sl.p[i], half.p[i], 1e-12) || !near(sl.r[i], half.r[i], 1e-12) || !near(sl.v[i], half.v[i], 1e-11)) exact = false;
+    const loose = near(sl.loose[0], 1 - Math.exp(-0.6), 1e-12) && near(half.loose[0], sl.loose[0], 1e-12);
+    for (let i = 0; i < 600; i++) { K.flySlabs(sl, 1 / 60); for (let j = 0; j < 12; j++) if (Math.abs(sl.tp[j]) > 0.2) over = Math.max(over, sl.p[j] / sl.tp[j]); }
+    let there = true; for (let i = 0; i < 12; i++) if (sl.p[i] !== sl.tp[i] || sl.r[i] !== sl.tr[i] || sl.v[i] !== 0 || sl.rv[i] !== 0) there = false;
+    ok(exact && loose && over > 1.2 && over < 1.7 && there && near(sl.loose[3], 1, 1e-6), 'thrown, a slab swings out past its place (by up to ' + (over * 100 - 100).toFixed(0) + '%) and settles on it exactly; its flight is the same in one step or two');
+  }
+  {
+    // What is drawn: never further than FLY_MAX from its place, and swaying a little once it is loose.
+    const sl = K.createSlabs();
+    sl.p.set([0.1, 0, 0, 0, 9, 0, 3, 4, 0, -100, 100, 100]); sl.r.set([0.2, 0.3, 0.4, 0, 0, 0, 0, 0, 0, 0, 0, 0]); sl.loose.set([0, 1, 0.5, 1]);
+    K.showSlabs(sl, 2);
+    const long = (i) => Math.hypot(sl.shown[i * 3], sl.shown[i * 3 + 1], sl.shown[i * 3 + 2]);
+    const sway = [0, 0, 0]; K.swayAt(sway, 1, 2);
+    ok(near(long(0), 2.4 * Math.tanh(0.1 / 2.4)) && near(long(1), 2.4 * Math.tanh(9 / 2.4)) && near(long(2), 2.4 * Math.tanh(5 / 2.4)) && near(sl.shown[6] / sl.shown[7], 0.75) && long(3) <= 2.4 && long(3) > 2.39 && sl.shown[9] < 0
+      && sl.turned[0] === 0.2 && sl.turned[1] === 0.3 && sl.turned[2] === 0.4 && near(sl.turned[3], 0.1 * Math.sin(0.9 * 2 + 1)) && sl.turned[4] === 0 && near(sl.turned[5], 0.1 * Math.sin(0.7 * 2 + 2))
+      && near(sway[0], sl.turned[3]) && sway[1] === 0 && near(sway[2], sl.turned[5]) && near(sl.turned[6], 0.05 * Math.sin(0.9 * 2 + 2)),
+      'a slab is drawn the way it has flown but never further than 2.4 from its place, and once loose it sways a little');
+  }
+  {
+    // The way back: from the bottom up, each speeding up into its landing.
+    ok(K.backShare(0, 0) === 0 && near(K.backShare(0.24, 0), 0.5) && K.backShare(0.48, 0) === 1 && K.backShare(1, 0) === 1 && K.backShare(0.16, 1) === 0 && near(K.backShare(0.4, 1), 0.5) && K.backShare(0.64, 1) === 1
+      && K.backShare(0.48, 3) === 0 && near(K.backShare(0.72, 3), 0.5) && near(K.backShare(0.96, 3), 1) && K.backShare(1, 3) === 1 && K.backShare(-1, 0) === 0,
+      'on the way back the bottom slab sets off first and each of the others 0.16 of the way later; each takes 0.48 of the way, so the top one lands just before the end');
+    const sl = K.createSlabs(); K.throwSlabs(sl, 1, K.rng(1004), true);
+    for (let i = 0; i < 120; i++) K.flySlabs(sl, 1 / 60);
+    K.showSlabs(sl, 5);
+    const shown = Array.from(sl.shown), turned = Array.from(sl.turned), loose = Array.from(sl.loose);
+    const r4 = sl.r[4]; sl.r[4] = 2 * Math.PI + 0.3;
+    K.startBack(sl);
+    const started = Array.from(sl.from).join() === shown.join() && near(sl.fromR[4], 0.3, 1e-12) && near(sl.fromR[0], sl.r[0]) && most(sl.v) === 0 && most(sl.rv) === 0 && Array.from(sl.looseFrom).join() === loose.join();
+    sl.fromR[4] = r4; sl.r[4] = r4;
+    const n0 = K.placeSlabs(sl, 0, 5);
+    let atStart = n0 === 0; for (let i = 0; i < 12; i++) if (!near(sl.shown[i], shown[i], 1e-12) || !near(sl.turned[i], turned[i], 1e-9)) atStart = false;
+    const heights = []; let landings = 0, order = [], smooth = true, last = Array.from(sl.shown);
+    for (let k = 1; k <= 400; k++) {
+      const got = K.placeSlabs(sl, k / 400, 5);
+      for (let i = 0; i < 4; i++) if (sl.landed[i] && !order.includes(i)) order.push(i);
+      landings += got;
+      for (let i = 0; i < 12; i++) { if (Math.abs(sl.shown[i] - last[i]) > 0.02) smooth = false; last[i] = sl.shown[i]; }
+      if (k === 96) heights.push(Math.hypot(sl.shown[0], sl.shown[1], sl.shown[2]) / Math.hypot(shown[0], shown[1], shown[2]));
+    }
+    const quarter = K.createSlabs(); K.throwSlabs(quarter, 1, K.rng(1004), true); for (let i = 0; i < 120; i++) K.flySlabs(quarter, 1 / 60); K.showSlabs(quarter, 5); K.startBack(quarter);
+    K.placeSlabs(quarter, 0.12, 5); const early = Math.hypot(quarter.shown[0], quarter.shown[1], quarter.shown[2]) / Math.hypot(shown[0], shown[1], shown[2]);
+    ok(started && atStart && landings === 4 && order.join() === '0,1,2,3' && smooth && most(sl.shown) === 0 && most(sl.turned) === 0 && most(sl.r) === 0 && most(sl.loose) === 0 && near(heights[0], 0.75, 1e-9) && near(early, 1 - 0.0625, 1e-9),
+      'coming back, each slab starts from where it was drawn and turns the short way home; it has come a sixteenth of the way after a quarter of its time and a quarter after half; they land in order, once each, flat and in place');
+  }
+  {
+    // A landing: the slab squashes, and the ones beneath are shaken; the ones above are not.
+    const sl = K.createSlabs(); K.plop(sl, 2);
+    ok(sl.landed[2] === 1 && sl.qv[2] === 3.6 && sl.bv[2] === 3 && sl.qv[0] === 1.6 && sl.qv[1] === 1.6 && sl.bv[0] === -1.5 && sl.bv[1] === 1.5 && sl.qv[3] === 0 && sl.bv[3] === 0 && sl.landed[0] === 0
+      && (() => { const t = K.createSlabs(); K.plop(t, 1); return t.bv[1] === -3 && t.bv[0] === -1.5 && t.qv[2] === 0; })(),
+      'a slab that lands squashes and flaps, and shakes the slabs beneath it less; a slab above it feels nothing');
+    // The voice and the bands still move a slab in the air.
+    const a = K.createSlabs(), b = K.createSlabs(), bands = new Float32Array([0.9, 0.1, 0.2, 0.2, 0, 0.8, 0.5, 0.5]);
+    K.wobbleSlabs(a, 0.12, 0.3, bands, 1); K.wobbleSlabs(b, 0.06, 0.3, bands, 1); K.wobbleSlabs(b, 0.06, 0, bands, 1);
+    const c = K.createSlabs(); for (let i = 0; i < 900; i++) K.wobbleSlabs(c, 1 / 60, 0, bands, 1);
+    const d = K.createSlabs(), e = K.createSlabs(); K.wobbleSlabs(d, 0.05, 1, quiet, 1); K.wobbleSlabs(e, 0.05, 1, quiet, 4);
+    ok(near(a.q[0], b.q[0], 1e-12) && near(a.bend[0], b.bend[0], 1e-12) && near(a.bv[3], b.bv[3], 1e-12) && a.q[0] > 0 && a.q[1] === a.q[0]
+      && near(c.bend[0], K.BEND_LEAN * 0.8, 1e-7) && c.bend[1] === 0 && near(c.bend[2], K.BEND_LEAN * -0.8, 1e-7) && c.bend[3] === 0 && c.bv[0] === 0 && c.q[0] === 0
+      && d.bend[0] > 0 && d.bend[1] < 0 && near(d.bend[0], -d.bend[1], 1e-12) && e.q[0] < d.q[0] * 0.95 && K.BEND_LEAN === 0.21 && K.SLAB_VOICE === 2.2 && K.BEND_VOICE === 3,
+      'in the air a slab still squashes with each syllable and leans with its own two bands, by 0.21 of how much louder one is than the other; a firmer slab springs back sooner');
+  }
+  {
+    // Coming back, thrown again: flight takes up from where each slab is drawn.
+    const sl = K.createSlabs(); K.throwSlabs(sl, 1, K.rng(1005), true);
+    for (let i = 0; i < 90; i++) K.flySlabs(sl, 1 / 60);
+    K.showSlabs(sl, 3); K.startBack(sl); K.placeSlabs(sl, 0.3, 3);
+    const shown = Array.from(sl.shown), turned = Array.from(sl.turned), landed = Array.from(sl.landed).join();
+    K.resumeSlabs(sl); K.showSlabs(sl, 3);
+    let same = true; for (let i = 0; i < 12; i++) if (!near(sl.shown[i], shown[i], 1e-9) || !near(sl.turned[i], turned[i], 1e-9)) same = false;
+    ok(same && landed === '0,0,0,0' && most(sl.v) === 0, 'a slab on its way back that is thrown again is drawn, at that moment, exactly where it was');
+    const home = K.homeSlabs(sl);
+    ok(home === sl && ['p', 'v', 'r', 'rv', 'tp', 'tr', 'from', 'fromR', 'shown', 'turned', 'q', 'qv', 'bend', 'bv', 'loose', 'looseFrom', 'landed'].every((k) => most(sl[k]) === 0), 'set into one cube again, nothing is left of the slabs\' flight');
+  }
+  {
+    // Where a point of a slab is drawn: turned about the slab's middle (about z, then y, then x, as three.js turns a group), then moved.
+    const sl = K.createSlabs(), o = [0, 0, 0];
+    const at = K.slabPoint(o, sl, 2, 0.3, 0.1, -0.2).slice();
+    sl.shown.set([0.5, -0.25, 1], 3);
+    const moved = K.slabPoint([0, 0, 0], sl, 1, 0.3, 0.1, -0.2);
+    sl.turned.set([Math.PI / 2, 0, 0], 0);
+    const rx = K.slabPoint([0, 0, 0], sl, 0, 0, 0, 1);
+    sl.turned.set([0, Math.PI / 2, 0], 0);
+    const ry = K.slabPoint([0, 0, 0], sl, 0, 0, 0, 1);
+    sl.turned.set([0, 0, Math.PI / 2], 0);
+    const rz = K.slabPoint([0, 0, 0], sl, 0, 1, 0, 0);
+    sl.turned.set([0.4, -0.7, 1.1], 0);
+    const all = K.slabPoint([0, 0, 0], sl, 0, 0.3, 0.2, -0.5);
+    const Rz = (p, a) => [p[0] * Math.cos(a) - p[1] * Math.sin(a), p[0] * Math.sin(a) + p[1] * Math.cos(a), p[2]], Ry = (p, a) => [p[0] * Math.cos(a) + p[2] * Math.sin(a), p[1], -p[0] * Math.sin(a) + p[2] * Math.cos(a)], Rx = (p, a) => [p[0], p[1] * Math.cos(a) - p[2] * Math.sin(a), p[1] * Math.sin(a) + p[2] * Math.cos(a)];
+    const want = Rx(Ry(Rz([0.3, 0.2, -0.5], 1.1), -0.7), 0.4);
+    ok(near(at[0], 0.3) && near(at[1], 0.1 + 0.25) && near(at[2], -0.2) && near(moved[0], 0.8) && near(moved[1], 0.1 - 0.25 - 0.25) && near(moved[2], 0.8)
+      && near(rx[0], 0) && near(rx[1], -1 - 0.75) && near(rx[2], 0, 1e-9) && near(ry[0], 1) && near(ry[1], -0.75) && near(ry[2], 0, 1e-9) && near(rz[0], 0, 1e-9) && near(rz[1], 1 - 0.75) && near(rz[2], 0)
+      && near(all[0], want[0]) && near(all[1], want[1] - 0.75) && near(all[2], want[2]),
+      'a point of a slab is turned about the slab\'s own middle and carried with it');
+  }
+  {
+    // How far anything of the slabs is from the middle: nothing drawn is further.
+    const sk = K.skin(K.SLAB_SKIN), o = [0, 0, 0], random = K.rng(77);
+    let covers = true, tight = 0, flat = K.reachOf(K.createSlabs());
+    for (let t = 0; t < 60; t++) {
+      const sl = K.createSlabs();
+      for (let i = 0; i < 12; i++) { sl.shown[i] = (random() - 0.5) * 3; sl.turned[i] = (random() - 0.5) * 6; }
+      for (let i = 0; i < 4; i++) { sl.q[i] = (random() - 0.5) * 1.2; sl.bend[i] = (random() - 0.5) * 1.2; }
+      const reach = K.reachOf(sl); let far = 0;
+      for (let i = 0; i < 4; i++) for (let j = 0; j < sk.points.length; j += 3) {
+        const w = K.slabWide(i);
+        K.bent(o, sk.points[j] * w, sk.points[j + 1] * K.THIN, sk.points[j + 2] * w, sl.q[i], sl.bend[i]);
+        K.slabPoint(o, sl, i, o[0], o[1], o[2]);
+        far = Math.max(far, Math.hypot(o[0], o[1], o[2]));
+      }
+      if (far > reach + 1e-9) covers = false;
+      tight = Math.max(tight, far / reach);
+    }
+    const b0 = K.bent([0, 0, 0], 0.5, 0.1, -0.5, 0, 0).join(), b1 = K.bent([0, 0, 0], 1, 0.1, 0, 0, 0.2), b2 = K.bent([0, 0, 0], 1, 0.2, 0.5, 0.19, 0), b3 = K.bent([0, 0, 0], 1, 0.2, 0, 0.9, 0.9), b4 = K.bent([0, 0, 0], 1, 0.2, 0, 0.3, 0.3);
+    const h0 = K.slabHalf([0, 0], 0, 0, 0), h1 = K.slabHalf([0, 0], 1, 0.2, -0.9);
+    ok(covers && tight > 0.93 && near(flat, Math.hypot(h0[0], 1)) && near(h0[0], Math.SQRT2 * Math.pow(2, -0.2) * K.slabWide(0)) && h0[1] === 0.25
+      && near(h1[0], Math.SQRT2 * Math.pow(2, -0.2) * K.slabWide(1) / Math.sqrt(0.8)) && near(h1[1], (0.25 + 0.3 * K.BEND_SPAN) * 0.8) && K.BEND_SPAN === 0.82 && K.BEND_MAX === 0.3
+      && b0 === '0.5,0.1,-0.5' && near(b1[1], 0.1 + 0.2 * 0.3) && b1[0] === 1 && near(b2[0], 1 / Math.sqrt(0.81)) && near(b2[1], 0.2 * 0.81) && near(b2[2], 0.5 / Math.sqrt(0.81)) && b3.join() === b4.join(),
+      'however the slabs lie, turned, squashed and bent, no point of any is further from the middle than the reach worked out for them (the furthest came to ' + (tight * 100).toFixed(0) + '% of it)');
+  }
+
+  // Room in the picture.
+  {
+    const z = [1]; let t = 0.6; const steps = []; for (let i = 0; i < 5; i++) { t = K.zoomAfter(t, 1, 0.1); steps.push(t); }
+    let back = 0.5, n = 0; while (back !== 1 && n < 2000) { back = K.zoomAfter(back, 1, 1 / 60); n++; }
+    ok(K.limitFor(1, true) === 2 && K.limitFor(0.4, true) === 2 && near(K.limitFor(1.25, true), 1.6) && near(K.limitFor(2, true), K.WHOLE) && K.limitFor(2, false) === 2 && K.limitFor(1, false) === 2 && K.limitFor(undefined, true) === 2
+      && K.roomFor(1.5, 2) === 1 && K.roomFor(2, 2) === 1 && near(K.roomFor(4, 2), 0.5) && near(K.roomFor(3, 1.5), 0.5) && K.roomFor(3) === 2 / 3
+      && K.zoomAfter(1, 0.7, 0.01) === 0.7 && K.zoomAfter(0.9, 0.7, 5) === 0.7 && near(K.zoomAfter(0.6, 1, 0.1), 0.6 + 0.4 * (1 - Math.exp(-0.2))) && steps.every((v, i) => i === 0 || v > steps[i - 1]) && back === 1 && n < 600
+      && near(K.zoomAfter(K.zoomAfter(0.6, 1, 0.05), 1, 0.05), K.zoomAfter(0.6, 1, 0.1), 1e-12) && K.zoomAfter(0.5, 0.8, 0) === 0.5,
+      'whole, it has room for a ball of 2; apart, less by as much as the Scene Size slider enlarges the picture, but never less than the cube at rest takes; it is drawn smaller at once and grows back slowly, to exactly its size');
+  }
+  {
+    // The cube set again: the last landing shakes it from the top.
+    const body = K.createBody(); body.u.fill(0.3); body.vel.fill(1); body.left = 0.003; body.pulled = true;
+    const got = K.land(body), top = idx(4, 8, 4), bottom = idx(4, 0, 4);
+    ok(got === body && most(body.u) === 0 && body.left === 0 && body.vel[top * 3 + 1] < -3 && body.vel[top * 3 + 1] >= -K.LAND && body.vel[top * 3] === 0 && body.vel[top * 3 + 2] === 0 && Math.abs(body.vel[bottom * 3 + 1]) < 0.3
+      && near(body.vel[top * 3 + 1], -K.LAND * Math.exp(-0.01 / (2 * 0.64))) && K.LAND === 3.2 && K.LAND_SQUASH === 2.6 && !K.atRest(body),
+      'when the last slab lands the cube is whole and where it belongs, and moving down at its top');
+    const b2 = K.createBody(); b2.u.fill(0.2); b2.vel.fill(2); b2.left = 0.001; K.calm(b2);
+    ok(most(b2.u) === 0 && most(b2.vel) === 0 && b2.left === 0 && K.atRest(b2), 'and calmed, it is at rest');
+  }
+
+  // The camera, the light, the bubbles.
+  {
+    const t0 = K.turnAt([0, 0, 0], 0), t1 = K.turnAt([0, 0, 0], 13.7), g = K.glowOf([0, 0], 0.5, 0.2, 0.4);
+    const bub = K.bubblesAt(K.SEED), bub2 = K.bubblesAt(K.SEED), bub3 = K.bubblesAt(K.SEED + 1);
+    let inside = true; for (let i = 0; i < 46; i++) { for (let a = 0; a < 3; a++) if (Math.abs(bub.home[i * 3 + a]) > 0.7) inside = false; if (bub.size[i] < 0.035 || bub.size[i] > 0.11 || bub.slab[i] !== K.slabOf(bub.home[i * 3 + 1])) inside = false; }
+    ok(near(t0[0], 0.42 + 0.06 * Math.sin(1)) && t0[1] === 0.62 && t0[2] === 0 && near(t1[0], 0.42 + 0.06 * Math.sin(0.11 * 13.7 + 1)) && near(t1[1], 0.62 + 0.35 * Math.sin(0.17 * 13.7))
+      && K.orbitAt(7, 0) === 0 && near(K.orbitAt(7, 50), 0.1 * Math.sin(0.13 * 7)) && near(K.orbitAt(7, 100), 0.2 * Math.sin(0.13 * 7))
+      && near(g[0], 0.04 + 0.06 + 0.04 + 0.2) && g[1] === 5.2 && K.glowOf([0, 0], 0, 0, 0)[0] === 0.04 && K.flareOf(0.2, 0.5) === 0.5 && K.flareOf(0.7, 0.5) === 0.7
+      && bub.home.length === 138 && bub.size.length === 46 && inside && Array.from(bub.home).join() === Array.from(bub2.home).join() && Array.from(bub.home).join() !== Array.from(bub3.home).join()
+      && new Set(Array.from(bub.slab)).size === 4,
+      'it turns slowly to and fro, the camera sways by the Camera drift setting, its own light grows with the voice, and its 46 bubbles are the same every time, some in every layer');
+    ok(typeof K.VERT === 'string' && typeof K.SLAB_VERT === 'string' && typeof K.FRAG === 'string' && typeof K.BUBBLE_VERT === 'string' && typeof K.BUBBLE_FRAG === 'string' && typeof K.definition === 'function'
+      && K.FRAG.includes('uLayer') && K.SLAB_VERT.includes('uSquash') && K.SLAB_VERT.includes('uBend') && typeof K.definition().build === 'function' && K.definition().fov === 30 && K.definition().pitch === 6
+      && JSON.stringify(K.definition().frame) === JSON.stringify(K.FRAME) && K.definition().frame !== K.FRAME && K.definition().frame.center !== K.FRAME.center,
+      'the scene definition gives the kit its frame, its camera and its two halves, and a frame of its own each time');
+  }
+  ok(T.VIZ_SCENES.includes('jelly') && T.VIZ_USES_3D.includes('jelly') && JSON.stringify(T.DEFAULT_PER_VIZ['jelly']) === '{"stiffness":50,"shatterSensitivity":50,"reconnectSeconds":3,"cameraDrift":50}' && JSON.stringify(T.PER_VIZ_MAX['jelly']) === '{"reconnectSeconds":10}'
+    && T.VIZ_SCENES[T.VIZ_SCENES.length - 1] === 'jelly',
+    'jelly is a kit scene, the last listed, with Stiffness, the two thump settings and Camera drift');
+  const oldJelly = T.sanitizeConfig({ activeViz: 'jelly', perViz: { 'jelly': { stiffness: 80, reconnectSeconds: 99 } } });
+  ok(oldJelly.activeViz === 'jelly' && JSON.stringify(oldJelly.perViz['jelly']) === '{"stiffness":80,"shatterSensitivity":50,"reconnectSeconds":10,"cameraDrift":50}', 'a saved pre-redesign jelly config keeps its stiffness and gains the new defaults; Reconnect seconds is held to 10');
 }
 
 // ── 4. Live transport seam (mock SB + real panel-client-sb.js) ───────────────
