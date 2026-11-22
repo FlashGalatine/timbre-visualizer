@@ -4193,6 +4193,18 @@ async function main() {
       && stopped[4].state.form === 'ball' && stopped[4].state.thumps === 1 && stopped[6].state.form === 'ring' && stopped[6].state.phase === 'whole' && stopped.every((r) => r.edge === 0 && r.fills <= K.FILL + 1e-6),
       JSON.stringify({ phases: stopped.map((r) => r.phases), form: stopped.map((r) => r.state.form), gain: stopped[3].state.gain, flash: stopped[3].state.flash, steps: stopped[3].stepsMost, edge: stopped.map((r) => r.edge) }));
 
+    // The page stops drawing while they are streaming back: it resumes as a school in the shape they were coming back to, and the next fright leads to the one after that.
+    const backKnobs = { knobs: { cameraDrift: 0, regroupSeconds: 0.5, density: 0 }, colorSpeed: 0, gain: 1 };
+    const stoppedBack = await fishRun([Object.assign({ secs: 1 }, talk), thump, Object.assign({ secs: 1 }, talk), Object.assign({ secs: 0.1, gap: 4000 }, talk), Object.assign({ secs: 3 }, talk), thump, Object.assign({ secs: 6 }, talk)], backKnobs);
+    check('school of fish: a page that stops drawing while they are streaming back resumes as a school in the shape they were coming back to, and the next fright leads to the shape after that', stoppedBack[2].state.phase === 'returning' && stoppedBack[2].state.form === 'ring' && stoppedBack[3].state.phase === 'whole' && stoppedBack[3].state.form === 'ring' && stoppedBack[3].state.gain === 1
+      && stoppedBack[4].state.form === 'ring' && stoppedBack[6].state.phase === 'whole' && stoppedBack[6].state.form === 'column' && stoppedBack[6].state.thumps === 2 && stoppedBack.every((r) => r.edge === 0),
+      JSON.stringify({ phases: stoppedBack.map((r) => r.phases), form: stoppedBack.map((r) => r.state.form), thumps: stoppedBack[6].state.thumps }));
+    // The mic goes off while they are streaming back: they stop on the way, as far back as they had got, and go on from there when it is on again.
+    const offBack = await fishRun([Object.assign({ secs: 1 }, talk), thump, Object.assign({ secs: 1 }, talk), { level: 0, off: true, secs: 2 }, { level: 0, off: true, secs: 0.5 }, Object.assign({ secs: 0.3 }, talk), Object.assign({ secs: 4 }, talk)], backKnobs);
+    check('school of fish: the mic going off while they are streaming back stops them on the way, as much of a school as they had become, and they go on from there when it is on again', offBack[2].state.phase === 'returning' && offBack[2].state.gain > 0.05 && offBack[2].state.gain < 0.6 && offBack[3].phases === 'returning' && offBack[3].state.gain === offBack[2].state.gain && offBack[4].state.gain === offBack[2].state.gain
+      && offBack[3].stepsTaken === 0 && same(offBack[4]) && offBack[5].state.phase === 'returning' && offBack[5].state.gain > offBack[2].state.gain && offBack[6].state.phase === 'whole' && offBack[6].state.form === 'ring' && offBack.every(remade),
+      JSON.stringify({ phases: offBack.map((r) => r.phases), gain: offBack.map((r) => r.state.gain), steps: offBack[3].stepsTaken, diff: offBack[4].diff, model: offBack.map((r) => r.model.ok && r.model.gain) }));
+
     // The settings.
     const [, , never] = await fishRun([Object.assign({ secs: 0.6 }, talk), thump, Object.assign({ secs: 0.5 }, talk)], { knobs: { cameraDrift: 0, frightSensitivity: 0 }, colorSpeed: 0, gain: 1 });
     const waits = [];
