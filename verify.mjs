@@ -4796,12 +4796,13 @@ await import('./overlay/school-of-fish.js');
     const sc = K.createSchool(), h = how();
     const a = K.advance(sc, N, 0.4 * K.STEP, h), leftA = sc.left, b = K.advance(sc, N, 0.2 * K.STEP, h), leftB = sc.left, c = K.advance(sc, N, 0, h), d = K.advance(sc, N, 0.8 * K.STEP, h), leftD = sc.left;
     const long = K.createSchool(), before = Array.from(long.p.subarray(0, N * 3)), taken = K.advance(long, N, 5, h);
+    const over = K.createSchool(), overTaken = K.advance(over, N, 6.7 * K.STEP, h), overLeft = over.left, under = K.createSchool(), underTaken = K.advance(under, N, 6.3 * K.STEP, h), underLeft = under.left;
     let furthest = 0;
     for (let i = 0; i < N; i++) furthest = Math.max(furthest, len([long.p[i * 3] - before[i * 3], long.p[i * 3 + 1] - before[i * 3 + 1], long.p[i * 3 + 2] - before[i * 3 + 2]]));
     const s60 = K.createSchool(), s30 = K.createSchool(), s120 = K.createSchool(), loud = () => how({ flame: 0.5, bands: new Float32Array([0.6, 0, 0.3, 0, 0, 0.2, 0, 0]) });
     const n60 = run(s60, N, 2, loud(), 60), n30 = run(s30, N, 2, loud(), 30), n120 = run(s120, N, 2, loud(), 120);
     ok(a === 0 && near(leftA, 0.4 * K.STEP, 1e-15) && b === 1 && near(leftB, -0.4 * K.STEP, 1e-12) && c === 0 && d === 0 && near(leftD, 0.4 * K.STEP, 1e-12)
-      && taken === K.STEPS_MAX && long.left === 0 && furthest < K.STEPS_MAX * K.STEP * 1.2
+      && taken === K.STEPS_MAX && long.left === 0 && furthest < K.STEPS_MAX * K.STEP * 1.2 && overTaken === 6 && overLeft === 0 && underTaken === 6 && near(underLeft, 0.3 * K.STEP, 1e-12)
       && n60 === 120 && n30 === 120 && n120 === 120 && s60.p.join() === s30.p.join() && s60.p.join() === s120.p.join() && s60.beat.join() === s30.beat.join(),
       'a step is taken once half of it has come due, six at most in a frame and the rest forgotten; the school is the same, fish for fish, at 30, 60 and 120 frames a second');
     // Frames never come exactly on time. One step a frame at 60 a second and two at 30, though each frame is early or late.
@@ -5119,6 +5120,7 @@ await import('./overlay/school-of-fish.js');
     const apart = how({ gain: 0, apart: true, flame: 0.4, random: K.rng(5) });
     run(sc, N, 2, apart);
     const stale = at(sc.p, 200), old = Array.from(sc.p.subarray(0, N * 3));
+    sc.flash[200] = 0.7;   // left over from when it last swam
     K.join(sc, N, K.FISH_MAX);
     let beside = true, kept = true;
     for (let i = N; i < K.FISH_MAX; i++) {
