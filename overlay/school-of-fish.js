@@ -582,7 +582,6 @@
 
       // A syllable, and a beat.
       trail = follow(trail, flame, TRAIL, dt);
-      if (flame === 0) trail = settle(trail);
       s.pulse = pulseOf(flame, trail);
       dart = settle(dart * Math.exp(-dt / DART_S));
       if (audio.beat) { dart = 1; s.beats++; }
@@ -614,8 +613,8 @@
         wholeAs = school.form;
         s.flash = Math.max(s.flash, 0.45);
       } else if (event === 'reset') {
-        wholeAs = school.form;   // the page had stopped drawing: it resumes as a school, its own size
-        s.flash = 0; s.zoom = 1;
+        wholeAs = school.form;   // the page had stopped drawing: it resumes as a school, in the shape it was or was coming back to
+        s.flash = 0;
       } else if (machine.state === 'returning') sinceReturn += dt;   // in step with the machine's own progress through the return
       s.phase = machine.state;
       s.form = FORMS[school.form];

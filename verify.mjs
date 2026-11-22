@@ -4995,6 +4995,109 @@ await import('./overlay/school-of-fish.js');
       'as loud as it gets, with all 480 fish: every number is still a number, the school is still about the size of the frame, and the bubbles and the shimmer were stepped with it');
   }
 
+  // What breaking it on purpose slipped past the checks above.
+  {
+    ok(K.countFor(36) === 232 && K.countFor(37) === 240 && K.countFor(38) === 240 && K.settle(5e-3) === 5e-3 && K.settle(-0.3) === -0.3 && K.settle(-5e-3) === -5e-3,
+      'Density rounds to the nearest whole fish to a band; only what is within a ten-thousandth of nothing is nothing, on either side');
+    const f = K.fishShape();
+    ok(f.points[152 * 3] === Math.fround(-1.62) && f.points[152 * 3 + 1] === Math.fround(0.46) && f.points[153 * 3 + 1] === Math.fround(-0.46) && f.points[154 * 3] === Math.fround(-1.3) && f.points[154 * 3 + 1] === 0 && f.points[150 * 3 + 1] === Math.fround(0.045),
+      'the tail is forked: its two tips are 0.46 above and below the middle, and the notch between them is 1.3 behind it');
+    // How far apart two fish keep is by their two sizes.
+    const sc = K.createSchool(), out = [0, 0, 0];
+    sc.size[0] = 1; sc.size[1] = 1.5;
+    put(sc.p, 0, [0, 0, 0]); put(sc.d, 0, [1, 0, 0]); put(sc.p, 1, [0.25, 0, 0]); put(sc.d, 1, [1, 0, 0]);
+    K.flock(out, sc, 2, 0, true, 0, 1);
+    const clear = K.CLEAR * 2.5, w = (1 - 0.25 / clear) / 0.25;
+    ok(near(out[0], -K.PART * 0.25 * w + K.STAY * 0.25, 1e-6) && out[1] === 0 && out[2] === 0, 'a big fish is given more room: 0.11 for each unit of the two sizes added');
+  }
+  {
+    // A fish alone: its place, a new one once it is there, and the wall of the egg.
+    const sc = K.createSchool(), W = [0, 0, 0];
+    put(sc.p, 0, [1, 0, 0]); put(sc.d, 0, [1, 0, 0]); put(sc.home, 0, [1.2, 0.3, 0]); put(sc.roam, 0, [1, 1, 0]);
+    const leaving1 = K.wander(W, sc, 0, K.rng(4)), far = W.slice(), kept = at(sc.roam, 0).join();
+    put(sc.roam, 0, [1.1, 0.1, 0]);
+    const leaving2 = K.wander(W, sc, 0, K.rng(4)), next = at(sc.roam, 0), toNext = W.slice(), want = unit([next[0] - 1, next[1], next[2]]), fromHome = len([next[0] - sc.home[0], next[1] - sc.home[1], next[2] - sc.home[2]]);
+    put(sc.p, 0, [2.4, 0, 0]); put(sc.roam, 0, [2.4, 1, 0]);
+    const leaving3 = K.wander(W, sc, 0, K.rng(4)), pushed = W.slice();
+    put(sc.d, 0, [-1, 0, 0]);
+    const leaving4 = K.wander(W, sc, 0, K.rng(4));
+    ok(leaving1 === false && near(far[0], 0, 1e-6) && near(far[1], 1, 1e-6) && far[2] === 0 && kept === '1,1,0'
+      && leaving2 === false && len([next[0] - 1.1, next[1] - 0.1, next[2]]) > 1e-3 && fromHome > 0 && fromHome <= K.LOITER + 1e-6 && [0, 1, 2].every((c) => near(toNext[c], want[c], 1e-6))
+      && leaving3 === true && near(pushed[0], -K.WALL * (1.2 - K.WALL_FROM), 1e-5) && near(pushed[1], 1, 1e-6) && leaving4 === false,
+      'alone, a fish makes for its place; within 0.3 of it, it is given another within 0.4 of where its fright left it; outside the egg it is turned back, 3 for each tenth it is past nine tenths of the way out, and says whether it is still heading out');
+  }
+  {
+    // One step's turning and speed, by hand: in the school, streaming back, and alone.
+    const expected = (d0, des, turn) => unit([0, 1, 2].map((c) => d0[c] + (des[c] - d0[c]) * turn));
+    const S = [0, 0, 0], W = [0, 0, 0];
+    // In the school, out of its place, with the sound at half and a beat: it does not hurry.
+    const a = K.createSchool(), qa = lean(at(a.p, 0), 0);
+    put(a.p, 0, unlean([qa[0] * 1.6, qa[1] * 1.6, qa[2] * 1.6], 0));
+    const da = at(a.d, 0), spa = a.sp[0];
+    K.steer(S, a, 0, 0, 1 - K.TIGHT * 0.5, 0);
+    const wantA = expected(da, unit(S), (K.TURN + K.TURN_LOUD * 0.5) * K.STEP);
+    K.stepSchool(a, 1, how({ flame: 0.5, dart: 1 }));
+    const okA = [0, 1, 2].every((c) => near(a.d[c], wantA[c], 1e-5)) && near(a.sp[0], spa + (K.wantOf(a.size[0], 1, 0, 0.5, 0, 1) - spa) * K.SPEED_RATE * K.STEP, 1e-5);
+    // Streaming back, half way to being a school, far from its place: it steers half by the school and half as a fish alone, turns faster, and hurries as for one unit.
+    const b = K.createSchool(), qb = lean(at(b.p, 0), 0);
+    put(b.p, 0, unlean([qb[0] * 4, qb[1] * 4, qb[2] * 4], 0)); put(b.roam, 0, [b.p[0], b.p[1] + 2, b.p[2]]);
+    const db = at(b.d, 0), spb = b.sp[0], away = K.steer(S, b, 0, 0, 1, 0);
+    K.wander(W, b, 0, K.rng(4));
+    const wantB = expected(db, unit([0, 1, 2].map((c) => 0.5 * S[c] + 0.5 * W[c])), (K.TURN + K.TURN_BACK) * K.STEP);
+    K.stepSchool(b, 1, how({ gain: 0.5, back: true }));
+    const okB = away > 1 && [0, 1, 2].every((c) => near(b.d[c], wantB[c], 1e-5)) && near(b.sp[0], spb + (K.wantOf(b.size[0], 0.5, 1, 0, 0, 0) - spb) * K.SPEED_RATE * K.STEP, 1e-5);
+    // Alone and fast: it turns as a fish alone does, the less the faster it is going, and slows in a dash.
+    const c3 = K.createSchool();
+    put(c3.roam, 0, [c3.p[0], c3.p[1] + 2, c3.p[2]]); c3.sp[0] = 3;
+    const dc = at(c3.d, 0);
+    K.wander(W, c3, 0, K.rng(4));
+    const wantC = expected(dc, W, (K.TURN + K.TURN_APART) * K.STEP / (1 + K.BOLT_STIFF * (3 - K.BOLT_FAST)));
+    K.stepSchool(c3, 1, how({ gain: 0, apart: true }));
+    const okC = [0, 1, 2].every((c) => near(c3.d[c], wantC[c], 1e-5)) && near(c3.sp[0], 3 + (K.wantOf(c3.size[0], 0, 0, 0, 0, 0) - 3) * K.DASH * K.STEP, 1e-5);
+    ok(okA && okB && okC, 'one step by hand: in the school a fish turns 2.4 a second toward where it is steered, and 2.5 more at the loudest, and does not hurry however far from its place; streaming back it steers by its share of each, turns 2 a second faster and hurries as for a unit at most; alone it turns 1 a second faster, less the faster it goes');
+  }
+  {
+    // Already apart, the way a fish bolts has nothing to do with where it is. And the fish do not all go as far.
+    const b1 = K.createSchool(), b2 = K.createSchool(), b3 = K.createSchool();
+    run(b2, N, 2, how({ flame: 0.4 })); run(b3, N, 2, how({ flame: 0.4 }));
+    K.bolt(b1, N, K.JOSTLE, K.rng(9), false); K.bolt(b2, N, K.JOSTLE, K.rng(9), false); K.bolt(b3, N, 1, K.rng(1001), true);
+    let sameWay = 0, least = 9, most = 0;
+    for (let i = 0; i < N; i++) {
+      if (dot(at(b1.d, i), at(b2.d, i)) > 1 - 1e-6) sameWay++;
+      const reach = K.toEdge(b3, i);
+      if (reach > 0) { const share = len([b3.home[i * 3] - b3.p[i * 3], b3.home[i * 3 + 1] - b3.p[i * 3 + 1], b3.home[i * 3 + 2] - b3.p[i * 3 + 2]]) / reach; least = Math.min(least, share); most = Math.max(most, share); }
+    }
+    ok(sameWay > 0.9 * N && least < 0.56 && most > 0.89, 'already apart, the way a fish bolts has nothing to do with where it is; and from a school some fish go half way to the edge and some nearly all of it');
+  }
+  {
+    // Apart, a fish hears no shimmer. And a flash that has all but gone is gone.
+    const sc = K.createSchool(), A = new Float32Array(K.FISH_MAX * 4), B = new Float32Array(K.FISH_MAX * 4), h = how({ pulse: 1 });
+    K.advance(sc, 1, K.STEP, h);
+    put(sc.p, 3, unlean([1, 0, 0.001], 0));
+    K.dress(A, B, sc, 8, { whole: false, dart: 0, flash: 0, bands: quiet, dt: K.STEP });
+    const apart = B[12];
+    K.dress(A, B, sc, 8, { whole: true, dart: 0, flash: 0, bands: quiet, dt: K.STEP });
+    const whole = B[12];
+    K.dress(A, B, sc, 8, { whole: false, dart: 0, flash: 5e-5, bands: quiet, dt: 60 });
+    ok(apart === 0 && whole > 0.99 && B[12] === 0 && sc.flash[3] === 0, 'apart, a fish hears no shimmer; and a flash that has all but gone is gone');
+    // Bubbles: from different fish, none in a pause, none with no fish.
+    const live = (b) => Array.from(b.life).filter((v) => v > 0).length;
+    const still = K.createSchool(), q1 = K.createBubbles(), q0 = K.createBubbles();
+    for (let n = 0; n < 8; n++) K.stepBubbles(q1, still, N, 1);
+    const xs = [0, 1, 2].map((j) => q1.p[j * 3]), born = live(q1);
+    for (let n = 0; n < 30; n++) K.stepBubbles(q1, still, N, 0);
+    for (let n = 0; n < 10; n++) K.stepBubbles(q0, still, 0, 1);
+    ok(born === 3 && live(q1) === 3 && Math.max(...xs) - Math.min(...xs) > 0.05 && live(q0) === 0 && q0.owed < 1 && q0.p[1] === 99,
+      'bubbles leave from different fish, none leaves in a pause, and none when there are no fish');
+    // The room a big fish needs is by its size. And how it is drawn smaller in a frame of no time.
+    const big = K.createSchool(), D = (K.FRAME.height / 2) / Math.tan((K.FOV * Math.PI) / 360);
+    put(big.p, 0, [1, 0.5, 0.4]); big.size[0] = 1.4;
+    const reach = K.TAIL * K.LEN * Math.fround(1.4), persp = D / (D - Math.fround(0.4));
+    ok(near(K.needOf(big, 1, 0), Math.max((1 + reach) * persp / (K.FRAME.width / 2), (0.5 + Math.fround(0.4) * Math.sin((K.PITCH * Math.PI) / 180) + reach) * persp / (K.FRAME.height / 2)), 1e-6)
+      && K.zoomAfter(1, 0.7, 0) === 0.7 && K.zoomAfter(0.9995, 1, 0) === 0.9995,
+      'a big fish needs more room, by its size; needing less room it is drawn smaller at once, even in a frame of no time, and in such a frame it does not grow back');
+  }
+
   // The scene.
   {
     const def = K.definition();

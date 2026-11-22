@@ -4001,7 +4001,6 @@ async function main() {
               if (v === 0) m.bands[b] = K.settle(m.bands[b]);
             }
             m.trail = follow(m.trail, flame, K.TRAIL, dt);
-            if (flame === 0) m.trail = K.settle(m.trail);
             const pulse = K.pulseOf(flame, m.trail);
             m.dart = K.settle(m.dart * Math.exp(-dt / K.DART_S));
             if (beat) m.dart = 1;
@@ -4074,7 +4073,7 @@ async function main() {
           out.push({ state, model, fish, part, light, edge, middle, beats, stepsTaken, stepsMost, flashMost, pulseMost, dartMost, zoomLeast, needMost, fills, firstPhase, phases: phases.join(), returningAt, wholeAt, onFish, onCanvas, speed, glowing, flashing, rollMost,
             band: band.map((b) => (b[3] ? [b[0] / b[3], b[1] / b[3], b[2] / b[3]] : null)), glowOf: [0, 1, 2, 3, 4, 5, 6, 7].map((b) => SB[b * 4 + 1]),
             bright: fish ? sum / fish : 0, centroidX: fish ? sx / fish : 0, box: size(box), cornerAlpha: px[3], canvas: [w, h], diff, kitCam: s.camera,
-            pal: [0, 1, 2, 3, 4, 5].map((i) => getColor(state.colorT + (i * PALETTE.length) / 6).slice(0, 3)) });
+            pal: [0, 1, 2, 3, 4, 5].map((i) => getColor(state.colorT + (i * PALETTE.length) / 6).slice(0, 3)), bubbleColor: getColor(state.colorT + PALETTE.length / 2).slice(0, 3) });
         }
         return out;
       } finally {
@@ -4108,8 +4107,9 @@ async function main() {
     check('school of fish is a kit scene: solid fish, a transparent corner and nothing at the edge',
       !!fiState && fiState.active === true && fiState.targetSize[0] === 1728 && fiLoud.fish > 70000 && fiLoud.fish < 140000 && fiLoud.cornerAlpha === 0 && fiLoud.edge === 0 && fiLoud.part < 0.12 * fiLoud.fish
       && ls.solid === true && ls.bubbleLight === true && ls.bubbleOrder === 1 && ls.neverCulled === true && ls.fish === 288 && ls.drawn === 288 && ls.shapePoints === 158 && ls.triangles === 284 && ls.phase === 'whole' && ls.form === 'ball' && ls.live === true
-      && ls.given[1] === 0.17 && JSON.stringify(ls.pal) === JSON.stringify(fiLoud.pal),
-      JSON.stringify({ size: fiState && fiState.targetSize, fish: fiLoud.fish, part: fiLoud.part, edge: fiLoud.edge, corner: fiLoud.cornerAlpha, solid: ls.solid, bubbleLight: ls.bubbleLight, drawn: ls.drawn, pal: ls.pal, want: fiLoud.pal }));
+      && ls.given[1] === 0.17 && ls.given[0] === ls.clock && Math.abs(ls.clock - 3) < 1e-9 && Math.abs(ls.shift - 0.03) < 1e-9 && JSON.stringify(ls.pal) === JSON.stringify(fiLoud.pal) && JSON.stringify(ls.bubbleColor) === JSON.stringify(fiLoud.bubbleColor)
+      && new Set(ls.pal.map((c) => c.join())).size >= 3,
+      JSON.stringify({ size: fiState && fiState.targetSize, fish: fiLoud.fish, part: fiLoud.part, edge: fiLoud.edge, corner: fiLoud.cornerAlpha, solid: ls.solid, bubbleLight: ls.bubbleLight, drawn: ls.drawn, pal: ls.pal, want: fiLoud.pal, given: ls.given, clock: ls.clock, shift: ls.shift, bubbleColor: [ls.bubbleColor, fiLoud.bubbleColor] }));
     check('school of fish: every fish is drawn where the arithmetic puts it: the middle of each one falls on a fish', fiLoud.onCanvas === 288 && fiLoud.onFish >= 0.97 * 288 && fiHush.onCanvas === 288 && fiHush.onFish >= 0.97 * 288,
       JSON.stringify({ loud: [fiLoud.onFish, fiLoud.onCanvas], hush: [fiHush.onFish, fiHush.onCanvas] }));
     check('school of fish: the school is what the arithmetic makes it, frame for frame: the bands followed, every step, what each fish is sent, the bubbles and the room it needs', remade(fiLoud) && remade(fiHush) && remade(fiHush2) && fiLoud.stepsTaken === 180 && fiHush.stepsTaken === 120,
@@ -4130,6 +4130,9 @@ async function main() {
     const [bandLow] = await fishRun([{ level: 0.3, bins: [[0, 1]], secs: 2 }], still);
     const [bandHigh] = await fishRun([{ level: 0.3, bins: [[7, 1]], secs: 2 }], still);
     const [bandOver] = await fishRun([{ level: 0.3, bins: [[8, 1], [20, 1]], secs: 2 }], still);
+    const [gained] = await fishRun([{ level: 0.3, bins: [[1, 0.3]], secs: 1.5 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0, gain: 2 });
+    check('school of fish: Gain makes a band louder to its fish', Math.abs(gained.glowOf[1] - 1.3 * 2 * Math.round(0.3 * 255) / 255) < 1e-4 && gained.glowing === 36 && remade(gained),
+      JSON.stringify({ glow: gained.glowOf, glowing: gained.glowing, model: gained.model }));
     check('school of fish: each fish listens to one of the eight lowest bands: while a band sounds its fish, and only they, glow', bandLow.glowing === 36 && bandLow.glowOf[0] === 1 && bandLow.glowOf.slice(1).every((v) => v === 0) && bandHigh.glowing === 36 && bandHigh.glowOf[7] === 1 && bandHigh.glowOf.slice(0, 7).every((v) => v === 0) && bandOver.glowing === 0
       && remade(bandLow) && remade(bandHigh),
       JSON.stringify({ low: [bandLow.glowing, bandLow.glowOf], high: [bandHigh.glowing, bandHigh.glowOf], over: bandOver.glowing }));
@@ -4162,6 +4165,17 @@ async function main() {
     check('school of fish: frightened again on the way back, they bolt again, and still come back as the next shape and not the one after', again[3].state.phase === 'returning' && again[3].state.form === 'ring' && again[4].state.jostles === 1 && again[4].state.thumps === 1 && again[5].state.phase === 'pieces' && again[6].state.phase === 'whole' && again[6].state.form === 'ring' && again.every(remade),
       JSON.stringify({ phases: again.map((r) => r.phases), form: again.map((r) => r.state.form), jostles: again.map((r) => r.state.jostles), model: again.map((r) => r.model.ok) }));
 
+    // A peak while they are apart: each bolts again, less hard. And a syllable while they are apart is no shimmer.
+    const jost = await fishRun([Object.assign({ secs: 1 }, talk), thump, Object.assign({ secs: 0.8 }, talk), thump, { level: 0.95, all: 0.5, secs: 0.2 }, Object.assign({ secs: 1 }, talk)], { knobs: { cameraDrift: 0, regroupSeconds: 3 }, colorSpeed: 0, gain: 1 });
+    check('school of fish: a peak while they are apart makes them bolt again, each its own way, and a syllable then is no shimmer', jost[2].state.phase === 'pieces' && jost[2].state.jostles === 0 && jost[3].state.jostles === 1 && jost[3].state.thumps === 1 && jost[3].state.phase === 'pieces' && jost[3].flashMost >= 0.3 && jost[3].flashMost < 0.5
+      && jost[3].speed > 1.2 * jost[2].speed && jost[4].pulseMost > 0.5 && jost[5].state.phase === 'pieces' && jost.every(remade) && jost.every((r) => r.edge === 0),
+      JSON.stringify({ phases: jost.map((r) => r.phases), jostles: jost.map((r) => r.state.jostles), flash: jost.map((r) => +r.flashMost.toFixed(3)), speed: [jost[2].speed, jost[3].speed], pulse: jost[4].pulseMost, model: jost.map((r) => r.model.ok && r.model.gapB) }));
+    // The page stops drawing while they are apart: it resumes as a school, in the shape it was, and the next fright still leads to the next shape.
+    const stopped = await fishRun([Object.assign({ secs: 1 }, talk), thump, Object.assign({ secs: 0.4 }, talk), Object.assign({ secs: 0.1, gap: 4000 }, talk), Object.assign({ secs: 3 }, talk), thump, Object.assign({ secs: 6 }, talk)], { knobs: { cameraDrift: 0, regroupSeconds: 0.5, density: 0 }, colorSpeed: 0, gain: 1 });
+    check('school of fish: a page that stops drawing while they are apart resumes as a school in the shape it was, and the next fright leads to the next shape', stopped[2].state.phase === 'pieces' && stopped[3].state.phase === 'whole' && stopped[3].state.form === 'ball' && stopped[3].state.gain === 1 && stopped[3].state.flash === 0 && stopped[3].stepsMost <= K.STEPS_MAX
+      && stopped[4].state.form === 'ball' && stopped[4].state.thumps === 1 && stopped[6].state.form === 'ring' && stopped[6].state.phase === 'whole' && stopped.every((r) => r.edge === 0 && r.fills <= K.FILL + 1e-6),
+      JSON.stringify({ phases: stopped.map((r) => r.phases), form: stopped.map((r) => r.state.form), gain: stopped[3].state.gain, flash: stopped[3].state.flash, steps: stopped[3].stepsMost, edge: stopped.map((r) => r.edge) }));
+
     // The settings.
     const [, , never] = await fishRun([Object.assign({ secs: 0.6 }, talk), thump, Object.assign({ secs: 0.5 }, talk)], { knobs: { cameraDrift: 0, frightSensitivity: 0 }, colorSpeed: 0, gain: 1 });
     const waits = [];
@@ -4172,14 +4186,17 @@ async function main() {
     check('school of fish: Density is how many fish there are, 96 to 480, changed at once', dens[0].state.drawn === 96 && dens[0].state.fish === 96 && dens[1].state.drawn === 480 && dens[2].state.drawn === 288 && dens[1].fish > 2 * dens[0].fish && dens[0].onCanvas === 96 && dens[1].onCanvas === 480 && dens[1].glowing === 480 && dens.every(remade) && dens.every((r) => r.edge === 0),
       JSON.stringify({ drawn: dens.map((r) => r.state.drawn), fish: dens.map((r) => r.fish), on: dens.map((r) => [r.onFish, r.onCanvas]), model: dens.map((r) => r.model) }));
     const drift = [];
-    for (const d of [0, 50, 100]) drift.push((await fishRun([{ level: 0.3, all: 0.3, secs: 0.5 }], { knobs: { cameraDrift: d }, colorSpeed: 0, gain: 1 }))[0]);
-    check('school of fish: Camera drift sways the camera: not at all at 0, twice as far at 100 as at 50', drift[0].state.orbit === 0 && Math.abs(drift[1].state.orbit) > 1e-3 && Math.abs(drift[2].state.orbit - 2 * drift[1].state.orbit) < 1e-9 && Math.abs(drift[1].kitCam[0]) > 0.01 && Math.abs(drift[0].kitCam[0]) < 1e-9,
-      JSON.stringify({ orbit: drift.map((r) => r.state.orbit), cam: drift.map((r) => r.kitCam) }));
+    // Scattered, it is the width of the school that needs the room, and a camera that sways needs more of it.
+    for (const d of [0, 50, 100]) drift.push((await fishRun([Object.assign({ secs: 0.6 }, talk), thump, Object.assign({ secs: 1 }, talk)], { knobs: { cameraDrift: d, regroupSeconds: 3, density: 0 }, colorSpeed: 0, gain: 1 }))[2]);
+    check('school of fish: Camera drift sways the camera: not at all at 0, twice as far at 100 as at 50; and the room the school is given allows for the sway', drift[0].state.orbit === 0 && Math.abs(drift[1].state.orbit) > 1e-3 && Math.abs(drift[2].state.orbit - 2 * drift[1].state.orbit) < 1e-9 && Math.abs(drift[1].kitCam[0]) > 0.01 && Math.abs(drift[0].kitCam[0]) < 1e-9 && drift.every(remade) && drift[2].state.need > drift[0].state.need + 0.005 && drift[1].state.need >= drift[0].state.need && drift.every((r) => r.edge === 0),
+      JSON.stringify({ orbit: drift.map((r) => r.state.orbit), cam: drift.map((r) => r.kitCam), need: drift.map((r) => r.state.need), model: drift.map((r) => r.model) }));
 
     // The mic off: idle, and nothing live.
     const idle = await fishRun([{ level: 0, idle: true, secs: 2 }, { level: 0, idle: true, secs: 0.5 }], still);
     check('school of fish: with the mic off and Idle animation on, the bands swell in turn and the school swims', idle[1].diff.n > MOVES && idle[0].stepsTaken === 120 && idle[0].glowing > 36 && idle[0].glowing < 288 && idle.every(remade) && idle[1].state.live === true,
       JSON.stringify({ moved: idle[1].diff, steps: idle[0].stepsTaken, glowing: idle[0].glowing, model: idle[0].model }));
+    const [, deaf] = await fishRun([{ level: 0, idle: true, secs: 1 }, { level: 0, idle: true, secs: 0.3, peak: 1 }], still);
+    check('school of fish: with the mic off a peak frightens nothing', deaf.state.phase === 'whole' && deaf.state.thumps === 0 && deaf.flashMost === 0 && remade(deaf), JSON.stringify({ phase: deaf.state.phase, thumps: deaf.state.thumps, flash: deaf.flashMost }));
     const off = await fishRun([{ level: 0.8, all: 0.8, secs: 1 }, { level: 0, off: true, secs: 2 }, { level: 0, off: true, secs: 0.5 }, { level: 0, off: true, secs: 3 }], still);
     check('school of fish: with the mic and Idle animation off, nothing moves: no step is taken and the picture does not change', off[1].state.live === false && off[2].stepsTaken === 0 && off[3].stepsTaken === 0 && same(off[2]) && same(off[3]) && off[3].state.clock === off[1].state.clock && off[3].fish > 70000 && off.every(remade),
       JSON.stringify({ live: off[1].state.live, steps: off.map((r) => r.stepsTaken), diff: [off[2].diff, off[3].diff], clock: [off[1].state.clock, off[3].state.clock], model: off.map((r) => r.model.ok) }));
