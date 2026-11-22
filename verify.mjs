@@ -4599,13 +4599,13 @@ await import('./overlay/school-of-fish.js');
 
   ok(K.BANDS === 8 && K.PER_MIN === 12 && K.PER_MAX === 60 && K.FISH_MAX === 480 && K.SEED === 20261122 && K.STEP === 1 / 60 && K.STEPS_MAX === 6
     && K.NEAR === 0.46 && K.CLEAR === 0.11 && K.BASE === 1.05 && K.LEN === 0.17 && K.TAIL === 1.62 && JSON.stringify(K.EGG) === '[2,1.4,1.2]' && JSON.stringify(K.LEAN) === '[0.3,0.58,0.14]'
-    && JSON.stringify(K.FORMS) === '["ball","ring","column"]' && K.RISE === 20 && K.FALL === 5 && K.TRAIL === 2.5 && K.PULSE === 5 && K.ROUND_S === 0.7 && K.FADE === 0.45 && K.HISTORY === 64
+    && JSON.stringify(K.FORMS) === '["ball","ring","column"]' && K.RISE === 20 && K.FALL === 5 && K.TRAIL === 8 && K.PULSE === 5 && K.ROUND_S === 0.7 && K.FADE === 0.45 && K.HISTORY === 64
     && K.ROLL === 1.15 && K.DART_S === 0.25 && K.FLASH_S === 0.3 && K.FLASH_KEEP_S === 0.085 && K.BUBBLES === 90 && K.BUBBLE_S === 2.6 && K.BUBBLE_RATE === 26
     && K.FILL === 0.96 && K.ZOOM_BACK === 2 && K.FOV === 30 && K.PITCH === 6 && JSON.stringify(K.FRAME) === '{"width":5,"height":3.9,"center":[0,0,0]}' && K.LINGER === 0.08,
     'the sizes: eight bands, 12 to 60 fish to a band, steps of 1/60 s, an egg to wander in and a frame of 5 by 3.9');
   ok(JSON.stringify(K.BALL) === '[0.4,0.82]' && K.AXIS_TILT === 1.3 && K.RING === 1.2 && K.RING_WIDE === 0.18 && K.RING_HIGH === 0.2 && JSON.stringify(K.COLUMN) === '[0.3,0.26]' && K.COLUMN_WIDE === 0.1 && K.COLUMN_HIGH === 1.1
     && K.SWING === 0.15 && K.TIGHT === 0.2 && K.PULL === 2.4 && K.PULL_MAX === 1.4 && K.STAY === 0.5 && K.WITH === 0.9 && K.STAY_APART === 0.05 && K.WITH_APART === 0.3 && K.PART === 2.2
-    && K.TURN === 2.4 && K.TURN_LOUD === 2.5 && K.TURN_APART === 1 && K.BOLT_FAST === 1.6 && K.BOLT_STIFF === 2 && K.SPEED_RATE === 2.6 && K.START === 0.5 && K.BEAT === 5 && K.BEAT_FAST === 11
+    && K.TURN === 2.4 && K.TURN_LOUD === 2.5 && K.TURN_APART === 1 && K.TURN_BACK === 2 && K.HURRY === 1.5 && K.BOLT_FAST === 1.6 && K.BOLT_STIFF === 2 && K.SPEED_RATE === 2.6 && K.DASH === 6 && K.START === 0.5 && K.BEAT === 5 && K.BEAT_FAST === 11
     && JSON.stringify(K.BOLT) === '[0.5,0.45]' && K.REBOLT === 0.8 && K.JOSTLE === 0.6 && K.ARRIVE === 0.3 && K.LOITER === 0.4 && K.ROAM === 0.92 && K.WALL === 3 && K.WALL_FROM === 0.9 && K.WALL_SLOW === 0.88
     && K.SWAY === 0.16 && K.ORBIT_RATE === 0.13 && near(K.pxOf(624, 1), 624 / (2 * Math.tan(Math.PI / 12))) && near(K.pxOf(624, 2), 2 * K.pxOf(624, 1)) && near(K.pxOf(312, 1), K.pxOf(624, 1) / 2),
     'the rest of its numbers: the three shapes, how a fish steers, turns and bolts, how the camera sways; and how many pixels a unit is');
@@ -4670,14 +4670,14 @@ await import('./overlay/school-of-fish.js');
   // Where the school wants a fish to swim.
   {
     const sc = K.createSchool(), out = [0, 0, 0], i = 11, q = lean(at(sc.p, i), 0), ax = at(sc.axis, i), tangent = unit(cross(ax, q)), qh = unit(q), R = len(q);
-    K.steer(out, sc, i, 0, 1, 0);
+    const awayHome = K.steer(out, sc, i, 0, 1, 0);
     const home = lean(out, 0);
     K.steer(out, sc, i, 0, 1, 1);
     const loud = lean(out, 0);
     K.steer(out, sc, i, 0, 1 - K.TIGHT, 0);
     const tight = lean(out, 0);
     put(sc.p, i, unlean([q[0] * 1.5, q[1] * 1.5, q[2] * 1.5], 0));
-    K.steer(out, sc, i, 0, 1, 0);
+    const awayOutside = K.steer(out, sc, i, 0, 1, 0);
     const outside = lean(out, 0);
     put(sc.p, i, unlean([q[0] * 9, q[1] * 9, q[2] * 9], 0));
     K.steer(out, sc, i, 0, 1, 0);
@@ -4690,7 +4690,7 @@ await import('./overlay/school-of-fish.js');
       && near(dot(tight, qh), -K.PULL * K.TIGHT * R, 1e-4)
       && near(dot(outside, qh), -K.PULL * 0.5 * R, 1e-4) && near(dot(outside, tangent), 1, 1e-4)
       && near(dot(far, qh), -K.PULL * K.PULL_MAX, 1e-3)
-      && dot(lifted, ax) < -0.3,
+      && dot(lifted, ax) < -0.3 && awayHome < 1e-5 && near(awayOutside, 0.5 * R, 1e-5),
       'in the ball a fish in its place swims along its round; out of place it also makes for its place, by 2.4 for each unit, at most 1.4 units\' worth; its band swings it 0.15 wider and loudness draws it in');
   }
   {
@@ -4743,20 +4743,32 @@ await import('./overlay/school-of-fish.js');
   }
 
   // How fast a fish wants to swim.
-  ok(near(K.wantOf(1, 1, false, 0, 0, 0), K.BASE * 0.42 * 0.94) && near(K.wantOf(1, 1, false, 1, 0, 0), K.BASE * 1.42 * 0.94) && near(K.wantOf(1, 1, false, 0, 1, 0), K.BASE * 1.17 * 0.94) && near(K.wantOf(1, 1, false, 0, 0, 1), K.BASE * 1.72 * 0.94)
-    && near(K.wantOf(1.5, 1, false, 0, 0, 0), K.BASE * 0.42 * 0.85) && near(K.wantOf(0.5, 1, false, 0, 0, 0), K.BASE * 0.42 * 1.03)
-    && near(K.wantOf(1, 0, false, 0, 0, 0), K.BASE * 0.40 * 0.94) && near(K.wantOf(1, 0, false, 1, 1, 1), K.BASE * 1.40 * 0.94)
-    && near(K.wantOf(1, 0.5, true, 0, 0, 0), K.BASE * 0.41 * 0.94 * 2.5) && near(K.wantOf(1, 0.5, false, 0, 0, 0), K.BASE * 0.41 * 0.94) && near(K.wantOf(1, 1, true, 0, 0, 0), K.wantOf(1, 1, false, 0, 0, 0)),
-    'a fish swims faster the louder the sound and its own band, and on a beat; a small fish is quicker than a big one; alone it ambles; streaming back it hurries, most at the half-way');
+  ok(near(K.wantOf(1, 1, 0, 0, 0, 0), K.BASE * 0.42 * 0.94) && near(K.wantOf(1, 1, 0, 1, 0, 0), K.BASE * 1.42 * 0.94) && near(K.wantOf(1, 1, 0, 0, 1, 0), K.BASE * 1.17 * 0.94) && near(K.wantOf(1, 1, 0, 0, 0, 1), K.BASE * 1.72 * 0.94)
+    && near(K.wantOf(1.5, 1, 0, 0, 0, 0), K.BASE * 0.42 * 0.85) && near(K.wantOf(0.5, 1, 0, 0, 0, 0), K.BASE * 0.42 * 1.03)
+    && near(K.wantOf(1, 0, 0, 0, 0, 0), K.BASE * 0.40 * 0.94) && near(K.wantOf(1, 0, 0, 1, 1, 1), K.BASE * 1.40 * 0.94)
+    && near(K.wantOf(1, 0.5, 1, 0, 0, 0), K.BASE * 0.41 * 0.94 * 2.5) && near(K.wantOf(1, 0.5, 0, 0, 0, 0), K.BASE * 0.41 * 0.94) && near(K.wantOf(1, 1, 0.4, 0, 0, 0), 1.6 * K.wantOf(1, 1, 0, 0, 0, 0)),
+    'a fish swims faster the louder the sound and its own band, and on a beat; a small fish is quicker than a big one; alone it ambles; streaming back it hurries for as long as it is far from its place, two and a half times as fast a unit away or more');
 
   // One step, by hand: a fish alone, in its place.
   {
     const sc = K.createSchool(), i = 0, p0 = at(sc.p, i), d0 = at(sc.d, i), sp0 = sc.sp[i], beat0 = sc.beat[i], other = at(sc.p, 1);
     K.stepSchool(sc, 1, how());
-    const want = K.wantOf(sc.size[i], 1, false, 0, 0, 0), sp1 = sp0 + (want - sp0) * K.SPEED_RATE * K.STEP, p1 = at(sc.p, i), d1 = at(sc.d, i);
+    const want = K.wantOf(sc.size[i], 1, 0, 0, 0, 0), sp1 = sp0 + (want - sp0) * K.SPEED_RATE * K.STEP, p1 = at(sc.p, i), d1 = at(sc.d, i);
     ok(near(sc.sp[i], sp1, 1e-6) && near(dot(d1, d0), 1, 1e-5) && near(len(d1), 1, 1e-5) && [0, 1, 2].every((c) => near(p1[c], p0[c] + d0[c] * sp1 * K.STEP, 1e-5))
       && near(sc.beat[i], beat0 + K.STEP * (K.BEAT + K.BEAT_FAST * sp1) / Math.sqrt(sc.size[i]), 1e-4) && at(sc.p, 1).join() === other.join(),
       'one step of a fish alone in its place: it keeps its heading, its speed moves 2.6 a second toward what it wants, it moves as fast as it is going, and its tail beats faster the faster it swims; a fish that is not counted is left alone');
+  }
+  {
+    // A fish streaming back hurries by how far it is from its place.
+    const sc = K.createSchool(), i = 3, q = lean(at(sc.p, i), 0), S3 = [0, 0, 0];
+    put(sc.p, i, unlean([q[0] * 1.6, q[1] * 1.6, q[2] * 1.6], 0));
+    const away = K.steer(S3, sc, i, 0, 1, 0), sp0 = sc.sp[i];
+    for (let c = 0; c < 3; c++) sc.roam[i * 3 + c] = sc.p[i * 3 + c] + 1;   // somewhere to be making for, were it alone
+    const only = K.createSchool(); put(only.p, 0, at(sc.p, i)); put(only.d, 0, at(sc.d, i)); put(only.roam, 0, at(sc.roam, i)); put(only.axis, 0, at(sc.axis, i)); only.size[0] = sc.size[i]; only.shell[0] = sc.shell[i]; only.sp[0] = sp0;
+    K.stepSchool(only, 1, how({ gain: 0.5, back: true }));
+    const want = K.wantOf(only.size[0], 0.5, Math.min(1, away), 0, 0, 0);
+    ok(away > 0.2 && away < 1 && near(only.sp[0], sp0 + (want - sp0) * K.SPEED_RATE * K.STEP, 1e-6) && want > 1.2 * K.wantOf(only.size[0], 0.5, 0, 0, 0, 0),
+      'a fish streaming back wants to swim faster by how far it still is from its place');
   }
   {
     // Two fish too close, side by side: they part.
@@ -4845,7 +4857,7 @@ await import('./overlay/school-of-fish.js');
       if (dot(d, [p[0] - c[0], p[1] - c[1], p[2] - c[2]]) > 0) away++;
       if (reach > 0) { inside++; if (gone < K.BOLT[0] * reach - 1e-4 || gone > (K.BOLT[0] + K.BOLT[1]) * reach + 1e-4) far = false; }
       if (!(gone > 0) || !near(dot(unit([h[0] - p[0], h[1] - p[1], h[2] - p[2]]), d), 1, 1e-4)) far = false;
-      if (!near(sc.sp[i], Math.max(before[i], K.SPEED_RATE * gone), 1e-4)) speeds = false;
+      if (!near(sc.sp[i], Math.max(before[i], K.DASH * gone), 1e-4)) speeds = false;
       if (!near(len(d), 1, 1e-5)) units = false;
       if (egg(h) > 1 + 1e-4 || at(sc.roam, i).join() !== h.join()) homes = false;
     }
@@ -4856,7 +4868,7 @@ await import('./overlay/school-of-fish.js');
     put(probe.p, 0, [0, 0, 2.4]); probe.sp[0] = 0;
     K.bolt(probe, 1, 1, K.rng(4), false);
     const hz = probe.home[2], back = probe.home[0] === 0 && probe.home[1] === 0 && hz >= 2.4 * K.ROAM * K.BOLT[0] / 2 - 1e-5 && hz <= 2.4 * K.ROAM * (K.BOLT[0] + K.BOLT[1]) / 2 + 1e-5
-      && at(probe.d, 0).join() === '0,0,-1' && near(probe.sp[0], K.SPEED_RATE * (2.4 - hz), 1e-4);
+      && at(probe.d, 0).join() === '0,0,-1' && near(probe.sp[0], K.DASH * (2.4 - hz), 1e-4);
     // Then they are apart: each goes to where its fright sends it, and loiters there.
     const h = how({ gain: 0, apart: true, flame: 0.4, random: K.rng(5) });
     run(sc, N, 1, h);
@@ -4866,7 +4878,7 @@ await import('./overlay/school-of-fish.js');
     for (let i = 0; i < N; i++) { if (egg(at(sc.p, i)) > 1.45) inEgg = false; if (fromHome(sc, i) > K.LOITER + 0.8) nearHome = false; moved += len([sc.p[i * 3] - was[i * 3], sc.p[i * 3 + 1] - was[i * 3 + 1], sc.p[i * 3 + 2] - was[i * 3 + 2]]); }
     ok(away > 0.85 * N && inside > 0.9 * N && far && speeds && units && homes && edges && back && at(sc.p, N).join() === kept.join() && at(sc.home, N).join() === keptHome.join()
       && spread1 > spread0 + 0.3 && arrived < 0.3 && inEgg && nearHome && spreadOf(sc) > spread0 + 0.25 && moved / N > 0.1 && mean(N, (i) => sc.sp[i]) < 1 && finite(sc.p),
-      'a fright: every fish bolts away from the middle, between half and nearly all of the way to the edge of the egg, at the speed that takes it there, and one caught outside the egg bolts back in; then each loiters where it ended up, so the school stays scattered');
+      'a fright: every fish bolts away from the middle, between half and nearly all of the way to the edge of the egg, at the speed that takes it there in a dash, and one caught outside the egg bolts back in; then each loiters where it ended up, so the school stays scattered');
     ok(twin.d.join() === boltedD && twin.home.join() === boltedHome && twin.sp.join() === (() => { const again = made(); K.bolt(again, N, 1, K.rng(1001), true); return again.sp.join(); })() && twin.home.join() !== other.home.join() && twin.d.join() !== other.d.join(),
       'the same thump scatters the same school the same way, and another thump another way');
     // A peak while they are apart: each bolts again, its own way, less hard.
@@ -4876,7 +4888,7 @@ await import('./overlay/school-of-fish.js');
     for (let i = 0; i < N; i++) {
       const reach = K.toEdge(sc, i), gone = fromHome(sc, i);
       if (reach > 0 && (gone < K.JOSTLE * K.BOLT[0] * reach - 1e-4 || gone > K.JOSTLE * (K.BOLT[0] + K.BOLT[1]) * reach + 1e-4)) again = false;
-      if (!near(sc.sp[i], Math.max(sp0[i], K.SPEED_RATE * gone), 1e-4)) again = false;
+      if (!near(sc.sp[i], Math.max(sp0[i], K.DASH * gone), 1e-4)) again = false;
       if (dot(at(sc.d, i), at(d0, i)) < 0.99) changed++;
     }
     ok(again && changed > 0.9 * N, 'a peak while they are apart sends each off a new way, 0.6 as far');

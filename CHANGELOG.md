@@ -12,6 +12,23 @@ traceability.
 
 ### Added
 
+- **School of Fish, a new effect** (the 52nd), a scene on the scene kit. A school of fish
+  swims in the box: a real flock, in which each fish keeps clear of its neighbours, swims the
+  way they swim and stays with them, and which mills round as one body. Louder, it swims
+  faster and draws in. Each syllable is a shimmer that runs once round the school, as fish
+  roll onto their sides and their flanks flash, and a few bubbles rise. Each fish listens to
+  one of the eight lowest bands and wears that band's colour of the palette, big fish for
+  the low bands and small fry for the high; while its band sounds it glows, swims faster and
+  swings wide. A beat makes the whole school dart. A thump of the mic is a fright: the fish
+  bolt apart and loiter singly, and after a calm wait they stream back as the next of three
+  shapes, a ball, a ring and a column. The fish are solid, so they show over a bright
+  backdrop too. Settings: `density` (0 to 100, default 50: 96 to 480 fish),
+  `frightSensitivity` (0 to 100, default 50; never at 0), `regroupSeconds` (0 to 10, default
+  3) and `cameraDrift` (0 to 100, default 50). Its id is `school-of-fish` and it is listed
+  after Boids, which is unchanged. What it is made of is in `overlay/school-of-fish.js`
+  (`TimbreSchool`), loaded by all three overlay pages and by `verify` under Node, and
+  documented in `docs/EFFECTS.md` ("The school of fish").
+
 - **Scene kit**: `TimbreScene.factory(definition)` is the effect factory for a scene;
   `TimbreScene.follow` and `TimbreScene.fall` are the kit's smoothing formulas; a scene may
   say how its afterglow cools with `cooling` in its definition. See `docs/EFFECTS.md`

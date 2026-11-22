@@ -1096,6 +1096,80 @@ Things worth knowing:
   the box they lie in to be the box the GPU drew, to within `BOX_GAP` pixels. That is what
   holds the slab's shader to `bent()`.
 
+## The school of fish (`TimbreSchool`)
+
+`overlay/school-of-fish.js` is the School of Fish effect, as `globalThis.TimbreSchool`: a few
+hundred fish that flock for real, mill as a ball, a ring or a column, and bolt apart on a
+thump of the mic. `factories/school-of-fish.js` is one line,
+`VIZ_FACTORIES['school-of-fish'] = TimbreScene.factory(() => TimbreSchool.definition())`. The
+control panel shows it as "School of Fish" (`VIZ_LABELS`). It offers:
+
+- **The sound and the settings.** `loudness(bins, band, gain)`, `idle(b, t)` and `settle(v)`
+  as the jelly has them. `countFor(density)` is how many fish there are: 96 at Density 0, 288
+  at 50, 480 at 100, always the same number to each of the eight bands, and 50 for anything
+  that is not a number.
+- **One fish.** `fishShape()` is its points, the way each faces and its triangles, nose toward
+  +x and back toward +y: a body of rings that closes at the nose, a forked tail and a fin on
+  its back. The tail and the fin are flat and marked as fins.
+- **The school.** `createSchool(seed)` is every fish there can be (`FISH_MAX`, 480): where it
+  is (`p`), the way it heads (`d`), how fast it swims (`sp`), its size and band (fish `i`
+  listens to band `i % 8`; the low bands are the big fish), its own tilted round of the ball
+  (`axis`, `shell`) and its place in the ring and in the column (`off`, `off2`, `high`). It
+  starts as a ball. Only the first `n` fish are stepped and drawn.
+- **Steering.** `steer(out, sc, i, form, tight, loud)` is where the school wants fish `i` to
+  swim: round with the rest, and toward its own place in the shape (`FORMS`: ball, ring,
+  column; each leans toward the viewer by `LEAN`). It returns how far the fish is from that
+  place. `flock(out, sc, n, i, whole, flame, gain)` is what the fish within `NEAR` (0.46) do
+  to it: it is drawn toward them, turned the way they swim, and pushed off any that is too
+  close. `wantOf(size, gain, hurry, flame, loud, dart)` is how fast it wants to swim.
+- **Steps.** `stepSchool(sc, n, how)` is one step of `STEP` (1/60 s): each fish turns a
+  little toward where it is steered, its speed goes toward the speed it wants, it moves, and
+  its tail beats faster the faster it swims. `advance(sc, n, dt, how)` takes the whole steps
+  that have come due, `STEPS_MAX` (6) at most in a frame, and forgets the rest; each step
+  also remembers the syllable for the shimmer and steps the bubbles.
+- **The fright.** `bolt(sc, n, strength, random, fresh)` sends each fish a share of the way
+  to the edge of an egg-shaped space (`EGG`), away from the middle of the school, and gives
+  it the speed that gets it there in a dash; `toEdge(sc, i)` is how far that edge is. A fish
+  caught outside the egg bolts back in. Where a fish ends up is its `home`: alone, it loiters
+  there (`wander`, `loiterTo`). `nextForm(form)` is the shape the school comes back as.
+- **The shimmer.** `pulseOf(flame, trail)` is a syllable: how much louder it has just become.
+  `roundOf(sc, i, form)` is how far round the school a fish is, and `heard(sc, round)` what
+  it hears of the shimmer now: the syllable of that share of `ROUND_S` (0.7 s) ago, fainter
+  the further round. `dress(A, B, sc, n, how)` is what each fish is sent to be drawn with:
+  its size, its tail's beat, how far it has rolled onto its side, its band, its flash, its
+  glow and how wide its tail swings.
+- **The bubbles.** `createBubbles(seed)` and `stepBubbles(b, sc, n, pulse)`: bubbles leave
+  the school from where a fish is, as fast as the syllable is loud, rise for `BUBBLE_S`
+  (2.6 s) and are put away.
+- **Room.** `needOf(sc, n, sway)` is the share of the frame the school needs: the furthest
+  any fish reaches, tail and all, as the swaying camera sees it. `roomFor(need, enlarged)`
+  and `zoomAfter(zoom, room, dt)`: needing more than `FILL` (0.96) of the frame, or enlarged
+  by the Scene Size slider, it is drawn smaller at once, and grows back slowly.
+- **Camera.** `orbitAt(t, drift)`, `swayFor(drift)`, `pxOf(height, zoom)`.
+- `definition()`: the scene, for `TimbreScene.factory()`.
+
+Things worth knowing:
+
+- The fish are solid, drawn with the depth buffer, so they show over a bright backdrop as
+  well as a dark one, and one fish hides another properly. The bubbles are light.
+- All the fish are one instanced mesh. Where each is, the way it heads and the eight numbers
+  `dress` makes for it are sent every frame; the vertex shader bends the fish into its
+  swimming wave, rolls it and places it.
+- The school is the only thing here that is stepped and not worked out exactly, so it is
+  stepped in fixed steps whatever the frame rate: the same sound gives the same school, fish
+  for fish, at 30, 60 and 120 frames a second. Each fish looks at every other each step, so
+  a step costs the square of the number of fish: about a millisecond at Density 100.
+- With the mic and Idle animation both off no step is taken: the fish stop where they are.
+- Nothing comes from `Math.random`. A thump scatters the fish by the number of the thump, so
+  the same thump scatters the same school the same way.
+- When the school bolts and when it regroups is `TimbreHelix.createShatter`'s machine, as for
+  DNA, Glass Prism and Jelly; Fright sensitivity and Regroup seconds are its two settings
+  under names that fit fish. The shape it comes back as is the one after the shape it last
+  was as a whole school, however often it was frightened on the way back.
+- Fish streaming back hurry only while they are far from their place, so they do not overshoot
+  it. For a moment on the way back the school can still need more than the frame, and is
+  drawn smaller for it.
+
 ## Wire format (for driving Timbre from elsewhere)
 
 Anything that can call a Streamer.bot action can drive Timbre:

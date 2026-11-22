@@ -36,8 +36,8 @@ It starts as a ball.
 
 ## What the sound does
 
-- **Loudness.** Louder, the school swims faster and packs tighter. In silence, with the mic
-  on, it goes on milling slowly.
+- **Loudness.** Louder, the school swims faster and draws in. In silence, with the mic on,
+  it goes on milling slowly.
 - **A syllable** is a shimmer that runs once round the school. Where it passes, fish roll onto
   their sides and their flanks flash. It starts at one side and has faded a good deal by the
   time it has gone round. A few bubbles leave the school.
@@ -55,12 +55,13 @@ It starts as a ball.
 A hard peak is a fright. When it happens, and when it is over, is `TimbreHelix`'s shatter
 machine, the one DNA, Glass Prism and Jelly use.
 
-- Every fish bolts away from the middle of the school. Each goes some of the way to the edge
-  of an egg-shaped space in the box and slows there.
-- Then the fish wander that space singly, each from place to place.
+- Every fish bolts away from the middle of the school. Each dashes between half and nearly
+  all of the way to the edge of an egg-shaped space in the box.
+- Then each fish loiters about where it ended up, so the school stays scattered.
 - A peak while they are apart makes them bolt again, each its own way, less hard.
 - After the calm wait they stream back, and they come back as the **next** shape: ball, ring,
-  column, and round again.
+  column, and round again. A fish hurries while it is far from its place and slows as it
+  nears it. Frightened again on the way, they still come back as that same next shape.
 - All of it stays in the picture: everything is drawn as much smaller as that takes, at once,
   and grows back slowly. The same rule holds a school in the picture when the Size slider
   enlarges it.

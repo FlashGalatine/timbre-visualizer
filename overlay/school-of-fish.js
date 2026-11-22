@@ -40,16 +40,17 @@
   const STAY = 0.5, WITH = 0.9;             // how hard it is drawn to its neighbours, and turned the way they swim
   const STAY_APART = 0.05, WITH_APART = 0.3;   // and when the school has burst
   const PART = 2.2;                         // how hard two fish too close push off
-  const TURN = 2.4, TURN_LOUD = 2.5, TURN_APART = 1;   // how fast a fish turns, a second; more when it is loud, and when it is alone
+  const TURN = 2.4, TURN_LOUD = 2.5, TURN_APART = 1, TURN_BACK = 2;   // how fast a fish turns, a second; more when it is loud, when it is alone, and when it is streaming back
+  const HURRY = 1.5;                        // how much faster a fish streaming back swims while it is a unit or more from its place
   const BOLT_FAST = 1.6, BOLT_STIFF = 2;    // when the school has burst, a fish faster than this hardly turns: so much less for each unit faster
-  const SPEED_RATE = 2.6;                   // how fast a fish's speed goes to the speed it wants, a second
+  const SPEED_RATE = 2.6, DASH = 6;         // how fast a fish's speed goes to the speed it wants, a second: in the school, and when the school has burst (so a bolt is a dash)
   const BEAT = 5, BEAT_FAST = 11;           // its tail's beat, in radians a second: idling, and more for each unit of speed
   const BOLT = [0.5, 0.45];                 // a bolting fish goes this share of the way to the edge of the egg, and up to this much more
   const REBOLT = 0.8, JOSTLE = 0.6;         // a peak while they are streaming back, and one while they are apart, beside the thump's 1
   const ARRIVE = 0.3, LOITER = 0.4, ROAM = 0.92;   // a wandering fish is there when this close; its next place is within this much of where its fright left it; one caught outside the egg comes back to within this share of it
   const WALL = 3, WALL_FROM = 0.9, WALL_SLOW = 0.88;   // outside the egg: how hard it is turned back, from where, and how much of its speed it keeps each step while still heading out
   const RISE = 20, FALL = 5;                // how fast a band is followed, up and down, a second
-  const TRAIL = 2.5, PULSE = 5;             // how fast the loudness just past is forgotten, a second, and how much of a syllable a rise of 1 is
+  const TRAIL = 8, PULSE = 5;               // how fast the loudness just past is forgotten, a second, and how much of a syllable a rise of 1 is
   const ROUND_S = 0.7, FADE = 0.45, HISTORY = 64;   // the shimmer: how long it takes to go round, how much it has faded by then, and how many steps are remembered
   const ROLL = 1.15;                        // how far a flashing fish rolls onto its side, in radians
   const DART_S = 0.25, FLASH_S = 0.3, FLASH_KEEP_S = 0.085;   // how long a beat's dart lasts, the flash of a fright, and a fish's own flash, in seconds
@@ -153,7 +154,8 @@
   }
 
   // Where the school wants fish i to swim: round with the rest, and toward its own place.
-  // `tight` draws the whole school in (1 is its full size); `loud` is its own band.
+  // `tight` draws the whole school in (1 is its full size); `loud` is its own band. Says how
+  // far the fish is from its place.
   function steer(out, sc, i, form, tight, loud) {
     const a = i * 3, cs = Math.cos(LEAN[form]), sn = Math.sin(LEAN[form]);
     const x = sc.p[a], y = sc.p[a + 1] * cs + sc.p[a + 2] * sn, z = -sc.p[a + 1] * sn + sc.p[a + 2] * cs;   // in the shape's own leaning space
@@ -173,6 +175,7 @@
     const tl = Math.hypot(tx, ty, tz) || 1, pl = Math.hypot(px, py, pz), pc = PULL * (pl > PULL_MAX ? PULL_MAX / pl : 1);
     const fx = tx / tl + pc * px, fy = ty / tl + pc * py, fz = tz / tl + pc * pz;
     out[0] = fx; out[1] = fy * cs - fz * sn; out[2] = fy * sn + fz * cs;
+    return pl;
   }
 
   // What the fish near fish i do to it, among the first n: it is drawn toward them and turned
@@ -227,10 +230,11 @@
   }
 
   // How fast a fish wants to swim. `gain` is how much the school has of it (1 together, 0
-  // alone); `back` is the fish streaming back, when it hurries, most at the half-way.
-  function wantOf(size, gain, back, flame, loud, dart) {
+  // alone); `hurry` is how far a fish streaming back still is from its place, a unit at most
+  // (0 when it is not streaming back): the further, the faster.
+  function wantOf(size, gain, hurry, flame, loud, dart) {
     const together = 0.42 + 1.0 * flame + 0.75 * loud + 1.3 * dart, alone = 0.40 + 0.5 * flame + 0.5 * loud;
-    return BASE * (gain * together + (1 - gain) * alone) * (1.12 - 0.18 * size) * (back ? 1 + 6 * gain * (1 - gain) : 1);
+    return BASE * (gain * together + (1 - gain) * alone) * (1.12 - 0.18 * size) * (1 + HURRY * hurry);
   }
 
   // One step of the first n fish. `how`: gain (1 together, 0 alone), apart (the school has
@@ -241,8 +245,8 @@
     for (let i = 0; i < n; i++) {
       const a = i * 3, loud = how.bands[sc.band[i]];
       flock(F, sc, n, i, whole, flame, g);
-      let dx = F[0], dy = F[1], dz = F[2];
-      if (g > 0) { steer(S, sc, i, sc.form, tight, loud); dx += g * S[0]; dy += g * S[1]; dz += g * S[2]; }
+      let dx = F[0], dy = F[1], dz = F[2], away = 0;
+      if (g > 0) { away = steer(S, sc, i, sc.form, tight, loud); dx += g * S[0]; dy += g * S[1]; dz += g * S[2]; }
       if (g < 1) {
         const leaving = wander(W, sc, i, how.random);
         dx += (1 - g) * W[0]; dy += (1 - g) * W[1]; dz += (1 - g) * W[2];
@@ -251,12 +255,12 @@
       const dl = Math.hypot(dx, dy, dz);
       if (dl > 1e-9) {
         // A fish that is bolting does not turn until it has slowed.
-        const turn = Math.min(1, (TURN + TURN_LOUD * flame + (whole ? 0 : TURN_APART)) * STEP / (whole ? 1 : 1 + BOLT_STIFF * Math.max(0, sc.sp[i] - BOLT_FAST)));
+        const turn = Math.min(1, (TURN + TURN_LOUD * flame + (whole ? 0 : TURN_APART) + (how.back ? TURN_BACK : 0)) * STEP / (whole ? 1 : 1 + BOLT_STIFF * Math.max(0, sc.sp[i] - BOLT_FAST)));
         const fx = sc.d[a] + (dx / dl - sc.d[a]) * turn, fy = sc.d[a + 1] + (dy / dl - sc.d[a + 1]) * turn, fz = sc.d[a + 2] + (dz / dl - sc.d[a + 2]) * turn;
         const fl = Math.hypot(fx, fy, fz);
         if (fl > 1e-9) { sc.d[a] = fx / fl; sc.d[a + 1] = fy / fl; sc.d[a + 2] = fz / fl; }
       }
-      sc.sp[i] += (wantOf(sc.size[i], g, how.back, flame, loud, how.dart) - sc.sp[i]) * Math.min(1, SPEED_RATE * STEP);
+      sc.sp[i] += (wantOf(sc.size[i], g, how.back ? Math.min(1, away) : 0, flame, loud, how.dart) - sc.sp[i]) * Math.min(1, (whole ? SPEED_RATE : DASH) * STEP);
       sc.p[a] += sc.d[a] * sc.sp[i] * STEP; sc.p[a + 1] += sc.d[a + 1] * sc.sp[i] * STEP; sc.p[a + 2] += sc.d[a + 2] * sc.sp[i] * STEP;
       sc.beat[i] += STEP * (BEAT + BEAT_FAST * sc.sp[i]) / Math.sqrt(sc.size[i]);
     }
@@ -303,7 +307,7 @@
         if (far > 0) { sc.d[a] = hx / far; sc.d[a + 1] = hy / far; sc.d[a + 2] = hz / far; }
       }
       sc.roam[a] = sc.home[a]; sc.roam[a + 1] = sc.home[a + 1]; sc.roam[a + 2] = sc.home[a + 2];
-      sc.sp[i] = Math.max(sc.sp[i], SPEED_RATE * far);
+      sc.sp[i] = Math.max(sc.sp[i], DASH * far);
     }
   }
   function nextForm(form) {
@@ -512,7 +516,7 @@
     // apart). need: the share of the frame it needs; room: how much smaller it must be drawn;
     // zoom: how much smaller it is.
     const s = { flame: 0, kick: 0, clock: 0, live: false, orbit: 0, colorT: 0, fish: 0, steps: 0, stepped: 0, beats: 0, dart: 0, pulse: 0,
-      phase: 'whole', form: FORMS[0], gain: 1, thumps: 0, jostles: 0, flash: 0, need: 0, room: 1, zoom: 1, drawnFor: 1, px: 0 };
+      phase: 'whole', form: FORMS[0], gain: 1, thumps: 0, jostles: 0, flash: 0, need: 0, enlarged: 1, room: 1, zoom: 1, drawnFor: 1, px: 0 };
 
     function build(k) {
       THREE = k.THREE;
@@ -629,7 +633,8 @@
 
       // Spread wide, or enlarged, it is drawn smaller by as much as keeps all of it in the picture: at once, and back slowly.
       s.need = needOf(school, n, swayFor(knob('cameraDrift')));
-      s.room = roomFor(s.need, k.camera.zoom);
+      s.enlarged = k.camera.zoom;   // what the Size slider makes of it
+      s.room = roomFor(s.need, s.enlarged);
       s.zoom = zoomAfter(s.zoom, s.room, dt);
       group.scale.setScalar(s.zoom);
 
@@ -641,7 +646,7 @@
       shared.uT.value = s.clock;
       palette(bubbleMat.uniforms.uColor.value, colorT + PALETTE.length / 2);
       s.drawnFor = TimbreScene.renderScale(canvas3d.height);   // how many pixels of the kit's picture make one of the page
-      s.px = bubbleMat.uniforms.uPx.value = pxOf(s.drawnFor * canvas3d.height, k.camera.zoom) * s.zoom;
+      s.px = bubbleMat.uniforms.uPx.value = pxOf(s.drawnFor * canvas3d.height, s.enlarged) * s.zoom;
     }
 
     return {
@@ -685,7 +690,7 @@
 
   globalThis.TimbreSchool = {
     BANDS, PER_MIN, PER_MAX, FISH_MAX, SEED, STEP, STEPS_MAX, NEAR, CLEAR, BASE, START, LEN, TAIL, EGG, LEAN, FORMS, BALL, AXIS_TILT, RING, RING_WIDE, RING_HIGH, COLUMN, COLUMN_WIDE, COLUMN_HIGH,
-    SWING, TIGHT, PULL, PULL_MAX, STAY, WITH, STAY_APART, WITH_APART, PART, TURN, TURN_LOUD, TURN_APART, BOLT_FAST, BOLT_STIFF, SPEED_RATE, BEAT, BEAT_FAST, BOLT, REBOLT, JOSTLE, ARRIVE, LOITER, ROAM, WALL, WALL_FROM, WALL_SLOW,
+    SWING, TIGHT, PULL, PULL_MAX, STAY, WITH, STAY_APART, WITH_APART, PART, TURN, TURN_LOUD, TURN_APART, TURN_BACK, HURRY, BOLT_FAST, BOLT_STIFF, SPEED_RATE, DASH, BEAT, BEAT_FAST, BOLT, REBOLT, JOSTLE, ARRIVE, LOITER, ROAM, WALL, WALL_FROM, WALL_SLOW,
     RISE, FALL, TRAIL, PULSE, ROUND_S, FADE, HISTORY, ROLL, DART_S, FLASH_S, FLASH_KEEP_S, DART_FLASH, BUBBLES, BUBBLE_S, BUBBLE_RATE, FILL, ZOOM_BACK, SWAY, ORBIT_RATE, LINGER, FOV, PITCH, FRAME,
     VERT, FRAG, BUBBLE_VERT, BUBBLE_FRAG,
     countFor, loudness, idle, settle, rng, fishShape, createSchool, steer, flock, toEdge, loiterTo, wander, wantOf, stepSchool, advance, bolt, nextForm,
