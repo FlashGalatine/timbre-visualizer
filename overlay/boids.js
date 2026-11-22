@@ -306,10 +306,10 @@
         if (turning < 1e-4) for (let c = 0; c < 3; c++) fl.head[a + c] = fl.face[a + c];
         continue;
       }
-      // Called again on its way home, it flies again; but one that is already landing lands
-      // first, and leaves from its seat (unless it is a fright, when no bird is left sitting).
+      // Called again on its way home, it flies again; but one that is already near its seat
+      // lands first, and leaves from it (unless it is a fright, when no bird is left sitting).
       if (fl.state[i] === 1 && !up) fl.state[i] = 2;
-      else if (fl.state[i] === 2 && up && (how.loose || fl.p[a + 2] >= PANE[0] || Math.hypot(fl.seatX[i] - fl.p[a], seatY(fl, i) - fl.p[a + 1], fl.p[a + 2]) >= HOME_NEAR)) fl.state[i] = 1;
+      else if (fl.state[i] === 2 && up && (how.loose || Math.hypot(fl.seatX[i] - fl.p[a], seatY(fl, i) - fl.p[a + 1], fl.p[a + 2]) >= HOME_NEAR)) fl.state[i] = 1;
 
       const x = fl.p[a], y = fl.p[a + 1], z = fl.p[a + 2], ox = fl.v[a], oy = fl.v[a + 1], oz = fl.v[a + 2];
       let landing = 0;

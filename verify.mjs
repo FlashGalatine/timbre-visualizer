@@ -5597,7 +5597,7 @@ await import('./overlay/boids.js');
   }
   {
     // Coming home and taking off, a bird keeps clear of the birds that sit and of the other wires; it comes home from behind and lands softly.
-    let closest = 9, wireCrossed = 0, inFront = -9, towardUs = 0, landings = 0, fastest = 0, jump = 0, dip = 0, belowWire = 0;
+    let closest = 9, wireCrossed = 0, inFront = -9, towardUs = 0, landings = 0, fastest = 0, slowest = 9, jump = 0, dip = 0, belowWire = 0;
     const watch = (n, quiet) => {
       const fl = K.createFlock(K.SEED, n), h = how();
       for (let k = 0; k < 1320; k++) {
@@ -5607,7 +5607,7 @@ await import('./overlay/boids.js');
         K.advance(fl, n, K.STEP, h);
         for (let i = 0; i < n; i++) {
           const p = at(fl.p, i);
-          if (before[i] === 2 && fl.state[i] === 0) { landings++; if (vb[i * 3 + 2] > 0) towardUs++; fastest = Math.max(fastest, len(at(vb, i))); jump = Math.max(jump, len([p[0] - pb[i * 3], p[1] - pb[i * 3 + 1], p[2] - pb[i * 3 + 2]])); }
+          if (before[i] === 2 && fl.state[i] === 0) { landings++; if (vb[i * 3 + 2] > 0) towardUs++; fastest = Math.max(fastest, len(at(vb, i))); slowest = Math.min(slowest, len(at(vb, i))); jump = Math.max(jump, len([p[0] - pb[i * 3], p[1] - pb[i * 3 + 1], p[2] - pb[i * 3 + 2]])); }
           if (fl.state[i] === 0) continue;
           for (let j = 0; j < n; j++) if (fl.state[j] === 0) closest = Math.min(closest, len([fl.p[j * 3] - p[0], fl.p[j * 3 + 1] - p[1], fl.p[j * 3 + 2] - p[2]]));
           for (let w = 0; w < 3; w++) if (w !== fl.wire[i] && Math.abs(p[0]) < K.SPAN - K.FADE && Math.abs(p[2]) < 0.04 && Math.abs(p[1] - K.wireY(fl, w, p[0])) < 0.06) wireCrossed++;
@@ -5620,8 +5620,8 @@ await import('./overlay/boids.js');
       return fl.sitting === n;
     };
     const home = watch(60, false) && watch(84, false) && watch(60, true) && watch(84, true);
-    ok(home && landings > 250 && closest > 0.07 && wireCrossed === 0 && inFront < 0.05 && towardUs > 0.9 * landings && fastest < 0.3 && jump <= K.LANDED + 1e-6 && dip < 0.02 && belowWire === 0,
-      'coming home and taking off, no bird comes within 0.07 of one that sits or crosses another wire; a bird near its seat is never in front of it, and nine in ten touch down flying toward us; it comes down at under 0.3 a second, lands within 0.02 of its seat, and never dips under it — ' + [landings, closest.toFixed(3), wireCrossed, inFront.toFixed(3), towardUs, fastest.toFixed(3), jump.toFixed(4), dip.toFixed(4), belowWire]);
+    ok(home && landings > 250 && closest > 0.07 && wireCrossed === 0 && inFront < 0.05 && towardUs > 0.9 * landings && fastest < 0.3 && slowest > 0.2 && jump <= K.LANDED + 1e-6 && dip < 0.02 && belowWire === 0,
+      'coming home and taking off, no bird comes within 0.07 of one that sits or crosses another wire; a bird near its seat is never in front of it, and nine in ten touch down flying toward us; it comes down at between 0.2 and 0.3 a second, lands within 0.02 of its seat, and never dips under it — ' + [landings, closest.toFixed(3), wireCrossed, inFront.toFixed(3), towardUs, fastest.toFixed(3), slowest.toFixed(3), jump.toFixed(4), dip.toFixed(4), belowWire]);
   }
   {
     // A bird leaves its wire the way it faces and forward; frightened, any way. Among the wires a flying bird makes for the side of them it is on. One called again as it lands, lands first.
@@ -5671,6 +5671,21 @@ await import('./overlay/boids.js');
       && fits[0] === 1 && fits[2] === 1 && near(fits[3], (3.3 / 24) * 0.85 / 0.14, 1e-9) && near(fits[4], (3.3 / 28) * 0.85 / 0.14, 1e-9) && room && staggered
       && near(A[5 * 4], big.fit * big.size[5], 1e-6) && near(K.seatY(big, 5), K.wireY(big, big.wire[5], big.seatX[5]) + K.PERCH * K.SIZE * big.fit * big.size[5], 1e-9),
       'idle, the bands alone send the birds up: over a minute never more than six in ten are off the wires, about a third on the whole, and most fly at some time and sit again; with less room to a seat than a bird needs every bird is smaller, by as much; and the middle wire\'s seats are between the others\' — ' + [most, least, sum.toFixed(1), flew.size, back.size, fits.map((v) => v.toFixed(3))]);
+  }
+
+  {
+    // A bird turns the shorter way round; and one that is wanted straight down keeps the way it is turned.
+    const yawOf = (f, i) => Math.atan2(f.head[i * 3 + 2], f.head[i * 3]);
+    const f = K.createFlock(K.SEED, 36);
+    f.state[0] = 1; f.heard[0] = 1; put(f.p, 0, [0, 0.7, 0]); put(f.v, 0, [1.5 * Math.cos(-3), 0, 1.5 * Math.sin(-3)]); put(f.head, 0, [Math.cos(3), 0, Math.sin(3)]);
+    K.stepFlock(f, 1, how());
+    const went = yawOf(f, 0), wanted = Math.atan2(f.v[2], f.v[0]);
+    const g = K.createFlock(K.SEED, 36), sy = K.seatY(g, 0);
+    g.state[0] = 2; put(g.p, 0, [g.seatX[0], sy + 1.5, -K.HOME_BACK]); put(g.v, 0, [0, -1, 0]); put(g.head, 0, [Math.cos(0.3) * Math.cos(1), Math.sin(0.3), Math.cos(0.3) * Math.sin(1)]);
+    K.stepFlock(g, 1, how());
+    ok(wanted < -2.8 && went > 3 && went < 3 + K.YAW_MAX * K.STEP + 1e-6 && near(went, 3 + (wanted + 2 * Math.PI - 3) * K.TURN_HEAD * K.STEP, 1e-4)
+      && g.state[0] === 2 && Math.abs(g.v[0]) < 1e-6 && Math.abs(g.v[2]) < 1e-6 && near(yawOf(g, 0), 1, 1e-6) && g.head[1] < Math.sin(0.3) - 0.1,
+      'a bird in the air turns the shorter way round to head the way it flies; and one that flies straight down keeps the way it is turned, and only noses down — ' + [wanted, went, yawOf(g, 0), g.head[1]].map((v) => v.toFixed(4)));
   }
 
   // The scene.
