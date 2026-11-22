@@ -1213,10 +1213,10 @@ school of fish closely. It offers:
   `stepFlock(fl, n, how)` is one step of `STEP` (1/60 s) of the wires and the birds. A
   sitting bird takes off when its call is louder than its nerve, or in a fright. A flying
   bird flies at its cruising speed and steers by turning: toward its place, off any bird too
-  close, the way the birds near it fly, back from the edge of its air and up from the wires;
-  it banks into its turn and beats harder to climb. A bird that has heard nothing for its
-  `stay` comes home: to above its seat, then down onto it, slowing, and `sit` puts it
-  exactly there. `advance(fl, n, dt, how)` takes a step once half of it has come due, six at
+  close, the way the birds near it fly, and back from the edge of its air, which is above
+  the wires; it banks into its turn and beats harder to climb. A bird that has heard nothing for its
+  `stay` comes home: to above its seat, then down onto it, slowing, and `perch` puts it
+  exactly there; it folds its wings and turns to sit as it sits over the next second. `advance(fl, n, dt, how)` takes a step once half of it has come due, six at
   most in a frame; `fl.left` is how far the flock is behind its steps, or ahead.
 - **The fright.** `fright(fl, n, random)`: every bird is up at once; one that was sitting
   leaves hard, one in the air is thrown off its way. While `how.loose` is set every bird

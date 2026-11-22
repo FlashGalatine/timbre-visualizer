@@ -5190,7 +5190,7 @@ await import('./overlay/boids.js');
   ok(K.BANDS === 8 && K.WIRES === 3 && K.PER_MIN === 12 && K.PER_MAX === 28 && K.BIRDS_MAX === 84 && K.SEED === 20261123 && K.STEP === 1 / 60 && K.STEPS_MAX === 6
     && JSON.stringify(K.WIRE_Y) === '[-0.45,-0.95,-1.45]' && K.SPAN === 2 && K.REACH === 1.65 && K.SAG === 0.12 && K.LOAD_SAG === 0.03 && K.SEG === 48 && K.WIRE_HALF === 0.011 && K.FADE === 0.45
     && K.SPRING === 300 && K.SPRING_DAMP === 6 && K.LEAVE === 0.18 && K.LAND_KICK === 0.25 && K.BOUNCE_MAX === 0.08 && K.SIZE === 0.25 && K.PERCH === 0.34
-    && JSON.stringify(K.AIR) === '[1.75,0.7,0.75]' && K.AIR_Y === 0.62 && K.FLOOR === 0.3 && K.FOV === 30 && K.PITCH === 6 && JSON.stringify(K.FRAME) === '{"width":5,"height":3.9,"center":[0,0,0]}' && K.LINGER === 0.08,
+    && JSON.stringify(K.AIR) === '[1.75,0.7,0.75]' && K.AIR_Y === 0.62 && K.FOV === 30 && K.PITCH === 6 && JSON.stringify(K.FRAME) === '{"width":5,"height":3.9,"center":[0,0,0]}' && K.LINGER === 0.08,
     'the sizes: three wires, 12 to 28 birds to a wire, steps of 1/60 s, an egg of air above the wires and a frame of 5 by 3.9');
   ok(JSON.stringify(K.CRUISE) === '[1.1,1]' && K.LOOSE_FAST === 1.3 && JSON.stringify(K.LEAD_RATE) === '[0.45,0.9]' && JSON.stringify(K.LEAD) === '[1,0.3,0.45]' && JSON.stringify(K.LEAD_WIDE) === '[0.7,0.3]'
     && JSON.stringify(K.PLACE) === '[0.8,0.4,0.5]' && JSON.stringify(K.TURN) === '[3.5,2]' && K.SPEED_RATE === 3 && K.LEVEL === 0.7 && K.ALIGN === 0.7 && K.NEAR === 0.7 && K.CLEAR === 0.4 && K.PART === 2.5 && K.WALL === 8 && K.WALL_FROM === 0.95 && K.WALL_OUT === 1.1 && K.WALL_SLOW === 0.85 && K.ROOM === 0.85 && K.TOP === 4.2
@@ -5307,12 +5307,16 @@ await import('./overlay/boids.js');
     const still = fl.state[i];
     run(fl, N, 5 * K.STEP, h);
     const turned = fl.state[i];
-    let landedAt = -1;
-    for (let k = 0; k < 600 && landedAt < 0; k++) { K.advance(fl, N, K.STEP, h); if (fl.state[i] === 0) landedAt = k; }
+    let landedAt = -1, fromFar = 9, atSpeed = 9, wingsOpen = 9;
+    for (let k = 0; k < 600 && landedAt < 0; k++) {
+      const far = len([fl.seatX[i] - fl.p[i * 3], K.seatY(fl, i) - fl.p[i * 3 + 1], fl.p[i * 3 + 2]]), sp = len(at(fl.v, i));
+      K.advance(fl, N, K.STEP, h);
+      if (fl.state[i] === 0) { landedAt = k; fromFar = far; atSpeed = sp; wingsOpen = fl.fold[i]; }
+    }
     const home = fl.p[i * 3] === fl.seatX[i] && fl.p[i * 3 + 2] === 0 && near(fl.p[i * 3 + 1], K.seatY(fl, i), 1e-6) && len(at(fl.v, i)) === 0;
     run(fl, N, 6, h);
-    ok(up && justAfter === 1 && still === 1 && turned === 2 && landedAt >= 0 && landedAt < 300 && home && fl.fold[i] === 1 && fl.flap[i] === 0 && fl.roll[i] === 0 && at(fl.head, i).join() === at(fl.face, i).join() && count(fl, N, 0) === N,
-      'a bird stays in the air for as long as it hears its call and for its own while after, then makes for home, lands exactly on its seat within five seconds, folds its wings and sits as it sat before');
+    ok(up && justAfter === 1 && still === 1 && turned === 2 && landedAt >= 0 && landedAt < 300 && fromFar < K.LANDED + 0.02 && atSpeed < 0.7 && wingsOpen < 0.05 && home && fl.fold[i] === 1 && fl.flap[i] === 0 && fl.roll[i] === 0 && at(fl.head, i).join() === at(fl.face, i).join() && count(fl, N, 0) === N,
+      'a bird stays in the air for as long as it hears its call and for its own while after, then makes for home, comes down slowly onto its seat, lands exactly on it within five seconds with its wings still open, folds them and sits as it sat before');
   }
 
   // Everything comes to rest.
@@ -5434,13 +5438,13 @@ await import('./overlay/boids.js');
     h.pulse = 1; K.advance(fl, N, K.STEP, h); h.pulse = 0;
     for (let k = 0; k < 5; k++) K.advance(fl, N, K.STEP, h);
     // Put two birds a known way behind the lead: one hears the syllable now, one has not yet.
-    put(fl.p, 4, [fl.lead[0] + 5.5 / K.WAVE, fl.lead[1], fl.lead[2]]); put(fl.p, 5, [fl.lead[0] + 9.5 / K.WAVE, fl.lead[1], fl.lead[2]]); put(fl.p, 6, [fl.lead[0] + 3, fl.lead[1], fl.lead[2]]);
+    put(fl.p, 4, [fl.lead[0] + 5.5 / K.WAVE, fl.lead[1], fl.lead[2]]); put(fl.p, 5, [fl.lead[0] + 9.5 / K.WAVE, fl.lead[1], fl.lead[2]]); put(fl.p, 6, [fl.lead[0] + (K.HISTORY + 5.5) / K.WAVE, fl.lead[1], fl.lead[2]]); fl.state[8] = 0; put(fl.p, 8, [fl.lead[0], fl.lead[1], fl.lead[2] + 5.5 / K.WAVE]); fl.roll[8] = 0.1;
     fl.roll[4] = 0.2; fl.roll[5] = 0.2; fl.flap[4] = 0.6;
     K.dress(A, B, fl, N, { kick: 0, flash: 0, lead: 0 });
-    const heard = [A[4 * 4 + 2], B[4 * 4 + 2], A[5 * 4 + 2], B[5 * 4 + 2], B[6 * 4 + 2]], beat0 = A[4 * 4 + 1];
+    const heard = [A[4 * 4 + 2], B[4 * 4 + 2], A[5 * 4 + 2], B[5 * 4 + 2], B[6 * 4 + 2]], beat0 = A[4 * 4 + 1], sat = near(A[8 * 4 + 2], 0.1, 1e-6) && B[8 * 4 + 2] === 0, banded = A[30 * 4 + 3] === fl.band[30] && fl.band[30] > 0;
     K.dress(A, B, fl, N, { kick: 0.6, flash: 0.2, lead: 0.004 });
     ok(near(sitting[0], fl.size[5], 1e-6) && near(sitting[1], beat5, 1e-6) && sitting[2] === 0 && sitting[3] === fl.band[5] && sitting[4] === 0 && sitting[5] === 1 && sitting[6] === 0 && sitting[7] === 0
-      && near(heard[0], 0.2 - K.WAVE_ROLL, 1e-5) && near(heard[1], 1, 1e-6) && near(heard[2], 0.2, 1e-6) && heard[3] === 0 && heard[4] === 0
+      && near(heard[0], 0.2 - K.WAVE_ROLL, 1e-5) && near(heard[1], 1, 1e-6) && near(heard[2], 0.2, 1e-6) && heard[3] === 0 && heard[4] === 0 && sat && banded
       && near(B[5 * 4 + 2], 0.3, 1e-6) && near(B[4 * 4 + 2], 1, 1e-6) && near(A[4 * 4 + 1], beat0 + 0.004 * (K.BEAT[0] + K.BEAT[1] * 0.6) / Math.sqrt(fl.size[4]), 1e-4) && near(B[4 * 4], 0.6, 1e-6) && B[4 * 4 + 1] < 0.01,
       'what a bird is sent: its size, its wings\' beat, its roll and its band, how hard it beats and how folded it is, and a flash. Sitting, no beat or fright flashes it. In the air the ripple reaches it later the further behind the lead it is, rolling it one way or the other, and a beat flashes it by half');
   }
@@ -5476,6 +5480,74 @@ await import('./overlay/boids.js');
     ok(K.orbitAt(3, 0) === 0 && near(K.orbitAt(3, 50), K.SWAY * Math.sin(K.ORBIT_RATE * 3)) && near(K.orbitAt(3, 100), 2 * K.orbitAt(3, 50)) && near(K.orbitAt(3, undefined), K.orbitAt(3, 50)) && near(K.orbitAt(3, 400), K.orbitAt(3, 100)) && K.orbitAt(3, -5) === 0
       && K.swayFor(0) === 0 && near(K.swayFor(50), K.SWAY) && near(K.swayFor(100), 2 * K.SWAY) && near(K.swayFor(NaN), K.SWAY),
       'Camera drift: none at 0, a sway of 0.12 radians each way at 50, twice that at 100');
+  }
+
+  // What breaking it on purpose slipped past the checks above.
+  {
+    // A bird that was in the air when Density took it away.
+    const fl = K.createFlock();
+    run(fl, N, 2, how({ flame: 0.9, bands: loudBands(0.7) }));
+    K.reseat(fl, 36);
+    const hidden = fl.state[40] === 1 && fl.flap[40] > 0.1 && fl.heard[40] > 0;
+    K.reseat(fl, 84);
+    ok(hidden && fl.state[40] === 0 && fl.fold[40] === 1 && fl.flap[40] === 0 && fl.roll[40] === 0 && fl.heard[40] === 0 && len(at(fl.v, 40)) === 0 && at(fl.head, 40).join() === at(fl.face, 40).join() && fl.p[120] === fl.seatX[40] && fl.state[0] === 1,
+      'a bird that was in the air when Density took it away sits when Density brings it back: folded, still, and hearing nothing');
+    // The weight on each wire, and the count of who is doing what.
+    const w = K.createFlock(); w.state[0] = 1; w.state[3] = 2; K.weigh(w);
+    const one = K.createFlock(); K.stepFlock(one, N, how({ flame: 0.3 }));
+    const big = K.createFlock(K.SEED, 84); K.fright(big, 84, K.rng(1));
+    const flushed = big.flying === 84 && big.sitting === 0 && big.load.join() === '0,0,0';
+    let swing = 0;
+    for (let k = 0; k < 60; k++) { K.advance(big, 84, K.STEP, how({ loose: true })); swing = Math.max(swing, Math.abs(big.bounce[0]), Math.abs(big.bounce[2])); }
+    ok(near(w.load[0], 18 / 20, 1e-6) && w.load[1] === 1 && w.load[2] === 1 && w.sitting === 58 && w.flying === 1 && w.coming === 1 && one.flying > 0 && one.flying === count(one, N, 1) && one.sitting === count(one, N, 0)
+      && flushed && swing === Math.fround(K.BOUNCE_MAX),
+      'each wire is weighed by its own birds; the count of who sits and who flies is kept each step and after a fright; and however many leave at once a wire swings no further than 0.08');
+  }
+  {
+    // A bird that sits rides its wire. And one that has just landed is sitting exactly as it sits within a second and a half.
+    const r = K.createFlock(), b = new Float32Array(8), j = 57; b[0] = 0.9;
+    const hb = how({ bands: b }), y0 = r.p[j * 3 + 1];
+    for (let k = 0; k < 3; k++) K.stepFlock(r, N, hb);
+    const p = K.createFlock(), i = 10;
+    p.fold[i] = 0; p.flap[i] = 0.5; p.roll[i] = 0.5; put(p.head, i, [1, 0, 0]);
+    for (let k = 0; k < 90; k++) K.stepFlock(p, N, how());
+    ok(r.state[j] === 0 && r.wire[j] === 0 && r.bounce[0] > 0 && near(r.p[j * 3 + 1], K.seatY(r, j), 1e-7) && Math.abs(r.p[j * 3 + 1] - y0) > 1e-4
+      && p.fold[i] === 1 && p.flap[i] === 0 && p.roll[i] === 0 && at(p.head, i).join() === at(p.face, i).join(),
+      'a bird that sits rides its wire as it swings; and one with its wings open and turned aside is sitting exactly as it sits within a second and a half');
+    // Coming home, a bird that hears its call again is up again.
+    const c = K.createFlock(), bands = new Float32Array(8), ci = 31; bands[c.band[ci]] = 0.8;
+    run(c, N, 0.5, how({ bands })); run(c, N, c.stay[ci] + 0.1, how());
+    const coming = c.state[ci] === 2;
+    K.stepFlock(c, N, how({ bands }));
+    ok(coming && c.state[ci] === 1, 'a bird on its way home that hears its call again flies again');
+  }
+  {
+    // Frightened, the birds take no notice of the lead. And a bird in the air takes no notice of one that sits.
+    const made = (tau, h) => { const f = K.createFlock(); K.fright(f, N, K.rng(1001)); f.tau = tau; run(f, N, 2, h()); return f.p.join(); };
+    const near1 = (seat) => { const f = K.createFlock(K.SEED, 36); f.seatX[0] = seat; K.sit(f, 0); f.state[1] = 1; f.heard[1] = 1; put(f.p, 1, [0.5, -0.35, 0]); put(f.v, 1, [1, 0, 0]); K.stepFlock(f, 2, how()); return at(f.v, 1).join(); };
+    ok(made(0, () => how({ loose: true })) === made(5, () => how({ loose: true })) && made(0, () => how({ flame: 1 })) !== made(5, () => how({ flame: 1 })) && near1(0.45) === near1(-1.6),
+      'frightened, the birds fly the same wherever the lead is; and a bird in the air takes no notice of one that is sitting');
+    // No bird flies faster than 4.2, however it was thrown.
+    const t = K.createFlock(); run(t, N, 2, how({ flame: 0.9, bands: loudBands(0.7) })); K.fright(t, N, K.rng(3));
+    let over = 0, fastest = 0;
+    for (let i = 0; i < N; i++) if (len(at(t.v, i)) > K.TOP) over++;
+    K.stepFlock(t, N, how({ loose: true }));
+    for (let i = 0; i < N; i++) fastest = Math.max(fastest, len(at(t.v, i)));
+    ok(over > 0 && fastest <= K.TOP + 1e-5, 'no bird flies faster than 4.2, however a fright threw it');
+  }
+  {
+    // One step of a bird in the air, by hand.
+    const f = K.createFlock(K.SEED, 36), flame = 0.5, p0 = [0.2, 0.7, 0.1], v0 = [1.2, 0.1, 0], Q = [0, 0, 0];
+    f.state[0] = 1; f.heard[0] = 1; put(f.p, 0, p0); put(f.v, 0, v0); f.flap[0] = 0.5;
+    const beat0 = f.beat[0], pf = at(f.p, 0), vf = at(f.v, 0), sp0 = len(vf), h0 = vf.map((c) => c / sp0);
+    K.stepFlock(f, 1, how({ flame }));
+    K.placeOf(Q, f, 0, 1, false);
+    const t3 = [Q[0] - pf[0], Q[1] - pf[1], Q[2] - pf[2]], tl = len(t3), d = [t3[0] / tl, K.LEVEL * t3[1] / tl, t3[2] / tl], dl = len(d), turn = (K.TURN[0] + K.TURN[1] * flame) * K.STEP;
+    const hn = h0.map((c, k) => c + (d[k] / dl - c) * turn), hl = len(hn), cruise = K.CRUISE[0] + K.CRUISE[1] * flame;
+    const sp1 = sp0 + (cruise * Math.max(0.8, Math.min(1.3, 0.7 + 0.5 * tl)) - sp0) * K.SPEED_RATE * K.STEP, v1 = hn.map((c) => (c / hl) * sp1), acc = v1.map((c, k) => (c - vf[k]) / K.STEP);
+    const want = v1[1] < -0.45 ? 0.16 : Math.max(0.4, Math.min(1, 0.5 + 0.35 * v1[1] + 0.03 * len(acc))), flap1 = 0.5 + (want - 0.5) * K.FLAP_RATE * K.STEP;
+    ok(tl > 0.3 && [0, 1, 2].every((k) => near(f.v[k], v1[k], 1e-5) && near(f.p[k], pf[k] + v1[k] * K.STEP, 1e-5)) && near(f.flap[0], flap1, 1e-5) && near(f.beat[0], beat0 + K.STEP * (K.BEAT[0] + K.BEAT[1] * flap1) / Math.sqrt(f.size[0]), 1e-4) && f.fold[0] < 1 && f.state[0] === 1,
+      'one step of a bird in the air, by hand: it turns 3.5 radians a second (and 2 more at the loudest) toward its place, more level than straight at it; its speed goes 3 a second toward its cruising speed; it moves; and its wings beat, harder the harder it works');
   }
 
   // The scene.

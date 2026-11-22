@@ -30,7 +30,6 @@
   const LEAVE = 0.18, LAND_KICK = 0.25, BOUNCE_MAX = 0.08;   // what a bird leaving and a bird landing do to its wire, and the furthest a wire swings
   const SIZE = 0.25, PERCH = 0.34;          // a middling bird's length, and how far above its wire its middle sits, of its own length
   const AIR = [1.75, 0.7, 0.75], AIR_Y = 0.62;   // the air the flock keeps to: an egg this far each way, about this height
-  const FLOOR = 0.3;                        // a flying bird keeps this far above the top wire
   const WALL = 8, WALL_FROM = 0.95;         // how hard a bird is turned back at the edge of its air, and from where
   const WALL_OUT = 1.1, WALL_SLOW = 0.85;   // well outside its air (this many times as far out) and still heading out, it keeps this much of its speed each step
   const ROOM = 0.85;                        // a bird's place by the lead is kept within this share of its air
@@ -198,6 +197,14 @@
     fl.head[a] = fl.face[a]; fl.head[a + 1] = fl.face[a + 1]; fl.head[a + 2] = fl.face[a + 2];
     fl.fold[i] = 1; fl.flap[i] = 0; fl.roll[i] = 0; fl.heard[i] = 0;
   }
+  // Bird i lands on its seat. It folds its wings and turns to sit as it sits in its own time (see stepFlock).
+  function perch(fl, i) {
+    const a = i * 3;
+    fl.state[i] = 0;
+    fl.p[a] = fl.seatX[i]; fl.p[a + 1] = seatY(fl, i); fl.p[a + 2] = 0;
+    fl.v[a] = fl.v[a + 1] = fl.v[a + 2] = 0;
+    fl.heard[i] = 0;
+  }
   // How many birds are sitting, flying and coming home.
   function tally(fl) {
     let sitting = 0, flying = 0, coming = 0;
@@ -297,7 +304,7 @@
       if (fl.state[i] === 1) {
         // The flock. A bird flies at its cruising speed and steers by turning: toward its own
         // place by the lead, more level than straight at it; off any bird too close and the
-        // way the birds near it fly; back from the edge of its air and up from the wires.
+        // way the birds near it fly; and back from the edge of its air, which is above the wires.
         let sp = Math.hypot(ox, oy, oz) || 1e-6;
         const hx = ox / sp, hy = oy / sp, hz = oz / sp;
         placeOf(Q, fl, i, wide, how.loose);
@@ -321,7 +328,6 @@
           dx -= push * nx; dy -= push * ny; dz -= push * nz;
           leaving = e > WALL_OUT && hx * nx + hy * ny + hz * nz > 0;
         }
-        if (y < WIRE_Y[0] + FLOOR) dy += 2 * WALL * (WIRE_Y[0] + FLOOR - y);
         const dl = Math.hypot(dx, dy, dz) || 1e-6, turn = Math.min(1, (TURN[0] + TURN[1] * flame) * STEP);
         let nx = hx + (dx / dl - hx) * turn, ny = hy + (dy / dl - hy) * turn, nz = hz + (dz / dl - hz) * turn;
         const nl = Math.hypot(nx, ny, nz) || 1e-6;
@@ -332,7 +338,7 @@
       } else {
         // Home: to above its seat, then down onto it, slowing, wings wide.
         const sx = fl.seatX[i], sy = seatY(fl, i), dx = sx - x, dy = sy - y, dz = -z, d = Math.hypot(dx, dy, dz);
-        if (d < LANDED) { sit(fl, i); fl.bounceV[fl.wire[i]] -= LAND_KICK; continue; }
+        if (d < LANDED) { perch(fl, i); fl.bounceV[fl.wire[i]] -= LAND_KICK; continue; }
         landing = d < HOME_NEAR ? 1 : 0;
         const ty = dy + (landing ? 0 : HOME_HIGH), tl = Math.hypot(dx, ty, dz) || 1, sp = landing ? Math.max(HOME_SLOW[0], HOME_SLOW[1] * d) : Math.max(HOME_FAST, cruise);
         const k = Math.min(1, HOME_SEEK * STEP);
@@ -661,10 +667,10 @@
 
   globalThis.TimbreBoids = {
     BANDS, WIRES, PER_MIN, PER_MAX, BIRDS_MAX, SEED, STEP, STEPS_MAX, WIRE_Y, SPAN, REACH, SAG, LOAD_SAG, SEG, WIRE_HALF, FADE, SPRING, SPRING_DAMP, LEAVE, LAND_KICK, BOUNCE_MAX, SIZE, PERCH,
-    AIR, AIR_Y, FLOOR, WALL, WALL_FROM, CRUISE, LOOSE_FAST, LEAD_RATE, LEAD, LEAD_WIDE, PLACE, TURN, SPEED_RATE, LEVEL, ALIGN, NEAR, CLEAR, PART, ROOM, WALL_OUT, WALL_SLOW, TOP, HOME_HIGH, HOME_NEAR, HOME_FAST, HOME_SLOW, HOME_SEEK, LANDED,
+    AIR, AIR_Y, WALL, WALL_FROM, CRUISE, LOOSE_FAST, LEAD_RATE, LEAD, LEAD_WIDE, PLACE, TURN, SPEED_RATE, LEVEL, ALIGN, NEAR, CLEAR, PART, ROOM, WALL_OUT, WALL_SLOW, TOP, HOME_HIGH, HOME_NEAR, HOME_FAST, HOME_SLOW, HOME_SEEK, LANDED,
     UP, UP_HARD, THROWN, BANK, BANK_MAX, BANK_RATE, FLAP_RATE, BEAT, FOLD_RATE, UNFOLD_RATE, TURN_HEAD, FACE_RATE, NERVE, STAY, CALL, RISE, FALL, TRAIL, PULSE, HISTORY, WAVE, WAVE_MAX, WAVE_ROLL, KICK_FLASH, FLASH_S,
     SWAY, ORBIT_RATE, LINGER, FOV, PITCH, FRAME,
     VERT, FRAG, WIRE_VERT, WIRE_FRAG,
-    countFor, spreadFor, loudness, idle, settle, rng, callOf, pulseOf, birdShape, wireY, seatY, wirePoints, createFlock, sit, tally, weigh, reseat, leadAt, placeOf, takeOff, stepFlock, advance, fright, dress, swayFor, orbitAt, definition,
+    countFor, spreadFor, loudness, idle, settle, rng, callOf, pulseOf, birdShape, wireY, seatY, wirePoints, createFlock, sit, perch, tally, weigh, reseat, leadAt, placeOf, takeOff, stepFlock, advance, fright, dress, swayFor, orbitAt, definition,
   };
 })();
