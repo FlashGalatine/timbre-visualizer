@@ -186,6 +186,12 @@ traceability.
 
 ### Changed
 
+- `verify:render`: the checks that Sunburst, Mountains 3D, Phosphor, Chladni and Metaball
+  hold still with the mic and Idle animation off, or once muted, no longer fail on a stray
+  pixel. They compared two pictures' hashes, and this GPU now and then draws a pixel or
+  two of the very same scene one step apart. They now compare with the last picture and
+  allow what the Glass Prism, Ink and Shards checks allow: at most eight values, one step
+  apart. A picture that moves differs in tens of thousands.
 - **Shards is now a broken mirror that the sound opens up**, a scene on the scene kit. The
   ball of small tetrahedra is gone. A pane of mirror glass floats in the box, already
   broken: cracks run out from the point where it was struck and rings of cracks cross
