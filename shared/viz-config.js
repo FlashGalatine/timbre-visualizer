@@ -17,7 +17,7 @@
     'comet', 'orbit', 'spectrogram', 'dna', 'fireflies', 'pulse-rings', 'black-hole', 'matrix',
     'sine-bars', 'mountains-2d', 'mountains-3d', 'vaporwave', 'peaks-mirror', 'sunburst-3d',
     'galaxy-ripple', 'tunnel', 'metaball', 'glass-prism', 'chladni', 'phosphor', 'ink',
-    'shards', 'jelly', 'boids', 'rose',
+    'shards', 'jelly', 'boids', 'school-of-fish', 'rose',
     'spring-blossoms', 'summer-tide', 'autumn-leaves', 'winter-aurora',
     'halloween-jack', 'christmas-tree', 'new-year-fireworks', 'valentines-hearts',
     'easter-eggs', 'st-patricks-shamrocks', 'july-fourth-stripes', 'thanksgiving-harvest',
@@ -28,7 +28,7 @@
   // Which visualizers render on the WebGL canvas (all depend on the THREE global).
   const VIZ_USES_3D = [
     'mountains-3d', 'sunburst-3d', 'metaball', 'glass-prism', 'chladni',
-    'phosphor', 'ink', 'shards', 'jelly', 'boids',
+    'phosphor', 'ink', 'shards', 'jelly', 'boids', 'school-of-fish',
     'rose', 'winter-aurora', 'thanksgiving-harvest',
     'pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes',
   ];
@@ -38,17 +38,19 @@
     'thanksgiving-harvest', 'winter-aurora',
     'pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes',
     'sunburst-3d', 'mountains-3d', 'phosphor', 'chladni', 'glass-prism', 'metaball', 'ink',
-    'shards', 'jelly',
+    'shards', 'jelly', 'school-of-fish',
   ];
 
   // The name the control panel shows, where the id no longer says what the effect
-  // is. (The ids stay, so saved configs and Streamer.bot actions keep working.)
+  // is (the ids stay, so saved configs and Streamer.bot actions keep working), or
+  // where the id does not capitalise into its name.
   const VIZ_LABELS = {
     'pride-ribbon': 'Pride flag',
     'bi-pride-ribbon': 'Bi pride flag',
     'ace-pride-ribbon': 'Ace pride flag',
     'trans-pride-ribbon': 'Trans pride flag',
     'july-fourth-stripes': 'Fourth of July flag',
+    'school-of-fish': 'School of Fish',
   };
 
   // Where a scene sits in the frame: offset from centre (percent of the half
@@ -102,6 +104,7 @@
     'shards':        { density: 50, bloom: 50, cameraDrift: 50 },
     'jelly':         { stiffness: 50, shatterSensitivity: 50, reconnectSeconds: 3, cameraDrift: 50 },
     'boids':         { cohesion: 50 },
+    'school-of-fish': { density: 50, frightSensitivity: 50, regroupSeconds: 3, cameraDrift: 50 },
     'rose':          {},
     'spring-blossoms': { petalDensity: 50, windStrength: 50 },
     'summer-tide':     { waveAmplitude: 50, sunSize: 50, sparkleRate: 50 },
@@ -124,7 +127,7 @@
   };
 
   // Per-knob max overrides for numeric perViz values; default max is 100.
-  const PER_VIZ_MAX = { 'dna': { reconnectSeconds: 10 }, 'pulse-rings': { reconnectSeconds: 10 }, 'orbit': { planets: 9 }, 'chladni': { rotateX: 360, rotateY: 360, rotateZ: 360 }, 'glass-prism': { reconnectSeconds: 10 }, 'jelly': { reconnectSeconds: 10 },
+  const PER_VIZ_MAX = { 'dna': { reconnectSeconds: 10 }, 'pulse-rings': { reconnectSeconds: 10 }, 'orbit': { planets: 9 }, 'chladni': { rotateX: 360, rotateY: 360, rotateZ: 360 }, 'glass-prism': { reconnectSeconds: 10 }, 'jelly': { reconnectSeconds: 10 }, 'school-of-fish': { regroupSeconds: 10 },
     'mountains-3d': { rotateX: 360, rotateY: 360, rotateZ: 360 }, 'phosphor': { rotateX: 360, rotateY: 360, rotateZ: 360 } };
 
   // Shared knob group for any visualizer that loads a 3D STL model. Whichever
