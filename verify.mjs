@@ -134,6 +134,13 @@
 //      spectrogram's one `copy` draw; no shadowBlur in the four files named in
 //      O-03; the three mirrored meshes mirror about the mesh's own middle.
 //      (Runs before section 4. What these effects draw is in verify-render.mjs.)
+//  32. The look in an address — lookFromQuery and lookToQuery in
+//      shared/viz-config.js: which names an address may use (a known visualizer,
+//      toggle, number or knob, and nothing the microphone or the config's own
+//      key names or an inherited name could match), numbers and toggles read
+//      strictly, what is reported as ignored (never sbport or sbdebug), and
+//      that a look written to an address and read back is the same look for
+//      every visualizer. (Runs before section 4.)
 //
 // The suite refuses to start when something already answers on its side ports
 // (a mock left over from a run that was killed), and stops its own mock when it
@@ -453,6 +460,39 @@ ok(JSON.stringify(T.defaultConfig().perViz['black-hole']) === JSON.stringify({ d
 {
   const c = T.sanitizeConfig({ activeViz: 'black-hole', perViz: { 'black-hole': { density: 250, gulpSensitivity: -4, nope: 1 } } });
   ok(c.activeViz === 'black-hole' && c.perViz['black-hole'].density === 100 && c.perViz['black-hole'].gulpSensitivity === 0 && !('nope' in c.perViz['black-hole']), 'black-hole is an accepted effect name, and its knobs clamp to 0..100');
+}
+
+// ── 32. The look in an address ───────────────────────────────────────────────
+console.log('\n[32] The look in an address');
+{
+const L = (s, ig) => T.lookFromQuery(s, ig), J = JSON.stringify;
+ok(J(L('')) === '{}' && J(L('?')) === '{}' && J(L(null)) === '{}' && J(L('?sbport=8080&sbdebug=1')) === '{}', 'no look parameters: an empty look');
+ok(J(L('?visualizer=rose')) === '{"activeViz":"rose"}' && J(L('?visualizer=nope')) === '{}' && J(L('?visualizer=constructor')) === '{}', 'visualizer: a known id only');
+ok(J(L('?gain=150&bars=8')) === '{"bars":8,"gain":150}' && L('?afterglow=0.8').afterglow === 0.8 && L('?placement.x=-40&placement.size=140').placement.x === -40, 'numbers');
+for (const bad of ['abc', '', '1e3', 'Infinity', 'NaN', '0x10', '1,5', ' 5']) ok(J(L('?gain=' + encodeURIComponent(bad))) === '{}', `gain=${J(bad)} is ignored`);
+ok(J(L('?showBorder=0&showLabels=1')) === '{"showLabels":true,"showBorder":false}' && J(L('?showBorder=true&idleAnim=no')) === '{}', 'toggles are 1 or 0 and nothing else');
+ok(J(L('?rose.cameraDrift=20')) === '{"perViz":{"rose":{"cameraDrift":20}}}' && J(L('?rose.nope=1&nope.cameraDrift=1&rose.=1&.x=1')) === '{}', 'knobs: a known visualizer and a known knob only');
+ok(J(L('?mic=x&mic.deviceId=x&micProcessing=0&activeViz=rose&perViz=1')) === '{}', 'the microphone and the config\'s own key names are not parameters');
+{ const before = J(Object.prototype); const got = L('?constructor.x=1&__proto__.a=1&toString=1&placement.__proto__=1&rose.constructor=1');
+  ok(J(got) === '{}' && J(Object.prototype) === before && ({}).a === undefined, 'names every object inherits are ignored'); }
+{ const ig = []; L('?visualizer=nope&gain=abc&zzz=1&sbport=1&sbdebug=1&bars=8', ig); ok(J(ig) === '["visualizer","gain","zzz"]', 'the ignored names are reported; sbport and sbdebug are not'); }
+ok(L('?gain=150&gain=20').gain === 150, 'a parameter given twice: the first is used');
+// Round trip: every visualizer, every setting off its default.
+for (const name of T.ACTIVE_VIZ_NAMES) {
+  const cfg = T.defaultConfig(); cfg.activeViz = name; cfg.gain = 137; cfg.bars = 9; cfg.showBorder = false; cfg.idleAnim = false; cfg.afterglow = 0.7; cfg.placement = { x: -33, y: 12, size: 150 };
+  for (const [k, v] of Object.entries(cfg.perViz[name] || {})) cfg.perViz[name][k] = typeof v === 'number' ? 7 : 'a&b #c+d %41 かな 🌹';
+  const back = T.sanitizeConfig(L('?' + T.lookToQuery(cfg)));
+  const want = T.sanitizeConfig(cfg); for (const other of Object.keys(want.perViz)) if (other !== name) want.perViz[other] = T.defaultConfig().perViz[other];
+  if (J(back) !== J(want)) { ok(false, `round trip: ${name}`); break; }
+  if (name === T.ACTIVE_VIZ_NAMES[T.ACTIVE_VIZ_NAMES.length - 1]) ok(true, 'lookToQuery then lookFromQuery gives back the look, for every visualizer');
+}
+ok(!/mic|sbport|sbdebug/.test(T.lookToQuery(T.defaultConfig())) && T.lookToQuery(T.defaultConfig()).startsWith('visualizer=visualizer&'), 'lookToQuery: visualizer first, no microphone');
+ok(J(T.sanitizeConfig(L('?gain=99999&placement.size=1'))).includes('"gain":200') && T.sanitizeConfig(L('?placement.size=1')).placement.size === 40, 'out-of-range numbers are clamped by sanitizeConfig, as the dock\'s are');
+{ const [viz, knobs] = Object.entries(T.DEFAULT_PER_VIZ).find(([, b]) => Object.values(b).some((v) => typeof v === 'string'));
+  const knob = Object.keys(knobs).find((k) => typeof knobs[k] === 'string');
+  const text = '🌹'.repeat(T.MAX_STRING + 10);
+  const got = T.sanitizeConfig(L(`?${viz}.${knob}=${encodeURIComponent(text)}`)).perViz[viz][knob];
+  ok(got === T.cutText(text, T.MAX_STRING) && got.length <= T.MAX_STRING && got.length > 0, 'a text knob over the limit comes back cut between whole characters'); }
 }
 
 // ── 3. C# embed simulation ───────────────────────────────────────────────────
