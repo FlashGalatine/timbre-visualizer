@@ -10,6 +10,41 @@ traceability.
 
 ## [Unreleased]
 
+## [1.0.191] — 2026-11-23
+
+Docs, notices and package details. No behaviour changes: nothing to copy but the docs,
+and nothing to re-paste.
+
+### Changed
+
+- **Node.js 20 or later** is now the stated minimum (`package.json`, README). The pinned
+  browser driver for the render suite needs it. Timbre itself runs in the browser and in
+  Streamer.bot; Node is only for the development tools.
+- **`docs/SETUP.md`** gains: which folder map is needed for what (an overlay needs
+  `timbre-overlay` and `timbre-shared`; the dock needs `timbre-control`, `timbre-shared`
+  and `timbre-overlay` for its preview; `timbre-spike` is used once); an "Updating"
+  section (pages first, then re-paste when the changelog says so); a table of every line
+  the dock's status can show and what to do about each; and what deleting the
+  `timbre.config` variable really does (new page loads start on defaults; open pages and
+  the dock keep theirs until reloaded).
+- **`docs/EFFECTS.md`**: the rules a kit scene must meet now include making no renderer
+  of its own, building nothing up over time, making things once, every setting changing
+  the picture, and reading the sound in one place. The wire-format section describes one
+  request in flight and Streamer.bot's replies.
+- **README**: the testing section names the three commands and says what the mock does
+  and does not model, with no check counts to go stale. Statements the redesign had made
+  untrue are corrected.
+- **Third-party notices**: the licence texts for the Audiowide font
+  (`overlay/fonts/OFL.txt`) and three.js (`overlay/vendor/LICENSE-three.txt`) are now in
+  the repository, as fetched from their sources, and `THIRD_PARTY_NOTICES.md` gives the
+  right copyright lines.
+- **Changelog corrections**: the 1.0.9 notes no longer say every model question was
+  settled at a commit where two meshes were still in the history, and no longer call the
+  two sword files copyrighted (they were CC0 placeholders; the models the effects were
+  designed around are the copyrighted ones). The 1.0.175 note on the history rewrite is
+  corrected the same way.
+- `.gitignore` covers `.worktrees/`, `.superpowers/` and `*.log`.
+
 ## [1.0.189] — 2026-11-23
 
 **Re-paste `actions/timbre-push.cs` into the `Timbre Push` action and Compile.** Do it in
@@ -846,7 +881,8 @@ StreamService / ControlPanel toolkit. (`ee5c34a`)
 
 Verified offline: `verify` 28/28, `verify:render` 14/14.
 
-[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.189...main
+[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.191...main
+[1.0.191]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.189...v1.0.191
 [1.0.189]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.187...v1.0.189
 [1.0.187]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.185...v1.0.187
 [1.0.185]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.183...v1.0.185
