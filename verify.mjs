@@ -6430,7 +6430,8 @@ await import('./overlay/rose.js');
     for (let s = 0; s < 240 && landedAt < 0; s++) { const sp = len(at(pass.v, 45)); K.stepRose(pass, N, how()); if (pass.state[45] === 0) { landedAt = s; landedSpeed = sp; } }
     ok(flewOn === 2 && landedAt > 3 && landedSpeed < K.CATCH, 'a petal that passes its place faster than 0.6 a second does not stop dead there: it flies on, comes round and lands when it is slow — ' + [landedAt, landedSpeed.toFixed(3)]);
 
-    // Lines of the shaders whose effect a picture is not told apart by in the render checks: a petal's cup, and the heart's matt gold where it joins the stem.
+    // Lines of the shaders that a picture of the whole rose is not told apart by. The render suite draws one blade and strips of the
+    // stalk alone to measure them; they are held here too, so that a change to one shows in this suite, which takes seconds.
     ok(K.BLADE_VERT.includes('p.z -= iA.w * iA.x * sin(3.14159 * pow(t, 0.8));') && K.BLADE_VERT.includes('p.y -= 0.5 * iB.x * iA.x * tip;') && K.STALK_FRAG.includes('float heart = vTone.x > 1.5 ? 0.0 : smoothstep(0.35, 0.65, vTone.x);') && K.STALK_FRAG.includes('spec * 0.18 * (1.0 - 0.85 * heart)')
       && K.STALK_FRAG.includes('if (vTone.x > 1.5) c = mix(uGreen * 0.8, mix(pal(vTone.z / 8.0), vec3(1.0), 0.22), pow(vTone.y, 1.2));'),
       'a petal is cupped along its length, and is a little shorter for its tip rolling back; the heart is gold where the stalk is numbered 1 and green toward the stem, with next to no shine; a thorn (numbered 2) wears its band at its tip');

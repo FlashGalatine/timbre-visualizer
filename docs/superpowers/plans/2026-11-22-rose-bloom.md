@@ -206,9 +206,32 @@ every break that still applies is caught.
 **The scene.** 80 breaks of the scene and its shaders against the render block. The first
 run was stopped after 57, when the review came back: 54 caught, and two slipped past (the
 camera's field of view, which now has a check of how far away the camera stands; and a
-petal's cup, which a picture is not told apart by here and is pinned as text by the Node
-section). The other 23, the two again, and breaks of the stalk's rewritten shader are run on
-the fixed code; what they show is recorded below when they are done.
+petal's cup, which a picture of the whole rose is not told apart by, and which was pinned as
+text by the Node section).
+
+**The scene, on the code as merged.** The whole list again, and the breaks of the stalk's
+rewritten shader. Every break of the scene itself was caught. Ten breaks of the shaders
+slipped past: a picture of the whole rose does not tell them apart, because sixty petals
+overlap in it and the checks count its pixels with room to spare. Seven had nothing holding
+them at all: a petal's outline (twice: with no outline, a rectangle; and with a leaf's), the
+fold of a leaf along its midrib, which side of a blade is its right (which makes its face
+its back, and lights it wrongly), the lighting of a face seen from behind, a petal's pale
+rim, and its darker foot together with the darker heart of the rose. Three were held only by
+a pin of their text: a petal's cup, the shortening of a petal whose tip rolls back, and a
+thorn's tip wearing its own band's colour (any thorn passed in the first band's).
+
+So the render block now ends by drawing one blade alone: a petal, a leaf, and flat strips of
+the stalk, each by itself under the rose's own shaders, seen square on, with a palette of
+the check's own, and measured (six checks). An outline is measured as widths, a cup and a
+fold as a shift seen from 45 degrees round, a face as how bright it is from each side, a
+colour where it is. All ten are caught by them, and so are the two lines of the stalk's
+shader that only a pin held (the heart's matt gold; green passing to gold by degrees). Then
+30 more breaks of the same shaders were run against the six checks: 23 were caught at once,
+and each of the seven that slipped past got a measure (a petal's duller back, its faint
+ribs, its sheen when it is nearly edge on, its face following its cup; a leaf's lighting;
+the stalk's lighting; the mottle of the heart's gold). Run again: all 42 are caught. The
+pins in the Node section stay, as a quicker warning. Not broken: the small shine on a petal
+and on a leaf, and the exact weights of the two lights.
 
 **One failure in a full render run that is not the rose's.** A run made while two live
 WebGL pages were open in the app's browser pane failed the jelly's "muted in the middle of a

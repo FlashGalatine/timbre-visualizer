@@ -4931,6 +4931,145 @@ async function main() {
     check('rose: loud, with all 72 petals in the air, draw() averages under 2 ms of script time, and a frame drawn and finished by the GPU under 7 ms (' + roCost.script.toFixed(2) + ' and ' + roCost.whole.toFixed(2) + ' ms)',
       roCost.flying === 72 && roCost.script < 2 && roCost.whole < 7, JSON.stringify(roCost));
 
+    // One petal, one leaf and strips of the stalk, each alone under the rose's own shaders, drawn without
+    // perspective, with a palette of this check's own (red for the first half of it, blue for the
+    // second): what a line of a shader does to one blade is lost in a picture of sixty. A blade
+    // here is 1 long and 0.6 wide, stands on the origin and grows upward, its inner face toward +z;
+    // there are 300 pixels to the unit. It is loose (its full colour) and flat unless said otherwise.
+    const lone = await wide.evaluate(() => {
+      const K = TimbreRose, N = 360, PX = N / 1.2;
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = N;
+      const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false });
+      const made = [];
+      try {
+        renderer.setPixelRatio(1); renderer.setSize(N, N, false); renderer.setClearColor(0x000000, 0);
+        const gl = renderer.getContext(), px = new Uint8Array(N * N * 4), cam = new THREE.OrthographicCamera(-0.6, 0.6, 0.6, -0.6, 0.1, 10);
+        const RED = new THREE.Vector3(1, 0, 0), BLUE = new THREE.Vector3(0, 0, 1);
+        const uniforms = { uPal: { value: [RED, RED, RED, BLUE, BLUE, BLUE] }, uGreen: { value: new THREE.Vector3(K.GREEN[0], K.GREEN[1], K.GREEN[2]) }, uHues: { value: K.PETAL_HUES } };
+        // Draw this alone, seen from `eye` (looking at the middle of the blade), and read the picture. Row 0 is the bottom.
+        const shot = (mesh, eye) => {
+          const sc = new THREE.Scene(); sc.add(mesh);
+          cam.position.set(eye[0], eye[1], eye[2]); cam.up.set(0, 1, 0); cam.lookAt(0, 0.5, 0); cam.updateMatrixWorld(true);
+          renderer.render(sc, cam);
+          gl.readPixels(0, 0, N, N, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        };
+        // Where a place falls in the picture (column, row), and the colour there.
+        const spot = (x, y, z) => { const v = new THREE.Vector3(x, y, z).project(cam); return [Math.floor((v.x * 0.5 + 0.5) * N), Math.floor((v.y * 0.5 + 0.5) * N)]; };
+        const pixel = (c, r) => Array.from(px.subarray((r * N + c) * 4, (r * N + c) * 4 + 4));
+        const at = (x, y, z) => pixel(...spot(x, y, z));
+        // What is covered of the row of pixels at height y: how wide it is (in units), its middle and its two ends (in pixels).
+        const row = (y) => { const r = spot(0, y, 0)[1]; let n = 0, sum = 0, c0 = N, c1 = -1; for (let c = 0; c < N; c++) if (px[(r * N + c) * 4 + 3] >= 250) { n++; sum += c; if (c < c0) c0 = c; if (c > c1) c1 = c; } return { r, wide: n / PX, mid: n ? sum / n + 0.5 : -1, c0, c1 }; };
+        // All that is covered: how bright it is on average, and how high it reaches (in units, seen from the front).
+        const all = () => { let n = 0, sum = 0, top = -1; for (let i = 0; i < N * N; i++) if (px[i * 4 + 3] >= 250) { n++; sum += px[i * 4] + px[i * 4 + 1] + px[i * 4 + 2]; const r = Math.floor(i / N); if (r > top) top = r; } return { bright: n ? sum / n : 0, top: (top + 1) / PX - 0.1 }; };
+        const blade = ({ cup = 0, roll = 0, rank = 0, kind = 0, loose = 1, turned = false } = {}) => {
+          const g = new THREE.InstancedBufferGeometry(), grid = K.bladeGrid();
+          g.setAttribute('position', new THREE.BufferAttribute(grid.points, 3)); g.setIndex(new THREE.BufferAttribute(grid.index, 1));
+          const one = (name, v) => g.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(v), v.length));
+          one('iPos', [0, 0, 0]); one('iFwd', [0, 1, 0]); one('iNrm', [0, 0, turned ? -1 : 1]); one('iA', [1, 0.6, 0, cup]); one('iB', [roll, rank, kind, 0]); one('iC', [1, 0, loose, 0]);
+          g.instanceCount = 1;
+          const m = new THREE.Mesh(g, new THREE.ShaderMaterial({ vertexShader: K.BLADE_VERT, fragmentShader: K.BLADE_FRAG, side: THREE.DoubleSide, uniforms }));
+          m.frustumCulled = false; made.push(g, m.material);
+          return m;
+        };
+        // A flat strip of the stalk in the plane z = 0, said to face `normal`. corners: [x, y, [what it is, how far along, its band]], bottom left, bottom right, top left, top right.
+        const strip = (corners, normal) => {
+          const g = new THREE.BufferGeometry();
+          g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(corners.flatMap((c) => [c[0], c[1], 0])), 3));
+          g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(corners.flatMap(() => normal)), 3));
+          g.setAttribute('tone', new THREE.BufferAttribute(new Float32Array(corners.flatMap((c) => c[2])), 3));
+          g.setIndex([0, 1, 2, 1, 3, 2]);
+          const m = new THREE.Mesh(g, new THREE.ShaderMaterial({ vertexShader: K.STALK_VERT, fragmentShader: K.STALK_FRAG, side: THREE.DoubleSide, uniforms }));
+          m.frustumCulled = false; made.push(g, m.material);
+          return m;
+        };
+        const FRONT = [0, 0.5, 3], BEHIND = [0, 0.5, -3], ROUND = [3, 0.5, 3], GLANCING = [3 * Math.sin(75 * Math.PI / 180), 0.5, 3 * Math.cos(75 * Math.PI / 180)], out = {};
+        const widths = () => [0.25, 0.5, 0.75, 0.9].map((y) => row(y).wide);
+        // The colours along the row at height y, at these shares of the way from its middle to its right-hand end.
+        const across = (y, shares) => { const r = row(y), half = (r.c1 - r.c0 + 1) / 2; return shares.map((s) => pixel(Math.floor(r.mid + s * half), r.r)); };
+
+        // From the front: its outline, how high it reaches, how bright it is, and its colour at its rim, at its edge and in its middle.
+        shot(blade(), FRONT);
+        const whole = all(), middle = row(0.5);
+        out.petalWide = widths(); out.top = whole.top; out.front = whole.bright;
+        out.rim = at(0, 0.95, 0); out.middle = at(0, 0.6, 0); out.edge = pixel(middle.c1 - 3, middle.r);
+        // Across it at 0.6 of its length, clear of its edges: the least and the most red.
+        { const reds = across(0.6, Array.from({ length: 161 }, (v, i) => (i - 80) / 100)).map((c) => c[0]); out.ribs = [Math.min(...reds), Math.max(...reds)]; }
+        // A leaf: its outline; and across its middle, its midrib, a trough between two veins, and a vein.
+        shot(blade({ kind: 1 }), FRONT); out.leafWide = widths(); out.leafFront = all().bright; out.leafAcross = across(0.5, [0, 0.5 / 2.2, 1 / 2.2]);
+        // From behind.
+        shot(blade(), BEHIND); out.behind = all().bright;
+        shot(blade({ kind: 1 }), BEHIND); out.leafBehind = all().bright;
+        // From 75 degrees round, nearly edge on: its middle.
+        shot(blade(), GLANCING); out.glance = at(0, 0.6, 0);
+        // Cupped, from the front: low on it, where its face is turned up to the light, and high on it, where it is turned down.
+        shot(blade({ cup: 0.3 }), FRONT); out.cupLit = [at(0, 0.2, 0), at(0, 0.8, 0)];
+        // Turned round where it stands, so that its back is seen in the light its face was in.
+        shot(blade({ turned: true }), FRONT); out.back = all().bright; out.backMiddle = at(0, 0.6, 0);
+        shot(blade({ kind: 1, turned: true }), FRONT); out.leafBack = all().bright;
+        // Its tip rolled right back.
+        shot(blade({ roll: 1 }), FRONT); out.rolledTop = all().top;
+        // On the head (not loose): at the heart of the rose, its foot and its middle; and at the rim of the rose, its middle.
+        shot(blade({ loose: 0 }), FRONT); out.heartFoot = at(0, 0.12, 0); out.heartMiddle = at(0, 0.6, 0);
+        shot(blade({ loose: 0, rank: 1 }), FRONT); out.rimMiddle = at(0, 0.6, 0);
+        // From 45 degrees round, depth shows as a shift sideways: how far the middle of a row of the blade lies from where
+        // the blade's own line (x = 0, z = 0) falls, as a depth away from its inner face (toward -z).
+        const away = Math.SQRT2 / PX;
+        const depth = (y) => { const r = row(y), flat = spot(0, y, 0)[0] + 0.5, side = Math.sign(spot(0, y, -1)[0] - spot(0, y, 0)[0]); return { deep: side * (r.mid - flat) * away, half: r.wide * Math.SQRT2 / 2 }; };
+        shot(blade(), ROUND); out.flatDeep = depth(0.5).deep;
+        shot(blade({ cup: 0.3 }), ROUND); out.cupDeep = [depth(0.03).deep, depth(0.5).deep];
+        // A leaf's two halves lift toward its inner face: by how much of how far out they are.
+        shot(blade({ kind: 1 }), ROUND); { const d = depth(0.5); out.fold = -d.deep / d.half; }
+
+        // The stalk. Two strips as thorns of bands 0 and 4, foot at the bottom and tip at the top.
+        const thorn = (x0, band) => strip([[x0, 0, [2, 0, band]], [x0 + 0.4, 0, [2, 0, band]], [x0, 1, [2, 1, band]], [x0 + 0.4, 1, [2, 1, band]]], [0, 0, 1]);
+        const pair = new THREE.Group(); pair.add(thorn(-0.5, 0)); pair.add(thorn(0.1, 4));
+        shot(pair, FRONT); out.thornFoot = at(-0.3, 0.05, 0); out.thornTips = [at(-0.3, 0.9, 0), at(0.3, 0.9, 0)];
+        // One strip that is stem at its left and heart at its right, read at the height where the heart's ripple is at its mean:
+        // the stem, 0.44 and 0.56 of the way over, and the heart.
+        const Y = 14 * Math.PI / 90;
+        const joint = (normal) => strip([[-0.5, 0, [0, 1, 0]], [0.5, 0, [1, 1, 0]], [-0.5, 1, [0, 1, 0]], [0.5, 1, [1, 1, 0]]], normal);
+        shot(joint([0, 0, 1]), FRONT); out.joint = [-0.45, -0.06, 0.06, 0.45].map((x) => at(x, Y, 0));
+        // Over a patch of the heart: the least and the most red.
+        { const [c0, r0] = spot(0.25, 0.3, 0), [c1, r1] = spot(0.48, 0.7, 0); let lo = 255, hi = 0; for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) { const v = px[(r * N + c) * 4]; if (v < lo) lo = v; if (v > hi) hi = v; } out.mottle = [lo, hi]; }
+        // The same strip, said to face away from both lights: the stem.
+        shot(joint([0, 0, -1]), FRONT); out.unlit = at(-0.45, Y, 0);
+        // The same strip, said to face halfway between the light and the eye, so that the light glances off it.
+        const L1 = [0.3293, 0.7526, 0.5704], hl = Math.hypot(L1[0], L1[1], L1[2] + 1);
+        shot(joint([L1[0] / hl, L1[1] / hl, (L1[2] + 1) / hl]), FRONT); out.shine = [-0.45, 0.45].map((x) => at(x, Y, 0));
+        return out;
+      } finally { for (const m of made) m.dispose(); renderer.dispose(); renderer.forceContextLoss(); }
+    });
+    {
+      const pw = lone.petalWide, lw = lone.leafWide, r2 = (v) => v.map((x) => +x.toFixed(3));
+      check('rose: a petal alone under its shader is widest toward its tip, which is round; a leaf is widest before its middle and comes to a point',
+        pw[1] > 0.5 && pw[1] < 0.6 && pw[2] > 0.5 && pw[0] < 0.7 * pw[2] && pw[3] > 0.55 * pw[2] && lw[1] > 0.5 && lw[1] < 0.6 && lw[0] > 1.3 * lw[2] && lw[3] < 0.3 * lw[1],
+        JSON.stringify({ petal: r2(pw), leaf: r2(lw) }));
+      check('rose: a petal whose tip rolls right back is shorter for it; a cupped petal bows away from its inner face, hardly at its foot and nearly its whole depth at the middle of its length; a leaf is folded along its midrib, and a petal is flat across',
+        lone.top > 0.95 && lone.top < 1.01 && lone.rolledTop > 0.5 && lone.rolledTop < 0.7 && Math.abs(lone.flatDeep) < 0.01 && lone.cupDeep[0] > -0.01 && lone.cupDeep[0] < 0.1 && lone.cupDeep[1] > 0.25 && lone.cupDeep[1] < 0.31
+        && lone.fold > 0.17 && lone.fold < 0.27,
+        JSON.stringify({ top: [lone.top, lone.rolledTop], flat: lone.flatDeep, cup: lone.cupDeep, fold: lone.fold }));
+      check('rose: a petal is lit on whichever face is seen: bright from the side the light is on, and lit through from the other; its back, in the same light, is a little duller and greyer than its face; nearly edge on it has a sheen; cupped, its lower half is turned up to the light and its upper half down',
+        lone.front > 1.4 * lone.behind && lone.behind > 0.4 * lone.front && lone.back > 0.9 * lone.front && lone.back < 0.97 * lone.front && lone.backMiddle[1] > lone.middle[1] + 2
+        && lone.glance[3] === 255 && lone.glance[0] > lone.middle[0] + 8 && lone.cupLit[0][0] > 1.2 * lone.cupLit[1][0],
+        JSON.stringify({ front: lone.front, behind: lone.behind, back: lone.back, green: [lone.middle[1], lone.backMiddle[1]], glance: [lone.middle[0], lone.glance[0]], cup: lone.cupLit }));
+      check('rose: a petal on the head is darker toward its foot, and darker at the heart of the rose than at the rim; its own rim and edges are paler, and it is faintly ribbed along its length',
+        lone.heartFoot[3] === 255 && lone.heartFoot[0] < 0.6 * lone.heartMiddle[0] && lone.heartMiddle[0] < 0.8 * lone.rimMiddle[0] && lone.rimMiddle[0] > 150 && lone.rimMiddle[0] < 250
+        && lone.middle[1] < 8 && lone.rim[1] > 20 && lone.edge[1] > 15 && lone.rim[0] > 180 && lone.edge[3] === 255
+        && lone.ribs[0] > 0.86 * lone.ribs[1] && lone.ribs[0] < 0.94 * lone.ribs[1],
+        JSON.stringify({ foot: lone.heartFoot, heart: lone.heartMiddle, rimOfRose: lone.rimMiddle, middle: lone.middle, rim: lone.rim, edge: lone.edge, ribs: lone.ribs }));
+      const [rib, trough, vein] = lone.leafAcross;
+      check('rose: a leaf is green, with a dark midrib and veins, paler beneath, and lit as a petal is',
+        vein[3] === 255 && vein[1] > 2 * vein[0] && vein[1] > 1.5 * vein[2] && rib[1] > 0.7 * vein[1] && rib[1] < 0.84 * vein[1] && trough[1] > 0.8 * vein[1] && trough[1] < 0.92 * vein[1]
+        && lone.leafBack > 1.08 * lone.leafFront && lone.leafBack < 1.22 * lone.leafFront && lone.leafFront > 1.25 * lone.leafBehind,
+        JSON.stringify({ across: lone.leafAcross, front: lone.leafFront, back: lone.leafBack, behind: lone.leafBehind }));
+      const [stem, j44, j56, gold] = lone.joint, [tip0, tip4] = lone.thornTips, [stemShine, goldShine] = lone.shine;
+      check('rose: a thorn is the stem\'s green at its foot and wears its own band\'s colour at its tip; between the stem and the heart the stalk passes from green to gold by degrees; the stem shines where the light glances off it and the heart hardly does; the gold of the heart is mottled; and a part of the stalk turned from the lights is dark',
+        lone.thornFoot[1] > lone.thornFoot[0] && lone.thornFoot[1] > lone.thornFoot[2] && tip0[0] > 2 * tip0[2] && tip4[2] > 2 * tip4[0]
+        && stem[1] > 2 * stem[0] && gold[0] > gold[1] && gold[1] > 3 * gold[2] && j44[0] > 2 * stem[0] && j44[0] < 0.45 * gold[0] && j56[0] > 0.65 * gold[0] && j56[0] < 0.93 * gold[0]
+        && stemShine[2] - stem[2] > 25 && goldShine[2] < 30 && lone.mottle[0] > 0.6 * lone.mottle[1] && lone.mottle[0] < 0.8 * lone.mottle[1] && lone.unlit[3] === 255 && lone.unlit[1] < 0.6 * stem[1],
+        JSON.stringify({ foot: lone.thornFoot, tips: lone.thornTips, joint: lone.joint, shine: lone.shine, mottle: lone.mottle, unlit: lone.unlit }));
+    }
+
     }
 
     // Every kit scene, so the next one is covered without a new check.
