@@ -10,6 +10,33 @@ traceability.
 
 ## [Unreleased]
 
+## [1.0.196] — 2026-11-23
+
+A setting for the raw microphone. **Pages first, then re-paste:** copy `overlay`,
+`control` and `shared`, reload the dock and refresh the sources, and only then paste
+`actions/timbre-push.cs` into `Timbre Push` and compile. In the other order the old dock
+page's changes are refused ("not a full config") until that page is reloaded.
+
+### Added
+
+- **Microphone processing**, a toggle in the dock's Microphone section, on by default.
+  On is what Timbre has always done: the browser's echo cancellation, noise suppression
+  and automatic gain. Off asks for the raw microphone, which is truer to the sound (quiet
+  sounds are not gated and loud is not flattened against soft) but lets room noise
+  through in quiet moments. Changing it re-opens the microphone.
+- If a device refuses the raw request, the overlay asks once more with processing on and
+  says so in the page's console. The dock does not show this.
+
+### Changed
+
+- `Timbre Push` requires the new setting (`micProcessing`) in every change. Settings
+  saved before this release are kept and read as Microphone processing on.
+
+### Not checked
+
+- A real microphone in OBS, and a real device that refuses the raw request. The tests
+  use the browser's stand-in device, which accepted it.
+
 ## [1.0.194] — 2026-11-23
 
 A finer view of the sound. Copy `overlay` and refresh the sources; nothing to re-paste.
@@ -926,7 +953,8 @@ StreamService / ControlPanel toolkit. (`ee5c34a`)
 
 Verified offline: `verify` 28/28, `verify:render` 14/14.
 
-[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.194...main
+[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.196...main
+[1.0.196]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.194...v1.0.196
 [1.0.194]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.191...v1.0.194
 [1.0.191]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.189...v1.0.191
 [1.0.189]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.187...v1.0.189
