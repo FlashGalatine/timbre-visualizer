@@ -1,6 +1,6 @@
 # Timbre — Streamer.bot setup
 
-Tested against Streamer.bot **1.0.4** on Windows. Two SB surfaces are used: the HTTP
+Tested against Streamer.bot **1.0.7** on Windows. Two SB surfaces are used: the HTTP
 Server (static files) and the WebSocket Server (config relay). No plugins, no Node process.
 
 ## 1. Enable the two servers
@@ -29,6 +29,16 @@ connect; a different name = silent no-sync). Add one sub-action:
 **Core → C# → Execute C# Code**, paste all of [../actions/timbre-push.cs](../actions/timbre-push.cs),
 click **Compile** — it must succeed. Uses only SB's default reference set (no
 Newtonsoft, no References-tab additions).
+
+**Put the action in a blocking queue.** In Streamer.bot's action queues, add a queue
+(call it `Timbre`) with **Blocking** turned on, then set that queue on `Timbre Push`.
+Do not leave it in the default queue. In the default queue Streamer.bot can run two
+requests for the same action at once, and when it does, both runs see one request's
+arguments: a change made in the dock can be lost, or an older config can be the last one
+broadcast. A blocking queue runs them one at a time, in the order they arrived. Measured
+on Streamer.bot 1.0.7 with a test action: two back-to-back requests mixed their arguments
+in 25 of 25 tries in the default queue, and in 0 of 25 in a blocking queue, whether they
+came from one page or two.
 
 State lives in one persisted global variable, `timbre.config` (the full config JSON as a
 string). Delete it to reset every setting to defaults.

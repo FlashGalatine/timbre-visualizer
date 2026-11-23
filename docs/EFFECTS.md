@@ -1478,6 +1478,10 @@ DoAction "Timbre Push"  args: { config: "<full config JSON>" }     — set + bro
 DoAction "Timbre Push"  args: { reason: "…" }                      — re-broadcast cached
 ```
 
+Send one `Timbre Push` per change, and keep the action in a blocking queue
+([SETUP.md](SETUP.md), step 2). Two requests for the action that overlap in the default
+queue share one set of arguments, so one of them is lost.
+
 The broadcast every page receives is
 `{ "type": "timbre:config", "config": { …full config… } }` inside SB's `General.Custom`
 envelope. The full config shape is exactly `TIMBRE.defaultConfig()` in

@@ -526,33 +526,33 @@ traceability.
   scaling as 1/z, loudness pulses ride the ribs in from the far end as radius
   bulges, and there's slow axial roll, a vanishing-point glow and a faint wall
   wash. Same bend knob and config surface. `verify` 28/28, render 14/14.
-  (`6be9219`, 2026-07-11)
+  (`978dc01`, 2026-07-11)
 - **`rose.stl` replaced with the author's own CC-BY-4.0 mesh**, generated with
   Meshy.ai and converted from the Bambu 3MF (Z-up → Y-up, so the default spin
   axis is the stem). 4,558 triangles, renders as a clean wireframe rose. All
-  STL provenance concerns are now resolved. (`0cfeefc`, 2026-07-11)
+  STL provenance concerns are now resolved. (`d56f03f`, 2026-07-11)
 
 ### Removed
 
 - **Japandi Rose visualizer** — its source model is CC BY-NC-ND: the ND term
   blocks redistributing the processed mesh and NC conflicts with monetized
-  stream use. Down to **49 effects** (37 2D + 12 WebGL). (`07a9fe1`,
+  stream use. Down to **49 effects** (37 2D + 12 WebGL). (`2e8c6cc`,
   2026-07-11)
 - **Lightning Sword and Save the Queen visualizers** — copyrighted source
   assets. Down to 50 effects (37 2D + 13 WebGL) at the time; the STL group
-  remains. (`9cc7f9f`, 2026-07-11)
+  remains. (`c267399`, 2026-07-11)
 
 ### Documentation
 
-- README: clone / Download-ZIP as the first setup step. (`81bb0c9`, 2026-07-21)
+- README: clone / Download-ZIP as the first setup step. (`d1c2a5d`, 2026-07-21)
 - Author & support section added; the CC-BY-4.0 rose model credited in the
   README license section; support links point at the personal Discord server.
-  (`3e07989` / `5214aaf`, 2026-07-20)
+  (`6368ec4` / `397285a`, 2026-07-20)
 
 ## [0.1.0] — 2026-07-11
 
 Initial release — Streamer.bot-native mic visualizer for OBS, ported from the
-StreamService / ControlPanel toolkit. (`6cfff29`)
+StreamService / ControlPanel toolkit. (`ee5c34a`)
 
 ### Added
 
@@ -567,4 +567,4 @@ StreamService / ControlPanel toolkit. (`6cfff29`)
 
 Verified offline: `verify` 28/28, `verify:render` 14/14.
 
-[1.0.9]: https://github.com/FlashGalatine/timbre-visualizer/compare/6cfff29...main
+[1.0.9]: https://github.com/FlashGalatine/timbre-visualizer/compare/ee5c34a...main
