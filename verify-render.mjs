@@ -8174,12 +8174,15 @@ async function main() {
       await dock.selectOption('#selSourcePage', 'mic-visualizers-300x220.html');
       await dock.click('#btnCopySource');
       const field = await dock.inputValue('#txtSourceAddress');
+      await dock.waitForFunction(() => document.getElementById('sourceCopyNote').textContent !== '', null, { timeout: 8000 }).catch(() => {});
       const note = await dock.textContent('#sourceCopyNote');
       check('Copy source address puts the chosen page and the look in the field',
         field.startsWith(BASE + '/timbre-overlay/mic-visualizers-300x220.html?visualizer=comet'), field);
       check('the address carries the dock\'s Streamer.bot port', field.endsWith('&sbport=' + WS_PORT), field);
       check('the note says Copied or tells the streamer to copy it by hand', note === 'Copied.' || note === 'Select the address and copy it.', note);
-      const atClick = JSON.stringify(T.lookFromQuery(new URL(field).search));
+      const clickLook = T.lookFromQuery(new URL(field).search);
+      const atClick = JSON.stringify(clickLook);
+      check('the address itself carries the placement and the knob the dock showed', clickLook.placement && clickLook.placement.x === 40 && clickLook.perViz && clickLook.perViz.comet && clickLook.perViz.comet.trail === 77 && clickLook.gain === 140 && clickLook.showBorder === false, atClick);
       const expected = T.defaultConfig(); dockConfig(expected);
       check('the look in the address is the look the dock showed at the click', atClick === lookOf(expected), atClick);
       await dock.close();
@@ -8198,8 +8201,8 @@ async function main() {
       // The same assertion on a page with no look in its address gives the opposite.
       const page3 = await ctxt.newPage();
       await page3.goto(overlayUrl, { waitUntil: 'load' });
-      await waitOn(page3, () => window.__timbre.config.micProcessing === true && window.__timbre.config.activeViz === 'orbit');
-      check('an unpinned page follows that push, so it does not show the look of the click', lookOf(await cfgOf(page3)) !== atClick);
+      const page3Got = await waitOn(page3, () => window.__timbre.config.micProcessing === true && window.__timbre.config.activeViz === 'orbit');
+      check('an unpinned page follows that push, so it does not show the look of the click', page3Got && lookOf(await cfgOf(page3)) !== atClick);
       await page3.close();
       await page2.close();
 
