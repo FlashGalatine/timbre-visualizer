@@ -10,6 +10,48 @@ traceability.
 
 ## [Unreleased]
 
+## [1.0.181] — 2026-11-23
+
+Copy the `control`, `overlay` and `shared` folders, reload the dock and refresh the
+overlay sources. Nothing to re-paste.
+
+### Fixed
+
+- **The dock no longer loses or undoes your changes.** It keeps a record of what you have
+  changed and puts every incoming config underneath it, so a config that arrives while a
+  change is on its way no longer flips a toggle back or leaves the overlay on a value the
+  dock does not show. A control you are holding (a slider moved with the arrow keys, an
+  open list) is left alone until you let it go.
+- **Changes made while Streamer.bot is down are sent when it comes back**, on top of
+  whatever was saved, and the status line says they are being kept.
+- **A dock opened before the saved settings arrive no longer saves the defaults over
+  them.** Nothing is sent until the saved config has come in, or one second has passed
+  with none.
+- **Picking an effect with no settings of its own no longer breaks the dock** when a
+  config arrives at the wrong moment.
+- **A saved microphone that is not plugged in is shown by name** in the list, not as a
+  blank, and refreshing the list no longer switches you to the default device.
+- **Matrix text you have typed but not applied is kept**, with an "unsaved" hint, across
+  other changes and across a change of text source.
+- **Matrix text is cut and drawn by whole characters**, so an emoji or a flag is never
+  split in half.
+- **The preview is unloaded when its section is closed**, which releases its microphone.
+  It is given only the Streamer.bot port from the dock's address, and runs in a sandboxed
+  frame.
+
+### Added
+
+- **The dock's status line says what is wrong.** "Streamer.bot offline", "Action
+  missing" (no action named `Timbre Push`), "Timbre Push failed" (with the action's own
+  message), "Connected, but Timbre Push did not answer" and "Streamer.bot connected" are
+  told apart, with an amber dot for the failures. While one of the failures is showing
+  the dock tries again every five seconds, so the line clears by itself once the action
+  is fixed.
+- **A note when `Timbre Push` is in the default queue**, where a change can be lost,
+  pointing at `docs/SETUP.md` step 2. It goes when the action is in a blocking queue.
+- Mock switches `/mock/silent`, `/mock/delay`, `/mock/kick` and `/mock/reset`, and the
+  first checks that operate the dock as a streamer does (mouse, arrow keys, typing).
+
 ## [1.0.179] — 2026-11-23
 
 Copy the `shared` folder, reload the dock and refresh the overlay sources. Nothing to
@@ -661,7 +703,8 @@ StreamService / ControlPanel toolkit. (`ee5c34a`)
 
 Verified offline: `verify` 28/28, `verify:render` 14/14.
 
-[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.179...main
+[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.181...main
+[1.0.181]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.179...v1.0.181
 [1.0.179]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.177...v1.0.179
 [1.0.177]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.175...v1.0.177
 [1.0.175]: https://github.com/FlashGalatine/timbre-visualizer/compare/d85cf93...v1.0.175

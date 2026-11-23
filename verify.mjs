@@ -74,7 +74,8 @@
 //      DoAction reply (sent on queueing, with the queue's name), the error
 //      reply for a missing action, a sync replay reaching every subscriber, a
 //      config stored as sent after the C#'s two-character check, the
-//      timbre:error switch, the overlap mode (runs that land together share
+//      timbre:error switch, the silent, delay, reset and kick switches, the
+//      overlap mode (runs that land together share
 //      one request's arguments), and that bad paths, bad frames, oversized
 //      frames and foreign origins do not bring it down. Then the transport
 //      against that overlap mode: an edit sent as a page connects is not lost
@@ -89,6 +90,12 @@
 //      cleared on close, the events raised from replies, ?sbport= (no socket
 //      is ever opened: the stand-in records the URL), a WebSocket constructor
 //      that throws, and the backoff. (Runs before section 4.)
+//  28. The dock — the part of control/control.html's script that needs no page
+//      (between its DOCK-PURE marks), run as it is: the record of the
+//      streamer's edits and the merge of an inbound config under it, which
+//      keys a broadcast settles, the preview's address, and every wording of
+//      the status line. Then Matrix text by whole characters: splitChars,
+//      cutText and the cut in sanitizeConfig. (Runs before section 4.)
 //
 // The suite refuses to start when something already answers on its side ports
 // (a mock left over from a run that was killed), and stops its own mock when it
@@ -7407,6 +7414,91 @@ function fakeWorld() {
 }
 
 // ── 4. Live transport seam (mock SB + real panel-client-sb.js) ───────────────
+// ── 28. The dock: the parts that need no page ───────────────────────────────
+console.log('\n[28] dock: edits kept, status line, preview address, whole characters');
+{
+  const html = await readFile(resolve(__dirname, 'control/control.html'), 'utf8');
+  const from = html.indexOf('// DOCK-PURE-BEGIN'), to = html.indexOf('// DOCK-PURE-END');
+  ok(from > 0 && to > from, 'control.html marks the part of its script that needs no page');
+  // That part of the page's own script, run here as it is.
+  const D = new Function(html.slice(from, to) + '\nreturn { setAt, hasKeys, mergeEdits, unsettledEdits, previewQuery, oneLine, statusFor };')();
+  const J = JSON.stringify;
+
+  // The record of edits (TIM-08, TIM-28, TIM-29).
+  const edits = {};
+  D.setAt(edits, ['bars'], 24);
+  D.setAt(edits, ['showLabels'], false);
+  D.setAt(edits, ['perViz', 'dna', 'helixFreq'], 60);
+  D.setAt(edits, ['placement', 'x'], 40);
+  D.setAt(edits, ['mic', 'deviceId'], 'abc');
+  ok(J(edits) === '{"bars":24,"showLabels":false,"perViz":{"dna":{"helixFreq":60}},"placement":{"x":40},"mic":{"deviceId":"abc"}}', 'an edit is recorded under its own key, nested keys included, and nothing else is');
+  const savedCfg = { activeViz: 'matrix', gain: 150, bars: 12, showLabels: true, placement: { x: -10, size: 120 }, perViz: { dna: { helixFreq: 20, reconnectSeconds: 7 } }, mic: { deviceId: 'old', label: 'Old' } };
+  const frozen = J(edits), frozenSaved = J(savedCfg);
+  const merged = D.mergeEdits(T, edits, savedCfg);
+  ok(merged.bars === 24 && merged.showLabels === false && merged.perViz.dna.helixFreq === 60 && merged.placement.x === 40 && merged.mic.deviceId === 'abc',
+    'a config that comes in is merged UNDER the edits: every edited key keeps the streamer\'s value');
+  ok(merged.activeViz === 'matrix' && merged.gain === 150 && merged.placement.size === 120 && merged.perViz.dna.reconnectSeconds === 7 && merged.mic.label === 'Old' && merged.perViz.matrix.flow === 50,
+    'and every key that was not edited takes the value that came in (or its default), the neighbours of an edited nested key included');
+  ok(J(D.unsettledEdits(T, edits, savedCfg)) === frozen && J(edits) === frozen && J(savedCfg) === frozenSaved, 'a broadcast that carries none of the edited values settles none of them; neither object is changed');
+  ok(J(D.unsettledEdits(T, edits, { ...savedCfg, bars: 24, perViz: { dna: { helixFreq: 60 } } })) === '{"showLabels":false,"placement":{"x":40},"mic":{"deviceId":"abc"}}',
+    'a key leaves the record when a broadcast carries its value, and only that key (top level and per-effect)');
+  ok(J(D.unsettledEdits(T, edits, merged)) === '{}' && !D.hasKeys(D.unsettledEdits(T, edits, J(merged) && JSON.parse(J(merged)))), 'the dock\'s own echo settles every edit');
+  ok(J(D.unsettledEdits(T, { showLabels: false, idleAnim: true }, {})) === '{"showLabels":false}', 'false is a value like any other: it is kept until a broadcast says false, and a value equal to what came in is settled');
+  ok(J(D.unsettledEdits(T, { placement: { x: 500 }, bars: 999 }, { placement: { x: 100 }, bars: 32 })) === '{}', 'a value is compared as it would be stored: out of range, it is settled by its clamped value');
+  ok(J(D.unsettledEdits(T, { nope: 1, perViz: { 'no-such-effect': { a: 1 }, dna: { nope: 2 } }, activeViz: 'no-such-effect' }, {})) === '{}', 'a key the config cannot hold is dropped from the record: no broadcast could ever carry it');
+  ok(J(D.unsettledEdits(T, edits, null)) === frozen && J(D.unsettledEdits(T, edits, 'junk')) === frozen && D.mergeEdits(T, edits, null).bars === 24, 'a broadcast that is not a config settles nothing, and the merge still stands on the defaults');
+  ok(J(D.unsettledEdits(T, { perViz: { matrix: { pool: 'x'.repeat(5000) } } }, { perViz: { matrix: { pool: 'x'.repeat(4096) } } })) === '{}', 'Matrix text longer than the limit is settled by its cut form');
+
+  // The preview's address (TIM-09).
+  ok(D.previewQuery('?sbport=8090&sbdebug=1') === '?sbport=8090&sbdebug=1' && D.previewQuery('?sbdebug=1&sbport=8090') === '?sbport=8090&sbdebug=1', 'the preview gets sbport and sbdebug');
+  ok(D.previewQuery('?sbport=8090&x=1&__SB_WS_URL=ws://evil.example&sbdebug=1&%3Cscript%3E') === '?sbport=8090&sbdebug=1' && D.previewQuery('?other=1') === '' && D.previewQuery('') === '' && D.previewQuery(undefined) === '',
+    'and nothing else from the dock\'s address');
+  ok(['1@evil.example', '8090/x', '0', '65536', '123456', '-1', '8090 ', 'abc'].every((p) => D.previewQuery('?sbport=' + encodeURIComponent(p)) === '') && D.previewQuery('?sbdebug=2') === '' && D.previewQuery('?sbdebug=1%26x%3D1') === '',
+    'an sbport that is not a port number, or an sbdebug that is not 1, is not passed on');
+  ok(D.previewQuery('?sbport=65535') === '?sbport=65535' && D.previewQuery('?sbport=1') === '?sbport=1', 'ports 1 and 65535 are passed on');
+
+  // The status line (TIM-11).
+  const base = { connected: true, held: false, actionMissing: false, replyError: null, runError: null, noAnswer: false, defaultQueue: false };
+  const say = (over) => D.statusFor({ ...base, ...over });
+  ok(J(say({})) === '{"level":"on","note":"","text":"Streamer.bot connected"}', 'status: connected');
+  ok(say({ connected: false }).text === 'Streamer.bot offline — retrying…' && say({ connected: false }).level === 'off'
+    && say({ connected: false, held: true }).text === 'Streamer.bot offline — retrying… Your changes are kept and will be sent when it is back.', 'status: Streamer.bot offline, and that the changes are kept when there are any');
+  ok(say({ actionMissing: true }).text === 'Action missing: Streamer.bot has no action named "Timbre Push". Create it (docs/SETUP.md, step 2).' && say({ actionMissing: true }).level === 'warn'
+    && say({ actionMissing: true, held: true }).text.endsWith(' Your changes are kept.'), 'status: action missing');
+  ok(say({ noAnswer: true }).text === 'Connected, but Timbre Push did not answer. Check that its C# compiled (docs/SETUP.md, step 2).' && say({ noAnswer: true }).level === 'warn', 'status: connected, but Timbre Push did not answer');
+  ok(say({ runError: 'bad-config' }).text === 'Timbre Push failed: bad-config — see the Streamer.bot log.' && say({ runError: '' }).text === 'Timbre Push failed — see the Streamer.bot log.' && say({ runError: 'x' }).level === 'warn',
+    'status: a timbre:error broadcast, with its message or code');
+  ok(say({ replyError: 'Queue is paused' }).text === 'Streamer.bot refused Timbre Push: Queue is paused' && say({ replyError: '' }).text === 'Streamer.bot refused Timbre Push.', 'status: any other refusal from Streamer.bot, in its own words');
+  ok(say({ connected: false, actionMissing: true, noAnswer: true, runError: 'x' }).level === 'off' && /^Action missing/.test(say({ actionMissing: true, noAnswer: true, runError: 'x' }).text)
+    && /^Timbre Push failed/.test(say({ noAnswer: true, runError: 'x' }).text), 'status: offline comes first, then a missing action, then an error, then no answer');
+  const note = say({ defaultQueue: true }).note;
+  ok(note === 'Timbre Push is in Streamer.bot\'s Default queue, where a change can be lost. Put it in a blocking action queue: docs/SETUP.md, step 2.' && say({ defaultQueue: true }).text === 'Streamer.bot connected'
+    && say({ defaultQueue: true, connected: false }).note === '' && say({ defaultQueue: true, actionMissing: true }).note === note, 'status: the Default queue gets a second line, while connected, whatever the first line says');
+  const long = say({ runError: 'a\n\t b' + 'x'.repeat(500) + '\u{1F600}' }).text;
+  ok(long.startsWith('Timbre Push failed: a b' + 'x'.repeat(197) + ' — see') && D.oneLine({ toString() { return ' q '; } }) === 'q' && D.oneLine(null) === '' && D.oneLine(42) === '42', 'text from outside is shown as one line of at most 200 characters, whatever its type');
+  ok(/\$\('sbStatusText'\)\.textContent = s\.text;/.test(html) && /\$\('sbQueueNote'\)\.textContent = s\.note;/.test(html) && /\$\('matrixHint'\)\.textContent = /.test(html)
+    && !/(sbStatus|sbStatusText|sbQueueNote|matrixHint)'\)\.innerHTML/.test(html) && !/insertAdjacentHTML|document\.write/.test(html), 'the status line, the queue note and the Matrix hint are put in with textContent');
+  ok(/f\.dataset\.src \+ previewQuery\(location\.search\)/.test(html) && html.split('location.search').length === 2, 'the preview\'s address is built from previewQuery, the only place the page reads its own query string');
+
+  // Whole characters (TIM-18, item 4).
+  const face = '\u{1F600}', astronaut = '\u{1F469}‍\u{1F680}', flag = '\u{1F1EF}\u{1F1F5}';
+  const halves = (s) => /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s);
+  ok(J(T.splitChars('A' + face + 'B')) === J(['A', face, 'B']) && T.splitChars('').length === 0 && T.splitChars(null).length === 0 && J(T.splitChars('ｱｲ0')) === J(['ｱ', 'ｲ', '0']), 'splitChars gives an emoji as one character');
+  ok(J(T.splitChars(astronaut + 'Z' + flag)) === J([astronaut, 'Z', flag]), 'and a joined emoji or a flag as one too');
+  ok(T.cutText('abc', 4096) === 'abc' && T.cutText('x'.repeat(9000), 4096) === 'x'.repeat(4096) && T.cutText('x'.repeat(4096), 4096).length === 4096 && T.cutText(null, 5) === '', 'cutText leaves short text alone and cuts plain text at the limit');
+  ok(T.cutText('x'.repeat(4095) + face + 'y', 4096) === 'x'.repeat(4095) && T.cutText('x'.repeat(4094) + face + 'y', 4096) === 'x'.repeat(4094) + face, 'an emoji that straddles the limit is left out whole; one that ends on it is kept whole');
+  ok(T.cutText('x'.repeat(4093) + astronaut + 'y', 4096) === 'x'.repeat(4093) && T.cutText('x'.repeat(4091) + astronaut + 'y', 4096) === 'x'.repeat(4091) + astronaut, 'the same for a joined emoji: never half of it');
+  {
+    const many = face.repeat(3000), cut = T.cutText(many, 4096);
+    ok(cut.length === 4096 && !halves(cut) && cut === face.repeat(2048), 'a long run of emoji is cut to 4096 UTF-16 units, between two of them');
+    const s = T.sanitizeConfig({ perViz: { matrix: { pool: 'x'.repeat(4095) + face + 'tail', messages: 'A' + face + '\n' + many } } });
+    ok(s.perViz.matrix.pool === 'x'.repeat(4095) && !halves(s.perViz.matrix.messages) && s.perViz.matrix.messages.length <= 4096 && s.perViz.matrix.messages.length >= 4094, 'sanitizeConfig cuts Matrix text by whole characters (before: half an emoji was left at the end)');
+    ok(J(T.sanitizeConfig(s)) === J(s), 'and what it cut, it leaves alone the next time');
+  }
+  const matrixSrc = await readFile(resolve(__dirname, 'overlay/factories/matrix.js'), 'utf8');
+  ok(/TIMBRE\.splitChars\(cfg\.pool\)/.test(matrixSrc) && /TIMBRE\.splitChars\(msgs\[/.test(matrixSrc) && !/cfg\.pool\[/.test(matrixSrc), 'the Matrix effect indexes its pool and its messages by whole characters');
+}
+
 console.log('\n[4] transport seam vs mock');
 {
   // stdin is a pipe the mock watches (MOCK_EXIT_WITH_PARENT): if this process is killed
@@ -7574,6 +7666,49 @@ console.log('\n[4] transport seam vs mock');
   const back = await doAction(a, 'Timbre Push', { reason: 'overlay-connect' });
   ok(!!gone && gone.status === 'error' && gone.error === "The action 'Timbre Push' was not found" && !!back && back.status === 'ok', 'with the missing switch on, Timbre Push itself gets the error reply');
 
+  // The switches the dock's checks use: an action that never answers, a slow round
+  // trip, a named error, and an install with nothing saved.
+  await get('/mock/silent?on=1');
+  clear();
+  const hushed = await doAction(a, 'Timbre Push', { config: JSON.stringify({ activeViz: 'waveform' }) });
+  await wait(120);
+  const hushedStats = await stats();
+  ok(!!hushed && hushed.status === 'ok' && a.events.length === 0 && b.events.length === 0 && hushedStats.cachedConfig === good && hushedStats.silentPush === true && hushedStats.runs[hushedStats.runs.length - 1].did === 'silent',
+    'with the silent switch on, a push is answered "ok" and its run does nothing: no broadcast, nothing stored');
+  await get('/mock/silent?on=0');
+  await get('/mock/delay?ms=150');
+  clear();
+  const sentAt = Date.now();
+  const slow = await doAction(a, 'Timbre Push', { config: JSON.stringify({ activeViz: 'dna' }) });
+  const repliedIn = Date.now() - sentAt, waiting = (await stats()).waitingRuns;
+  request(a, 'Timbre Push', { config: good });
+  await until(() => b.events.length >= 2, 1500);
+  const ranIn = Date.now() - sentAt;
+  ok(!!slow && slow.status === 'ok' && repliedIn < 120 && waiting === 1 && ranIn >= 140 && vizOf(b) === 'dna,matrix' && (await stats()).waitingRuns === 0 && (await stats()).cachedConfig === good,
+    `with a delay set, the reply still comes at once (${repliedIn} ms) and each run that long after it (${ranIn} ms for two), in the order they arrived`);
+  ok((JSON.parse((await get('/mock/delay?ms=99999')).text)).runDelayMs === 5000 && (JSON.parse((await get('/mock/delay?ms=nonsense')).text)).runDelayMs === 0 && (JSON.parse((await get('/mock/delay?ms=0')).text)).runDelayMs === 0, 'the delay is kept between 0 and 5000 ms');
+  await get('/mock/throw?on=1&message=' + encodeURIComponent('<b>named</b>'));
+  clear();
+  await doAction(a, 'Timbre Push', { reason: 'overlay-connect' });
+  await until(() => b.events.length > 0, 600);
+  const named = b.events[0];
+  await get('/mock/throw?on=0');
+  await get('/mock/throw?on=1');
+  clear();
+  await doAction(a, 'Timbre Push', { reason: 'overlay-connect' });
+  await until(() => b.events.length > 0, 600);
+  ok(!!named && named.type === 'timbre:error' && named.message === '<b>named</b>' && b.events.length === 1 && b.events[0].message === 'mock: Timbre Push was made to throw', 'the throw switch can be given the message to broadcast, and goes back to its own');
+  await get('/mock/throw?on=0');
+  await get('/mock/reset');
+  clear();
+  const emptied = await doAction(a, 'Timbre Push', { reason: 'overlay-connect' });
+  await wait(120);
+  const emptyStats = await stats();
+  ok(!!emptied && emptied.status === 'ok' && a.events.length === 0 && emptyStats.cachedConfig === null && emptyStats.runs[emptyStats.runs.length - 1].did === 'sync-empty' && typeof emptyStats.clients === 'number' && emptyStats.clients >= 2,
+    'after a reset nothing is saved: a sync is answered "ok" and broadcasts nothing; the stats count the open connections');
+  await doAction(a, 'Timbre Push', { config: good });
+  await until(() => b.events.length > 0, 600);
+
   // Overlap mode: the Default queue as measured. Runs of one action that land together all
   // see one request's arguments (the later one's).
   const cfgA = JSON.stringify({ activeViz: 'waveform' }), cfgB = JSON.stringify({ activeViz: 'dna' });
@@ -7727,6 +7862,17 @@ console.log('\n[4] transport seam vs mock');
   ok(/403/.test(foreign) && own === 'let in' && local === 'let in', `a browser page from another site is refused (${foreign}); the mock's own pages, local files and clients that send no Origin (this suite) are let in`);
   const badEscape = await get('/%'), badUtf8 = await get('/timbre-overlay/%E0%A4%A'), home = await get('/');
   ok(badEscape.status === 400 && badUtf8.status === 400 && home.status === 200 && mock.exitCode === null, `a path with a bad percent-escape gets a 400 and the mock stays up (${badEscape.status}, ${badUtf8.status}, then ${home.status})`);
+
+  // The kick switch: every connection that is open is closed, and the mock goes on serving.
+  {
+    const k1 = await client(), k2 = await client({ subscribe: false });
+    const kicked = JSON.parse((await get('/mock/kick')).text).kicked;
+    await until(() => k1.closed !== null && k2.closed !== null, 1500);
+    const after = await stats();
+    const again = await client().catch(() => null);
+    ok(kicked >= 2 && k1.closed !== null && k2.closed !== null && after.clients === 0 && !!again && mock.exitCode === null, `the kick switch closes every open connection (${kicked}); a new one is accepted afterwards`);
+    if (again) again.ws.close();
+  }
 
   for (const c of [a, b, junk, big]) { try { if (c) c.ws.close(); } catch {} }
   ctl.close();
