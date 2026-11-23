@@ -24,7 +24,7 @@ VIZ_FACTORIES['my-effect'] = () => {
       }
     },
     onResize() {},              // optional — canvas buffer size changed
-    onConfig(cfg) {},           // optional — full config object after each apply
+    onConfig(cfg) {},           // optional — full config object after each apply (one equal to the last is not applied)
   };
 };
 ```
@@ -42,8 +42,35 @@ Script-scope globals available to factories (from core.js):
 | `micPeak` | loudest input sample over at least the last two looks (4096 samples at 48 kHz), 0 to 1, before Gain, or `null` when no mic |
 | `cfgGain`, `cfgBars`, `cfgBounce`, `cfgColorSpeed`, `cfgColorHue`, `cfgIdleAnim`, `cfgEffectBgOpacity` | normalized global knobs |
 | `perViz['my-effect']` | your effect's own knobs |
-| `getColor(t)` | palette lookup → `[r,g,b]` |
+| `getColor(t)` | palette lookup → `[r,g,b]`, a new array each call |
+| `getColorInto(out, t)` | the same colour written into an array of yours, which it returns: no array is made |
+| `getColorCss(t)`, `paletteStep(t)`, `PALETTE_RGB`, `PALETTE_CSS` | the palette as a table of 256 colours with ready CSS strings (below) |
+| `ema`, `decay`, `chance`, `fadeOrClear` | per-second helpers (below) |
 | `THREE` | three.js r160 (vendored) |
+
+**The palette table.** An effect that paints many things a frame should not build a colour
+array and an `rgb(...)` string for each. `getColorCss(t)` returns a ready string for the
+palette colour nearest `t`, from a table of 256 colours spaced evenly round the palette;
+`paletteStep(t)` is that entry's index (0 to 255) and `PALETTE_RGB[i * 3]` onward its three
+numbers. A table colour is within 3 of 255 on any channel of the exact `getColor(t)`. For
+the exact colour without the array, hand `getColorInto` an array you keep. The table is
+rebuilt whenever the palette changes, which only `setPalette(colours)` does.
+
+**Per-second helpers.** `ema(current, target, rate, dt)` moves a value toward a target and
+`decay(current, rate, dt)` lets it die away, at `rate` per second; they are the scene kit's
+`follow` and `fall`. `chance(perSecond, dt)` is the chance that something which happens
+`perSecond` times a second on average happens in this frame: `if (Math.random() <
+chance(2, dt))`. `fadeOrClear(alpha, dt)` fades what is on the 2D canvas toward nothing,
+where `alpha` is the share a 60 fps frame takes off (multiply your own strength by
+`cfgEffectBgOpacity`, as the trail effects do); with nothing to fade by (Trail veil 0) it
+clears the canvas instead, so nothing smears for ever. All four give the same result over a
+second at any frame rate.
+
+**What you keep on the canvas stays.** The core sets the canvas height only when it changes,
+and a config equal to the one in force is not applied at all (no `onConfig`, no `onResize`),
+so a history or a trail kept on the canvas survives every config that does not resize it.
+When the effect changes, the 2D canvas is cleared and its context put back as new before the
+next effect starts.
 
 Multiply pixel-tuned constants by `SCALE` so the 300×220, 1440×1080 and 1920×1080 layouts all
 look right. `SCALE` is 1.0 / 4.8 / 4.8 on those pages — the 16:9 page pins it to the 4:3 value
@@ -136,6 +163,22 @@ level `i` samples ago (`hz` samples a second); `heard(seconds)` reads it at any 
 both ends. It glides between samples and writes each sample at its own moment, so what it
 drives travels at the same speed at any frame rate.
 
+For time in a shader, hand it a phase, never seconds that only grow. A shader's float has 32
+bits: after 9 hours of seconds it steps 4 ms at a time, after 36 hours 16 ms, and what it
+moves judders. `TimbreScene.phase(seconds, period)` wraps seconds into `0 <= phase <
+period` (below one period it is the seconds themselves, to the bit). Choose the period at
+which everything the shader makes of the time has come round: `sin(rate * t)` comes round
+every `2π / rate`, and several together at the first time that is a whole number of turns
+for each (rates of 1.7, 1 and 1.3 come round every 20π). Then the wrap cannot be seen.
+`TimbreScene.createClock()` gives a clock of the scene's own, kept as a JavaScript number:
+`step(dt)` adds a frame (call it only while the scene is live, if it should stand still
+otherwise), `seconds` reads it, `phase(period, rate)` is the phase of `seconds * rate`.
+Something that never comes round (a noise) cannot be wrapped unseen. Draw it a second time
+at `phase - period`, which is where the next period starts, and mix the two by
+`TimbreScene.dissolve(seconds, period, lead)`: 0 until `lead` seconds before the wrap, then
+a smooth rise to 1 at the wrap. Winter Aurora does this for its rays; School of Fish and
+Sunburst need only the phase.
+
 ### The rules
 
 - **Only solid objects may darken the stream.** Light is written with alpha 0, so it adds
@@ -149,6 +192,10 @@ drives travels at the same speed at any frame rate.
   (`x += speed * dt`, `v *= Math.exp(-rate * dt)`), never per frame, so a scene looks the
   same at 30 and 60 fps. A random part that must not speed up with the frame rate is
   redrawn at a fixed rate, not on every call.
+- **A shader gets a phase, not the time.** Time handed to a shader comes through
+  `TimbreScene.phase()` or a `createClock()` (above), wrapped where the shader's waves come
+  round, so its float stays small on a source left open for days. Never hand a shader
+  `now / 1000` or a clock that only grows.
 - **Size the scene in the frame, not in pixels.** `frame` is the box (in scene units) that
   must fit the canvas at Size 100%, in any canvas shape: the kit picks the camera distance
   from it and the canvas aspect. Design for the frame; the 300x220, 4:3 and 16:9 pages all
@@ -197,9 +244,10 @@ If an id no longer says what the effect is, give it a display name in `VIZ_LABEL
 (`shared/viz-config.js`): the control panel lists the effect by that name. The id stays, so
 saved configs and Streamer.bot actions keep working.
 
-For tests, `TimbreScene.testLevel = 0.8` replaces the mic level (`null` restores it), and
-`TimbreScene.debug()` returns the live scene's render scale, GPU resource counts, the
-camera's position and its own `debug()` state.
+For tests, `TimbreScene.testLevel = 0.8` replaces the mic level (`null` restores it),
+`TimbreScene.testClock = 129600` starts the next `createClock()` that many seconds on
+(`null` restores it), and `TimbreScene.debug()` returns the live scene's render scale, GPU
+resource counts, the camera's position and its own `debug()` state.
 
 ## Afterglow (bar and wave effects)
 
@@ -1468,6 +1516,14 @@ Worth knowing:
   that is sent is sent every frame.
 - Clumps of snow fall straight through the boughs below them, and the lowest boughs reach a
   little past the drift at the front.
+
+## When Streamer.bot is away (the `offline` class)
+
+An overlay shows nothing special on air when its connection to Streamer.bot is down: it
+goes on drawing with the settings it has. While the connection is down the page's `<body>`
+has the class `offline`, and no style of Timbre's own hangs on it. It is a hook for custom
+CSS: a rule such as `body.offline .visualizer-box { opacity: 0.4; }` in the OBS browser
+source's Custom CSS box marks a disconnected overlay, if you want one marked.
 
 ## Wire format (for driving Timbre from elsewhere)
 

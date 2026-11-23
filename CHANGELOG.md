@@ -10,6 +10,48 @@ traceability.
 
 ## [Unreleased]
 
+## [1.0.183] — 2026-11-23
+
+Copy the `shared`, `overlay` and `control` folders, reload the dock and refresh the
+overlay sources. Nothing to re-paste.
+
+### Fixed
+
+- **A config can no longer wedge a page.** A setting named after something every object
+  already has (`constructor`, `toString`, `__proto__`) used to make the overlay or the
+  dock throw on every config from then on, or to store a not-a-number value. Such keys
+  are now ignored, and if reading a config ever fails, the page logs a warning and keeps
+  what it had.
+- **A dock change no longer wipes the picture.** Every config used to resize the canvas
+  three times, which cleared it: the spectrogram's history, Matrix's rain and every trail
+  blanked whenever a slider moved, the dock opened or another source refreshed. The
+  canvas is now sized once, only when its height really changes, and a config equal to
+  the one in force is not applied at all.
+- **Three scenes no longer coarsen over a long stream.** Winter Aurora, School of Fish and
+  Sunburst handed their shaders the seconds since the source loaded, which a graphics
+  card stores too coarsely after many hours, so motion turned to steps. They now get a
+  value that stays small. Winter Aurora's rays repeat after 2 hours 47 minutes, with a
+  20-second dissolve at the join.
+
+### Changed
+
+- Switching to another 2D effect starts it with a clean drawing state. A config for the
+  same effect no longer resets that state as a side effect.
+- Winter Aurora differs from the last release by at most 1 part in 255 on a handful of
+  pixels, from the dissolve's extra shader branch.
+
+### Added
+
+- In `overlay/core.js`, for effects to use: a 256-step table of the palette with ready CSS
+  strings (`getColorCss`, `paletteStep`), `getColorInto` (no allocation), and the
+  per-second helpers `ema`, `decay`, `chance` and `fadeOrClear`, which match the scene
+  kit's. `getColor` gives exactly what it gave before.
+- In the scene kit: `TimbreScene.phase`, `createClock` and `dissolve`, and a rule in
+  `docs/EFFECTS.md` on handing time to a shader.
+- `docs/EFFECTS.md` documents the `offline` class the pages put on `<body>` while
+  Streamer.bot is unreachable, as a hook for custom CSS. The overlay itself shows nothing
+  different when offline.
+
 ## [1.0.181] — 2026-11-23
 
 Copy the `control`, `overlay` and `shared` folders, reload the dock and refresh the
@@ -703,7 +745,8 @@ StreamService / ControlPanel toolkit. (`ee5c34a`)
 
 Verified offline: `verify` 28/28, `verify:render` 14/14.
 
-[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.181...main
+[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.183...main
+[1.0.183]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.181...v1.0.183
 [1.0.181]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.179...v1.0.181
 [1.0.179]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.177...v1.0.179
 [1.0.177]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.175...v1.0.177

@@ -60,7 +60,12 @@
   const FILL = 0.96, ZOOM_BACK = 2;         // the share of the frame the school may fill, and how fast it grows back after being drawn smaller, a second
   const SWAY = 0.16, ORBIT_RATE = 0.13;     // the camera: how far it sways each way at Camera drift 50, in radians, and how fast
   const LINGER = 0.08;                      // how long the light the bubbles leave behind takes to go, in seconds
-  const FOV = 30, PITCH = 6;                // the camera: how wide it sees and how far it looks down, in degrees
+  // The light rippling on the fish is three waves of the time the shader is handed, at rates
+  // of 1.7, 1 and 1.3. They all come round every 20π (17, 10 and 13 turns), so that time is
+  // wrapped there: the shader's float stays under 63 however long the scene has run, and the
+  // wrap is not seen.
+  const RIPPLE_ROUND = 20 * Math.PI;
+  const FOV = 30, PITCH = 6;               // the camera: how wide it sees and how far it looks down, in degrees
   const FRAME = { width: 5.0, height: 3.9, center: [0, 0, 0] };   // what the camera frames
 
   // ── The settings and the sound ──────────────────────────────────────────────
@@ -521,6 +526,7 @@
       return v && typeof v[name] === 'number' ? v[name] : otherwise;
     };
     const bands = new Float32Array(BANDS), school = createSchool(SEED), bubbles = createBubbles(SEED + 1);
+    const clock = TimbreScene.createClock();   // the seconds the scene has been live, kept as a JavaScript number
     const A = new Float32Array(FISH_MAX * 4), B = new Float32Array(FISH_MAX * 4);
     // The shatter machine counts its own pieces; these stand in for the fish, which swim in 3D here.
     const stubs = Array.from({ length: 4 }, () => ({ cx: 500, cy: 500 }));
@@ -533,7 +539,7 @@
     // it is, or is streaming back to. gain: how much of the school there is (1 together, 0
     // apart). need: the share of the frame it needs; room: how much smaller it must be drawn;
     // zoom: how much smaller it is.
-    const s = { flame: 0, kick: 0, clock: 0, live: false, orbit: 0, colorT: 0, fish: 0, steps: 0, stepped: 0, beats: 0, dart: 0, pulse: 0,
+    const s = { flame: 0, kick: 0, clock: clock.seconds, live: false, orbit: 0, colorT: 0, fish: 0, steps: 0, stepped: 0, beats: 0, dart: 0, pulse: 0,
       phase: 'whole', form: FORMS[0], gain: 1, thumps: 0, jostles: 0, flash: 0, need: 0, enlarged: 1, room: 1, zoom: 1, drawnFor: 1, px: 0 };
 
     function build(k) {
@@ -583,7 +589,7 @@
 
       // With the mic and Idle animation both off, the fish stop where they are.
       s.live = !!(micActive || cfgIdleAnim);
-      if (s.live) s.clock += dt;
+      if (s.live) s.clock = clock.step(dt);
       const flame = s.flame = settle(audio.flame);
       s.kick = settle(audio.kick);
       const n = s.fish = countFor(knob('density'));
@@ -662,7 +668,7 @@
       s.colorT = colorT;
       for (let i = 0; i < 6; i++) palette(shared.uPal.value[i], colorT + i * (PALETTE.length / 6));
       shared.uShift.value = (0.01 * s.clock) % 1;
-      shared.uT.value = s.clock;
+      shared.uT.value = TimbreScene.phase(s.clock, RIPPLE_ROUND);
       palette(bubbleMat.uniforms.uColor.value, colorT + PALETTE.length / 2);
       s.drawnFor = TimbreScene.renderScale(canvas3d.height);   // how many pixels of the kit's picture make one of the page
       s.px = bubbleMat.uniforms.uPx.value = pxOf(s.drawnFor * canvas3d.height, s.enlarged) * s.zoom;
@@ -711,7 +717,7 @@
     BANDS, PER_MIN, PER_MAX, FISH_MAX, SEED, STEP, STEPS_MAX, NEAR, CLEAR, BASE, START, LEN, TAIL, EGG, LEAN, FORMS, BALL, AXIS_TILT, RING, RING_WIDE, RING_HIGH, COLUMN, COLUMN_WIDE, COLUMN_HIGH,
     SWING, TIGHT, PULL, PULL_MAX, STAY, WITH, STAY_APART, WITH_APART, PART, TURN, TURN_LOUD, TURN_APART, TURN_BACK, HURRY, BOLT_FAST, BOLT_STIFF, SPEED_RATE, DASH, BEAT, BEAT_FAST, BOLT, REBOLT, JOSTLE, JOIN, ARRIVE, LOITER, ROAM, WALL, WALL_FROM, WALL_SLOW,
     RISE, FALL, TRAIL, PULSE, ROUND_S, FADE, HISTORY, ROLL, DART_S, FLASH_S, FLASH_KEEP_S, DART_FLASH, BUBBLES, BUBBLE_S, BUBBLE_RATE, FILL, ZOOM_BACK, SWAY, ORBIT_RATE, LINGER, FOV, PITCH, FRAME,
-    VERT, FRAG, BUBBLE_VERT, BUBBLE_FRAG,
+    RIPPLE_ROUND, VERT, FRAG, BUBBLE_VERT, BUBBLE_FRAG,
     countFor, loudness, idle, settle, rng, fishShape, createSchool, steer, flock, toEdge, loiterTo, wander, wantOf, stepSchool, advance, join, bolt, nextForm,
     pulseOf, roundOf, heard, dress, createBubbles, stepBubbles, needOf, roomFor, zoomAfter, swayFor, orbitAt, pxOf, definition,
   };

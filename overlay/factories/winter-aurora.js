@@ -14,6 +14,14 @@ VIZ_FACTORIES['winter-aurora'] = TimbreScene.factory(function () {
   const HIST_HZ = 12;         // history samples a second: a syllable crosses in about 2.7 s
   const FLAKES = 220, STARS = 120;
   const BACK = 0.55;          // the land sits this far behind the frame's centre
+  // The time the shaders are handed is the page's seconds wrapped every SPAN seconds, so
+  // their float stays small however long the source has been open. The curtains' six waves
+  // (rates 0.17, 0.21, 0.33, 0.5, 0.13 and 0.19) all come round every 200π seconds, and SPAN
+  // is 16 of those (2 h 47 min), so the wrap moves no curtain. The rays are noise, which
+  // never comes round: over the last DISSOLVE seconds before the wrap they are drawn a second
+  // time as they will be after it, and the two are mixed across. SPAN keeps the noise where
+  // it has always been asked for: below 4096.
+  const SPAN = 3200 * Math.PI, DISSOLVE = 20;
 
   // (z, hem height, ray height, phase, travel: 1 left to right, -1 right to left, 0 centre outward, slope, arch)
   const CURTAINS = [
@@ -65,7 +73,7 @@ VIZ_FACTORIES['winter-aurora'] = TimbreScene.factory(function () {
     }`;
   const AURORA_FRAG = `
     precision highp float;
-    uniform float uTime, uPhase, uGlow, uKick, uLow, uHigh;
+    uniform float uTime, uPhase, uGlow, uKick, uLow, uHigh, uFade, uSpan;
     uniform vec3 uGreen, uTeal, uViolet, uPink;
     varying vec2 vUv;
     varying float vAmp;
@@ -76,6 +84,14 @@ VIZ_FACTORIES['winter-aurora'] = TimbreScene.factory(function () {
       // Rays: fine upright streaks that drift along the curtain, over broader bands.
       float rays = (0.4 + 0.6 * noise(u * 150.0 + uTime * 0.35 + uPhase * 10.0)) * (0.55 + 0.45 * noise(u * 37.0 - uTime * 0.22 + uPhase * 3.0));
       float reach = 0.5 + 0.5 * noise(u * 60.0 + uPhase * 7.0 + uTime * 0.15);
+      // Shortly before uTime wraps, the same rays as they will be just after it, mixed in.
+      if (uFade > 0.0) {
+        float tn = uTime - uSpan;
+        float raysNext = (0.4 + 0.6 * noise(u * 150.0 + tn * 0.35 + uPhase * 10.0)) * (0.55 + 0.45 * noise(u * 37.0 - tn * 0.22 + uPhase * 3.0));
+        float reachNext = 0.5 + 0.5 * noise(u * 60.0 + uPhase * 7.0 + tn * 0.15);
+        rays = mix(rays, raysNext, uFade);
+        reach = mix(reach, reachNext, uFade);
+      }
       // A crisp lower hem, then a long fade upward; some rays reach higher than others.
       float body = smoothstep(0.0, 0.07, v) * exp(-v * 2.2 / reach) * smoothstep(1.0, 0.72, v);
       float hem = smoothstep(0.0, 0.03, v) * smoothstep(0.13, 0.03, v);
@@ -278,7 +294,7 @@ VIZ_FACTORIES['winter-aurora'] = TimbreScene.factory(function () {
         uniforms: {
           uTime: { value: 0 }, uPhase: { value: phase }, uZ: { value: z }, uHem: { value: hem }, uHeight: { value: height },
           uLen: { value: CURTAIN_LENGTH }, uSlope: { value: slope }, uArch: { value: arch }, uHist: { value: along },
-          uGlow: { value: 0 }, uKick: { value: 0 }, uLow: { value: 0 }, uHigh: { value: 0 },
+          uGlow: { value: 0 }, uKick: { value: 0 }, uLow: { value: 0 }, uHigh: { value: 0 }, uFade: { value: 0 }, uSpan: { value: SPAN },
           uGreen: { value: new THREE.Vector3(0.12, 1.0, 0.42) }, uTeal: { value: new THREE.Vector3(0.08, 0.75, 0.95) },
           uViolet: { value: new THREE.Vector3(0.6, 0.22, 1.0) }, uPink: { value: new THREE.Vector3(1.0, 0.25, 0.5) },
         },
@@ -353,7 +369,8 @@ VIZ_FACTORIES['winter-aurora'] = TimbreScene.factory(function () {
     for (const c of curtains) {
       layOut(hist, c.travel, c.along);
       const u = c.material.uniforms;
-      u.uTime.value = t; u.uGlow.value = s.bright; u.uKick.value = s.kick; u.uLow.value = s.low; u.uHigh.value = s.high;
+      u.uTime.value = TimbreScene.phase(t, SPAN); u.uFade.value = TimbreScene.dissolve(t, SPAN, DISSOLVE);
+      u.uGlow.value = s.bright; u.uKick.value = s.kick; u.uLow.value = s.low; u.uHigh.value = s.high;
     }
 
     // The aurora's light on the snow: green, turning toward violet with the high end.
@@ -420,6 +437,7 @@ VIZ_FACTORIES['winter-aurora'] = TimbreScene.factory(function () {
       return Object.assign({
         hist: Array.from(hist), curtains: curtains.map((c) => Array.from(c.along)),
         stars: stars ? stars.geometry.drawRange.count : 0,
+        shader: curtains.length ? [curtains[0].material.uniforms.uTime.value, curtains[0].material.uniforms.uFade.value] : [],   // the time the shaders were handed, and how far into a dissolve
       }, s);
     },
   };

@@ -133,7 +133,16 @@
 //           connected, and notes the Default queue; a saved microphone that is not listed gets a
 //           placeholder; Matrix text typed and not applied is kept; the preview gets only sbport
 //           and sbdebug, opens the microphone, and is unloaded when closed; emoji in Matrix text
-//           are drawn whole.
+//           are drawn whole •
+//           Sprint 4, on a page and a dock of its own: the spectrogram's history survives a config
+//           that changes nothing it uses, a config equal to the one in force, and Streamer.bot
+//           going away and coming back; a canvas height that changes is set once; a kit scene's
+//           render targets and WebGL canvas are left alone by such configs; with Streamer.bot away
+//           the page looks as it did (the `offline` class has no style); a config that makes the
+//           overlay or the dock throw is caught with a console warning, and the crafted config of
+//           TIM-06 is taken by both; and Winter Aurora, School of Fish and Sunburst, 36 hours on,
+//           hand their shaders a small number and draw the picture they drew at the start, the
+//           aurora crossing its wrap without a jump.
 
 import { spawn } from 'node:child_process';
 import { connect } from 'node:net';
@@ -7278,6 +7287,278 @@ async function main() {
     check('matrix: the cell the head leaves is repainted with the glyph that was there (no cell gets two glyphs in one pass)', rain.draws > 100 && rain.conflicts === 0, JSON.stringify(rain));
     check('every effect: no page errors from the pass or the four fixes', smokeErrors.length === 0, smokeErrors.slice(0, 5).join(' | '));
     await smoke.close();
+    }
+    {
+    // ── Sprint 4: a config that changes nothing, a config that throws, a source left open for days ──
+    // A fresh 1920×1080 page and a dock of their own, so nothing here leans on what the
+    // sections above left behind. The page starts on the spectrogram, which keeps its history
+    // on the canvas itself: clearing the canvas loses it.
+    await pushConfig((c) => { c.activeViz = 'spectrogram'; });
+    const pg = await ctxt.newPage();
+    const pgErrors = [], pgWarnings = [];
+    pg.on('pageerror', (e) => pgErrors.push(String(e)));
+    pg.on('console', (m) => { if (m.type() === 'warning' && /Timbre/.test(m.text())) pgWarnings.push(m.text()); });   // the page's own warnings, not the browser's
+    await pg.setViewportSize({ width: 1920, height: 1080 });
+    await pg.goto(overlayWideUrl, { waitUntil: 'load' });
+    await pg.waitForFunction(() => window.__timbre && window.__timbre.micActive === true && window.__timbre.currentVizName === 'spectrogram', { timeout: 8000 }).catch(() => {});
+    // What the page is asked to do, counted: every time a canvas's height is set (by anyone),
+    // every resize and config the live effect is told of, every frame it draws. `seen` gets a
+    // row for every config that comes in. Its listener is added after core.js's own, so it runs
+    // after the config has been applied (or not) and before another frame is drawn.
+    await pg.evaluate(() => {
+      const probe = window.__s4 = { sets2d: 0, sets3d: 0, resizes: 0, configs: 0, draws: 0, seen: [], kept: null };
+      const height = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, 'height');
+      for (const [id, key] of [['vizCanvas2D', 'sets2d'], ['vizCanvas3D', 'sets3d']]) {
+        Object.defineProperty(document.getElementById(id), 'height', { configurable: true, get() { return height.get.call(this); }, set(v) { probe[key]++; height.set.call(this, v); } });
+      }
+      // How much history the spectrogram holds. Each frame leaves its head line behind, 5 px wide
+      // and 10 px from the last; this looks at the middle of every such line's place.
+      probe.columns = () => { const c = document.getElementById('vizCanvas2D'), d = c.getContext('2d').getImageData(0, c.height >> 1, c.width, 1).data; let n = 0; for (let x = 5; x < c.width; x += 10) if (d[x * 4 + 3] > 0) n++; return n; };
+      probe.watch = () => {
+        const v = currentViz;
+        if (!v || v.__s4) return;
+        v.__s4 = true;
+        const resize = v.onResize, draw = v.draw;
+        v.onResize = function () { probe.resizes++; if (resize) return resize.apply(this, arguments); };
+        v.onConfig = function () { probe.configs++; };
+        v.draw = function () { probe.draws++; return draw.apply(this, arguments); };
+      };
+      probe.watch();
+      window.addEventListener('svc:message', (evt) => {
+        const m = evt.detail;
+        if (m && m.type === 'timbre:config') probe.seen.push({ columns: currentVizName === 'spectrogram' ? probe.columns() : -1, sets2d: probe.sets2d, sets3d: probe.sets3d, resizes: probe.resizes, configs: probe.configs, cfgBars, cfgGain, H });
+      });
+    });
+    const probeNow = () => pg.evaluate(() => { const p = window.__s4; return { columns: currentVizName === 'spectrogram' ? p.columns() : -1, sets2d: p.sets2d, sets3d: p.sets3d, resizes: p.resizes, configs: p.configs, draws: p.draws, seen: p.seen.length, cfgBars, cfgGain, H, offline: document.body.classList.contains('offline') }; });
+    // Push a config and return the row its arrival left (null if it never came).
+    const pushed = async (mutate, raw) => {
+      const mark = (await probeNow()).seen;
+      if (raw) await pushRaw(raw); else await pushConfig(mutate);
+      await pg.waitForFunction((n) => window.__s4.seen.length > n, mark, { timeout: 5000 }).catch(() => {});
+      return pg.evaluate((n) => window.__s4.seen[n] || null, mark);
+    };
+
+    // TIM-15. The history fills in about three seconds: 173 head lines across 1728 px.
+    await pg.waitForFunction(() => window.__s4.columns() >= 165, { timeout: 12000 }).catch(() => {});
+    const full = await probeNow();
+    const other = await pushed((c) => { c.activeViz = 'spectrogram'; c.bars = 12; c.bounce = 80; c.bgOpacity = 40; c.perViz.matrix.flow = 80; });
+    check('TIM-15: the spectrogram\'s history survives a config that changes nothing it uses (the config is applied; no canvas height is set, no resize is told)',
+      full.columns >= 165 && !!other && other.cfgBars === 12 && other.configs === full.configs + 1 && other.columns >= full.columns - 3 && other.sets2d === full.sets2d && other.sets3d === full.sets3d && other.resizes === full.resizes,
+      JSON.stringify({ before: full, after: other }));
+    const again = await pushed((c) => { c.activeViz = 'spectrogram'; c.bars = 12; c.bounce = 80; c.bgOpacity = 40; c.perViz.matrix.flow = 80; });
+    check('TIM-15: a config equal to the one in force is not applied at all: the effect is not told of it and the history is whole',
+      !!other && !!again && again.configs === other.configs && again.columns >= full.columns - 3 && again.sets2d === other.sets2d && again.sets3d === other.sets3d && again.resizes === other.resizes, JSON.stringify({ first: other, again }));
+    const taller = await pushed((c) => { c.activeViz = 'spectrogram'; c.bars = 12; c.bounce = 80; c.bgOpacity = 40; c.perViz.matrix.flow = 80; c.showLabels = false; });
+    check('TIM-15: a config that changes the canvas height sets it once on each canvas and tells the effect once',
+      !!again && !!taller && taller.H === 816 && taller.sets2d === again.sets2d + 1 && taller.sets3d === again.sets3d + 1 && taller.resizes === again.resizes + 1 && taller.configs === again.configs + 1, JSON.stringify({ before: again, after: taller }));
+
+    // TIM-19 (decision: nothing is shown on air when Streamer.bot is away). With the socket gone
+    // the body gets the class `offline` and nothing else changes: no style hangs on that class,
+    // the effect goes on drawing with the settings it has, and what is on the canvas stays. When
+    // Streamer.bot is back the page asks for the saved config again; it is the one in force, so
+    // that costs nothing either. (The first half holds before and after this sprint; the second
+    // did not: the replayed config cleared the canvas.)
+    await pg.waitForFunction(() => window.__s4.columns() >= 165, { timeout: 12000 }).catch(() => {});
+    const looks = () => pg.evaluate(() => {
+      const of = (el) => { const s = getComputedStyle(el); return ['display', 'visibility', 'opacity', 'filter', 'backgroundColor', 'borderTopColor', 'boxShadow', 'outlineStyle'].map((k) => s[k]).join('|'); };
+      let rules = 0;
+      for (const sheet of document.styleSheets) { try { for (const r of sheet.cssRules) if (/offline/.test(r.cssText)) rules++; } catch {} }
+      return { styles: [document.body, document.querySelector('.visualizer-box'), document.getElementById('canvasStack'), document.getElementById('vizCanvas2D'), document.getElementById('vizStatus')].map(of).join(' / '), rules, text: document.getElementById('vizStatus').textContent };
+    });
+    const online = await probeNow(), onlineLooks = await looks();
+    await fetch(BASE + '/mock/drop?on=1'); await fetch(BASE + '/mock/kick');
+    const wentOffline = await pg.waitForFunction(() => document.body.classList.contains('offline'), { timeout: 5000 }).then(() => true).catch(() => false);
+    await pg.waitForTimeout(700);
+    const away = await probeNow(), awayLooks = await looks();
+    check('TIM-19: with Streamer.bot away the overlay shows nothing special: the body gets the class `offline`, no style hangs on it, nothing on the page looks different, and the effect goes on drawing with the settings it has',
+      online.offline === false && wentOffline && away.offline === true && awayLooks.rules === 0 && awayLooks.styles === onlineLooks.styles && awayLooks.text === onlineLooks.text
+      && away.draws > online.draws + 10 && away.columns >= 165 && away.cfgBars === 12 && away.sets2d === online.sets2d && away.H === online.H,
+      JSON.stringify({ online, away, looks: [onlineLooks, awayLooks] }));
+    await fetch(BASE + '/mock/drop?on=0');
+    const cameBack = await pg.waitForFunction((n) => !document.body.classList.contains('offline') && window.__s4.seen.length > n, away.seen, { timeout: 20000 }).then(() => true).catch(() => false);
+    const back = await probeNow(), replayed = await pg.evaluate((n) => window.__s4.seen[n] || null, away.seen);
+    check('TIM-15: when Streamer.bot comes back the saved config is sent again and costs nothing: it is the one in force, so no canvas is touched and the history is whole',
+      cameBack && back.offline === false && !!replayed && replayed.columns >= 165 && replayed.sets2d === away.sets2d && replayed.sets3d === away.sets3d && replayed.resizes === away.resizes && replayed.configs === away.configs,
+      JSON.stringify({ away, replayed, back }));
+
+    // A kit scene: its render targets are built once, and a config that leaves the canvas's
+    // size alone does not touch the WebGL canvas or tell the scene of a resize.
+    await pushed((c) => { c.activeViz = 'winter-aurora'; });
+    await pg.waitForFunction(() => window.__timbre.currentVizName === 'winter-aurora' && window.__timbre.scene && window.__timbre.scene.active, { timeout: 5000 }).catch(() => {});
+    await pg.waitForTimeout(500);
+    await pg.evaluate(() => window.__s4.watch());
+    const kit0 = await probeNow(), gen0 = await pg.evaluate(() => window.__timbre.scene.targetGeneration);
+    const kitSame = await pushed((c) => { c.activeViz = 'winter-aurora'; });
+    const kitGain = await pushed((c) => { c.activeViz = 'winter-aurora'; c.gain = 110; c.placement.x = 20; });
+    await pg.waitForTimeout(300);
+    const gen1 = await pg.evaluate(() => window.__timbre.scene.targetGeneration);
+    check('TIM-15: a kit scene keeps its render targets through an equal config and through one that changes settings only (targetGeneration the same), and neither sets the WebGL canvas\'s height or tells the scene of a resize',
+      !!kitSame && !!kitGain && gen1 === gen0 && kitSame.configs === kit0.configs && kitGain.configs === kit0.configs + 1 && kitGain.cfgGain === 1.1
+      && kitGain.sets3d === kit0.sets3d && kitGain.sets2d === kit0.sets2d && kitGain.resizes === kit0.resizes, JSON.stringify({ gen: [gen0, gen1], before: kit0, same: kitSame, gain: kitGain }));
+
+    // TIM-06. A config that makes the page throw while it is taken: the overlay warns on the
+    // console and keeps what it has. Here sanitizeConfig itself is made to throw, once.
+    const errorsBefore = pgErrors.length, warningsBefore = pgWarnings.length;
+    await pg.evaluate(() => { const real = TIMBRE.sanitizeConfig; TIMBRE.sanitizeConfig = function () { TIMBRE.sanitizeConfig = real; throw new Error('sanitize failed (a test)'); }; });
+    const thrown = await pushed((c) => { c.activeViz = 'winter-aurora'; c.gain = 130; });
+    const restoredItself = await pg.evaluate(() => { const ok = !/sanitize failed/.test(String(TIMBRE.sanitizeConfig)); return ok; });
+    await pg.waitForTimeout(100);
+    check('TIM-06: a config that makes the overlay throw is caught where it comes in: no page error, a console warning, and the overlay keeps the settings it has',
+      !!thrown && restoredItself && thrown.cfgGain === 1.1 && pgErrors.length === errorsBefore && pgWarnings.length === warningsBefore + 1 && /Timbre: a config that came in could not be applied/.test(pgWarnings[pgWarnings.length - 1] || ''),
+      JSON.stringify({ thrown, errors: pgErrors.slice(errorsBefore), warnings: pgWarnings.slice(warningsBefore) }));
+    // The crafted config of the audit, through the mock, which stores and sends it as it came.
+    const CRAFTED = '{"activeViz":"winter-aurora","gain":120,"perViz":{"constructor":{"name":"x"},"toString":{"length":3},"dna":{"helixFreq":70}},"placement":{"constructor":5,"x":10},"__proto__":{"bars":5}}';
+    const crafted = await pushed(null, CRAFTED);
+    const craftedCfg = await pg.evaluate(() => { const c = window.__timbre.config; return { gain: c.gain, helix: c.perViz.dna.helixFreq, place: Object.getOwnPropertyNames(c.placement).join(), x: c.placement.x, viz: Object.getOwnPropertyNames(c.perViz).filter((n) => !TIMBRE.DEFAULT_PER_VIZ.hasOwnProperty(n)).join(), text: JSON.stringify(c), objectName: Object.name }; });
+    check('TIM-06: a config naming `constructor`, `toString` and `__proto__` as an effect and as a placement is taken without a throw: its real settings land, nothing else is added, no NaN',
+      !!crafted && crafted.cfgGain === 1.2 && craftedCfg.gain === 120 && craftedCfg.helix === 70 && craftedCfg.place === 'x,y,size' && craftedCfg.x === 10 && craftedCfg.viz === '' && !/null|NaN/.test(craftedCfg.text.replace(/"(deviceId|label)":"[^"]*"/g, '')) && craftedCfg.objectName === 'Object'
+      && pgErrors.length === errorsBefore && pgWarnings.length === warningsBefore + 1, JSON.stringify({ crafted, craftedCfg, errors: pgErrors.slice(errorsBefore), warnings: pgWarnings.slice(warningsBefore + 1) }));
+
+    // The dock takes the same broadcasts. It connects now, so the crafted config is the saved
+    // one it is sent first.
+    const dk = await ctxt.newPage();
+    const dkErrors = [], dkWarnings = [];
+    dk.on('pageerror', (e) => dkErrors.push(String(e)));
+    dk.on('console', (m) => { if (m.type() === 'warning' && /Timbre/.test(m.text())) dkWarnings.push(m.text()); });
+    await dk.setViewportSize({ width: 420, height: 900 });
+    await dk.goto(controlUrl, { waitUntil: 'load' });
+    const gainShown = (v) => dk.waitForFunction((want) => { const g = document.getElementById('g-gain'); return !!g && g.value === want; }, String(v), { timeout: 5000 }).then(() => true).catch(() => false);
+    const dockCrafted = await gainShown(120);
+    check('TIM-06: the dock takes the crafted config too: it shows its real settings and throws nothing', dockCrafted && dkErrors.length === 0 && await dk.evaluate(() => document.getElementById('activeViz').value) === 'winter-aurora', JSON.stringify({ dockCrafted, errors: dkErrors }));
+    // And a broadcast that makes the dock throw while it is taken (sanitizeConfig again, once).
+    await dk.evaluate(() => {
+      const real = TIMBRE.sanitizeConfig;
+      TIMBRE.sanitizeConfig = function () { TIMBRE.sanitizeConfig = real; throw new Error('sanitize failed (a test)'); };
+      window.__s4got = 0;
+      window.addEventListener('svc:message', (evt) => { if (evt.detail && evt.detail.type === 'timbre:config') window.__s4got++; });
+    });
+    await pushConfig((c) => { c.activeViz = 'winter-aurora'; c.gain = 140; });
+    await dk.waitForFunction(() => window.__s4got >= 1, { timeout: 5000 }).catch(() => {});
+    await dk.waitForTimeout(150);
+    const dockKept = await dk.evaluate(() => ({ gain: document.getElementById('g-gain').value, restored: !/sanitize failed/.test(String(TIMBRE.sanitizeConfig)), got: window.__s4got }));
+    await pushConfig((c) => { c.activeViz = 'winter-aurora'; c.gain = 160; });
+    const dockNext = await gainShown(160);
+    check('TIM-06: a broadcast that makes the dock throw is caught where it comes in: no page error, a console warning, the dock shows what it showed, and it takes the next broadcast as usual',
+      dockKept.got >= 1 && dockKept.restored && dockKept.gain === '120' && dkErrors.length === 0 && dkWarnings.some((w) => /Timbre dock: a config broadcast could not be taken/.test(w)) && dockNext,
+      JSON.stringify({ dockKept, dockNext, errors: dkErrors, warnings: dkWarnings }));
+    await dk.close();
+
+    // D-09. A source left open for days. The three scenes that hand a shader time are each built
+    // afresh with seeded randomness and drawn 120 frames by hand, starting hours apart, and the
+    // pictures are compared number for number. `clock` is where a scene's own clock starts
+    // (TimbreScene.testClock); `now` is the page's time at the first frame; firstDt makes the first
+    // frame that long. Nothing sounds in the bins, so nothing but the shader's time differs.
+    const shot = (o) => pg.evaluate((o) => {
+      window.frame = function () {};
+      const random = Math.random, saved = { frequencies, waveform, micActive, micPeak, cfgIdleAnim, cfgColorHue, cfgColorSpeed, cfgGain }, knobs0 = Object.assign({}, perViz[o.id]);
+      let seed = 20261123;
+      Math.random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+      try {
+        if (o.knobs) Object.assign(perViz[o.id], o.knobs);
+        frequencies = new Uint8Array(32); waveform = new Uint8Array(64).fill(128); micActive = true; micPeak = 0;
+        cfgIdleAnim = true; cfgColorHue = 0; cfgColorSpeed = 1; cfgGain = 1;
+        TimbreScene.testLevel = 0.6;
+        TimbreScene.testClock = typeof o.clock === 'number' ? o.clock : null;
+        setActiveViz('visualizer'); setActiveViz(o.id);
+        TimbreScene.testClock = null;
+        const gl = document.getElementById('vizCanvas3D').getContext('webgl2');
+        let now = o.now;
+        for (let i = 0; i < o.frames; i++) { now += 1000 / 60; currentViz.draw(now, i === 0 && o.firstDt ? o.firstDt : 1 / 60); }
+        const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        let lit = 0;
+        for (let i = 0; i < px.length; i++) if (px[i]) lit++;
+        // How this picture differs from the one kept: how many of its numbers, and by how much at most.
+        const diff = { n: -1, max: -1 }, kept = window.__s4.kept;
+        if (o.compare && kept && kept.length === px.length) { diff.n = 0; diff.max = 0; for (let i = 0; i < px.length; i++) { const d = Math.abs(px[i] - kept[i]); if (d) { diff.n++; if (d > diff.max) diff.max = d; } } }
+        if (o.keep) window.__s4.kept = px;
+        const st = window.__timbre.scene.state;
+        return { lit, total: px.length, diff, hours: now / 3600000, clock: st.clock, given: st.given || [], shader: st.shader || [], shift: st.shift };
+      } finally {
+        Math.random = random; TimbreScene.testLevel = null; TimbreScene.testClock = null;
+        frequencies = saved.frequencies; waveform = saved.waveform; micActive = saved.micActive; micPeak = saved.micPeak;
+        cfgIdleAnim = saved.cfgIdleAnim; cfgColorHue = saved.cfgColorHue; cfgColorSpeed = saved.cfgColorSpeed; cfgGain = saved.cfgGain;
+        Object.assign(perViz[o.id], knobs0);
+      }
+    }, o);
+    const NOW = 100000 + 1000 / 120, TURN20 = 20 * Math.PI, AURORA_SPAN = 3200 * Math.PI;
+    // A picture is the same as the one kept but for the stray pixel this GPU allows itself.
+    const same = (r, most = 64) => r.diff.n >= 0 && r.diff.n <= most && r.diff.max <= 1;
+
+    // Winter Aurora takes the page's own time. Thirteen wraps later (36.3 hours) every wave in
+    // the scene, in the shaders and out of them, is where it was; only the stars twinkle at
+    // rates of their own, so there are none here. The picture is the one drawn at 100 seconds.
+    const auNear = await shot({ id: 'winter-aurora', knobs: { starDensity: 0 }, now: NOW, frames: 120, keep: true });
+    const auFar = await shot({ id: 'winter-aurora', knobs: { starDensity: 0 }, now: NOW + 13 * AURORA_SPAN * 1000, frames: 120, compare: true });
+    check('D-09 winter aurora: 36 hours on, the time its shaders are handed is under 10,054 s (it was 130,792), and the picture is the one drawn at 100 seconds',
+      auNear.lit > 1500000 && auFar.hours > 36 && auNear.shader.length === 2 && Math.abs(auNear.shader[0] - (NOW + 2000) / 1000) < 1e-9 && auNear.shader[1] === 0
+      && auFar.shader[0] < AURORA_SPAN && Math.abs(auFar.shader[0] - auNear.shader[0]) < 1e-6 && auFar.shader[1] === 0 && same(auFar),
+      JSON.stringify({ near: auNear, far: auFar }));
+    // Across a wrap: 4.5 s to settle, then the 60 frames round the thirteenth wrap, each compared
+    // with the frame before it. The rays are dissolved across, so the frame that wraps changes
+    // no more than its neighbours do; undissolved, every ray would change at once.
+    const wrap = await pg.evaluate((SPAN) => {
+      window.frame = function () {};
+      const random = Math.random, saved = { frequencies, micActive }, knobs0 = Object.assign({}, perViz['winter-aurora']);
+      let seed = 20261123;
+      Math.random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+      try {
+        Object.assign(perViz['winter-aurora'], { starDensity: 0, snowfall: 0 });
+        frequencies = new Uint8Array(32); micActive = true; TimbreScene.testLevel = 0.6;
+        setActiveViz('visualizer'); setActiveViz('winter-aurora');
+        const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+        const read = () => { const px = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); return px; };
+        const change = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]); return s; };
+        const at = 13 * SPAN;
+        let now = (at - 4.5) * 1000, last = null;
+        const rows = [];
+        for (let i = 0; i < 300; i++) {
+          now += 1000 / 60; currentViz.draw(now, 1 / 60);
+          if (i < 239) continue;
+          const px = read(), sh = window.__timbre.scene.state.shader || [];
+          if (last) rows.push({ t: now / 1000 - at, change: change(last, px), time: sh[0], fade: sh[1] });
+          last = px;
+        }
+        return rows;
+      } finally {
+        Math.random = random; frequencies = saved.frequencies; micActive = saved.micActive; TimbreScene.testLevel = null;
+        Object.assign(perViz['winter-aurora'], knobs0);
+      }
+    }, AURORA_SPAN);
+    const wrapAt = wrap.findIndex((r, i) => i > 0 && r.time < wrap[i - 1].time), others = wrap.filter((r, i) => i !== wrapAt).map((r) => r.change);
+    const wrapRow = wrap[wrapAt] || {}, beforeRow = wrap[wrapAt - 1] || {};
+    check(`D-09 winter aurora: the picture crosses the wrap without a jump: the frame that wraps changes no more than the frames beside it (${wrapRow.change} against ${Math.min(...others)} to ${Math.max(...others)}), with the rays fully dissolved just before it and not at all after`,
+      wrap.length === 60 && wrapAt > 20 && wrapAt < 40 && Math.min(...others) > 0 && wrapRow.change <= 1.25 * Math.max(...others)
+      && beforeRow.time > AURORA_SPAN - 0.05 && beforeRow.time < AURORA_SPAN && beforeRow.fade > 0.999 && wrapRow.time >= 0 && wrapRow.time < 0.05 && wrapRow.fade === 0
+      && wrap.slice(0, wrapAt).every((r, i) => i === 0 || r.fade >= wrap[i - 1].fade),
+      JSON.stringify({ wrapAt, before: beforeRow, wrap: wrapRow, others: [Math.min(...others), Math.max(...others)] }));
+
+    // School of Fish and Sunburst keep clocks of their own (the seconds the scene has been live).
+    // A first frame 36 hours long: the clock has it all, and the shader is handed under 63.
+    const fiLong = await shot({ id: 'school-of-fish', now: NOW, firstDt: 129600, frames: 31 });
+    const suLong = await shot({ id: 'sunburst-3d', now: NOW, firstDt: 129600, frames: 31 });
+    check('D-09 school of fish and sunburst: after a 36-hour run the scene\'s clock is 129,600.5 s, a JavaScript number, and the time its shader is handed is under 20π (it was the clock itself)',
+      Math.abs(fiLong.clock - 129600.5) < 1e-6 && fiLong.given[0] >= 0 && fiLong.given[0] < TURN20 && Math.abs(fiLong.given[0] - (fiLong.clock - 2062 * TURN20)) < 1e-6
+      && Math.abs(suLong.clock - 129600.5) < 1e-6 && suLong.given.length === 1 && suLong.given[0] >= 0 && suLong.given[0] < TURN20 && Math.abs(suLong.given[0] - (suLong.clock * 0.8 - 1650 * TURN20)) < 1e-6,
+      JSON.stringify({ fish: [fiLong.clock, fiLong.given], sun: [suLong.clock, suLong.given] }));
+    // The picture: the same 120 frames from a clock that starts at nothing and from one that
+    // starts 35.5 (fish) and 36 (sun) hours on, a whole number of the shader's turns later. The
+    // fish also drift through the palette once in 100 s, and 2,034 turns are 0.011 s short of
+    // 1,278 of those: that is a 9,000th of a colour step, which rounds a few numbers the other way.
+    const fiNear = await shot({ id: 'school-of-fish', now: NOW, frames: 120, keep: true });
+    const fiFar = await shot({ id: 'school-of-fish', now: NOW, clock: 2034 * TURN20, frames: 120, compare: true });
+    check('D-09 school of fish: started 35.5 hours on, it draws the picture it draws from the start, to within 1 of 255 on under 1% of its numbers, and its shader is handed 2 s, not 127,802',
+      fiNear.lit > 200000 && fiNear.given[0] === fiNear.clock && Math.abs(fiNear.clock - 2) < 1e-9 && Math.abs(fiFar.clock - (2034 * TURN20 + 2)) < 1e-6 && Math.abs(fiFar.given[0] - 2) < 1e-6 && same(fiFar, 0.01 * fiFar.total),
+      JSON.stringify({ near: fiNear, far: fiFar }));
+    const suNear = await shot({ id: 'sunburst-3d', now: NOW, frames: 120, keep: true });
+    const suFar = await shot({ id: 'sunburst-3d', now: NOW, clock: 1650 * 25 * Math.PI, frames: 120, compare: true });
+    check('D-09 sunburst: started 36 hours on, it draws the picture it draws from the start, and its shader is handed 1.6 s, not 103,675',
+      suNear.lit > 200000 && suNear.given[0] === suNear.clock * 0.8 && Math.abs(suNear.clock - 2) < 1e-9 && Math.abs(suFar.clock - (1650 * 25 * Math.PI + 2)) < 1e-6 && Math.abs(suFar.given[0] - 1.6) < 1e-6 && same(suFar),
+      JSON.stringify({ near: suNear, far: suFar }));
+    check('Sprint 4: no page errors from its checks', pgErrors.length === 0, pgErrors.slice(0, 5).join(' | '));
+    await pg.close();
+    // Leave the mock as the sections after this one expect it: nothing dropped, the defaults saved.
+    await pushConfig((c) => { c.activeViz = 'visualizer'; });
     }
     // ── Control panel: UI change → Timbre Push → broadcast round-trip ─────
     const observed = [];
