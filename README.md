@@ -19,7 +19,9 @@ control.html ── DoAction "Timbre Push" {config} ──► Streamer.bot (C# c
 ```
 
 - **No audio crosses any wire.** Each overlay page runs its own `getUserMedia` →
-  `AnalyserNode` (fftSize 64, ~30 fps). Only the settings JSON travels, via Streamer.bot.
+  `AnalyserNode` (fftSize 2048, folded into 32 bands from 60 Hz to 12 kHz, ~30 fps; beside
+  them the 32 values 750 Hz apart that effects built earlier were tuned on). Only the
+  settings JSON travels, via Streamer.bot.
 - **One config message** (`timbre:config`) carries everything: active effect, global knobs,
   scene placement, the afterglow length, per-effect knobs, and the mic device to capture.
 - **Sync-on-connect:** when a page connects it fires `DoAction "Timbre Push"`, and the
@@ -104,6 +106,34 @@ It does not model:
 - Real timing. The mock answers at once, or after a fixed delay a test sets.
 - OBS's browser. The render suite drives Edge or Chrome with a fake microphone that is
   always granted, so the microphone check in docs/SETUP.md still has to be done in OBS.
+
+### What a change to the audio input does to the effects
+
+`tools/compare-input.mjs` is a development script. It feeds the same recorded signals, sample
+for sample, to two builds of the overlay (a git ref, and the working tree) through the real
+`AnalyserNode` of each, and reports per effect the levels each reader derives from the sound
+and the pixels that differ:
+
+```
+node tools/compare-input.mjs --ref <git ref> --out <folder>
+```
+
+- The signals (made in `tools/input-replay.mjs`): a speech-like
+  voice at 150 Hz and one at 220 Hz, a kick with a hi-hat, a simple band (bass notes, chords,
+  hi-hats), a tone rising from 60 Hz to 12 kHz, and silence. Six seconds each.
+- `levels.txt`: the 32 values of each build, and every reader's level old against new with
+  its limit (`tools/input-readers.mjs` lists the readers; `npm run verify` checks that each
+  line it mirrors is still in the effect's file).
+- `compare.txt`: per effect, the share of pixels that differ and the change in light, sorted
+  from most changed to least. `sheets/<effect>.png`: old on the left, new on the right.
+- It serves the pages itself on the suites' side port (7476), so it must not run while a
+  suite does. It never contacts Streamer.bot.
+
+`npm run verify:render` uses the same signals: it records the speech and the sweep through
+the real analysis, checks the slices against a 64-point `AnalyserNode`, and holds a frame of
+18 effects (at least two for each way of reading the sound) to the numbers stored in
+`tools/input-expectations.json`. After a look is changed on purpose, write them again with
+`node tools/compare-input.mjs --steps record,render,expect` and say so in the change.
 
 ## Author & support
 

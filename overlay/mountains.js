@@ -379,7 +379,7 @@
       let mean = 0;
       for (let c = 0; c < NC; c++) {
         let target = 0;
-        if (micActive) target = answer(loudness(frequencies, bands[c], cfgGain), audio.flame);
+        if (micActive) target = answer(loudness(slices, bands[c], cfgGain), audio.flame);
         else if (cfgIdleAnim) target = idle(c, s.clock);
         amps[c] = follow(amps[c], target, target > amps[c] ? 4 : 0.75, dt);
         mean += amps[c];

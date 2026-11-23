@@ -8,19 +8,20 @@ VIZ_FACTORIES['mountains-2d'] = function () {
   const FOCAL = 90 * SCALE;
   const NEAR = 4;
   const VEIL = 0.55;   // the share a 60 fps frame's fade takes off the trail, at Trail veil 100
+  // LOG_GAIN is fitted so that a recorded voice gives the light the 750 Hz values gave.
+  const LOG_GAIN = 0.83;
   let heightRows = null;
   let scrollProgress = 0;
   function sampleHeights(now) {
     const out = new Array(GRID_W).fill(0);
     if (micActive && frequencies && frequencies.length > 0) {
-      const n = frequencies.length;
       // The spectrum is mirrored about the middle of the mesh, which lies between its two
-      // middle columns: those two take the lowest bin and the two edges the highest.
+      // middle columns: those two take the lowest bands and the two edges the highest. Each
+      // half's columns are spread over all 32 log bands (TimbreHelix.spread).
       const mid = (GRID_W - 1) / 2;
       for (let i = 0; i < GRID_W; i++) {
         const dist = Math.abs(i - mid) - 0.5;
-        const binIdx = Math.min(n - 1, Math.floor((dist / (mid - 0.5)) * (n - 1)));
-        const v = (frequencies[binIdx] || 0) / 255 * cfgGain;
+        const v = TimbreHelix.spread(frequencies, dist, mid + 0.5) / 255 * LOG_GAIN * cfgGain;
         out[i] = v * 36;
       }
     } else if (cfgIdleAnim) {

@@ -17,7 +17,7 @@ VIZ_FACTORIES['my-effect'] = () => {
       ctx.clearRect(0, 0, W, H);
       if (!micActive || !frequencies) { /* draw an idle state if cfgIdleAnim */ return; }
       for (let i = 0; i < cfgBars; i++) {
-        const v = (frequencies[i] / 255) * cfgGain;       // 0..~2
+        const v = (TimbreHelix.spread(frequencies, i, cfgBars) / 255) * cfgGain;   // bar i of cfgBars, over all 32 bands; 0..~2
         const [r, g, b] = getColor(now / 1000 * cfgColorSpeed + cfgColorHue + i * 0.2);
         ctx.fillStyle = `rgb(${r},${g},${b})`;
         ctx.fillRect(i * (W / cfgBars), H - v * H, W / cfgBars - 2, v * H);
@@ -36,10 +36,12 @@ Script-scope globals available to factories (from core.js):
 | `ctx`, `canvas2d` | 2D canvas + context (visible for 2D effects) |
 | `canvas3d` | WebGL canvas (visible for effects listed in `VIZ_USES_3D`) |
 | `W`, `H`, `SCALE` | canvas buffer size + width-based scale factor (1.0 at 260 px wide) |
-| `frequencies` | `Uint8Array(32)` FFT bins, 0–255, or `null` when no mic |
-| `waveform` | `Uint8Array(64)` time-domain samples, 0–255, or `null` |
+| `frequencies` | `Uint8Array(32)`: 32 bands from 60 Hz to 12 kHz, low to high, 0–255, or `null` when no mic (below) |
+| `slices` | `Uint8Array(32)`: what `frequencies` held before the bands, 32 values 750 Hz apart, 0–255, or `null` when no mic. For the effects tuned on those values only (below) |
+| `waveform` | `Uint8Array(64)`: the newest 64 input samples, 0–255 (128 is rest), or `null` |
 | `micActive` | mic currently captured |
 | `micPeak` | loudest input sample over at least the last two looks (4096 samples at 48 kHz), 0 to 1, before Gain, or `null` when no mic |
+| `micBands` | the same sound summed up once per look: `{ bass, mid, treble, rms, centroid, level, beat, beats }`, or `null` when no mic (below) |
 | `cfgGain`, `cfgBars`, `cfgBounce`, `cfgColorSpeed`, `cfgColorHue`, `cfgIdleAnim`, `cfgEffectBgOpacity` | normalized global knobs |
 | `perViz['my-effect']` | your effect's own knobs |
 | `getColor(t)` | palette lookup → `[r,g,b]`, a new array each call |
@@ -47,6 +49,96 @@ Script-scope globals available to factories (from core.js):
 | `getColorCss(t)`, `paletteStep(t)`, `PALETTE_RGB`, `PALETTE_CSS` | the palette as a table of 256 colours with ready CSS strings (below) |
 | `ema`, `decay`, `chance`, `fadeOrClear` | per-second helpers (below) |
 | `THREE` | three.js r160 (vendored) |
+
+**The sound.** `overlay/audio-capture.js` opens the microphone (`{ audio: true }`, or the
+device picked in the dock) and looks at it about 30 times a second. Everything it publishes
+is before Gain, but for the beat.
+
+- `frequencies` is 32 **log bands**, each the same musical width (about a quarter of an
+  octave): band `k` runs from `60 · 200^(k/32)` Hz to `60 · 200^((k+1)/32)` Hz. The edges,
+  in Hz: 60, 71, 84, 99, 116, 137, 162, 191, 226, 266, 314, 371, 438, 516, 609, 719, 849,
+  1001, 1182, 1394, 1645, 1942, 2291, 2704, 3191, 3766, 4444, 5244, 6188, 7302, 8617, 10169,
+  12000. A voice's pitch is in bands 2 to 8, its vowels in 9 to 24, and "s" and "t" in 25
+  to 31.
+- A band is folded from a 2048-point analysis (1024 bins, 23.4 Hz apart at 48 kHz; twice as
+  many points for each doubling of the sample rate, so a bin stays about 23 Hz). Its value
+  is the **mean power** of the bins it overlaps, each counted by the Hz of overlap, in
+  decibels, plus 15 dB (`BAND_LIFT_DB`), on the browser's own byte scale (-100 dB is 0, -30 dB
+  is 255). The mean, so a wide band at the top reads no louder than a narrow one at the
+  bottom when every bin is at the same level. The 15 dB is 10·log10(32): a bin of this
+  analysis is 32 times narrower than one of the 64-point analysis it replaced, so a sound
+  spread over many bins (a breath, an "s", a hi-hat) would read 15 dB lower in each; with the
+  lift it reads what it read before. A single steady tone is not spread, so in the narrow low
+  bands it reads up to 15 dB (55 of 255) higher than it used to, and a tone louder than
+  about -31 dB of full scale fills its band.
+- Each bin is smoothed over time by the analyser, 0.7 a look. A look at the bands sees 43 ms
+  of sound, so two looks in a row overlap, a value does not jump with where in a wave the
+  look happened to fall, and a sound shorter than 43 ms is spread over that long.
+- `slices` is what `frequencies` was before the bands, and it is kept for the effects that
+  were tuned on it. Slice `k` is the sound around `750 · k` Hz (at 48 kHz; the sample rate
+  divided by 64, at any rate), about 750 Hz to either side: slice 0 is the bottom of the
+  spectrum, slice 1 is centred on 750 Hz, slice 31 on 23.25 kHz, and a whole voice is in
+  the first six. A look at the slices sees the newest 64 samples (1.3 ms), so a low tone
+  reads differently from one look to the next, as it always did. The sampler works the
+  slices out itself from those 64 samples, by the arithmetic of the 64-point analysis it
+  used to ask the browser for (a Blackman window, the transform, 0.7 smoothing, the same
+  byte scale); fed the same recorded sound, the slices and the old values agree to within 1
+  of 255 (`npm run verify:render` checks it against a real 64-point `AnalyserNode`).
+- **Which one to read.** A new effect, or one being rebuilt, reads `micBands` or the log
+  bands. `slices` exists for the effects tuned before this change: the 13 scene modules
+  (`loudness(slices, band, gain)`), the ten seasonal 2D effects (`bandAverage`), and the
+  blob's outline. Do not read `frequencies` by position (`frequencies[3]`): a position is a
+  band a quarter of an octave wide, not 750 Hz. To lay bars over the spectrum use
+  `TimbreHelix.spread(frequencies, i, count)`: bar `i` of `count` reads the mean of the
+  bands from `i × 32 / count` to the next bar's first, so 20 bars cover 60 Hz to 12 kHz
+  with no band left out. `npm run verify` fails if an effect file reads `frequencies[`.
+- `waveform` is the newest 64 samples, about a thousandth of a second: a fragment of
+  one cycle of a voice. Use `micBands.rms` for how loud the input is.
+- `micBands` is one object per microphone session, written afresh on every look:
+
+  | Field | Meaning |
+  |---|---|
+  | `bass` | the mean of bands 0 to 8 (60 Hz to 266 Hz), 0 to 1 |
+  | `mid` | the mean of bands 9 to 24 (266 Hz to 3.77 kHz), 0 to 1 |
+  | `treble` | the mean of bands 25 to 31 (3.77 kHz to 12 kHz), 0 to 1 |
+  | `rms` | the root mean square of the last 2048 input samples, 0 to 1 (a full-scale sine is 0.707) |
+  | `centroid` | where the weight of the 32 bands lies, 0 (all in band 0) to 1 (all in band 31); `60 · 200^centroid` is roughly its frequency in Hz. 0 in silence |
+  | `level` | one loudness: the larger of 3 × the root mean square of the newest 64 samples and 1.1 × the mean of slices 0 to 5. Times Gain and held to 1, it is the `level` the scene kit hands a scene. It is made the way the kit made its own before the sampler did, so the kit's scenes and their beats are where they were |
+  | `beat` | `true` on the one look where `level` × Gain jumps above 1.35 × its recent average + 0.07, at most once every 220 ms |
+  | `beats` | how many beats this session has had |
+
+  The beat is the one value that takes Gain into account, because Gain is how the streamer
+  says how loud their microphone is. An effect draws faster or slower than the sampler
+  looks, so it should not test `beat` every frame (it would take one beat twice at 60 fps
+  and could miss one at 20): keep the `beats` you saw last and act when it has moved. The
+  scene kit does this for a scene (`audio.beat`).
+- **The re-mapped readers.** The effects that read "low", "bass" or "high" off fixed
+  positions of the 750 Hz values now take them from the new input, through
+  `overlay/helix.js`. `TimbreHelix.heard(which, micBands)` is a weighted sum of `bass`, `mid`
+  and `treble`, before Gain and not clamped; the weights (`TimbreHelix.HEARD`) were fitted on
+  recorded sound (a voice at 150 Hz and one at 220 Hz, a kick with a hi-hat, a band) so that
+  each lands within a tenth of its old level, in the mean, on every one of them:
+
+  | `which` | Stands in for | bass, mid, treble | Read by |
+  |---|---|---|---|
+  | `low` | the mean of values 0-1 × 1.3 | 1.22, 0.74, 0 | `levels()`: dna, comet, fireflies, pulse-rings, orbit, black-hole, blob, owl, television |
+  | `high` | the mean of values 2-10 × 3 | 0, 0.96, 1.44 | `levels()` |
+  | `bass` | the mean of values 0-3 | 0.47, 0.42, 0.56 | galaxy-ripple, matrix, peaks-mirror, winter-aurora, the flag, sunburst |
+  | `all` | the mean of all 32 values | 0.13, 0.03, 0.89 | matrix, tunnel, vaporwave |
+
+  The "high" of winter-aurora and the flag (values 8-31 × 3) is the mean of log bands 29 to
+  31 (7.3 to 12 kHz) × 3, and the sunburst's (values 5-14 × 2.5) the mean of bands 24 to 30
+  (3.2 to 10.2 kHz) × 2.38: `TimbreHelix.bandMean(frequencies, from, to)`. The bar and
+  spectrum effects (visualizer, peak-hold, sine-bars, ring-bars, spectrogram, tunnel,
+  peaks-mirror, mountains-2d, vaporwave) read the log bands through `spread`, each times a
+  `LOG_GAIN` of its own, fitted so that the recorded 150 Hz voice gives the light the old
+  values gave; their shape is different on purpose. `tools/compare-input.mjs` (README,
+  "Verification") measures all of this against any earlier build.
+- Beside a cached `core.js` from before `micBands` or `slices`, the sampler publishes the
+  rest and not those; beside a cached `audio-capture.js` from before them, `micBands` and
+  `slices` stay `null`, the scene kit works its level out from `waveform` and `frequencies`
+  as it used to, and an effect that reads `slices` or `micBands` hears nothing until the
+  source is refreshed. An effect that reads `micBands` must allow for `null`.
 
 **The palette table.** An effect that paints many things a frame should not build a colour
 array and an `rgb(...)` string for each. `getColorCss(t)` returns a ready string for the
@@ -257,10 +349,13 @@ Sunburst need only the phase.
   `DEFAULT_PER_VIZ` a render check that shows the picture, or the state `debug()`
   reports, differs between two values of it.
 - **Read the sound in one place.** The kit hands `update` the level and the beat
-  (`audio`, above). A scene that wants the bands reads the core's `frequencies` through
-  one small function of its own module, as `loudness(bins, band, gain)` in
-  `overlay/rose.js` does. Do not paste the `bandAverage` helper of the older 2D effects
-  into a scene.
+  (`audio`, above); both come from the sampler's `micBands` (its `level` times Gain, and
+  its count of beats). A new scene that wants more reads `micBands.bass`, `mid` and
+  `treble`, or the log bands in `frequencies`, through one small function of its own
+  module. The scenes built before the log bands read `slices` that way, as
+  `loudness(bins, band, gain)` in `overlay/rose.js` does: wherever the notes on a scene
+  below say "bins" or "the eight lowest bins", they mean the slices. Do not paste the
+  `bandAverage` helper of the older 2D effects into a scene.
 
 ### Scene placement
 
@@ -345,6 +440,10 @@ the effect in `factories/dna.js` cuts and draws, nothing in `helix.js` draws. It
 
 - `threshold(sensitivity)`: the peak a shatter needs, from Shatter Sensitivity (0 never shatters).
 - `peakOf(samples)`, `levels(frequencies, waveform, gain)`: the loudness, low and high levels (0 to 1).
+  `frequencies` is the 32 log bands; low and high are `heard('low', …)` and `heard('high', …)` of their
+  three wide bands, times Gain, held to 1.
+- `wide(bands)`, `heard(which, bands)`, `HEARD`, `bandMean(values, from, to)`, `spreadRange(i, count, n)`,
+  `spread(values, i, count)`: the re-mapped readers and the bar spread ("The sound", above).
 - `twist(loud)`, `radius(level)`, `follow(current, target, dt, tau)`: turn speed, strand radius and
   frame-rate-independent smoothing.
 - `returnShare(u, lag)`: the return curve (share of the way home, and heat).

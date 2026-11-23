@@ -159,7 +159,8 @@
 //           together.
 
 import { spawn } from 'node:child_process';
-import { connect } from 'node:net';
+import { connect, createServer as createNetServer } from 'node:net';
+import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
@@ -174,6 +175,9 @@ const BASE = `http://127.0.0.1:${HTTP_PORT}`;
 const overlayUrl = `${BASE}/timbre-overlay/mic-visualizers-300x220.html?sbport=${WS_PORT}`;
 const overlayWideUrl = `${BASE}/timbre-overlay/mic-visualizers-1920x1080.html?sbport=${WS_PORT}`;
 const overlay43Url = `${BASE}/timbre-overlay/mic-visualizers-1440x1080.html?sbport=${WS_PORT}`;
+// The LOG_GAIN constant of a bar effect's file (1 for an effect that has none). A test that
+// drives bars to a height hands the effect log bands divided by it.
+const logGain = (name) => { const m = /const LOG_GAIN = ([\d.]+);/.exec(readFileSync(resolve(__dirname, 'overlay/factories', name + '.js'), 'utf8')); return m ? Number(m[1]) : 1; };
 const controlUrl = `${BASE}/timbre-control/control.html?sbport=${WS_PORT}`;
 
 let passed = 0, failed = 0;
@@ -252,18 +256,18 @@ const canvas2dHasPixels = () => {
 // 33 ms capture timer cannot overwrite the arrays in between. One reading per step. The page's
 // own frequencies / waveform / micActive are restored before returning.
 // The first step must be a quiet baseline: every later risePx / rise is measured against it.
-const glowRun = (pg, name, steps, fps = 60) => pg.evaluate(({ name, steps, fps }) => {
+const glowRun = (pg, name, steps, fps = 60) => pg.evaluate(({ name, steps, fps, gain }) => {
   const saved = { frequencies, waveform, micActive };
   try {
     currentViz = VIZ_FACTORIES[name](); if (currentViz.start) currentViz.start();
-    const f = new Uint8Array(32), w = new Uint8Array(64), out = [];
+    const f = new Float32Array(32), w = new Uint8Array(64), out = [];
     let first = null;
     let now = performance.now();
     for (const s of steps) {
       if (s.config) applyConfig(s.config);
-      f.fill(Math.round(s.level * 255));
+      f.fill(Math.round(s.level * 255) / gain);   // every band at the level, over the effect's LOG_GAIN: a bar is as tall as the level says
       for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * s.level * 127);
-      frequencies = f; waveform = w; micActive = s.mic !== false;
+      frequencies = slices = f; micBands = TimbreHelix.wide(frequencies); waveform = w; micActive = s.mic !== false;
       for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) { now += 1000 / fps; currentViz.draw(now, 1 / fps); }
       const d = ctx.getImageData(0, 0, W, H).data; let ink = 0, alpha = 0, top = -1;
       for (let i = 3; i < d.length; i += 4) if (d[i] > 0) { ink++; alpha += d[i]; if (top < 0) top = Math.floor(i / 4 / W); }
@@ -276,15 +280,17 @@ const glowRun = (pg, name, steps, fps = 60) => pg.evaluate(({ name, steps, fps }
   } finally {
     frequencies = saved.frequencies; waveform = saved.waveform; micActive = saved.micActive;
   }
-}, { name, steps, fps });
+}, { name, steps, fps, gain: logGain(name) });
 
 // Drive one effect (DNA, Comet) with a scripted sound the way glowRun does, one reading per step: its
 // probe() plus pixel facts (ink: pixels with alpha; alpha: summed; top / bottom: first and last rows
 // with ink; emptyCols: columns with no ink) and the canvas state the draw left behind (op: the blend
 // mode; blur: the shadow blur; globalAlpha; offsetX: the shadow offset; transformKept: the transform
 // is what it was before the run).
-// steps: [{ secs, wave, low, high, peak, mic, config, jump }] — wave/low/high/peak are 0..1; low fills
-// frequency bins 0-1, high bins 2-10. peak is micPeak (null or missing: the effect reads the waveform);
+// steps: [{ secs, wave, low, high, peak, mic, config, jump }] — wave/low/high/peak are 0..1. low and high
+// are what the 750 Hz values 0-1 and 2-10 held: the slices are filled so (the blob's outline reads them
+// by position), and the log bands so that levels() gives the low and the high those values gave (low
+// × 1.3 from the bass bands alone, high × 3 from the treble bands alone). peak is micPeak (null or missing: the effect reads the waveform);
 // mic: false turns the mic off as a real mic-off does (micActive false; frequencies, waveform and
 // micPeak null); jump skips that many seconds before the step, as a hidden source does.
 // Every call starts a new effect, seeded through the effect's seed global (window.__dnaSeed,
@@ -308,7 +314,7 @@ const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1, odd = fal
     window[seedKey] = seed;
     currentViz = VIZ_FACTORIES[name]();
     let now = performance.now();
-    const f = new Uint8Array(32), w = new Uint8Array(64), out = [];
+    const f = new Uint8Array(32), sl = new Uint8Array(32), w = new Uint8Array(64), out = [];
     const matrix = () => { const m = ctx.getTransform(); return [m.a, m.b, m.c, m.d, m.e, m.f].join(); };
     const matrix0 = matrix();
     const lines = () => [ctx.lineWidth, ctx.lineCap, ctx.lineJoin].join();
@@ -316,12 +322,15 @@ const effectRun = (name, seedKey) => (pg, steps, { fps = 60, seed = 1, odd = fal
     for (const s of steps) {
       if (s.config) applyConfig(s.config);
       if (s.jump) now += s.jump * 1000;
+      sl.fill(0);
+      sl.fill(Math.round((s.low || 0) * 255), 0, 2);
+      sl.fill(Math.round((s.high || 0) * 255), 2, 11);
       f.fill(0);
-      f.fill(Math.round((s.low || 0) * 255), 0, 2);
-      f.fill(Math.round((s.high || 0) * 255), 2, 11);
+      f.fill(Math.min(255, Math.round((s.low || 0) * 255 * 1.3 / TimbreHelix.HEARD.low[0])), 0, 9);
+      f.fill(Math.min(255, Math.round((s.high || 0) * 255 * 3 / TimbreHelix.HEARD.high[2])), 25, 32);
       for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * (s.wave || 0) * 127);
       const on = s.mic !== false;
-      frequencies = on ? f : null; waveform = on ? w : null; micActive = on; micPeak = on ? (s.peak ?? null) : null;
+      frequencies = slices = on ? f : null; micBands = TimbreHelix.wide(frequencies); waveform = on ? w : null; micActive = on; micPeak = on ? (s.peak ?? null) : null; if (on) slices = sl;
       for (let k = 0, n = Math.round(s.secs * fps); k < n; k++) { now += 1000 / fps; currentViz.draw(now, 1 / fps); }
       const d = ctx.getImageData(0, 0, W, H).data, inked = new Uint8Array(W);
       let ink = 0, alpha = 0, top = -1, bottom = -1, light = 0, solid = 0, dark = 0, pink = 0, solidTop = -1, solidBottom = -1, solidLeft = -1, solidRight = -1, topSum = 0, topCount = 0, lowSum = 0, lowCount = 0;
@@ -423,6 +432,25 @@ async function main() {
     check('analyser sees audio energy (fake tone)', energy);
     check('micPeak is a level between 0 and 1 while listening', await page.waitForFunction(
       () => typeof window.__timbre.micPeak === 'number' && window.__timbre.micPeak > 0 && window.__timbre.micPeak <= 1, { timeout: 5000 }).then(() => true).catch(() => false));
+    {
+      // Sprint 7: the real AnalyserNode behind the fold. The fake device's sound has to show in
+      // the 32 bands and in the summary, as numbers in range.
+      const heard = await page.waitForFunction(() => {
+        const b = window.__timbre.micBands, f = window.__timbre.frequencies;
+        return !!b && !!f && b.level > 0 && b.rms > 0 && Array.from(f).some((v) => v > 0);
+      }, null, { timeout: 5000 }).then(() => page.evaluate(() => {
+        const b = window.__timbre.micBands, f = Array.from(window.__timbre.frequencies);
+        return { bands: Object.assign({}, b), f, wave: waveform.length, slices: window.__timbre.slices ? Array.from(window.__timbre.slices) : null };
+      })).catch(() => null);
+      const inRange = (v) => typeof v === 'number' && v >= 0 && v <= 1;
+      check('while listening the sampler publishes 32 bands of 0-255, 32 slices of 0-255 (some of them not 0), 64 waveform samples and micBands (bass, mid, treble, rms and centroid from 0 to 1, a level, a beat flag and a count of beats)',
+        !!heard && heard.f.length === 32 && heard.f.every((v) => Number.isInteger(v) && v >= 0 && v <= 255) && heard.wave === 64
+        && !!heard.slices && heard.slices.length === 32 && heard.slices.every((v) => Number.isInteger(v) && v >= 0 && v <= 255) && heard.slices.some((v) => v > 0)
+        && ['bass', 'mid', 'treble', 'rms', 'centroid'].every((k) => inRange(heard.bands[k])) && heard.bands.level > 0 && Number.isFinite(heard.bands.level)
+        && typeof heard.bands.beat === 'boolean' && Number.isInteger(heard.bands.beats) && heard.bands.beats >= 0, JSON.stringify(heard));
+      const asked = await page.evaluate(() => { const t = window.timbreCapture.analysis; return { fft: t.FFT_SIZE, bands: t.BANDS, lo: t.BAND_LOW_HZ, hi: t.BAND_HIGH_HZ }; });
+      check('the analysis is 2048 points folded into 32 bands from 60 Hz to 12 kHz', asked.fft === 2048 && asked.bands === 32 && asked.lo === 60 && asked.hi === 12000, JSON.stringify(asked));
+    }
 
     {
     // Streamer.bot serves a .woff2 as application/octet-stream, and so does the mock. The font must load all the same.
@@ -595,7 +623,7 @@ async function main() {
     await wide.waitForFunction(() => cfgAfterglow === 1.6);
     const costs = await wide.evaluate((names) => names.map((name) => {
       currentViz = VIZ_FACTORIES[name](); if (currentViz.start) currentViz.start();
-      const f = new Uint8Array(32), w = new Uint8Array(64); frequencies = f; waveform = w; micActive = true;
+      const f = new Uint8Array(32), w = new Uint8Array(64); frequencies = slices = f; micBands = TimbreHelix.wide(frequencies); waveform = w; micActive = true;
       let now = performance.now(); const t0 = performance.now();
       for (let k = 0; k < 300; k++) {
         const level = k % 30 < 15 ? 0.8 : 0;                       // loud and quiet, a quarter second each
@@ -734,7 +762,7 @@ async function main() {
         let now = 100000 + 1000 / 120;
         for (const st of steps) {
           TimbreScene.testLevel = st.level;
-          if (st.low !== undefined) { f.fill(Math.round(st.low * 255), 0, 4); f.fill(0, 4, 8); f.fill(Math.round(st.high * 255), 8, 32); frequencies = f; micActive = true; }
+          if (st.low !== undefined) { f.fill(Math.round(st.low * 255), 0, 4); f.fill(0, 4, 8); f.fill(Math.round(st.high * 255), 8, 32); frequencies = slices = f; micBands = ((v) => ({ bass: v, mid: v, treble: v }))(st.low / TimbreHelix.HEARD.bass.reduce((a, b) => a + b, 0)); micActive = true; }
           let jump = 0, before = null;
           for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) {
             now += 1000 / fps; currentViz.draw(now, 1 / fps);
@@ -892,7 +920,7 @@ async function main() {
           TimbreScene.testLevel = st.level;
           micActive = !st.idle;
           if (st.knobs) Object.assign(perViz[id], st.knobs);
-          if (st.low !== undefined) { f.fill(Math.round(st.low * 255), 0, 4); f.fill(0, 4, 8); f.fill(Math.round(st.high * 255), 8, 32); frequencies = f; }
+          if (st.low !== undefined) { f.fill(Math.round(st.low * 255), 0, 4); f.fill(0, 4, 8); f.fill(Math.round(st.high * 255), 8, 32); frequencies = slices = f; micBands = ((v) => ({ bass: v, mid: v, treble: v }))(st.low / TimbreHelix.HEARD.bass.reduce((a, b) => a + b, 0)); }
           const trace = st.trace ? [] : null;
           for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) {
             now += 1000 / fps; currentViz.draw(now, 1 / fps);
@@ -1106,7 +1134,7 @@ async function main() {
       };
       setActiveViz('pride-ribbon'); currentViz.stop();   // the WebGL canvas stays showing, with no scene on it
       try {
-        TimbreScene.testLevel = 0.7; frequencies = f; micActive = true;
+        TimbreScene.testLevel = 0.7; frequencies = slices = f; micBands = TimbreHelix.wide(frequencies); micActive = true;
         return {
           union: run('test-union', { aspect: 1.5, stripes: [[10, 20, 30, 1]], canton: { width: 0.4, height: 0.5, color: [0, 0, 90] } }),
           sparks: run('test-sparks', { aspect: 1.5, stripes: [[200, 20, 30, 1], [20, 20, 200, 1]], sparks: [[255, 255, 255]] }),
@@ -1162,7 +1190,16 @@ async function main() {
           if (st.knobs) Object.assign(perViz[id], st.knobs);
           f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
           if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
-          frequencies = f;
+          {
+            // f is the 750 Hz values: the beams read them as the slices. The star's low is what values 0-3
+            // gave, through micBands; its high is what values 5-14 × 2.5 gave, through log bands 24-30 × 2.38.
+            let lo = 0, hi = 0;
+            for (let i = 0; i < 4; i++) lo += f[i] / (4 * 255);
+            for (let i = 5; i < 15; i++) hi += f[i] / 10;
+            const top = Math.min(255, Math.round(hi * 2.5 / 2.38));
+            slices = f; frequencies = Uint8Array.from({ length: 32 }, (v, k) => (k >= 24 && k < 31 ? top : 0));
+            micBands = ((v) => ({ bass: v, mid: v, treble: v }))(lo / TimbreHelix.HEARD.bass.reduce((a, b) => a + b, 0));
+          }
           const trace = st.trace ? [] : null;
           let firstCam = null;
           for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) {
@@ -1412,7 +1449,7 @@ async function main() {
           if (st.knobs) Object.assign(perViz[id], st.knobs);
           f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
           if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
-          frequencies = f;
+          frequencies = slices = f; micBands = TimbreHelix.wide(frequencies);
           const trace = st.trace ? [] : null;
           for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) {
             now += 1000 / fps; currentViz.draw(now, 1 / fps);
@@ -1683,7 +1720,7 @@ async function main() {
           if (st.knobs) Object.assign(perViz[id], st.knobs);
           f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
           if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
-          frequencies = f;
+          frequencies = slices = f; micBands = TimbreHelix.wide(frequencies);
           const trace = st.trace ? [] : null;
           for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) {
             now += 1000 / fps; currentViz.draw(now, 1 / fps);
@@ -1944,7 +1981,7 @@ async function main() {
           if (st.knobs) Object.assign(perViz[id], st.knobs);
           f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
           if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
-          frequencies = f;
+          frequencies = slices = f; micBands = TimbreHelix.wide(frequencies);
           const trace = st.trace ? [] : null;
           for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) {
             now += 1000 / fps; currentViz.draw(now, 1 / fps);
@@ -2250,7 +2287,7 @@ async function main() {
           if (st.knobs) Object.assign(perViz[id], st.knobs);
           f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
           if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
-          frequencies = f;
+          frequencies = slices = f; micBands = TimbreHelix.wide(frequencies);
           let beats = 0;
           for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) { now += 1000 / fps; const k0 = window.__timbre.scene ? window.__timbre.scene.state.kicks : 0; currentViz.draw(now, 1 / fps); if (window.__timbre.scene.state.kicks > k0) beats++; }
           const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
@@ -2621,7 +2658,7 @@ async function main() {
     const smallPrism = await page.evaluate(() => { currentViz.draw(performance.now(), 1 / 60); currentViz.draw(performance.now() + 17, 1 / 60); const s = window.__timbre.scene; return { name: window.__timbre.currentVizName, scale: s && s.renderScale, copies: s && s.state.copies ? s.state.copies.length : 0, drawnFor: s && s.state.drawnFor }; });
     // On the small page a ridge sized for the kit's larger picture would be half a page pixel wide and show in dashes:
     // far less of the page would be lit.
-    const smallLit = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, cfgColorSpeed, cfgColorHue, micPeak }; window.frame = function () {}; try { TimbreScene.testLevel = 0; frequencies = new Uint8Array(32); micActive = true; micPeak = 0; cfgColorSpeed = 0; cfgColorHue = 0; setActiveViz('visualizer'); setActiveViz('glass-prism'); let now = 100000; for (let i = 0; i < 120; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+    const smallLit = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, cfgColorSpeed, cfgColorHue, micPeak }; window.frame = function () {}; try { TimbreScene.testLevel = 0; frequencies = slices = new Uint8Array(32); micBands = TimbreHelix.wide(frequencies); micActive = true; micPeak = 0; cfgColorSpeed = 0; cfgColorHue = 0; setActiveViz('visualizer'); setActiveViz('glass-prism'); let now = 100000; for (let i = 0; i < 120; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
       const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
       let lit = 0, sum = 0; for (let i = 0; i < px.length; i += 4) { const rgb = px[i] + px[i + 1] + px[i + 2]; if (px[i + 3] < 5 && rgb > 60) { lit++; sum += rgb; } } return { lit, sum, canvas: [w, h] }; } finally { TimbreScene.testLevel = null; window.frame = fr; frequencies = heard.frequencies; micActive = heard.micActive; cfgColorSpeed = heard.cfgColorSpeed; cfgColorHue = heard.cfgColorHue; micPeak = heard.micPeak; } });
     check('glass-prism: on the small page its ridges are whole lines', smallLit.sum > SMALL_LIT, JSON.stringify(smallLit));
@@ -2676,7 +2713,7 @@ async function main() {
           if (st.knobs) Object.assign(perViz[id], st.knobs);
           f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
           if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
-          frequencies = f;
+          frequencies = slices = f; micBands = TimbreHelix.wide(frequencies);
           for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) { now += 1000 / fps; currentViz.draw(now, 1 / fps); }
           const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
           gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);   // row 0 is the bottom of the canvas
@@ -2957,7 +2994,7 @@ async function main() {
           if (st.hue !== undefined) cfgColorHue = st.hue;
           f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
           if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
-          frequencies = f;
+          frequencies = slices = f; micBands = TimbreHelix.wide(frequencies);
           let beats = 0;
           for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) { now += 1000 / fps; const b0 = window.__timbre.scene ? window.__timbre.scene.state.beats : 0; currentViz.draw(now, 1 / fps); if (window.__timbre.scene.state.beats > b0) beats++; }
           const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
@@ -3222,12 +3259,12 @@ async function main() {
     await wide.waitForTimeout(400);
     const [halved] = await inkRun([{ level: 0.5, all: 0.5, secs: 2 }], still);
     // The small page draws into a picture several times taller than its canvas: the specks are sized for that picture.
-    const smallInk = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive }; window.frame = function () {}; try { TimbreScene.testLevel = 0.5; const f = new Uint8Array(32).fill(128); frequencies = f; micActive = true; setActiveViz('visualizer'); setActiveViz('ink');
+    const smallInk = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive }; window.frame = function () {}; try { TimbreScene.testLevel = 0.5; const f = new Uint8Array(32).fill(128); frequencies = slices = f; micBands = TimbreHelix.wide(frequencies); micActive = true; setActiveViz('visualizer'); setActiveViz('ink');
       const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
       // First the empty tank, in silence: how much light its edges give. (Edges sized for the kit's larger picture would come out in dashes.)
-      const full = frequencies; frequencies = new Uint8Array(32); TimbreScene.testLevel = 0; let now = 100000; for (let i = 0; i < 30; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      const full = frequencies; frequencies = slices = new Uint8Array(32); micBands = TimbreHelix.wide(frequencies); TimbreScene.testLevel = 0; let now = 100000; for (let i = 0; i < 30; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
       gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); let tankLight = 0; for (let i = 0; i < px.length; i += 4) if (px[i + 3] < 5) tankLight += px[i] + px[i + 1] + px[i + 2];
-      frequencies = full; TimbreScene.testLevel = 0.5; for (let i = 0; i < 120; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      frequencies = slices = full; micBands = TimbreHelix.wide(frequencies); TimbreScene.testLevel = 0.5; for (let i = 0; i < 120; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
       gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
       let inked = 0; for (let i = 3; i < px.length; i += 4) if (px[i] >= 25) inked++;
       const s = window.__timbre.scene; return { name: window.__timbre.currentVizName, scale: s && s.renderScale, px: s && s.state.px, drawnFor: s && s.state.drawnFor, scales: s && s.state.scales, left: s && s.state.left, inked, tankLight, canvas: [w, h] }; } finally { TimbreScene.testLevel = null; window.frame = fr; frequencies = heard.frequencies; micActive = heard.micActive; } });
@@ -3240,7 +3277,7 @@ async function main() {
     await wide.waitForTimeout(300);
     // The tank filled (every band full for nine seconds), at Density 100 and at 50; then a frame's script time, and a frame drawn and finished by the GPU.
     const costAt = async (density) => { await pushConfig((c) => { c.activeViz = INK; c.perViz.ink.density = density; }); await wide.waitForTimeout(300);
-      return wide.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive }; window.frame = function () {}; try { TimbreScene.testLevel = 0.9; frequencies = new Uint8Array(32).fill(255); micActive = true; setActiveViz('visualizer'); setActiveViz('ink');
+      return wide.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive }; window.frame = function () {}; try { TimbreScene.testLevel = 0.9; frequencies = slices = new Uint8Array(32).fill(255); micBands = TimbreHelix.wide(frequencies); micActive = true; setActiveViz('visualizer'); setActiveViz('ink');
         const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), one = new Uint8Array(4); let now = performance.now(), script = 0, whole = 0;
         for (let i = 0; i < 540; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
         for (let i = 0; i < 60; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); script += performance.now() - t; }
@@ -3288,7 +3325,7 @@ async function main() {
           if (st.hue !== undefined) cfgColorHue = st.hue;
           f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
           if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
-          frequencies = f;
+          frequencies = slices = f; micBands = TimbreHelix.wide(frequencies);
           let beats = 0;
           for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) {
             now += 1000 / fps;
@@ -3563,7 +3600,7 @@ async function main() {
     await wide.waitForTimeout(400);
     const [halved] = await shardRun([{ level: 0.5, all: 0.5, secs: 2 }], still);
     // The small page, with the pane as wide open as it goes.
-    const smallShards = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive }, knobs0 = Object.assign({}, perViz.shards); window.frame = function () {}; try { perViz.shards.bloom = 100; perViz.shards.cameraDrift = 0; TimbreScene.testLevel = 1; frequencies = new Uint8Array(32).fill(255); micActive = true; setActiveViz('visualizer'); setActiveViz('shards');
+    const smallShards = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive }, knobs0 = Object.assign({}, perViz.shards); window.frame = function () {}; try { perViz.shards.bloom = 100; perViz.shards.cameraDrift = 0; TimbreScene.testLevel = 1; frequencies = slices = new Uint8Array(32).fill(255); micBands = TimbreHelix.wide(frequencies); micActive = true; setActiveViz('visualizer'); setActiveViz('shards');
       const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
       let now = 100000; for (let i = 0; i < 120; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
       gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
@@ -3577,7 +3614,7 @@ async function main() {
     // The finest pane, open and loud: a frame's script time, and a frame drawn and finished by the GPU.
     await pushConfig((c) => { c.activeViz = SHARDS; c.perViz.shards.density = 100; });
     await wide.waitForTimeout(300);
-    const shCost = await wide.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive }; window.frame = function () {}; try { TimbreScene.testLevel = 0.9; frequencies = new Uint8Array(32).fill(255); micActive = true; setActiveViz('visualizer'); setActiveViz('shards');
+    const shCost = await wide.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive }; window.frame = function () {}; try { TimbreScene.testLevel = 0.9; frequencies = slices = new Uint8Array(32).fill(255); micBands = TimbreHelix.wide(frequencies); micActive = true; setActiveViz('visualizer'); setActiveViz('shards');
       const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), one = new Uint8Array(4); let now = performance.now(), script = 0, whole = 0;
       for (let i = 0; i < 120; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
       for (let i = 0; i < 60; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); script += performance.now() - t; }
@@ -3626,7 +3663,7 @@ async function main() {
           if (st.knobs) Object.assign(perViz[id], st.knobs);
           f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
           if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
-          frequencies = f;
+          frequencies = slices = f; micBands = TimbreHelix.wide(frequencies);
           micPeak = st.peak || 0;
           let beats = 0, mostSeen = 0, stepsSeen = new Set(), landedAt = [], stopped = !!st.gap, stale = 0, over = 0, shownGap = 0;
           if (st.gap) now += st.gap;
@@ -3996,7 +4033,7 @@ async function main() {
     await wide.waitForTimeout(400);
     const [halved] = await jellyRun([{ level: 0, secs: 2 }], still);
     // The small page, whole and then knocked apart.
-    const smallJelly = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz.jelly); window.frame = function () {}; try { perViz.jelly.cameraDrift = 0; TimbreScene.testLevel = 0.8; frequencies = new Uint8Array(32).fill(200); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('jelly');
+    const smallJelly = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz.jelly); window.frame = function () {}; try { perViz.jelly.cameraDrift = 0; TimbreScene.testLevel = 0.8; frequencies = slices = new Uint8Array(32).fill(200); micBands = TimbreHelix.wide(frequencies); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('jelly');
       const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
       const read = () => { gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); let jelly = 0, edge = 0; for (let i = 0; i < px.length; i += 4) if (px[i + 3] >= 25) { if (px[i + 3] >= 100) jelly++; const x = (i / 4) % w, y = Math.floor(i / 4 / w); if (x < 2 || y < 2 || x >= w - 2 || y >= h - 2) edge++; } return { jelly, edge }; };
       let now = 100000; for (let i = 0; i < 120; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
@@ -4014,7 +4051,7 @@ async function main() {
     await pushConfig((c) => { c.placement.size = 100; });
     await wide.waitForTimeout(300);
     // Loud, whole and then apart: a frame's script time, and a frame drawn and finished by the GPU.
-    const jeCost = await wide.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }; window.frame = function () {}; try { TimbreScene.testLevel = 0.9; frequencies = new Uint8Array(32).fill(255); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('jelly');
+    const jeCost = await wide.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }; window.frame = function () {}; try { TimbreScene.testLevel = 0.9; frequencies = slices = new Uint8Array(32).fill(255); micBands = TimbreHelix.wide(frequencies); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('jelly');
       const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), one = new Uint8Array(4); let now = performance.now();
       const time = () => { let script = 0, whole = 0;
         for (let i = 0; i < 60; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); script += performance.now() - t; }
@@ -4067,7 +4104,7 @@ async function main() {
           if (st.knobs) Object.assign(perViz[id], st.knobs);
           f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
           if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
-          frequencies = f;
+          frequencies = slices = f; micBands = TimbreHelix.wide(frequencies);
           micPeak = st.peak || 0;
           let beats = 0, stepsTaken = 0, stepsMost = 0, stepsLeast = 99, flashMost = 0, pulseMost = 0, dartMost = 0, zoomLeast = 9, needMost = 0, fills = 0, firstPhase = null, phases = [], returningAt = -1, wholeAt = -1;
           if (st.gap) { now += st.gap; m.ok = false; }   // what the machine does about a page that stopped is its own business: the school is not made again past one
@@ -4352,7 +4389,7 @@ async function main() {
       JSON.stringify({ enlarged: big[0].state.enlarged, zoom: big.map((r) => r.state.zoom), fills: big.map((r) => r.fills), edge: big.map((r) => r.edge), box: [fr[0].box.h, big[0].box.h], px: big[0].state.px }));
 
     // The small page.
-    const smallFish = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz['school-of-fish']); window.frame = function () {}; try { perViz['school-of-fish'].cameraDrift = 0; TimbreScene.testLevel = 0.6; frequencies = new Uint8Array(32).fill(150); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('school-of-fish');
+    const smallFish = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz['school-of-fish']); window.frame = function () {}; try { perViz['school-of-fish'].cameraDrift = 0; TimbreScene.testLevel = 0.6; frequencies = slices = new Uint8Array(32).fill(150); micBands = TimbreHelix.wide(frequencies); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('school-of-fish');
       const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
       const read = () => { gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); let fish = 0, edge = 0; for (let i = 0; i < px.length; i += 4) if (px[i + 3] >= 250) { fish++; const x = (i / 4) % w, y = Math.floor(i / 4 / w); if (x < 2 || y < 2 || x >= w - 2 || y >= h - 2) edge++; } return { fish, edge }; };
       let now = 200000;
@@ -4369,7 +4406,7 @@ async function main() {
     await wide.bringToFront();
     await wide.waitForTimeout(300);
     // Loud, whole and then scattered: a frame's script time, and a frame drawn and finished by the GPU.
-    const fiCost = await wide.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }; window.frame = function () {}; try { TimbreScene.testLevel = 0.9; frequencies = new Uint8Array(32).fill(255); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('school-of-fish');
+    const fiCost = await wide.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }; window.frame = function () {}; try { TimbreScene.testLevel = 0.9; frequencies = slices = new Uint8Array(32).fill(255); micBands = TimbreHelix.wide(frequencies); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('school-of-fish');
       const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), one = new Uint8Array(4); let now = performance.now();
       const time = () => { let script = 0, whole = 0;
         for (let i = 0; i < 60; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); script += performance.now() - t; }
@@ -4422,7 +4459,7 @@ async function main() {
           if (st.knobs) Object.assign(perViz[id], st.knobs);
           f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
           if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
-          frequencies = f;
+          frequencies = slices = f; micBands = TimbreHelix.wide(frequencies);
           micPeak = st.peak || 0;
           let stepsTaken = 0, stepsMost = 0, stepsLeast = 99, flashMost = 0, pulseMost = 0, bounceMost = 0, flyingMost = 0, flyingLeast = 999, looseFrames = 0, phases = [], allSatAt = -1, edgeFrames = 0;
           const W0 = gl.drawingBufferWidth, H0 = gl.drawingBufferHeight;
@@ -4658,7 +4695,7 @@ async function main() {
     check('boids: Scene placement slides it', placed.centroidX - sit[1].centroidX > 150 && placed.solid > 0.9 * sit[1].solid, JSON.stringify({ x: [sit[1].centroidX, placed.centroidX], solid: [sit[1].solid, placed.solid] }));
 
     // The small page.
-    const smallBirds = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz['boids']); window.frame = function () {}; try { perViz['boids'].cameraDrift = 0; TimbreScene.testLevel = 0; frequencies = new Uint8Array(32); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('boids');
+    const smallBirds = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz['boids']); window.frame = function () {}; try { perViz['boids'].cameraDrift = 0; TimbreScene.testLevel = 0; frequencies = slices = new Uint8Array(32); micBands = TimbreHelix.wide(frequencies); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('boids');
       const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
       const read = () => { gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); let solid = 0, edge = 0, top = 0; for (let i = 0; i < px.length; i += 4) if (px[i + 3] >= 250) { solid++; const x = (i / 4) % w, y = Math.floor(i / 4 / w); if (y > h / 2) top++; if (x < 2 || y < 2 || x >= w - 2 || y >= h - 2) edge++; } return { solid, edge, top }; };
       let now = 200000;
@@ -4674,7 +4711,7 @@ async function main() {
     await wide.bringToFront();
     await wide.waitForTimeout(300);
     // Loud, in the air: a frame's script time, and a frame drawn and finished by the GPU.
-    const boCost = await wide.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz['boids']); window.frame = function () {}; try { perViz['boids'].density = 100; TimbreScene.testLevel = 0.9; frequencies = new Uint8Array(32).fill(255); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('boids');
+    const boCost = await wide.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz['boids']); window.frame = function () {}; try { perViz['boids'].density = 100; TimbreScene.testLevel = 0.9; frequencies = slices = new Uint8Array(32).fill(255); micBands = TimbreHelix.wide(frequencies); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('boids');
       const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), one = new Uint8Array(4); let now = performance.now();
       for (let i = 0; i < 120; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
       let script = 0, whole = 0;
@@ -4726,7 +4763,7 @@ async function main() {
           if (st.knobs) Object.assign(perViz[id], st.knobs);
           f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
           if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
-          frequencies = f;
+          frequencies = slices = f; micBands = TimbreHelix.wide(frequencies);
           micPeak = st.peak || 0;
           let stepsTaken = 0, stepsMost = 0, stepsLeast = 99, flashMost = 0, pulseMost = 0, kickMost = 0, openMost = 0, openLeast = 999, flyingMost = 0, flyingLeast = 999, comingMost = 0, thornsMost = 0, looseFrames = 0, phases = [], homeAt = -1, edgeFrames = 0, dipMost = 0;
           const W0 = gl.drawingBufferWidth, H0 = gl.drawingBufferHeight;
@@ -4990,7 +5027,7 @@ async function main() {
     check('rose: Scene placement slides it', placed.centroidX - sit[0].centroidX > 150 && placed.solid > 0.9 * sit[0].solid, JSON.stringify({ x: [sit[0].centroidX, placed.centroidX], solid: [sit[0].solid, placed.solid] }));
 
     // The small page.
-    const smallRose = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz['rose']); window.frame = function () {}; try { perViz['rose'].cameraDrift = 0; TimbreScene.testLevel = 0; frequencies = new Uint8Array(32); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('rose');
+    const smallRose = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz['rose']); window.frame = function () {}; try { perViz['rose'].cameraDrift = 0; TimbreScene.testLevel = 0; frequencies = slices = new Uint8Array(32); micBands = TimbreHelix.wide(frequencies); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('rose');
       const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
       const read = () => { gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); let solid = 0, edge = 0; for (let i = 0; i < px.length; i += 4) if (px[i + 3] >= 250) { solid++; const x = (i / 4) % w, y = Math.floor(i / 4 / w); if (x < 2 || y < 2 || x >= w - 2 || y >= h - 2) edge++; } return { solid, edge }; };
       let now = 200000;
@@ -5012,7 +5049,7 @@ async function main() {
     await wide.bringToFront();
     await wide.waitForTimeout(300);
     // Loud, at its fullest, in bloom and then in the air: a frame's script time, and a frame drawn and finished by the GPU.
-    const roCost = await wide.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz['rose']); window.frame = function () {}; try { perViz['rose'].density = 100; TimbreScene.testLevel = 0.9; frequencies = new Uint8Array(32).fill(150); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('rose');
+    const roCost = await wide.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz['rose']); window.frame = function () {}; try { perViz['rose'].density = 100; TimbreScene.testLevel = 0.9; frequencies = slices = new Uint8Array(32).fill(150); micBands = TimbreHelix.wide(frequencies); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('rose');
       const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), one = new Uint8Array(4); let now = performance.now();
       for (let i = 0; i < 120; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
       micPeak = 1; for (let i = 0; i < 4; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); } micPeak = 0;
@@ -5203,7 +5240,7 @@ async function main() {
           if (st.knobs) Object.assign(perViz[id], st.knobs);
           f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
           if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
-          frequencies = f;
+          frequencies = slices = f; micBands = TimbreHelix.wide(frequencies);
           micPeak = st.peak || 0;
           let stepsTaken = 0, stepsMost = 0, stepsLeast = 99, leanMost = 0, clumpsMost = 0, fallingMost = 0, fallingLeast = 999, swingMost = 0, levelMost = 0, looseFrames = 0, phases = [], edgeFrames = 0, flashMost = 0;
           const W0 = gl.drawingBufferWidth, H0 = gl.drawingBufferHeight;
@@ -5444,7 +5481,7 @@ async function main() {
     check('christmas tree: Scene placement slides it', placed.centroidX - sit[0].centroidX > 150 && placed.solid > 0.9 * sit[0].solid, JSON.stringify({ x: [sit[0].centroidX, placed.centroidX], solid: [sit[0].solid, placed.solid] }));
 
     // The small page.
-    const smallTree = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz['christmas-tree']); window.frame = function () {}; try { perViz['christmas-tree'].cameraDrift = 0; TimbreScene.testLevel = 0; frequencies = new Uint8Array(32); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('christmas-tree');
+    const smallTree = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz['christmas-tree']); window.frame = function () {}; try { perViz['christmas-tree'].cameraDrift = 0; TimbreScene.testLevel = 0; frequencies = slices = new Uint8Array(32); micBands = TimbreHelix.wide(frequencies); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('christmas-tree');
       const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
       const read = () => { gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); let solid = 0, edge = 0; for (let i = 0; i < px.length; i += 4) if (px[i + 3] >= 250) { solid++; const x = (i / 4) % w, y = Math.floor(i / 4 / w); if (x < 2 || y < 2 || x >= w - 2 || y >= h - 2) edge++; } return { solid, edge }; };
       let now = 200000;
@@ -5466,7 +5503,7 @@ async function main() {
     await wide.bringToFront();
     await wide.waitForTimeout(300);
     // Loud, with the most lights and the most snow, just after a thump: a frame's script time, and a frame drawn and finished by the GPU.
-    const trCost = await wide.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz['christmas-tree']); window.frame = function () {}; try { perViz['christmas-tree'].lightDensity = 100; perViz['christmas-tree'].snowfall = 100; TimbreScene.testLevel = 0.9; frequencies = new Uint8Array(32).fill(150); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('christmas-tree');
+    const trCost = await wide.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz['christmas-tree']); window.frame = function () {}; try { perViz['christmas-tree'].lightDensity = 100; perViz['christmas-tree'].snowfall = 100; TimbreScene.testLevel = 0.9; frequencies = slices = new Uint8Array(32).fill(150); micBands = TimbreHelix.wide(frequencies); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('christmas-tree');
       const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), one = new Uint8Array(4); let now = performance.now();
       for (let i = 0; i < 180; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
       micPeak = 1; for (let i = 0; i < 4; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); } micPeak = 0;
@@ -5939,9 +5976,9 @@ async function main() {
         window.__dnaSeed = 1;
         currentViz = VIZ_FACTORIES['dna']();
         const f = new Uint8Array(32), w = new Uint8Array(64);
-        f.fill(128, 0, 2); f.fill(77, 2, 11);
+        f.fill(Math.min(255, Math.round(128 * 1.3 / TimbreHelix.HEARD.low[0])), 0, 9); f.fill(Math.min(255, Math.round(77 * 3 / TimbreHelix.HEARD.high[2])), 25, 32);   // low and high as values 0-1 at 128 and 2-10 at 77 gave them
         for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * 0.5 * 127);
-        frequencies = f; waveform = w; micActive = true;
+        frequencies = slices = f; micBands = TimbreHelix.wide(frequencies); waveform = w; micActive = true;
         let now = performance.now();
         const frames = (n, peak) => {
           micPeak = peak; const t0 = performance.now();
@@ -6078,9 +6115,9 @@ async function main() {
         window.__cometSeed = 1;
         currentViz = VIZ_FACTORIES['comet']();
         const f = new Uint8Array(32), w = new Uint8Array(64);
-        f.fill(204, 0, 2); f.fill(204, 2, 11);
+        f.fill(Math.min(255, Math.round(204 * 1.3 / TimbreHelix.HEARD.low[0])), 0, 9); f.fill(Math.min(255, Math.round(204 * 3 / TimbreHelix.HEARD.high[2])), 25, 32);   // low and high as values 0-1 at 204 and 2-10 at 204 gave them
         for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * 0.6 * 127);
-        frequencies = f; waveform = w; micActive = true;
+        frequencies = slices = f; micBands = TimbreHelix.wide(frequencies); waveform = w; micActive = true;
         let now = performance.now();
         const frames = (n, peak) => {
           micPeak = peak; const t0 = performance.now();
@@ -6201,9 +6238,9 @@ async function main() {
         window.__firefliesSeed = 1;
         currentViz = VIZ_FACTORIES['fireflies']();
         const f = new Uint8Array(32), w = new Uint8Array(64);
-        f.fill(204, 0, 2); f.fill(204, 2, 11);
+        f.fill(Math.min(255, Math.round(204 * 1.3 / TimbreHelix.HEARD.low[0])), 0, 9); f.fill(Math.min(255, Math.round(204 * 3 / TimbreHelix.HEARD.high[2])), 25, 32);   // low and high as values 0-1 at 204 and 2-10 at 204 gave them
         for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * 0.6 * 127);
-        frequencies = f; waveform = w; micActive = true;
+        frequencies = slices = f; micBands = TimbreHelix.wide(frequencies); waveform = w; micActive = true;
         let now = performance.now();
         const frames = (n, peak) => {
           micPeak = peak; const t0 = performance.now();
@@ -6362,9 +6399,9 @@ async function main() {
         window.__pulseRingsSeed = 1;
         currentViz = VIZ_FACTORIES['pulse-rings']();
         const f = new Uint8Array(32), w = new Uint8Array(64);
-        f.fill(204, 0, 2); f.fill(204, 2, 11);
+        f.fill(Math.min(255, Math.round(204 * 1.3 / TimbreHelix.HEARD.low[0])), 0, 9); f.fill(Math.min(255, Math.round(204 * 3 / TimbreHelix.HEARD.high[2])), 25, 32);   // low and high as values 0-1 at 204 and 2-10 at 204 gave them
         for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * 0.6 * 127);
-        frequencies = f; waveform = w; micActive = true;
+        frequencies = slices = f; micBands = TimbreHelix.wide(frequencies); waveform = w; micActive = true;
         let now = performance.now();
         const frames = (n, peak) => {
           micPeak = peak; const t0 = performance.now();
@@ -6425,9 +6462,9 @@ async function main() {
         window.__orbitSeed = 3;
         currentViz = VIZ_FACTORIES['orbit']();
         const f = new Uint8Array(32), w = new Uint8Array(64);
-        f.fill(204, 0, 2); f.fill(204, 2, 11);
+        f.fill(Math.min(255, Math.round(204 * 1.3 / TimbreHelix.HEARD.low[0])), 0, 9); f.fill(Math.min(255, Math.round(204 * 3 / TimbreHelix.HEARD.high[2])), 25, 32);   // low and high as values 0-1 at 204 and 2-10 at 204 gave them
         for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * 0.6 * 127);
-        frequencies = f; waveform = w; micActive = true; micPeak = 0.6;
+        frequencies = slices = f; micBands = TimbreHelix.wide(frequencies); waveform = w; micActive = true; micPeak = 0.6;
         let now = performance.now(), wrong = 0, frames = 0, bodies = 0, swapsByAngle = 0;
         for (let k = 0; k < 600; k++) {
           now += 1000 / 60; currentViz.draw(now, 1 / 60);
@@ -6540,9 +6577,9 @@ async function main() {
         window.__orbitSeed = 1;
         currentViz = VIZ_FACTORIES['orbit']();
         const f = new Uint8Array(32), w = new Uint8Array(64);
-        f.fill(204, 0, 2); f.fill(204, 2, 11);
+        f.fill(Math.min(255, Math.round(204 * 1.3 / TimbreHelix.HEARD.low[0])), 0, 9); f.fill(Math.min(255, Math.round(204 * 3 / TimbreHelix.HEARD.high[2])), 25, 32);   // low and high as values 0-1 at 204 and 2-10 at 204 gave them
         for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * 0.6 * 127);
-        frequencies = f; waveform = w; micActive = true;
+        frequencies = slices = f; micBands = TimbreHelix.wide(frequencies); waveform = w; micActive = true;
         let now = performance.now();
         const frames = (n, peak) => {
           micPeak = peak; const t0 = performance.now();
@@ -6592,9 +6629,9 @@ async function main() {
         window.__blackHoleSeed = 2;
         currentViz = VIZ_FACTORIES['black-hole']();
         const f = new Uint8Array(32), w = new Uint8Array(64);
-        f.fill(128, 0, 2); f.fill(77, 2, 11);
+        f.fill(Math.min(255, Math.round(128 * 1.3 / TimbreHelix.HEARD.low[0])), 0, 9); f.fill(Math.min(255, Math.round(77 * 3 / TimbreHelix.HEARD.high[2])), 25, 32);   // low and high as values 0-1 at 128 and 2-10 at 77 gave them
         for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * 0.5 * 127);
-        frequencies = f; waveform = w; micActive = true; micPeak = 0.5;
+        frequencies = slices = f; micBands = TimbreHelix.wide(frequencies); waveform = w; micActive = true; micPeak = 0.5;
         let now = performance.now(), worst = 0, checked = 0, beyond = 0;
         for (let k = 0; k < 360; k++) {
           now += 1000 / 60; currentViz.draw(now, 1 / 60);
@@ -6638,9 +6675,9 @@ async function main() {
         window.__blackHoleSeed = 4;
         currentViz = VIZ_FACTORIES['black-hole']();
         const f = new Uint8Array(32), w = new Uint8Array(64);
-        f.fill(128, 0, 2); f.fill(77, 2, 11);
+        f.fill(Math.min(255, Math.round(128 * 1.3 / TimbreHelix.HEARD.low[0])), 0, 9); f.fill(Math.min(255, Math.round(77 * 3 / TimbreHelix.HEARD.high[2])), 25, 32);   // low and high as values 0-1 at 128 and 2-10 at 77 gave them
         for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * 0.5 * 127);
-        frequencies = f; waveform = w; micActive = true;
+        frequencies = slices = f; micBands = TimbreHelix.wide(frequencies); waveform = w; micActive = true;
         let now = performance.now();
         const frames = (n, p) => { micPeak = p; for (let k = 0; k < n; k++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); } };
         frames(120, 0.5); frames(1, peak); frames(20, 0.5);
@@ -6742,9 +6779,9 @@ async function main() {
         window.__blackHoleSeed = 1;
         currentViz = VIZ_FACTORIES['black-hole']();
         const f = new Uint8Array(32), loudW = new Uint8Array(64), quietW = new Uint8Array(64).fill(128);
-        f.fill(204, 0, 2); f.fill(204, 2, 11);
+        f.fill(Math.min(255, Math.round(204 * 1.3 / TimbreHelix.HEARD.low[0])), 0, 9); f.fill(Math.min(255, Math.round(204 * 3 / TimbreHelix.HEARD.high[2])), 25, 32);   // low and high as values 0-1 at 204 and 2-10 at 204 gave them
         for (let i = 0; i < 64; i++) loudW[i] = 128 + Math.round(Math.sin(i * 0.4) * 0.6 * 127);
-        frequencies = f; micActive = true;
+        frequencies = slices = f; micBands = TimbreHelix.wide(frequencies); micActive = true;
         let now = performance.now(), most = 0, frame = 0;
         const frames = (n, peak) => {
           micPeak = peak; const t0 = performance.now();
@@ -6874,9 +6911,9 @@ async function main() {
       try {
         currentViz = VIZ_FACTORIES[name]();
         const f = new Uint8Array(32), loudW = new Uint8Array(64), quietW = new Uint8Array(64).fill(128);
-        f.fill(204, 0, 2); f.fill(204, 2, 11);
+        f.fill(Math.min(255, Math.round(204 * 1.3 / TimbreHelix.HEARD.low[0])), 0, 9); f.fill(Math.min(255, Math.round(204 * 3 / TimbreHelix.HEARD.high[2])), 25, 32);   // low and high as values 0-1 at 204 and 2-10 at 204 gave them
         for (let i = 0; i < 64; i++) loudW[i] = 128 + Math.round(Math.sin(i * 0.4) * 0.6 * 127);
-        frequencies = mic ? f : null; micActive = mic; micPeak = mic ? 0.6 : null;
+        frequencies = slices = mic ? f : null; micBands = TimbreHelix.wide(frequencies); micActive = mic; micPeak = mic ? 0.6 : null;
         let now = performance.now();
         const t0 = performance.now();
         for (let k = 0; k < 300; k++) { waveform = !mic ? null : (k % 30) < 12 ? loudW : quietW; now += 1000 / 60; currentViz.draw(now, 1 / 60); }
@@ -7009,10 +7046,10 @@ async function main() {
         const f = new Uint8Array(32), w = new Uint8Array(64);
         let now = performance.now();
         for (const s of steps) {
-          f.fill(0); f.fill(Math.round(s.low * 255), 0, 2); f.fill(Math.round(s.high * 255), 2, 11);
+          f.fill(0); f.fill(Math.min(255, Math.round(s.low * 255 * 1.3 / TimbreHelix.HEARD.low[0])), 0, 9); f.fill(Math.min(255, Math.round(s.high * 255 * 3 / TimbreHelix.HEARD.high[2])), 25, 32);   // low and high as values 0-1 and 2-10 gave them
           for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * s.wave * 127);
           const on = s.mic !== false;
-          frequencies = on ? f : null; waveform = on ? w : null; micActive = on; micPeak = null;
+          frequencies = slices = on ? f : null; micBands = TimbreHelix.wide(frequencies); waveform = on ? w : null; micActive = on; micPeak = null;
           for (let k = 0, n = Math.round(s.secs * 60); k < n; k++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
         }
         // A box round the middle of the screen: 30 by 30 of the set's own units, where the eyes and the mouth are.
@@ -7061,7 +7098,7 @@ async function main() {
         currentViz = VIZ_FACTORIES['television']();
         const f = new Uint8Array(32).fill(150), loudW = new Uint8Array(64);
         for (let i = 0; i < 64; i++) loudW[i] = 128 + Math.round(Math.sin(i * 0.4) * 0.6 * 127);
-        frequencies = f; micActive = true; micPeak = 0.6; waveform = loudW;
+        frequencies = slices = f; micBands = TimbreHelix.wide(frequencies); micActive = true; micPeak = 0.6; waveform = loudW;
         let now = performance.now();
         for (let k = 0; k < 60; k++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
         waveform = new Uint8Array(64); now += 1000 / 60; currentViz.draw(now, 1 / 60);
@@ -7188,7 +7225,7 @@ async function main() {
           out.canvas = (c3.style.display !== 'none') === is3d && (c2.style.display !== 'none') === !is3d;
           const f = new Uint8Array(32).fill(140), w = new Uint8Array(64);
           for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * 60);
-          frequencies = f; waveform = w; micActive = true; micPeak = 0.3;
+          frequencies = slices = f; micBands = TimbreHelix.wide(frequencies); waveform = w; micActive = true; micPeak = 0.3;
           let now = performance.now();
           for (let i = 0; i < 90; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
           const t0 = performance.now();
@@ -7227,7 +7264,7 @@ async function main() {
     const fireworks = await smoke.evaluate(() => {
       const saved = { frequencies, waveform, micActive, micPeak, idle: cfgIdleAnim }, push = Array.prototype.push, out = {};
       try {
-        frequencies = null; waveform = null; micActive = false; micPeak = null; cfgIdleAnim = true;   // idle: one rocket every 3 s
+        frequencies = slices = null; micBands = TimbreHelix.wide(frequencies); waveform = null; micActive = false; micPeak = null; cfgIdleAnim = true;   // idle: one rocket every 3 s
         for (const fps of [30, 60]) {
           setActiveViz('visualizer'); setActiveViz('new-year-fireworks');
           const dt = 1 / fps, ys = [], sparkAt = new Set(), rocketSeen = new WeakSet();
@@ -7273,24 +7310,24 @@ async function main() {
     });
     check('easter eggs: the Pattern knob rebuilds the row for dots, for mixed and for stripes, and not when it has not moved',
       eggs.dots === 'dots' && eggs.mixed === 'dots,stripes,zigzag' && eggs.stripes === 'stripes' && eggs.again === '', JSON.stringify(eggs));
-    const spoke = await smoke.evaluate(() => {
+    const spoke = await smoke.evaluate((over) => {
       const saved = { frequencies, micActive, spokes: perViz['ring-bars'].spokes }, fill = ctx.fillRect;
       try {
         setActiveViz('visualizer'); setActiveViz('ring-bars');
         perViz['ring-bars'].spokes = 100;                 // 48 spokes: number 24 points straight down
-        const f = new Uint8Array(32); f[31] = 255;        // only the last bin is loud
-        frequencies = f; micActive = true;
+        const f = new Float32Array(32); f[30] = f[31] = 255 / over;   // only the last two bands are loud (over the effect's LOG_GAIN: a full spoke): with 48 spokes they are the bottom spoke's
+        frequencies = slices = f; micBands = TimbreHelix.wide(frequencies); micActive = true;
         let lowest = 0;
         ctx.fillRect = function (x, y, w, h) { if (Math.abs(x + w / 2 - W / 2) < 3) lowest = Math.max(lowest, y); return fill.call(this, x, y, w, h); };
         currentViz.draw(performance.now(), 1 / 60);
         return { reach: (lowest - H / 2) / SCALE, gain: cfgGain };
       } finally { ctx.fillRect = fill; frequencies = saved.frequencies; micActive = saved.micActive; perViz['ring-bars'].spokes = saved.spokes; }
-    });
-    check('ring bars: the bottom spoke follows the last frequency bin (it reaches past 40 units below the centre; the ring starts at 14)', spoke.reach > 40 && spoke.gain === 1, JSON.stringify(spoke));
+    }, logGain('ring-bars'));
+    check('ring bars: the bottom spoke follows the top of the spectrum, the last bands (it reaches past 40 units below the centre; the ring starts at 14)', spoke.reach > 40 && spoke.gain === 1, JSON.stringify(spoke));
     const rain = await smoke.evaluate(() => {
       const m = perViz['matrix'], saved = { frequencies, waveform, micActive, mode: m.mode, messages: m.messages, flow: m.flow }, text = ctx.fillText;
       try {
-        frequencies = null; waveform = null; micActive = false;
+        frequencies = slices = null; micBands = TimbreHelix.wide(frequencies); waveform = null; micActive = false;
         m.mode = 'messages'; m.messages = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'; m.flow = 0;
         setActiveViz('visualizer'); setActiveViz('matrix');
         const cells = new Map();
@@ -7476,7 +7513,7 @@ async function main() {
       Math.random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
       try {
         if (o.knobs) Object.assign(perViz[o.id], o.knobs);
-        frequencies = new Uint8Array(32); waveform = new Uint8Array(64).fill(128); micActive = true; micPeak = 0;
+        frequencies = slices = new Uint8Array(32); micBands = TimbreHelix.wide(frequencies); waveform = new Uint8Array(64).fill(128); micActive = true; micPeak = 0;
         cfgIdleAnim = true; cfgColorHue = 0; cfgColorSpeed = 1; cfgGain = 1;
         TimbreScene.testLevel = 0.6;
         TimbreScene.testClock = typeof o.clock === 'number' ? o.clock : null;
@@ -7525,7 +7562,7 @@ async function main() {
       Math.random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
       try {
         Object.assign(perViz['winter-aurora'], { starDensity: 0, snowfall: 0 });
-        frequencies = new Uint8Array(32); micActive = true; TimbreScene.testLevel = 0.6;
+        frequencies = slices = new Uint8Array(32); micBands = TimbreHelix.wide(frequencies); micActive = true; TimbreScene.testLevel = 0.6;
         setActiveViz('visualizer'); setActiveViz('winter-aurora');
         const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
         const read = () => { const px = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); return px; };
@@ -7639,14 +7676,21 @@ async function main() {
         if (o.knobs) Object.assign(perViz[o.id], o.knobs);
         cfgIdleAnim = o.idle !== false; cfgColorHue = 0; cfgColorSpeed = typeof o.colorSpeed === 'number' ? o.colorSpeed : 1; cfgGain = 1;
         cfgEffectBgOpacity = typeof o.bg === 'number' ? o.bg : 1;
-        const f = new Uint8Array(32), w = new Uint8Array(64).fill(128), on = o.mic !== false;
+        // f holds the sound as 32 values of 0-255, as these runs were written for the 750 Hz values. The
+        // effect is handed them as its log bands over its LOG_GAIN (a bar is as tall as its value says), as
+        // its slices, and as the micBands that give the "bass" values 0-3 gave and the loudness all 32 gave.
+        const f = new Uint8Array(32), fq = new Float32Array(32), w = new Uint8Array(64).fill(128), on = o.mic !== false;
+        const HD = TimbreHelix.HEARD, det = HD.bass[0] * HD.all[2] - HD.bass[2] * HD.all[0];
         const sound = (e) => {   // e: seconds since the start
           f.fill(Math.round((o.level || 0) * 255));
           if (o.slope) for (let b = 0; b < 32; b++) f[b] = 30 + b * 7;
           if (o.beats) f.fill(Math.round(((e + 1e-9) % o.beats.every < o.beats.on ? o.beats.level : 0) * 255), 0, 4);
           if (o.bassFrom !== undefined) f.fill(e + 1e-9 >= o.bassFrom ? Math.round(o.bass * 255) : 0, 0, 4);
           if (o.wave) for (let k = 0; k < 64; k++) w[k] = 128 + Math.round(o.wave * 127 * Math.sin(k * 0.4 + e * 6));
-          frequencies = on ? f : null; waveform = on ? w : null; micActive = on; micPeak = on ? 0.3 : null;
+          let lo = 0, all = 0;
+          for (let b = 0; b < 32; b++) { fq[b] = f[b] / o.logGain; all += f[b] / (32 * 255); if (b < 4) lo += f[b] / (4 * 255); }
+          frequencies = slices = on ? fq : null; micBands = TimbreHelix.wide(frequencies); waveform = on ? w : null; micActive = on; micPeak = on ? 0.3 : null;
+          if (on) { slices = f; micBands = { bass: (HD.all[2] * lo - HD.bass[2] * all) / det, mid: 0, treble: (HD.bass[0] * all - HD.all[0] * lo) / det }; }
         };
         sound(0);
         setActiveViz('waveform'); setActiveViz(o.id);
@@ -7687,7 +7731,7 @@ async function main() {
         cfgIdleAnim = saved.cfgIdleAnim; cfgColorHue = saved.cfgColorHue; cfgColorSpeed = saved.cfgColorSpeed; cfgGain = saved.cfgGain; cfgEffectBgOpacity = saved.cfgEffectBgOpacity;
         Object.assign(perViz[o.id], knobs0);
       }
-    }, o);
+    }, { ...o, logGain: logGain(o.id) });
     // This browser paints a 2D canvas with the GPU until it has been read back a few times, and
     // from then on, most runs, without it. The two antialias a line differently and round a
     // faint stroke differently, so a picture read here could differ from one run to the next
@@ -8305,7 +8349,7 @@ async function main() {
       const drawn = await page.evaluate(() => {
         const m = perViz['matrix'], savedState = { frequencies, waveform, micActive, mode: m.mode, pool: m.pool, messages: m.messages, name: window.__timbre.currentVizName }, text = ctx.fillText;
         try {
-          frequencies = new Uint8Array(32).fill(200); waveform = null; micActive = true;
+          frequencies = slices = new Uint8Array(32).fill(200); micBands = TimbreHelix.wide(frequencies); waveform = null; micActive = true;
           const run = (mode, pool, messages, allowed) => {
             m.mode = mode; m.pool = pool; m.messages = messages;
             setActiveViz('visualizer'); setActiveViz('matrix');
@@ -8444,6 +8488,66 @@ async function main() {
     for (const off of ['/mock/delay?ms=0', '/mock/drop?on=0', '/mock/missing?on=0', '/mock/silent?on=0', '/mock/throw?on=0', '/mock/bleed?on=0']) await mockGet(off);
     await pushConfig((c) => { c.activeViz = 'waveform'; });
     watcher.close();
+    }
+
+    // ── Sprint A: recorded sound, through the real analysis, into the effects ──
+    {
+      const { GUARD, SECONDS, signalInit, recordInPage, replayInPage, soundSummary } = await import('./tools/input-replay.mjs');
+      const want = JSON.parse(readFileSync(resolve(__dirname, 'tools/input-expectations.json'), 'utf8'));
+      // These pages are given a port nothing listens on as ?sbport=: no config reaches them, so
+      // they draw with the defaults, as the pages of tools/compare-input.mjs do.
+      const deadPort = await new Promise((done, fail) => { const s = createNetServer(); s.once('error', fail); s.listen(0, '127.0.0.1', () => { const port = s.address().port; s.close(() => done(port)); }); });
+      const quietUrl = `${BASE}/timbre-overlay/mic-visualizers-1920x1080.html?sbport=${deadPort}`;
+      const rctx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+      // The page's AudioContext plays the signal offline, so the real AnalyserNode and the real
+      // sampler do the work; a 64-point AnalyserNode listens beside them (ref).
+      const record = async (signal) => {
+        const pg = await rctx.newPage();
+        await pg.addInitScript(signalInit, { signal, seconds: SECONDS });
+        await pg.goto(quietUrl, { waitUntil: 'load' });
+        await pg.waitForFunction(() => window.__input.sampler && window.__input.ctx, null, { timeout: 8000 });
+        const trace = await pg.evaluate(recordInPage, { ref: true });
+        await pg.close();
+        return trace.ticks.map(({ t, f, w, p, b, s, ref }) => ({ t, f, w, p, b, s, ref }));
+      };
+      const speech = await record(GUARD.signal), sweep = await record('sweep');
+      let gap = 0, differ = 0;
+      for (const t of speech.concat(sweep)) for (let k = 0; k < 32; k++) { const d = Math.abs(t.s[k] - t.ref[k]); if (d) differ++; if (d > gap) gap = d; }
+      check('recorded speech and sweep: on every look the 32 slices are what a 64-point AnalyserNode fed the same sound reads (the values the sampler published before the bands), to within 1 of 255',
+        speech.length === 180 && sweep.length === 180 && gap <= 1 && differ <= 20 && speech.some((t) => t.ref.some((v) => v > 100)), `largest gap ${gap}; ${differ} of ${(speech.length + sweep.length) * 32} values differ`);
+      const heard = soundSummary(speech);
+      const soundOff = Object.keys(want.sound).filter((k) => !(Math.abs(heard[k] - want.sound[k]) <= (k === 'looks' || k === 'beats' ? 0 : 0.002)));
+      check('recorded speech: what the sampler publishes over the six seconds (the means of the 32 bands, of the slices, of bass, mid, treble, rms and level, and the count of beats) is what tools/input-expectations.json holds',
+        Object.keys(want.sound).length === 10 && soundOff.length === 0, soundOff.map((k) => `${k} ${heard[k]}, expected ${want.sound[k]}`).join('; ') || JSON.stringify(heard));
+      const tops = sweep.map((t) => t.f.indexOf(Math.max(...t.f)));
+      check('recorded sweep (one tone rising from 60 Hz to 12 kHz): the loudest of the 32 log bands goes from band 0 to band 31, through every band, and never back',
+        tops[0] === 0 && tops[tops.length - 1] === 31 && tops.every((v, i) => i === 0 || v >= tops[i - 1]) && new Set(tops).size === 32, tops.join(' '));
+
+      const rp = await rctx.newPage();
+      await rp.addInitScript(() => { navigator.mediaDevices.getUserMedia = () => new Promise(() => {}); });   // no microphone: the recording is the sound
+      await rp.goto(quietUrl, { waitUntil: 'load' });
+      await rp.waitForFunction(() => window.__timbre && typeof currentViz !== 'undefined' && currentViz, null, { timeout: 15000 });
+      const fed = (ticks) => ticks.map(({ t, f, w, p, b, s }) => ({ t, f, w, p, b, s }));
+      const sameNames = Object.keys(want.effects).sort().join() === GUARD.effects.slice().sort().join() && want.signal === GUARD.signal && want.time === GUARD.time && want.cols === GUARD.cols && want.rows === GUARD.rows;
+      check('tools/input-expectations.json holds a frame of every guarded effect, for the signal, the moment and the grid the guard names', sameNames, Object.keys(want.effects).join(' '));
+      // A frame may differ from the stored one by 6% in its light (or 0.004 of full white) and, in
+      // each cell of the grid, by 15% (or 0.02): room for another machine's graphics, none for a
+      // level that moved.
+      for (const name of GUARD.effects) {
+        const exp = want.effects[name];
+        const res = await rp.evaluate(replayInPage, { name, ticks: fed(speech), times: [GUARD.time], cols: GUARD.cols, rows: GUARD.rows }).catch((e) => ({ error: String(e) }));
+        const got = res.frames && res.frames[0];
+        let worst = { cell: -1, by: 0 }, cellsOk = !!got && !!exp && got.grid.length === exp.grid.length;
+        if (cellsOk) got.grid.forEach((v, i) => { const by = Math.abs(v - exp.grid[i]); if (by > worst.by) worst = { cell: i, by }; if (by > Math.max(0.02, 0.15 * exp.grid[i])) cellsOk = false; });
+        const lightOk = !!got && !!exp && Math.abs(got.light - exp.light) <= Math.max(0.004, 0.06 * exp.light);
+        check(`${name} under the recorded speech, ${GUARD.time} s in: the frame's light and its ${GUARD.cols} × ${GUARD.rows} grid of brightness are the stored ones`, lightOk && cellsOk && got.light > 0.001,
+          got && exp ? `light ${got.light.toFixed(5)} (stored ${exp.light}); the cell furthest off is ${worst.cell}, by ${worst.by.toFixed(4)}` : JSON.stringify(res).slice(0, 200));
+      }
+      const sw = await rp.evaluate(replayInPage, { name: 'visualizer', ticks: fed(sweep), times: [1.0, 3.0, 5.0], cols: 20, rows: 1 });
+      const tallest = sw.frames.map((fr) => fr.grid.indexOf(Math.max(...fr.grid)));
+      check('visualizer under the recorded sweep: the brightest of its 20 bars is further right each time the tone is higher (1, 3 and 5 seconds in), from the left end to the right end',
+        tallest.length === 3 && tallest[0] < tallest[1] && tallest[1] < tallest[2] && tallest[0] <= 5 && tallest[2] >= 14, tallest.join(' '));
+      await rctx.close();
     }
 
     // ── Mic-denied path (no fake-media flags, no permission grant) ─────────

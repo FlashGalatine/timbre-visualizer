@@ -60,8 +60,8 @@ VIZ_FACTORIES['galaxy-ripple'] = function () {
       const veil = VEIL * cfgEffectBgOpacity;
       const share = fadeOrClear(veil, dt);
       let bassInst = 0;
-      if (micActive && frequencies && frequencies.length >= 4) {
-        bassInst = ((frequencies[0] + frequencies[1] + frequencies[2] + frequencies[3]) / 4 / 255) * cfgGain;
+      if (micActive && micBands) {
+        bassInst = TimbreHelix.heard('bass', micBands) * cfgGain;   // what values 0-3 of the 750 Hz spectrum gave (helix.js)
       }
       bassSlow = ema(bassSlow, bassInst, SLOW_RATE, dt);
       bassFast = ema(bassFast, bassInst, FAST_RATE, dt);

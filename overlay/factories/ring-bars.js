@@ -7,13 +7,15 @@ VIZ_FACTORIES['ring-bars'] = function () {
   const TIP_SZ = Math.max(2, Math.round(4 * SCALE));
   const CORE_R = Math.max(2, 4 * SCALE);
   const CORE_HILITE = Math.max(1, Math.round(2 * SCALE));
+  // The spokes read the 32 log bands (60 Hz to 12 kHz), spread over all of them (TimbreHelix.spread).
+  // LOG_GAIN is fitted so that a recorded voice gives the light the 750 Hz values gave.
+  const LOG_GAIN = 0.7;
   function getSpokeValue(i, NUM_SPOKES) {
     if (micActive && frequencies && frequencies.length > 0) {
       const half = NUM_SPOKES / 2;
       const offset = i < half ? i : NUM_SPOKES - i;
-      // offset === half (the bottom spoke) would index one past the last bin.
-      const bin = Math.min(frequencies.length - 1, Math.floor((offset / half) * frequencies.length));
-      return (frequencies[bin] || 0) * cfgGain;
+      // offset === half (the bottom spoke) would be one spoke past the last: it reads the last spoke's bands.
+      return TimbreHelix.spread(frequencies, Math.min(offset, Math.ceil(half) - 1), half) * LOG_GAIN * cfgGain;
     }
     if (!cfgIdleAnim) return 0;
     return 60 + 30 * Math.sin(Date.now() / 700 + i * 0.5);

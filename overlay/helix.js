@@ -1,5 +1,7 @@
 // Timbre — helix arithmetic, the plain numbers behind the dna effect. It holds
-// the three sound levels the helix follows (loudness, low, high), the rule that
+// the three sound levels the helix follows (loudness, low, high), the other
+// levels and the bar spread that effects tuned before the log bands read the
+// sound through (see "The re-mapped readers" below), the rule that
 // turns Shatter Sensitivity into a peak threshold, a smoothing helper, the
 // return curve, a seedable random source, and the shatter machine: whole, in
 // pieces or returning, with its timers and the motion of the pieces. The
@@ -71,19 +73,73 @@
 
   const clamp01 = (v) => (v > 1 ? 1 : v > 0 ? v : 0);
 
-  function mean(values, from, to) {
+  // ── The re-mapped readers ────────────────────────────────────────────────
+  // `frequencies` used to be 32 values 750 Hz apart, and effects read them by position
+  // ("low" was values 0 and 1, "bass" values 0 to 3). It is now 32 log-spaced bands from
+  // 60 Hz to 12 kHz (audio-capture.js), so those positions mean something else. The levels
+  // below stand in for what the positions gave. Each is a weighted sum of the sampler's
+  // three wide bands (micBands.bass, .mid and .treble), with the weights fitted on recorded
+  // sound (a voice at 150 Hz and one at 220 Hz, a kick with a hi-hat, a band) so that each
+  // lands within a tenth of its old level, in the mean, on every one of them
+  // (tools/compare-input.mjs measures it). Before Gain, not clamped.
+  //   low   was the mean of values 0-1 × 1.3 (levels() below: the helix and eight more effects)
+  //   high  was the mean of values 2-10 × 3  (levels() below)
+  //   bass  was the mean of values 0-3       (galaxy-ripple, matrix, peaks-mirror, winter-aurora, the flag, sunburst)
+  //   all   was the mean of all 32 values    (matrix, tunnel, vaporwave)
+  const HEARD = { low: [1.22, 0.74, 0], high: [0, 0.96, 1.44], bass: [0.47, 0.42, 0.56], all: [0.13, 0.03, 0.89] };
+  // The three wide bands as band numbers (first, one past the last): audio-capture.js's BASS, MID and TREBLE.
+  const WIDE = { bass: [0, 9], mid: [9, 25], treble: [25, 32] };
+
+  // The mean of values[from] to values[to - 1], as 0 to 1 (the values are 0 to 255).
+  function bandMean(values, from, to) {
+    if (!values) return 0;
+    const end = Math.min(to, values.length);
+    if (!(end > from)) return 0;
     let sum = 0;
-    for (let i = from; i <= to; i++) sum += values[i] || 0;
-    return sum / (to - from + 1);
+    for (let i = from; i < end; i++) sum += values[i] || 0;
+    return sum / ((end - from) * 255);
+  }
+
+  // The three wide bands of the 32 log bands, each 0 to 1: what the sampler publishes as
+  // micBands.bass, .mid and .treble, for a reader that is handed `frequencies` and no more.
+  function wide(bands) {
+    return { bass: bandMean(bands, WIDE.bass[0], WIDE.bass[1]), mid: bandMean(bands, WIDE.mid[0], WIDE.mid[1]), treble: bandMean(bands, WIDE.treble[0], WIDE.treble[1]) };
+  }
+
+  // One of the levels above ('low', 'high', 'bass', 'all') from micBands, or from wide().
+  function heard(which, bands) {
+    const w = HEARD[which];
+    if (!w || !bands) return 0;
+    const v = w[0] * bands.bass + w[1] * bands.mid + w[2] * bands.treble;
+    return Number.isFinite(v) ? v : 0;
+  }
+
+  // The bar spread. An effect with `count` bars (or spokes, columns, rails) lays them over
+  // all `n` bands: bar i reads the bands from i × n / count to the next bar's first, so 20
+  // bars cover 60 Hz to 12 kHz and no band is left out. With more bars than bands each bar
+  // reads the one band it falls in. spreadRange gives the bands (first, one past the last);
+  // spread gives their mean, on the values' own 0-255 scale.
+  function spreadRange(i, count, n) {
+    const from = Math.floor(i * n / count);
+    return [from, Math.max(from + 1, Math.floor((i + 1) * n / count))];
+  }
+  function spread(values, i, count) {
+    if (!values || !values.length || !(i >= 0) || !(i < count)) return 0;
+    const range = spreadRange(i, count, values.length), end = Math.min(range[1], values.length);
+    let sum = 0;
+    for (let k = range[0]; k < end; k++) sum += values[k];
+    return end > range[0] ? sum / (end - range[0]) : 0;
   }
 
   // Loudness (twist and glow), low (strand A's width) and high (strand B's
   // width), each 0 to 1, from the shared sound arrays and Gain as a multiplier.
+  // `frequencies` is the 32 log bands; low and high are heard() of their wide bands.
   function levels(frequencies, waveform, gain) {
+    const bands = frequencies ? wide(frequencies) : null;
     return {
       loud: waveform ? clamp01(peakOf(waveform) * 1.5 * gain) : 0,
-      low: frequencies ? clamp01(mean(frequencies, 0, 1) / 255 * 1.3 * gain) : 0,
-      high: frequencies ? clamp01(mean(frequencies, 2, 10) / 255 * 3 * gain) : 0,
+      low: bands ? clamp01(heard('low', bands) * gain) : 0,
+      high: bands ? clamp01(heard('high', bands) * gain) : 0,
     };
   }
 
@@ -327,6 +383,7 @@
 
   globalThis.TimbreHelix = {
     RETURN_S, HANDOVER_U, MIN_CALM_S, REARM_S, JOSTLE_GAP_S, GAP_MS,
-    threshold, peakOf, levels, twist, radius, follow, returnShare, rng, createShatter,
+    HEARD, WIDE,
+    threshold, peakOf, levels, bandMean, wide, heard, spreadRange, spread, twist, radius, follow, returnShare, rng, createShatter,
   };
 })();

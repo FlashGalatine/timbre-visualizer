@@ -314,7 +314,7 @@
       level.step(audio.flame, dt);
       for (let b = 0; b < K; b++) {
         let v = 0;
-        if (micActive) v = loudness(frequencies, b, cfgGain);
+        if (micActive) v = loudness(slices, b, cfgGain);
         else if (cfgIdleAnim) v = idle(b, s.clock);
         heardNow[b] = follow(heardNow[b], v, v > heardNow[b] ? RISE : FALL, dt);
         bands[b].step(heardNow[b], dt);

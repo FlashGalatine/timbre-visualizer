@@ -3,6 +3,9 @@ VIZ_FACTORIES['sine-bars'] = function () {
   const BAR_GAP = Math.max(1, Math.round(1 * SCALE));
   const STEP = Math.max(2, Math.round(6 * SCALE));
   const ghosts = TimbreGlow.createBarGhosts();
+  // The bars read the 32 log bands (60 Hz to 12 kHz), spread over all of them (TimbreHelix.spread).
+  // LOG_GAIN is fitted so that a recorded voice gives the light the 750 Hz values gave.
+  const LOG_GAIN = 0.74;
   /* The ribbon's glow. It was a shadowBlur of 10 × SCALE under the line; it is the same
      glow painted as GLOW_STEPS strokes of the ribbon's own path, each wider and fainter than
      the next, the widest first. A blurred line falls away as a bell curve does, so each
@@ -40,7 +43,7 @@ VIZ_FACTORIES['sine-bars'] = function () {
       for (let i = 0; i < numBars; i++) {
         let value;
         if (micActive && frequencies) {
-          value = (frequencies[i] || 0) * cfgGain;
+          value = TimbreHelix.spread(frequencies, i, numBars) * LOG_GAIN * cfgGain;
         } else if (cfgIdleAnim) {
           value = 24 + 18 * Math.sin(now / 600 + i * 0.4);
         } else { value = 0; }

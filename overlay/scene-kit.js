@@ -60,11 +60,17 @@
   // Smoothed views of the mic level, plus a beat detector. step() returns
   // { level, flame, slow, kick, burst, beat }; beat is true on the firing step
   // only, and kick is exactly 1 on that step (decay resumes on the next).
+  // `heardBeats` is the sampler's count of beats (micBands.beats) when it publishes one. The
+  // sampler looks for the beat once per audio sample, with the same rule as below, so with a
+  // count the envelope finds none itself: a beat is a count that moved since the last step.
+  // (The first count seen is only noted: beats from before the scene started are not its.)
+  // Without a count (a test level, or an audio-capture.js from before it published any) the
+  // envelope finds the beat from the level as it always did.
   function createEnvelope() {
     let flame = 0, slow = 0, avg = 0, kick = 0, burst = 0, seeded = false;
-    let lastBeatMs = -Infinity;
+    let lastBeatMs = -Infinity, seenBeats = null;
     return {
-      step(level, nowMs, dt, micOn) {
+      step(level, nowMs, dt, micOn, heardBeats) {
         level = clamp01(Number.isFinite(level) ? level : 0);
         dt = Number.isFinite(dt) && dt > 0 ? dt : 0;
         flame = follow(flame, level, level > flame ? 30 : 3, dt);
@@ -74,7 +80,12 @@
         // Start the average at the first reading so a steady level is not a jump.
         if (!seeded) { avg = level; seeded = true; }
         let beat = false;
-        if (micOn && level > avg * 1.35 + 0.07 && nowMs - lastBeatMs >= BEAT_GAP_MS) {
+        const counted = typeof heardBeats === 'number';
+        const found = counted
+          ? seenBeats !== null && heardBeats !== seenBeats
+          : level > avg * 1.35 + 0.07 && nowMs - lastBeatMs >= BEAT_GAP_MS;
+        seenBeats = counted ? heardBeats : null;
+        if (micOn && found) {
           beat = true;
           lastBeatMs = nowMs;
           kick = 1;
@@ -333,10 +344,21 @@
       if (uPremultiplied > 0.5) gl_FragColor.a = max(gl_FragColor.a, min(1.0, max(gl_FragColor.r, max(gl_FragColor.g, gl_FragColor.b))));
     }`;
 
-  // Mic loudness, 0..1: waveform RMS or the low FFT bins, times Gain. Without a
-  // mic, a slow swell when Idle animation is on, else silence.
+  // The sampler's summary of the sound (core.js's micBands), or null: no mic, a test level
+  // in force, or an audio-capture.js from before it published one.
+  function heard() {
+    if (typeof api.testLevel === 'number' || !micActive) return null;
+    return typeof micBands !== 'undefined' && micBands && typeof micBands.level === 'number' ? micBands : null;
+  }
+
+  // Mic loudness, 0..1: the sampler's level (the larger of 3 × the RMS of its newest 64 samples
+  // and 1.1 × the mean of its six lowest slices), times Gain. Beside a sampler that publishes
+  // none, the same from `waveform` and the low six values of `frequencies`, which are that
+  // sampler's 750 Hz values. Without a mic, a slow swell when Idle animation is on, else silence.
   function readLevel(nowMs) {
     if (typeof api.testLevel === 'number') return api.testLevel;
+    const bands = heard();
+    if (bands) return Math.min(1, bands.level * cfgGain);
     if (micActive && waveform && waveform.length) {
       let sum = 0;
       for (let i = 0; i < waveform.length; i++) { const v = (waveform[i] - 128) / 128; sum += v * v; }
@@ -559,7 +581,8 @@
         if (!targets) return;                     // nothing to draw this frame
         dt = Number.isFinite(dt) && dt > 0 ? dt : 0;
 
-        const audio = envelope.step(readLevel(now), now, dt, micActive);
+        const bands = heard();
+        const audio = envelope.step(readLevel(now), now, dt, micActive, bands && typeof bands.beats === 'number' ? bands.beats : undefined);
         def.update(k, audio, now, dt);
         placeCamera(view.w, view.h);
 

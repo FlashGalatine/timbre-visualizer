@@ -265,10 +265,9 @@
       // The low end swells the star; the high end makes the beams flicker.
       let low = 0, high = 0;
       if (micActive) {
-        if (frequencies && frequencies.length >= 15) {
-          for (let i = 0; i < 4; i++) low += frequencies[i];
-          for (let i = 5; i < 15; i++) high += frequencies[i];
-          low = Math.min(1, (low / 4 / 255) * cfgGain); high = Math.min(1, (high / 10 / 255) * cfgGain * 2.5);
+        if (micBands && frequencies) {
+          // What values 0-3 and 5-14 of the 750 Hz spectrum gave: see "The re-mapped readers" in helix.js.
+          low = Math.min(1, TimbreHelix.heard('bass', micBands) * cfgGain); high = Math.min(1, TimbreHelix.bandMean(frequencies, 24, 31) * cfgGain * 2.38);
         }
       } else if (cfgIdleAnim) { low = 0.25 + 0.2 * Math.sin(0.9 * c); high = 0.15 + 0.12 * Math.sin(1.7 * c + 1); }
       s.low = follow(s.low, low, low > s.low ? 14 : 4, dt);
@@ -290,7 +289,7 @@
       for (let i = 0; i < n; i++) {
         // How loud this beam's band is.
         let target = 0;
-        if (micActive) target = answer(loudness(frequencies, bands[i], cfgGain), audio.flame);
+        if (micActive) target = answer(loudness(slices, bands[i], cfgGain), audio.flame);
         else if (cfgIdleAnim) target = clamp01(0.3 + 0.22 * Math.sin(i * 0.7 + c * 1.4) + 0.1 * Math.sin(i * 2.3 - c * 0.8));
         amps[i] = follow(amps[i], target, target > amps[i] ? 22 : 3.5, dt);
         const len = lengthOf(amps[i], audio.kick);

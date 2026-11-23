@@ -10,6 +10,51 @@ traceability.
 
 ## [Unreleased]
 
+## [1.0.194] — 2026-11-23
+
+A finer view of the sound. Copy `overlay` and refresh the sources; nothing to re-paste.
+Refresh every Timbre source after copying: an effect file from this release beside a
+cached `core.js` from an earlier one will not draw.
+
+### Changed
+
+- **The sampler hears finer.** It reads a 2048-point analysis and folds it into 32
+  log-spaced bands from 60 Hz to 12 kHz, each about a quarter of an octave. Before, its
+  32 values were 750 Hz apart, so a whole voice sat in the first one or two.
+- **Nine bar and spectrum effects look different on purpose:** Visualizer, Peak Hold,
+  Sine Bars, Ring Bars, Tunnel, Spectrogram, Peaks Mirror, Mountains 2D and Vaporwave.
+  Their bars now cover 60 Hz to 12 kHz however many bars are set, so speech sits across
+  the middle of the picture instead of at its left edge, and a rising tone walks from the
+  first bar to the last. Their overall brightness under speech is within 7% of before.
+- **Effects that follow loudness are held to their old levels.** DNA, Comet, Fireflies,
+  Pulse Rings, Orbit, Black Hole, Blob, Owl, Television, Galaxy Ripple, Matrix, Winter
+  Aurora, the five flags and Sunburst take their "low", "high" and "bass" from the new
+  bands, fitted to within 7% of the old levels on two recorded voices and a kick drum. A
+  single pure tone, such as a whistle, drives them 26 to 69% less than it did.
+- **The other effects are unchanged.** The 3D scenes not named above, the ten seasonal
+  effects and the Blob's outline read `slices`, the old view of the sound, which the
+  sampler still works out. Every kit scene's overall loudness and beat are made as
+  before. Measured against 1.0.191 with the same recorded sound, these effects' pictures
+  differ in under 4% of their pixels, most in none.
+
+### Added
+
+- `slices` and `micBands` (bass, mid, treble, loudness, brightness, a level and beats)
+  for effects to read; `docs/EFFECTS.md` says what each is and which a new effect should
+  use.
+- `tools/compare-input.mjs`: feeds five recorded sounds to two builds and reports, for
+  each effect, the levels it derives and the pixels that differ.
+- The render suite now checks 18 effects against stored pictures under recorded speech.
+  Before, its checks supplied their own values and could not notice a change in how
+  effects read real sound.
+
+### Not in this release
+
+- The raw microphone (asking the browser not to process the sound). It becomes a dock
+  setting in the next release.
+- Moving the 3D scenes to the finer bands. Each will move in its own release, after a
+  look in OBS.
+
 ## [1.0.191] — 2026-11-23
 
 Docs, notices and package details. No behaviour changes: nothing to copy but the docs,
@@ -881,7 +926,8 @@ StreamService / ControlPanel toolkit. (`ee5c34a`)
 
 Verified offline: `verify` 28/28, `verify:render` 14/14.
 
-[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.191...main
+[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.194...main
+[1.0.194]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.191...v1.0.194
 [1.0.191]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.189...v1.0.191
 [1.0.189]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.187...v1.0.189
 [1.0.187]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.185...v1.0.187
