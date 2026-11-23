@@ -26,6 +26,10 @@
   const BANDS = 9;                       // the poles hear this bin; speech lives in the first ten
   const TRAVEL = 0.9;                    // seconds light takes to travel REACH
   const GOLDEN = Math.PI * (3 - Math.sqrt(5));
+  // The star's mottle is three waves of the time its shader is handed, at rates of 1, 1.3 and
+  // 0.7. They all come round every 20π (10, 13 and 7 turns), so that time is wrapped there:
+  // the shader's float stays under 63 however long the scene has run, and the wrap is not seen.
+  const MOTTLE_ROUND = 20 * Math.PI;
 
   // How many beams a Density setting means. No setting is the default, 50.
   function rayCount(density) {
@@ -160,13 +164,14 @@
     const amps = new Float32Array(RAYS_MAX), bands = new Float32Array(RAYS_MAX), scatters = new Float32Array(RAYS_MAX);
     const pulses = new Float32Array(SEG + 1), brights = new Float32Array(SEG + 1);
     let THREE = null, core = null, halo = null, haze = null, beams = null, history = null;
+    const clock = TimbreScene.createClock();   // the seconds the scene has been live, kept as a JavaScript number
     let dirs = null, n = 0;
     let q = null, qTilt = null, euler = null, v = null, yAxis = null, colour = null, white = null;
     // What the checks read. spin: how far the crown has turned; sway: the clock its tilt
     // wanders by (the Spin setting scales both); reach: the longest beam now; swell: the
     // star's size; clock: seconds the scene has been live; ref: the beam nearest the belt,
     // which debug() reports on.
-    const s = { flame: 0, kick: 0, low: 0, high: 0, spin: 0, sway: 0, orbit: 0, reach: 0, rays: 0, swell: 1, live: false, clock: 0, colorT: 0, ref: 0 };
+    const s = { flame: 0, kick: 0, low: 0, high: 0, spin: 0, sway: 0, orbit: 0, reach: 0, rays: 0, swell: 1, live: false, clock: clock.seconds, colorT: 0, ref: 0 };
     const aim = [0, 0, 0];   // which way the reference beam points, in the world
     let refWidth = 0;
 
@@ -254,7 +259,7 @@
       // With the mic and Idle animation both off, the crown does not turn and nothing flickers.
       s.live = !!(micActive || cfgIdleAnim);
       const turn = knob('spin') / 50;
-      if (s.live) { s.clock += dt; s.sway += turn * dt; }
+      if (s.live) { s.clock = clock.step(dt); s.sway += turn * dt; }
       const c = s.clock;
 
       // The low end swells the star; the high end makes the beams flicker.
@@ -317,7 +322,7 @@
       s.swell = 1 + 0.22 * s.low + 0.3 * audio.kick;
       core.scale.setScalar(s.swell);
       const uniforms = core.material.uniforms;
-      uniforms.uT.value = c * 0.8;
+      uniforms.uT.value = TimbreScene.phase(c * 0.8, MOTTLE_ROUND);
       uniforms.uGain.value = 1.3 + 1.3 * audio.flame + 0.9 * audio.kick;
       uniforms.uRim.value.setRGB(rgb[0] * 1.1 + 0.12, rgb[1] * 1.1 + 0.12, rgb[2] * 1.1 + 0.12);
       const lit = 0.3 + 0.9 * audio.flame + 0.8 * audio.kick;
@@ -349,6 +354,7 @@
           cam: cam.slice(),                                            // where the strips were turned to face
           aim: aim.slice(), width: refWidth,                           // the reference beam's direction and width
           glowSize: halo.scale.x,
+          given: [core.material.uniforms.uT.value],                    // the time the star's shader was handed
           drawn: beams.geometry.drawRange.count,
         }, s);
       },
@@ -356,7 +362,7 @@
   }
 
   globalThis.TimbreSunburst = {
-    RAYS_MIN, RAYS_MAX, SEG, HIST, HIST_HZ, CORE, REACH, HEIGHT, BANDS, TRAVEL,
+    RAYS_MIN, RAYS_MAX, SEG, HIST, HIST_HZ, CORE, REACH, HEIGHT, BANDS, TRAVEL, MOTTLE_ROUND,
     rayCount, directions, scatter, bandOf, loudness, answer, lengthOf, widthOf, strip, glow, shimmer, tint, definition,
   };
 })();

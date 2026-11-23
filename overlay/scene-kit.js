@@ -15,6 +15,46 @@
   const follow = (cur, target, rate, dt) => cur + (target - cur) * (1 - Math.exp(-rate * dt));
   const fall = (cur, rate, dt) => cur * Math.exp(-rate * dt);
 
+  // ── Time for a shader ───────────────────────────────────────────────────────
+  // A scene keeps time as a JavaScript number, which holds seconds to well under a
+  // microsecond for years. A shader's float has 32 bits: handed seconds that only grow, it
+  // steps 4 ms at a time after 9 hours and 16 ms (a whole frame at 60 fps) after 36, and what
+  // it moves begins to judder. So a shader is handed a phase instead: the seconds wrapped at
+  // a period after which everything the shader makes of them has come round to where it
+  // began. sin(rate * t) comes round every 2π / rate seconds; several together come round at
+  // the first time that is a whole number of turns for each (rates of 1.7, 1 and 1.3: 20π).
+
+  // seconds wrapped into 0 <= phase < period. Below one period it is the seconds themselves,
+  // to the bit. Seconds or a period that are no number give 0.
+  function phase(seconds, period) {
+    if (!(period > 0) || !Number.isFinite(seconds)) return 0;
+    const p = seconds - Math.floor(seconds / period) * period;
+    return p >= 0 && p < period ? p : 0;
+  }
+
+  // For what never comes round (a noise): how far the wrap ahead is into its dissolve. 0
+  // until `lead` seconds before the phase wraps, then a smooth rise to 1 at the wrap, and 0
+  // again after it. The shader draws such a term a second time at (phase - period), which is
+  // where the next period starts, and mixes the two by this, so the picture crosses the wrap
+  // without a jump.
+  function dissolve(seconds, period, lead) {
+    if (!(lead > 0) || !(period > 0) || !Number.isFinite(seconds)) return 0;
+    const x = clamp01((phase(seconds, period) - (period - lead)) / lead);
+    return x * x * (3 - 2 * x);
+  }
+
+  // A scene's own clock: seconds that pass only when the scene says so (while it is live,
+  // say). step(dt) adds a frame and returns the seconds; phase(period, rate) is the phase of
+  // seconds * rate (rate 1 when left out), for a shader.
+  function createClock() {
+    let seconds = typeof api.testClock === 'number' ? api.testClock : 0;
+    return {
+      get seconds() { return seconds; },
+      step(dt) { if (Number.isFinite(dt) && dt > 0) seconds += dt; return seconds; },
+      phase(period, rate) { return phase(seconds * (rate === undefined ? 1 : rate), period); },
+    };
+  }
+
   const BEAT_GAP_MS = 220;
 
   // Smoothed views of the mic level, plus a beat detector. step() returns
@@ -253,8 +293,9 @@
   // tone-maps to the canvas. Light is written with alpha 0 throughout.
 
   const api = {
-    createEnvelope, createHistory, follow, fall, fitDistance, turn, reach, sweep, poseFor, FILL, afterglowTime, decay, cooling, renderScale, viewOffset,
+    createEnvelope, createHistory, follow, fall, phase, dissolve, createClock, fitDistance, turn, reach, sweep, poseFor, FILL, afterglowTime, decay, cooling, renderScale, viewOffset,
     testLevel: null,          // test hook: a number here replaces the mic level
+    testClock: null,          // test hook: a number here is where the next createClock() starts, in seconds
     outputMode: 'added',      // or 'premultiplied' (an owner's decision, never automatic)
     readLevel, create, factory, debug,
   };

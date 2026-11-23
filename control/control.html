@@ -552,7 +552,13 @@
       return;
     }
     if (msg.type !== 'timbre:config' || !msg.config) return;
-    takeConfig(msg.config);
+    // Streamer.bot stores a config as it was sent and sends it again on every connect. One
+    // that makes this throw must not stop the dock taking the broadcasts that follow.
+    try {
+      takeConfig(msg.config);
+    } catch (e) {
+      console.warn('Timbre dock: a config broadcast could not be taken; the dock keeps what it shows.', e);
+    }
   });
 
   window.addEventListener('sb:connection', (evt) => {

@@ -8,12 +8,15 @@
 //      3D effects and the kit scenes are the same set, and only scene-kit.js
 //      makes a WebGL renderer or asks a canvas for a WebGL context.
 //   2. sanitizeConfig — clamping, allowlisting, string caps, unknown-key drops,
-//      and every range in the tables tried one by one at both ends.
+//      every range in the tables tried one by one at both ends, and configs that
+//      name what every object inherits (`constructor`, `toString`, `__proto__`).
 //   3. C# embed simulation — the exact string concatenation timbre-push.cs does,
 //      fed a config with kana + newlines + quotes, must round-trip.
 //   5. Scene kit arithmetic — the pure helpers behind the 3D scenes (sound
 //      envelope and beat detector, camera fit, afterglow decay, internal render
-//      scale, placement to lens shift) imported under Node, plus the placement
+//      scale, placement to lens shift, and time for a shader: the phase, the
+//      scene clock, the dissolve, and that the three scenes that hand a shader
+//      time wrap it where their waves come round) imported under Node, plus the placement
 //      config (defaults, clamping, merging) and that all three overlay pages
 //      load scene-kit.js then scene-parts.js between core.js and the factories.
 //      (Numbered 5 because it was added last; it runs before section 4.)
@@ -96,6 +99,13 @@
 //      keys a broadcast settles, the preview's address, and every wording of
 //      the status line. Then Matrix text by whole characters: splitChars,
 //      cutText and the cut in sanitizeConfig. (Runs before section 4.)
+//  29. The overlay's core — the REAL overlay/core.js run under Node in a page
+//      made of stand-ins: the canvas height worked out from the four toggles
+//      and set once, or not at all when it does not change; a config equal to
+//      the one in force not applied; a config that throws caught where it comes
+//      in; getColor against what it gave before, the palette table and its
+//      rebuild; and ema, decay, chance and fadeOrClear against the scene kit's
+//      formulas and at 30, 60 and 165 frames a second. (Runs before section 4.)
 //
 // The suite refuses to start when something already answers on its side ports
 // (a mock left over from a run that was killed), and stops its own mock when it
@@ -282,6 +292,48 @@ console.log('\n[2] sanitizeConfig');
     && JSON.stringify(oldFlags.perViz['july-fourth-stripes']) === '{"wind":50,"starTwinkle":10,"burstChance":100,"cameraDrift":50}', 'a saved pre-redesign flag config keeps its hearts, stripes, stars and bursts, drops the retired amplitudes and clamps');
   const oldAurora = T.sanitizeConfig({ perViz: { 'winter-aurora': { ribbonCount: 80, starDensity: 20, mountainOpacity: 10, snowfall: 400 } } });
   ok(JSON.stringify(oldAurora.perViz['winter-aurora']) === '{"auroraGlow":50,"snowfall":100,"starDensity":20,"cameraDrift":50}', 'a saved pre-redesign winter-aurora config keeps starDensity, drops the retired knobs and clamps');
+}
+// TIM-06: a key of the incoming config is looked up in a table only as a key of the table's
+// own. Every object has `constructor`, `toString`, `hasOwnProperty` and `__proto__` by
+// inheritance, so a config that names one of them must find nothing: no throw, no key added
+// anywhere, no NaN. The configs come through JSON.parse, as they do off the wire (which is
+// also what makes `__proto__` a key of the object's own).
+{
+  const plain = JSON.stringify(T.defaultConfig());
+  // Every key of the result, at every depth, and whether any number in it is NaN.
+  const shape = (o) => { const keys = []; let nan = false; const walk = (v, path) => { if (typeof v === 'number' && Number.isNaN(v)) nan = true; if (v && typeof v === 'object') for (const k of Object.getOwnPropertyNames(v)) { keys.push(path + '/' + k); walk(v[k], path + '/' + k); } }; walk(o, ''); return { keys: keys.join(), nan }; };
+  const want = shape(T.defaultConfig());
+  const tryIt = (text) => {
+    let out = null, threw = null;
+    try { out = T.sanitizeConfig(JSON.parse(text)); } catch (e) { threw = String(e); }
+    if (threw) return 'threw ' + threw;
+    const got = shape(out);
+    if (got.nan) return 'a NaN';
+    if (got.keys !== want.keys) return 'keys changed';
+    if (JSON.stringify(out) !== plain) return 'values changed';
+    return '';
+  };
+  const named = (cases) => cases.map((c) => [c, tryIt(c)]).filter(([, why]) => why).map(([c, why]) => `${c}: ${why}`);
+  const INHERITED = ['constructor', 'toString', 'hasOwnProperty', 'valueOf', '__proto__', 'isPrototypeOf'];
+  ok(tryIt('{"perViz":{"constructor":{"name":"x"}}}') === '', `{perViz:{constructor:{name:'x'}}} sanitizes without a throw and adds nothing — ${tryIt('{"perViz":{"constructor":{"name":"x"}}}') || 'clean'}`);
+  ok(tryIt('{"placement":{"constructor":5}}') === '', `{placement:{constructor:5}} sanitizes without a throw and adds no key and no NaN — ${tryIt('{"placement":{"constructor":5}}') || 'clean'}`);
+  const asViz = named(INHERITED.flatMap((n) => [`{"perViz":{"${n}":{"name":"x"}}}`, `{"perViz":{"${n}":{"length":7}}}`, `{"perViz":{"${n}":{"${n}":3}}}`, `{"perViz":{"${n}":5}}`]));
+  ok(asViz.length === 0, `an effect named after something every object inherits (${INHERITED.join(', ')}) is no effect: 24 such configs sanitize to the defaults${asViz.length ? ' — ' + asViz.join(' | ') : ''}`);
+  const asKnob = named(INHERITED.flatMap((n) => [`{"perViz":{"matrix":{"${n}":"x"}}}`, `{"perViz":{"dna":{"${n}":7}}}`, `{"perViz":{"television":{"${n}":7}}}`]));
+  ok(asKnob.length === 0, `nor is it a setting of a real effect: 18 such configs sanitize to the defaults${asKnob.length ? ' — ' + asKnob.join(' | ') : ''}`);
+  const asPlace = named(INHERITED.flatMap((n) => [`{"placement":{"${n}":5}}`, `{"placement":{"${n}":{"min":0,"max":9}}}`]));
+  ok(asPlace.length === 0, `nor a placement: 12 such configs sanitize to the defaults${asPlace.length ? ' — ' + asPlace.join(' | ') : ''}`);
+  const atTop = named(INHERITED.flatMap((n) => [`{"${n}":5}`, `{"${n}":{"gain":5,"perViz":{"dna":{"helixFreq":9}}}}`, `{"mic":{"${n}":"x"}}`]));
+  ok(atTop.length === 0, `nor a setting at the top or of the microphone: 18 such configs sanitize to the defaults${atTop.length ? ' — ' + atTop.join(' | ') : ''}`);
+  // A real key beside a bad one still lands, and nothing leaks onto Object.prototype.
+  let mixed = null;
+  try { mixed = T.sanitizeConfig(JSON.parse('{"placement":{"constructor":5,"x":30},"perViz":{"constructor":{"name":"x"},"toString":{"length":1},"dna":{"helixFreq":80,"constructor":9}},"__proto__":{"gain":5}}')); } catch {}
+  ok(!!mixed && mixed.placement.x === 30 && mixed.perViz.dna.helixFreq === 80 && mixed.gain === 100 && shape(mixed).keys === want.keys && !shape(mixed).nan
+    && ({}).gain === undefined && ({}).name === undefined && Object.name === 'Object' && Object.prototype.toString.length === 0,
+    'a real setting beside such a key still lands, and nothing is written onto Object, Function or their prototypes');
+  // The per-effect maximum is looked up the same way: a knob with none of its own gets 100.
+  ok(T.sanitizeConfig({ perViz: { dna: { reconnectSeconds: 99, helixFreq: 999 } } }).perViz.dna.reconnectSeconds === 10 && T.sanitizeConfig({ perViz: { dna: { helixFreq: 999 } } }).perViz.dna.helixFreq === 100
+    && T.sanitizeConfig({ perViz: { matrix: { flow: 999 } } }).perViz.matrix.flow === 100, 'a knob\'s own maximum still applies, and a knob with none is 0 to 100');
 }
 // Every range in the tables, one by one: far above it gives the top, far below gives the
 // bottom, and a value inside is left alone. The list is built from the tables, so a new
@@ -546,6 +598,94 @@ await import('./overlay/scene-kit.js');
   ok(typeof K.follow === 'function' && near(K.follow(0, 1, 3, 0.25), 1 - Math.exp(-0.75), 1e-12) && K.follow(0.4, 0.4, 9, 1) === 0.4, 'follow closes the gap by 1 - exp(-rate × dt)');
   ok(typeof K.follow === 'function' && near(K.follow(K.follow(0.2, 0.9, 5, 1 / 60), 0.9, 5, 1 / 60), K.follow(0.2, 0.9, 5, 1 / 30), 1e-12), 'two 60 fps follows equal one 30 fps follow');
   ok(typeof K.fall === 'function' && near(K.fall(0.8, 2, 0.5), 0.8 * Math.exp(-1), 1e-12) && near(K.fall(K.fall(0.8, 2, 0.25), 2, 0.25), K.fall(0.8, 2, 0.5), 1e-12), 'fall decays by exp(-rate × dt), the same in one step or two');
+
+  // Time for a shader (D-09). A scene keeps its seconds as a JavaScript number and hands a
+  // shader a phase: the seconds wrapped at a period, so the 32-bit float the GPU gets stays
+  // small however long the source has been open.
+  {
+    const has = typeof K.phase === 'function' && typeof K.dissolve === 'function' && typeof K.createClock === 'function';
+    const phase = has ? K.phase : () => NaN, dissolve = has ? K.dissolve : () => NaN, P = 20 * Math.PI, HOURS36 = 129600;
+    ok(has && [0, 1e-9, 0.5, 3, 6.9999999999999805, 62.83, P - 1e-9].every((s) => Object.is(phase(s, P), s)) && [0, 100.25, 7200, 10033].every((s) => Object.is(phase(s, 3200 * Math.PI), s)),
+      'phase: below one period it is the seconds themselves, to the bit, so what a scene draws in its first minutes is untouched');
+    let inside = has, worst = 0;
+    for (const s of [P, 2 * P, 1000 * P, P * 2062.6, HOURS36, HOURS36 + 1 / 60, 1e7 + 0.123, 31557600 * 5, -0.25, -P, -1e6]) {
+      const p = phase(s, P);
+      if (!(p >= 0 && p < P)) inside = false;
+      worst = Math.max(worst, Math.abs(Math.sin(p) - Math.sin(s)), Math.abs(Math.sin(1.7 * p) - Math.sin(1.7 * s)));
+    }
+    ok(inside && worst < 1e-6 && phase(P, P) === 0 && phase(NaN, P) === 0 && phase(Infinity, P) === 0 && phase(5, 0) === 0 && phase(5, NaN) === 0,
+      `phase: it stays at or above 0 and under the period after hours, years, and for seconds below nothing; a wave that comes round at the period reads the same from it (off by ${worst.toExponential(1)} at most); seconds or a period that are no number give 0`);
+    // What the float the shader gets is worth at hour 36, frame by frame at 60 fps: the old
+    // way (the seconds as a float) against the phase as a float.
+    let oldStep = 0, newStep = 0, oldErr = 0, newErr = 0, most = 0;
+    for (let i = 0; i < 600; i++) {
+      const s0 = HOURS36 + i / 60, s1 = HOURS36 + (i + 1) / 60;
+      const o0 = Math.fround(s0), o1 = Math.fround(s1), n0 = Math.fround(phase(s0, P)), n1 = Math.fround(phase(s1, P));
+      oldStep = Math.max(oldStep, Math.abs((o1 - o0) - 1 / 60));
+      const turned = n1 < n0 ? n1 + P - n0 : n1 - n0;   // across a wrap, the step is the rest of this turn and the start of the next
+      newStep = Math.max(newStep, Math.abs(turned - 1 / 60));
+      for (const rate of [1, 1.3, 1.7]) { oldErr = Math.max(oldErr, Math.abs(Math.sin(rate * o0) - Math.sin(rate * s0))); newErr = Math.max(newErr, Math.abs(Math.sin(rate * n0) - Math.sin(rate * s0))); }
+      most = Math.max(most, n0);
+    }
+    ok(has && most < P && newStep < 1e-5 && newErr < 2e-5 && oldStep > 1e-3 && oldErr > 1e-3,
+      `at hour 36 the phase handed to a shader is under ${P.toFixed(2)}, steps evenly (off by ${newStep.toExponential(1)} s at most) and puts a wave within ${newErr.toExponential(1)} of where it belongs; the seconds as a float step unevenly (off by ${oldStep.toExponential(1)} s) and put it ${oldErr.toExponential(1)} out`);
+
+    // A scene's own clock.
+    const clock = has ? K.createClock() : { seconds: NaN, step() {}, phase() {} };
+    const fresh = clock.seconds;
+    for (let i = 0; i < HOURS36 * 60; i++) clock.step(1 / 60);
+    const ran = clock.seconds;
+    clock.step(NaN); clock.step(-5); clock.step(Infinity); clock.step(0);
+    ok(fresh === 0 && Math.abs(ran - HOURS36) < 1e-4 && clock.seconds === ran && clock.step(0.5) === ran + 0.5 && clock.phase(P) === phase(ran + 0.5, P) && clock.phase(P) < P && clock.phase(P, 0.8) === phase((ran + 0.5) * 0.8, P),
+      `a scene's clock starts at 0, adds the time it is given (36 hours of 60 fps frames come to ${ran.toFixed(6)} s) and nothing that is not a time, and gives its phase at a period, or the phase of its seconds times a rate`);
+    if (has) K.testClock = 127799.98;
+    const ahead = has ? K.createClock() : { seconds: NaN };
+    if (has) K.testClock = null;
+    ok(has && ahead.seconds === 127799.98 && K.createClock().seconds === 0, 'for a test, TimbreScene.testClock starts the next clock at that many seconds; null puts it back');
+
+    // A term that does not come round is drawn twice across the wrap and mixed by dissolve().
+    const SPAN = 1000, LEAD = 20;
+    const d = (s) => dissolve(s, SPAN, LEAD);
+    let rising = has;
+    for (let i = 0; i < 400; i++) if (!(d(980 + (i + 1) * 0.05 - 1e-9) >= d(980 + i * 0.05))) rising = false;
+    ok(has && d(0) === 0 && d(500) === 0 && d(980) === 0 && Math.abs(d(990) - 0.5) < 1e-12 && d(999.999) > 0.99999 && d(1000) === 0 && d(1000 + 979) === 0 && Math.abs(d(7 * SPAN + 985) - 0.15625) < 1e-9 && rising
+      && d(-10) > 0 && dissolve(990, SPAN, 0) === 0 && dissolve(NaN, SPAN, LEAD) === 0,
+      'dissolve: nothing until the lead before a wrap, then a smooth rise to 1 at the wrap and back to nothing after it, in every period');
+
+    // The three scenes that hand a shader time, read from their own source: every wave the
+    // shader makes of that time has made a whole number of turns when the phase wraps, so the
+    // wrap cannot be seen. A rate changed without its period fails here.
+    const src = async (f) => (await readFile(resolve(__dirname, 'overlay', f), 'utf8')).replace(/\r\n/g, '\n');
+    const shaderOf = (text, name) => { const m = new RegExp('const ' + name + ' = `([^`]*)`').exec(text); return m ? m[1] : ''; };
+    const wholeTurns = (rates, period) => rates.length > 0 && rates.every((r) => { const turns = (r * period) / (2 * Math.PI); return turns >= 1 && Math.abs(turns - Math.round(turns)) < 1e-9; });
+    const sunText = await src('sunburst.js'), fishText = await src('school-of-fish.js'), auroraText = await src('factories/winter-aurora.js');
+    await import('./overlay/sunburst.js');
+    await import('./overlay/school-of-fish.js');
+    const Sun = globalThis.TimbreSunburst, Fish = globalThis.TimbreSchool;
+    // The star's mottle: sin(.. + uT), sin(.. - 1.3 * uT), sin(.. + 0.7 * uT).
+    const sunRates = [...shaderOf(sunText, 'CORE_FRAG').matchAll(/[+-] (?:([\d.]+) \* )?uT\)/g)].map((m) => (m[1] ? Number(m[1]) : 1));
+    ok(sunRates.join() === '1,1.3,0.7' && Sun.MOTTLE_ROUND === 20 * Math.PI && wholeTurns(sunRates, Sun.MOTTLE_ROUND) && !wholeTurns(sunRates, Sun.MOTTLE_ROUND / 2)
+      && /uT\.value = TimbreScene\.phase\(c \* 0\.8, MOTTLE_ROUND\)/.test(sunText),
+      `sunburst: the star's mottle is three waves of the time it is handed (rates ${sunRates.join(', ')}); they all come round every 20π, which is where that time wraps, and no sooner`);
+    // The light rippling on the fish: uT * 1.7, + uT, uT * 1.3.
+    const fishRates = [...(Fish.FRAG || '').matchAll(/[+-] uT(?: \* ([\d.]+))?/g)].map((m) => (m[1] ? Number(m[1]) : 1));
+    ok(fishRates.join() === '1.7,1,1.3' && Fish.RIPPLE_ROUND === 20 * Math.PI && wholeTurns(fishRates, Fish.RIPPLE_ROUND) && !wholeTurns(fishRates, Fish.RIPPLE_ROUND / 2)
+      && /uT\.value = TimbreScene\.phase\(s\.clock, RIPPLE_ROUND\)/.test(fishText) && !/uT/.test(Fish.VERT || 'uT'),
+      `school of fish: the ripple of light is three waves of the time it is handed (rates ${fishRates.join(', ')}); they all come round every 20π, which is where that time wraps, and no sooner`);
+    // The aurora's curtains: six waves in the vertex shader. Its rays (the fragment shader's
+    // noise) never come round, and are dissolved across the wrap instead.
+    const auroraVert = shaderOf(auroraText, 'AURORA_VERT'), auroraFrag = shaderOf(auroraText, 'AURORA_FRAG');
+    const auroraRates = [...auroraVert.matchAll(/[+-] t \* ([\d.]+)/g)].map((m) => Number(m[1]));
+    const span = /const SPAN = (\d+) \* Math\.PI, DISSOLVE = (\d+);/.exec(auroraText);
+    const SPAN_S = span ? Number(span[1]) * Math.PI : 0, DISSOLVE_S = span ? Number(span[2]) : 0;
+    const rayRates = [...auroraFrag.matchAll(/noise\([^;]*?uTime \* ([\d.]+)/g)].map((m) => Number(m[1]));
+    ok(auroraRates.join() === '0.17,0.21,0.33,0.5,0.13,0.19' && /float u = uv\.x, v = uv\.y, t = uTime;/.test(auroraVert) && SPAN_S === 3200 * Math.PI && wholeTurns(auroraRates, SPAN_S) && wholeTurns(auroraRates, 200 * Math.PI) && !wholeTurns(auroraRates, 100 * Math.PI),
+      `winter aurora: the curtains are six waves of the time they are handed (rates ${auroraRates.join(', ')}); they all come round every 200π s, and that time wraps at 16 times that (${SPAN_S.toFixed(1)} s)`);
+    ok(DISSOLVE_S >= 10 && DISSOLVE_S < SPAN_S / 100 && /if \(uFade > 0\.0\)/.test(auroraFrag) && /uTime - uSpan/.test(auroraFrag) && /mix\(rays, [^;]*, uFade\)/.test(auroraFrag) && /mix\(reach, [^;]*, uFade\)/.test(auroraFrag)
+      && rayRates.length === 3 && Math.max(...rayRates) * SPAN_S + 150 + 44 < 4096
+      && /uTime\.value = TimbreScene\.phase\(t, SPAN\)/.test(auroraText) && /uFade\.value = TimbreScene\.dissolve\(t, SPAN, DISSOLVE\)/.test(auroraText),
+      `winter aurora: its rays are noise, which never comes round, so over the last ${DISSOLVE_S} s before the wrap they are drawn a second time as they will be after it and mixed across; the noise is never asked for a place past 4096`);
+  }
 
   // How an afterglow cools is the scene's choice: three extra fade times, one per channel.
   const warm = K.decay(1 / 60, 0.35), same = typeof K.cooling === 'function' ? K.decay(1 / 60, 0.35, K.cooling(undefined)) : [];
@@ -7410,6 +7550,229 @@ function fakeWorld() {
     const half = waitsFor(() => 0.5), most = waitsFor(() => 0.999999), mixed = (() => { let i = 0; const seq = [0.1, 0.9, 0.4]; return waitsFor(() => seq[i++ % 3]); })();
     ok(half.join() === '2250,3375,5063' && most.join() === '2500,3750,5625' && mixed.join() === '2050,3675,4950',
       `each wait gets a random part of up to a quarter on top, so pages that lost Streamer.bot together do not all come back in the same instant, and the growth itself is not randomized — random 0.5: ${half.join()}; just under 1: ${most.join()}; 0.1, 0.9, 0.4: ${mixed.join()}`);
+  }
+}
+
+// ── 29. The overlay's core, run under Node with a stand-in page ─────────────
+console.log('\n[29] overlay core: one canvas height, equal configs, a config that throws, the palette table, per-second helpers');
+{
+  const vm = await import('node:vm');
+  const coreText = await readFile(resolve(__dirname, 'overlay/core.js'), 'utf8');
+  await import('./overlay/scene-kit.js');
+  const K = globalThis.TimbreScene;
+  const near = (a, b, tol = 1e-12) => Math.abs(a - b) <= tol;
+
+  // The REAL overlay/core.js in a page made of stand-ins: two canvases that count every time
+  // their height is set (setting a canvas's height clears it and resets its context, even to
+  // the value it has), a 2D context that records what is painted, the decoration elements,
+  // and a capture that records the device it is given. `big` is the two large pages: their
+  // canvases are 624 tall and they scale the heights core.js asks for by 4.8, with the same
+  // script they have in their own page. see(code) reads or sets core.js's own variables.
+  const loadCore = ({ big = false } = {}) => {
+    const el = () => ({ style: {}, innerHTML: '', textContent: '', classList: { on: new Set(), toggle(n, f) { if (f) this.on.add(n); else this.on.delete(n); } } });
+    const log = { sets2d: 0, sets3d: 0, clears: 0, fills: [], warns: [], resizes: 0, configs: 0, devices: 0, starts: [] };
+    const pen = { fillStyle: '#000', globalCompositeOperation: 'source-over', depth: 0, stack: [],
+      clearRect(x, y, w, h) { log.clears++; log.cleared = [x, y, w, h]; },
+      fillRect(x, y, w, h) { log.fills.push({ style: this.fillStyle, op: this.globalCompositeOperation, rect: [x, y, w, h] }); },
+      save() { this.stack.push([this.fillStyle, this.globalCompositeOperation]); },
+      restore() { const s = this.stack.pop(); if (s) { this.fillStyle = s[0]; this.globalCompositeOperation = s[1]; } } };
+    const canvas = (counter) => { let h = big ? 624 : 130; return { width: big ? 1728 : 260, style: {}, get height() { return h; }, set height(v) { h = v; log[counter]++; }, getContext: () => pen }; };
+    const canvas2d = canvas('sets2d'), canvas3d = canvas('sets3d');
+    // With no height of its own (the border is off) the stack fills the box.
+    const stack = el(), BOX = big ? 1080 : 220;
+    Object.defineProperty(stack, 'offsetHeight', { get: () => (stack.style.height ? parseInt(stack.style.height, 10) : BOX) });
+    const els = { chevronTop: el(), chevronBottom: el(), vizTicks: el(), canvasStack: stack, vizCanvas2D: canvas2d, vizCanvas3D: canvas3d, vizStatus: el() };
+    const label = el(), box = el(), tracks = [el(), el()], listeners = {};
+    const sandbox = {
+      TIMBRE: T, TimbreScene: K,
+      console: { log() {}, warn: (...a) => log.warns.push(a.map(String).join(' ')), error: (...a) => log.warns.push(a.map(String).join(' ')) },
+      performance: { now: () => 0 }, requestAnimationFrame() {},
+      document: { documentElement: { style: { setProperty(name, value) { log.vars = (log.vars || 0) + 1; log[name] = value; } } },
+        getElementById: (id) => els[id], querySelector: (s) => (s === '.viz-label' ? label : s === '.visualizer-box' ? box : null), querySelectorAll: (s) => (s === '.chevron-track' ? tracks : []) },
+      addEventListener: (type, fn) => { (listeners[type] = listeners[type] || []).push(fn); },
+      timbreCapture: { setDevice() { log.devices++; } },
+    };
+    sandbox.window = sandbox;
+    vm.createContext(sandbox);
+    // (A direct eval at the end of core.js's own script is the only way to reach its let and
+    // const variables from outside; the code it runs is written in this file.)
+    vm.runInContext(coreText + '\n;globalThis.__see = (code) => eval(code);', sandbox, { filename: 'overlay/core.js' });
+    if (big) vm.runInContext('(function () { const SCALE = 4.8; const _origSet = window.setCanvasHeight; window.setCanvasHeight = function (h) { _origSet(Math.round(h * SCALE)); }; })();', sandbox);
+    const see = sandbox.__see;
+    // Two effects that only count what the core asks of them.
+    for (const name of ['visualizer', 'matrix']) see('VIZ_FACTORIES')[name] = () => ({ start() { log.starts.push(name); }, stop() {}, draw() {}, onResize() { log.resizes++; }, onConfig() { log.configs++; } });
+    see("setActiveViz('visualizer')");   // as the page's own bootstrap does
+    const send = (config) => { for (const fn of listeners['svc:message'] || []) fn({ detail: { type: 'timbre:config', config } }); };
+    const shown = () => ({ H: see('H'), h2d: canvas2d.height, stack: stack.style.height, label: label.style.display, status: els.vizStatus.style.display, chevrons: tracks.map((t) => t.style.display).join(), ticks: els.vizTicks.style.display, noBorder: box.classList.on.has('no-border') });
+    return { see, send, log, shown, pen, canvas2d, BOX };
+  };
+  const has = (c, name) => c.see(`typeof ${name} !== 'undefined'`);
+  const cfgWith = (over) => Object.assign(T.defaultConfig(), over);
+
+  // ── TIM-15: one canvas height, set once; an equal config is not applied ──
+  {
+    const c = loadCore();
+    const at0 = c.log.sets2d;
+    c.send(T.defaultConfig());
+    ok(c.log.configs === 1 && c.log.devices === 1 && c.log.sets2d === at0 && c.log.sets3d === 0 && c.log.resizes === 0 && c.shown().H === 130 && c.shown().stack === '130px',
+      `the first config is applied, and the canvas, already the height it asks for, is not touched (its height was set ${c.log.sets2d - at0} times, the effect told of ${c.log.resizes} resizes)`);
+    c.send(cfgWith({ showLabels: false }));
+    ok(c.log.sets2d === at0 + 1 && c.log.sets3d === 1 && c.log.resizes === 1 && c.shown().H === 170 && c.shown().h2d === 170 && c.shown().stack === '170px',
+      `a config that changes the canvas height sets it once (${c.log.sets2d - at0} time, ${c.log.resizes} resize told)`);
+    const before = JSON.stringify(c.log);
+    c.send(cfgWith({ showLabels: false }));
+    c.send(JSON.parse(JSON.stringify(cfgWith({ showLabels: false }))));
+    ok(JSON.stringify(c.log) === before, `a config equal to the one in force is not applied at all: no canvas is touched, no effect is told, the microphone is not set again — ${JSON.stringify(c.log) === before ? 'nothing happened' : before + ' became ' + JSON.stringify(c.log)}`);
+    c.send(cfgWith({ showLabels: false, gain: 150, bgOpacity: 40, perViz: Object.assign(T.defaultConfig().perViz, { dna: Object.assign({}, T.DEFAULT_PER_VIZ.dna, { helixFreq: 80 }) }) }));
+    ok(c.log.configs === 3 && c.see('cfgGain') === 1.5 && c.see('perViz').dna.helixFreq === 80 && c.log.sets2d === at0 + 1 && c.log.sets3d === 1 && c.log.resizes === 1 && c.log.clears === 1,
+      'a config that changes settings but not the canvas height is applied without touching the canvas: what an effect keeps on it (the spectrogram\'s history, a trail) is left alone');
+    // Changed by hand since (a test, or someone in DevTools): the same config again puts it back.
+    c.see('cfgGain = 9'); c.send(cfgWith({ showLabels: false, gain: 150, bgOpacity: 40, perViz: Object.assign(T.defaultConfig().perViz, { dna: Object.assign({}, T.DEFAULT_PER_VIZ.dna, { helixFreq: 80 }) }) }));
+    const gainBack = c.see('cfgGain');
+    c.see('perViz').dna.helixFreq = 7; c.send(cfgWith({ showLabels: false, gain: 150, bgOpacity: 40, perViz: Object.assign(T.defaultConfig().perViz, { dna: Object.assign({}, T.DEFAULT_PER_VIZ.dna, { helixFreq: 80 }) }) }));
+    const knobBack = c.see('perViz').dna.helixFreq;
+    c.see("setActiveViz('matrix')"); c.send(cfgWith({ showLabels: false, gain: 150, bgOpacity: 40, perViz: Object.assign(T.defaultConfig().perViz, { dna: Object.assign({}, T.DEFAULT_PER_VIZ.dna, { helixFreq: 80 }) }) }));
+    ok(gainBack === 1.5 && knobBack === 80 && c.see('currentVizName') === 'visualizer' && c.log.configs === 6,
+      'but a config equal to the last one IS applied when what is in force has been changed by hand since (a global knob, an effect\'s knob, the effect itself): equal means equal to what the page is showing');
+  }
+  {
+    // Every combination of the four toggles, each reached from every other: what is shown is
+    // what the toggles ask for, and the canvas height is set at most once, and not at all when
+    // it does not change.
+    const want = (o, BOX, k) => ({ H: !o.showBorder ? BOX : Math.round((!o.showDecorations ? 180 : o.showLabels ? 130 : 170) * k),
+      label: o.showDecorations && o.showLabels ? '' : 'none', chevrons: o.showDecorations && o.showChevrons ? ',' : 'none,none', ticks: o.showDecorations ? '' : 'none', noBorder: !o.showBorder });
+    const combos = [];
+    for (let i = 0; i < 16; i++) combos.push({ showLabels: !!(i & 1), showChevrons: !!(i & 2), showDecorations: !!(i & 4), showBorder: !!(i & 8) });
+    for (const big of [false, true]) {
+      const bad = [];
+      let most = 0, idle = 0, pairs = 0;
+      for (const from of combos) for (const to of combos) {
+        const c = loadCore({ big });
+        c.send(cfgWith(from));
+        const s0 = c.log.sets2d, r0 = c.log.resizes, H0 = c.see('H');
+        c.send(cfgWith(to));
+        const got = c.shown(), w = want(to, c.BOX, big ? 4.8 : 1), sets = c.log.sets2d - s0;
+        pairs++;
+        most = Math.max(most, sets);
+        if (got.H !== w.H || got.h2d !== w.H || got.label !== w.label || got.status !== w.label || got.chevrons !== w.chevrons || got.ticks !== w.ticks || got.noBorder !== w.noBorder
+          || (to.showBorder ? got.stack !== w.H + 'px' : got.stack !== '')) bad.push('shown ' + JSON.stringify([from, to, got]));
+        else if (sets !== (w.H === H0 ? 0 : 1) || c.log.resizes - r0 !== sets) bad.push('sets ' + JSON.stringify([from, to, sets, c.log.resizes - r0]));
+        if (w.H === H0 && sets === 0) idle++;
+      }
+      ok(bad.length === 0 && most === 1 && idle > 0,
+        `${big ? 'the large pages (heights scaled by 4.8)' : 'the small page'}: across all ${pairs} moves between the 16 toggle settings, labels, chevrons, ticks, border and canvas height end as the toggles ask, the height is set once when it changes and not at all when it does not (${idle} moves)${bad.length ? ' — ' + bad.slice(0, 3).join(' | ') : ''}`);
+    }
+    const c = loadCore({ big: true }), s0 = c.log.sets2d;
+    c.see('setCanvasHeight(130)'); c.see('setCanvasHeight(130)');
+    const same = c.log.sets2d - s0;
+    c.see('setCanvasHeight(170)'); c.see('setCanvasHeight(170)');
+    ok(same === 0 && c.log.sets2d - s0 === 1 && c.see('H') === 816 && c.log.resizes === 1, `setCanvasHeight does nothing when the height is the one the canvas has, also through a large page's own scaling (624 again: ${same} sets; 816 twice: ${c.log.sets2d - s0 - same} set)`);
+    // A switch of effect starts the new one on a clean 2D canvas, as every config used to.
+    const d = loadCore();
+    d.send(T.defaultConfig());
+    const s1 = d.log.sets2d, k1 = d.log.clears;
+    d.send(cfgWith({ activeViz: 'matrix' }));
+    ok(d.log.sets2d === s1 + 1 && d.log.clears === k1 + 1 && d.log.starts.join() === 'visualizer,matrix' && d.shown().H === 130 && d.log.resizes === 0,
+      'a switch of effect puts the 2D canvas back to a clean state once (cleared, its context as new) before the new effect starts, and tells no effect of a resize');
+  }
+
+  // ── TIM-06: a config that throws leaves the overlay drawing with what it has ──
+  {
+    const c = loadCore();
+    c.send(cfgWith({ gain: 150 }));
+    const real = T.sanitizeConfig;
+    let threw = null;
+    T.sanitizeConfig = () => { throw new Error('sanitize failed'); };
+    try { c.send(cfgWith({ gain: 30 })); } catch (e) { threw = String(e); } finally { T.sanitizeConfig = real; }
+    ok(threw === null && c.log.warns.length === 1 && /sanitize failed/.test(c.log.warns[0]) && /Timbre/.test(c.log.warns[0]) && c.see('cfgGain') === 1.5 && c.see('timbreConfig').gain === 150,
+      `a config that makes the overlay throw is caught where it comes in: a console warning, and the overlay keeps the settings it has — ${threw || c.log.warns.join(' | ')}`);
+    c.send(cfgWith({ gain: 30 }));
+    c.send(JSON.parse('{"perViz":{"constructor":{"name":"x"}},"placement":{"constructor":5}}'));
+    ok(c.see('cfgGain') === 0.3 && c.log.warns.length === 1 && JSON.stringify(c.see('timbreConfig')) === JSON.stringify(cfgWith({ gain: 30 })), 'the next config is applied as usual, and the crafted config of TIM-06 changes nothing and warns of nothing');
+  }
+
+  // ── O-06: the palette table ──
+  {
+    const c = loadCore();
+    const PAL = [[0, 255, 255], [145, 70, 255], [255, 0, 255], [255, 20, 147], [57, 255, 20]];
+    // getColor as it was before the table, kept here to measure against.
+    const oldColor = (t) => { const len = PAL.length, idx = ((t % len) + len) % len, i = Math.floor(idx), a = PAL[i], b = PAL[(i + 1) % len], f = idx - i; return [Math.round(a[0] + (b[0] - a[0]) * f), Math.round(a[1] + (b[1] - a[1]) * f), Math.round(a[2] + (b[2] - a[2]) * f)]; };
+    const getColor = c.see('getColor'), into = has(c, 'getColorInto') ? c.see('getColorInto') : null;
+    const ts = [0, 1, 2, 3, 4, 5, -5, 4.999999999, -1e-20, 1e9 + 0.25, -1e9 - 0.25, 0.5, 2.5, 1 / 3];
+    for (let i = 0; i <= 40000; i++) ts.push(-12 + i * 0.0006 + 1e-7);
+    let off = 0, offInto = into ? 0 : Infinity, fresh = true;
+    const out = [9, 9, 9];
+    for (const t of ts) {
+      const was = oldColor(t), now = getColor(t);
+      for (let k = 0; k < 3; k++) off = Math.max(off, Math.abs(was[k] - now[k]));
+      if (now.length !== 3 || now === getColor(t)) fresh = false;
+      if (into) { const r = into(out, t); if (r !== out) offInto = Infinity; for (let k = 0; k < 3; k++) offInto = Math.max(offInto, Math.abs(was[k] - out[k])); }
+    }
+    ok(JSON.stringify(c.see('PALETTE')) === JSON.stringify(PAL) && off === 0 && fresh, `getColor(t) gives what it gave before the table, a fresh [r, g, b] each call: the largest difference over ${ts.length} values of t is ${off}`);
+    ok(!!into && offInto === 0, `getColorInto(out, t) writes the same colour into the array it is handed and returns that array, making none (largest difference ${offInto})`);
+    const tabled = has(c, 'PALETTE_STEPS') && has(c, 'PALETTE_RGB') && has(c, 'PALETTE_CSS') && has(c, 'paletteStep') && has(c, 'getColorCss') && has(c, 'setPalette');
+    const STEPS = tabled ? c.see('PALETTE_STEPS') : 0, RGB = tabled ? c.see('PALETTE_RGB') : [], CSS = tabled ? c.see('PALETTE_CSS') : [], step = tabled ? c.see('paletteStep') : () => -1, css = tabled ? c.see('getColorCss') : () => '';
+    let entries = tabled && STEPS === 256 && RGB.length === 768 && CSS.length === 256;
+    for (let i = 0; i < STEPS && entries; i++) { const e = oldColor((i * PAL.length) / STEPS); if (RGB[i * 3] !== e[0] || RGB[i * 3 + 1] !== e[1] || RGB[i * 3 + 2] !== e[2] || CSS[i] !== `rgb(${e[0]}, ${e[1]}, ${e[2]})`) entries = false; }
+    ok(entries, 'the palette table has 256 entries: entry i is the palette colour at i/256 of the way round, as three numbers and as a ready CSS string');
+    let tableOff = 0, inRange = tabled, nearest = tabled;
+    for (const t of ts) {
+      const i = step(t), was = oldColor(t);
+      if (!(Number.isInteger(i) && i >= 0 && i < STEPS)) { inRange = false; break; }
+      for (let k = 0; k < 3; k++) tableOff = Math.max(tableOff, Math.abs(RGB[i * 3 + k] - was[k]));
+      if (css(t) !== CSS[i]) nearest = false;
+    }
+    const around = (t) => { const x = ((((t % 5) + 5) % 5) * STEPS) / 5; return Math.round(x) % STEPS; };
+    ok(inRange && nearest && [0, 0.0097, 0.0098, 2.5, 4.99, 4.9999, -0.001, 7.3].every((t) => step(t) === around(t)) && tableOff <= 3,
+      `paletteStep(t) is the entry nearest t (0 to 255, for any t), getColorCss(t) is that entry's string, and the entry is within ${tableOff} of 255 on any channel of the exact colour (a table of 256 cannot be nearer)`);
+    // Rebuilt when the palette changes.
+    const refused = tabled ? [c.see('setPalette')([[1, 2, 3]]), c.see('setPalette')('red'), c.see('setPalette')([[1, 2, 3], [4, 5]]), c.see('setPalette')([[1, 2, 3], [4, 5, 999]])] : [];
+    const kept = JSON.stringify(c.see('PALETTE')) === JSON.stringify(PAL);
+    c.send(cfgWith({ colorHue: 50 }));
+    const hue5 = c.see('cfgColorHue');
+    const took = tabled ? c.see('setPalette')([[255, 0, 0], [0, 0, 255]]) : false;
+    ok(tabled && refused.every((r) => r === false) && kept && took === true && JSON.stringify(getColor(0.5)) === '[128,0,128]' && JSON.stringify(getColor(2)) === '[255,0,0]' && c.see('PALETTE_CSS')[128] === 'rgb(0, 0, 255)' && c.see('PALETTE_CSS')[64] === 'rgb(128, 0, 128)'
+      && css(1) === 'rgb(0, 0, 255)' && hue5 === 2.5 && c.see('cfgColorHue') === 1 && c.see('PALETTE') === c.see('PALETTE'),
+      'setPalette(colours) changes the palette in place and rebuilds the table and the hue offset with it; a palette of fewer than two colours, or with anything but three numbers 0 to 255 in each, is refused and nothing changes');
+  }
+
+  // ── R-03: per-second helpers, the same arithmetic as the scene kit's ──
+  {
+    const c = loadCore();
+    const helpers = ['ema', 'decay', 'chance', 'fadeOrClear'].every((n) => has(c, n));
+    const ema = helpers ? c.see('ema') : () => NaN, decay = helpers ? c.see('decay') : () => NaN, chance = helpers ? c.see('chance') : () => NaN, fadeOrClear = helpers ? c.see('fadeOrClear') : () => NaN;
+    let agree = helpers;
+    for (const [cur, target, rate, dt] of [[0, 1, 3, 0.25], [0.4, 0.4, 9, 1], [0.2, 0.9, 5, 1 / 60], [0.9, 0.1, 30, 1 / 165], [1, 0, 0.45, 0.1], [0.3, 0.7, 0, 1], [0.3, 0.7, 4, 0]]) {
+      if (ema(cur, target, rate, dt) !== K.follow(cur, target, rate, dt) || decay(cur, rate, dt) !== K.fall(cur, rate, dt)) agree = false;
+    }
+    ok(agree, 'ema and decay in core.js give exactly what TimbreScene.follow and TimbreScene.fall give, for the same numbers');
+    const FPS = [30, 60, 165];
+    const over = (fps, each) => { let v; for (let i = 0; i < fps; i++) v = each(v, 1 / fps); return v; };
+    const emas = FPS.map((fps) => over(fps, (v = 0.2, dt) => ema(v, 0.9, 5, dt))), wantEma = 0.9 - 0.7 * Math.exp(-5);
+    const decays = FPS.map((fps) => over(fps, (v = 0.8, dt) => decay(v, 2, dt))), wantDecay = 0.8 * Math.exp(-2);
+    ok(helpers && emas.every((v) => near(v, wantEma)) && decays.every((v) => near(v, wantDecay)),
+      `over one second ema and decay come to the same value at 30, 60 and 165 frames a second (ema ${emas.map((v) => v.toFixed(12)).join(' ')}; decay ${decays.map((v) => v.toFixed(12)).join(' ')})`);
+    // chance(perSecond, dt) is the chance that something happening `perSecond` times a second
+    // on average happens in a frame of dt. Over one second, the chance that it never did:
+    const never = FPS.map((fps) => over(fps, (v = 1, dt) => v * (1 - chance(3, dt))));
+    // And counted: a seeded run of 2,000 seconds at each frame rate, rolling once a frame.
+    const rolled = FPS.map((fps) => { let seed = 12345, hits = 0; const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; }; for (let i = 0; i < 2000 * fps; i++) if (random() < chance(3, 1 / fps)) hits++; return hits / 2000; });
+    const expected = FPS.map((fps) => fps * (1 - Math.exp(-3 / fps)));   // a frame can fire once only, so a little under 3 at low frame rates
+    ok(helpers && never.every((v) => near(v, Math.exp(-3))) && chance(3, 0) === 0 && chance(0, 1) === 0 && chance(1e9, 1) === 1 && near(chance(2, 0.5), 1 - Math.exp(-1)) && rolled.every((r, i) => Math.abs(r - expected[i]) < 0.12),
+      `chance: over one second the chance that nothing happened is the same at 30, 60 and 165 frames a second (${never.map((v) => v.toFixed(12)).join(' ')}), and a seeded run fires ${rolled.map((r) => r.toFixed(2)).join(', ')} times a second at a rate of 3`);
+    // fadeOrClear(alpha, dt): alpha is what a 60 fps frame takes off what is on the canvas.
+    const run = (fps, alpha) => { c.log.fills.length = 0; c.log.clears = 0; let left = 1; for (let i = 0; i < fps; i++) { const took = fadeOrClear(alpha, 1 / fps); left *= 1 - took; } return { left, fills: c.log.fills.slice(), clears: c.log.clears }; };
+    const fades = FPS.map((fps) => run(fps, 0.55)), wantLeft = Math.pow(0.45, 60);
+    const painted = (r) => r.fills.every((f) => f.op === 'destination-out' && /^rgba\(0, 0, 0, [\d.e-]+\)$/.test(f.style) && f.rect.join() === '0,0,260,130');
+    const alphaOf = (f) => Number(/, ([\d.e-]+)\)$/.exec(f.style)[1]);
+    const lefts = fades.map((r) => r.fills.reduce((l, f) => l * (1 - alphaOf(f)), 1));
+    ok(helpers && fades.every((r, i) => r.fills.length === FPS[i] && r.clears === 0 && painted(r) && Math.abs(r.left / wantLeft - 1) < 1e-9) && lefts.every((l) => Math.abs(l / wantLeft - 1) < 1e-9)
+      && fades[1].fills.every((f) => near(alphaOf(f), 0.55, 1e-12)) && c.pen.globalCompositeOperation === 'source-over' && c.pen.fillStyle === '#000' && c.pen.stack.length === 0,
+      `fadeOrClear: at 60 frames a second it takes off exactly the share it is given, as the trail effects do today; over one second the same is left at 30, 60 and 165 (${lefts.map((l) => l.toExponential(6)).join(' ')}), painted over the whole canvas with destination-out, the context left as found`);
+    const cleared = run(60, 0), tiny = run(60, 0.001), whole = run(1, 1), plain = (() => { c.log.fills.length = 0; const took = fadeOrClear(0.3); return { took, a: c.log.fills.length ? alphaOf(c.log.fills[0]) : NaN }; })();
+    ok(helpers && cleared.fills.length === 0 && cleared.clears === 60 && cleared.left === 0 && c.log.cleared.join() === '0,0,260,130' && tiny.fills.length === 0 && tiny.clears === 60 && whole.left === 0 && plain.took === 0.3 && plain.a === 0.3
+      && fadeOrClear(NaN, 1 / 60) === 1 && fadeOrClear(-1, 1 / 60) === 1,
+      'fadeOrClear: with nothing to fade by (Trail veil 0, or no number) it clears the canvas instead, so nothing smears; with no dt it takes off the share as given');
   }
 }
 

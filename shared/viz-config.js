@@ -160,6 +160,11 @@
 
   function clone(obj) { return JSON.parse(JSON.stringify(obj)); }
 
+  // Whether `key` is a key of `obj` itself. Every object also answers to `constructor`,
+  // `toString`, `__proto__` and the like by inheritance, so a key that came in with a config
+  // is looked up in a table only through this.
+  const own = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
   // Text by whole characters. A character here is what a reader sees as one: an
   // emoji is two UTF-16 units, and a joined one (a flag, a family, a skin tone)
   // is several code points. Where the browser cannot tell (no Intl.Segmenter),
@@ -223,7 +228,7 @@
     }
     if (partial.placement && typeof partial.placement === 'object') {
       for (const [k, v] of Object.entries(partial.placement)) {
-        const r = PLACEMENT_RANGES[k];
+        const r = own(PLACEMENT_RANGES, k) ? PLACEMENT_RANGES[k] : null;
         if (r && typeof v === 'number') cfg.placement[k] = clamp(v, r.min, r.max);
       }
     }
@@ -232,12 +237,13 @@
     }
     if (partial.perViz && typeof partial.perViz === 'object') {
       for (const [name, knobs] of Object.entries(partial.perViz)) {
-        const target = cfg.perViz[name];
-        if (!target || !knobs || typeof knobs !== 'object') continue;
+        const target = own(cfg.perViz, name) ? cfg.perViz[name] : null;
+        if (!target || typeof target !== 'object' || !knobs || typeof knobs !== 'object') continue;
+        const maxes = own(PER_VIZ_MAX, name) ? PER_VIZ_MAX[name] : null;
         for (const [k, v] of Object.entries(knobs)) {
-          if (!(k in target)) continue;
+          if (!own(target, k)) continue;
           if (typeof target[k] === 'number' && typeof v === 'number') {
-            target[k] = clamp(v, 0, (PER_VIZ_MAX[name] && PER_VIZ_MAX[name][k]) || 100);
+            target[k] = clamp(v, 0, (maxes && own(maxes, k) && maxes[k]) || 100);
           } else if (typeof target[k] === 'string' && typeof v === 'string') {
             target[k] = cutText(v, MAX_STRING);
           }
