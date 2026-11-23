@@ -109,7 +109,11 @@
 //      the one in force not applied; a config that throws caught where it comes
 //      in; a broadcast merged over the defaults, as the dock merges it; getColor against what it gave before, the palette table and its
 //      rebuild; and ema, decay, chance and fadeOrClear against the scene kit's
-//      formulas and at 30, 60 and 165 frames a second. (Runs before section 4.)
+//      formulas and at 30, 60 and 165 frames a second. Then the look in the page's
+//      address: shown at start-up without touching the capture, laid over every
+//      dock config (the dock still sets the rest and the microphone), ignored
+//      when it holds nothing usable, not read beside a viz-config.js from before
+//      it, the sbdebug line, and the three pages' guarded start. (Runs before section 4.)
 //  30. The microphone capture — the REAL overlay/audio-capture.js run under
 //      Node with stand-in media APIs (a getUserMedia whose promises the test
 //      resolves and rejects by hand, stand-in AudioContext, analysers and
@@ -7950,7 +7954,7 @@ console.log('\n[29] overlay core: one canvas height, equal configs, a config tha
   // and a capture that records the device it is given. `big` is the two large pages: their
   // canvases are 624 tall and they scale the heights core.js asks for by 4.8, with the same
   // script they have in their own page. see(code) reads or sets core.js's own variables.
-  const loadCore = ({ big = false, oldCapture = false } = {}) => {
+  const loadCore = ({ big = false, oldCapture = false, search, oldShared = false } = {}) => {
     const el = () => ({ style: {}, innerHTML: '', textContent: '', classList: { on: new Set(), toggle(n, f) { if (f) this.on.add(n); else this.on.delete(n); } } });
     const log = { sets2d: 0, sets3d: 0, clears: 0, fills: [], warns: [], resizes: 0, configs: 0, devices: 0, processing: [], calls: [], starts: [] };
     const pen = { fillStyle: '#000', globalCompositeOperation: 'source-over', depth: 0, stack: [],
@@ -7967,7 +7971,7 @@ console.log('\n[29] overlay core: one canvas height, equal configs, a config tha
     const label = el(), box = el(), tracks = [el(), el()], listeners = {};
     const sandbox = {
       TIMBRE: T, TimbreScene: K,
-      console: { log() {}, warn: (...a) => log.warns.push(a.map(String).join(' ')), error: (...a) => log.warns.push(a.map(String).join(' ')) },
+      console: { log: (...a) => (log.logs = log.logs || []).push(a.map(String).join(' ')), warn: (...a) => log.warns.push(a.map(String).join(' ')), error: (...a) => log.warns.push(a.map(String).join(' ')) },
       performance: { now: () => 0 }, requestAnimationFrame() {},
       document: { documentElement: { style: { setProperty(name, value) { log.vars = (log.vars || 0) + 1; log[name] = value; } } },
         getElementById: (id) => els[id], querySelector: (s) => (s === '.viz-label' ? label : s === '.visualizer-box' ? box : null), querySelectorAll: (s) => (s === '.chevron-track' ? tracks : []) },
@@ -7976,6 +7980,10 @@ console.log('\n[29] overlay core: one canvas height, equal configs, a config tha
       timbreCapture: oldCapture ? { setDevice() { log.devices++; log.calls.push('device'); } }
         : { setDevice() { log.devices++; log.calls.push('device'); }, setProcessing(on) { log.processing.push(on); log.calls.push('processing'); } },
     };
+    // `search`: the page's address query, as location.search holds it; with none given the page has no location at all.
+    // `oldShared`: a viz-config.js from before the look in the address (OBS can cache one file and not the other).
+    if (search !== undefined) sandbox.location = { search };
+    if (oldShared) { sandbox.TIMBRE = Object.assign({}, T); delete sandbox.TIMBRE.lookFromQuery; }
     sandbox.window = sandbox;
     vm.createContext(sandbox);
     // (A direct eval at the end of core.js's own script is the only way to reach its let and
@@ -7985,7 +7993,7 @@ console.log('\n[29] overlay core: one canvas height, equal configs, a config tha
     const see = sandbox.__see;
     // Two effects that only count what the core asks of them.
     for (const name of ['visualizer', 'matrix']) see('VIZ_FACTORIES')[name] = () => ({ start() { log.starts.push(name); }, stop() {}, draw() {}, onResize() { log.resizes++; }, onConfig() { log.configs++; } });
-    see("setActiveViz('visualizer')");   // as the page's own bootstrap does
+    see("startOverlay()");   // as the page's own bootstrap does
     const send = (config) => { for (const fn of listeners['svc:message'] || []) fn({ detail: { type: 'timbre:config', config } }); };
     const shown = () => ({ H: see('H'), h2d: canvas2d.height, stack: stack.style.height, label: label.style.display, status: els.vizStatus.style.display, chevrons: tracks.map((t) => t.style.display).join(), ticks: els.vizTicks.style.display, noBorder: box.classList.on.has('no-border') });
     return { see, send, log, shown, pen, canvas2d, BOX };
@@ -8134,6 +8142,53 @@ console.log('\n[29] overlay core: one canvas height, equal configs, a config tha
       'a broadcast equal to the one in force is still not applied again, and applyConfig called by hand with one setting still changes that setting only');
     const coreSrc = await readFile(resolve(__dirname, 'overlay/core.js'), 'utf8');
     ok(/applyConfig\(TIMBRE\.sanitizeConfig\(msg\.config\)\)/.test(coreSrc), 'the overlay\'s receiver hands applyConfig the broadcast already merged over the defaults: sanitizeConfig(msg.config), with no base');
+  }
+
+  // ── Pinned sources: the look in the page's address ──
+  {
+    const pinned = '?visualizer=matrix&showBorder=0&gain=150';
+    const c = loadCore({ search: pinned });
+    ok(c.see('currentVizName') === 'matrix' && c.see('cfgGain') === 1.5 && c.see('cfgShowBorder') === false && c.log.starts.slice(-1)[0] === 'matrix' && c.log.devices === 0 && c.log.processing.length === 0
+      && c.see('window.__timbre.addressLook').activeViz === 'matrix',
+      `a page whose address names a look shows it at once, before any broadcast (effect ${c.see('currentVizName')}, gain ${c.see('cfgGain')}), and does not touch the microphone capture (${c.log.devices} devices, ${c.log.processing.length} processing)`);
+    const dock = cfgWith({ activeViz: 'visualizer', showBorder: true, gain: 100, bounce: 77, mic: { deviceId: 'abc', label: 'Mic' }, micProcessing: false });
+    c.send(dock);
+    const after1 = { sets2d: c.log.sets2d, starts: c.log.starts.length, configs: c.log.configs, devices: c.log.devices };
+    ok(c.see('currentVizName') === 'matrix' && c.see('cfgGain') === 1.5 && c.see('cfgShowBorder') === false && c.see('cfgBounce') === 77 && c.log.devices === 1 && c.log.processing.join() === 'false' && c.see('timbreConfig').activeViz === 'matrix',
+      'the address wins over the dock for what it names (effect, gain, border) and the dock still sets the rest (bounce) and the microphone: the device and the processing come from the dock only');
+    c.send(dock);
+    ok(c.log.sets2d === after1.sets2d && c.log.starts.length === after1.starts && c.log.configs === after1.configs && c.log.devices === after1.devices,
+      'the same dock config sent again is a config equal to the one in force, with the address laid over it: nothing is applied');
+    const part = loadCore({ search: '?showBorder=0' });
+    part.send(cfgWith({ activeViz: 'matrix' }));
+    ok(part.see('currentVizName') === 'matrix' && part.see('cfgShowBorder') === false, 'a look without an effect leaves the effect to the dock, and still holds what it names');
+    const plain = loadCore(), junk = loadCore({ search: '?visualizer=nope&gain=abc' });
+    plain.send(cfgWith({ activeViz: 'matrix' })); junk.send(cfgWith({ activeViz: 'matrix' }));
+    ok(JSON.stringify(junk.shown()) === JSON.stringify(plain.shown()) && junk.see('currentVizName') === plain.see('currentVizName') && junk.see('currentVizName') === 'matrix' && Object.keys(junk.see('window.__timbre.addressLook')).length === 0,
+      'an address with an unknown effect and a value that is not a number is ignored whole: the page does what a page with no look does');
+    const none = loadCore({ search: '' }), base = loadCore();
+    ok(none.log.sets2d === base.log.sets2d && none.log.clears === base.log.clears && none.log.starts.join() === base.log.starts.join() && none.log.devices === 0 && none.log.processing.length === 0 && none.log.configs === 0 && none.see('currentVizName') === 'visualizer',
+      'an address with no look does at start-up what setActiveViz("visualizer") did and nothing more: no config applied, no canvas height set, no capture call');
+    // Beside a viz-config.js from before the look in the address (OBS can cache one file and not the other).
+    const old = loadCore({ search: '?visualizer=matrix', oldShared: true });
+    const oldStart = old.see('currentVizName');
+    let threw = '';
+    try { old.send(cfgWith({ activeViz: 'matrix' })); } catch (e) { threw = String(e); }
+    ok(threw === '' && old.log.warns.length === 0 && oldStart === 'visualizer' && old.see('currentVizName') === 'matrix' && Object.keys(old.see('window.__timbre.addressLook')).length === 0,
+      `beside a viz-config.js with no lookFromQuery the page starts on the default effect, reads no look, and follows the dock (${threw || old.log.warns.join(' | ')})`);
+    // A page with no location at all.
+    let threw2 = '';
+    try { base.send(cfgWith({ activeViz: 'matrix' })); } catch (e) { threw2 = String(e); }
+    ok(threw2 === '' && base.see('currentVizName') === 'matrix' && base.log.warns.length === 0, 'a page with no location at all loads and follows the dock');
+    // sbdebug=1 names what the address held that was ignored.
+    const dbg = loadCore({ search: '?visualizer=nope&sbdebug=1' }), quiet = loadCore({ search: '?visualizer=nope' });
+    ok((dbg.log.logs || []).length === 1 && /visualizer/.test(dbg.log.logs[0]) && (quiet.log.logs || []).length === 0,
+      `with sbdebug=1 in the address one console line names what it held that was ignored (${(dbg.log.logs || []).join(' | ')}); without it nothing is logged`);
+    // The pages call startOverlay, and fall back to setActiveViz beside an older core.js.
+    const guarded = "if (typeof startOverlay === 'function') startOverlay(); else setActiveViz('visualizer');";
+    const pageTexts = await Promise.all(['300x220', '1440x1080', '1920x1080'].map((n) => readFile(resolve(__dirname, `overlay/mic-visualizers-${n}.html`), 'utf8')));
+    ok(pageTexts.every((t) => t.split(guarded).length === 2 && t.split("setActiveViz('visualizer')").length === 2),
+      "each of the three pages starts with the guarded startOverlay line, once, and has no other setActiveViz('visualizer')");
   }
 
   // ── O-06: the palette table ──
