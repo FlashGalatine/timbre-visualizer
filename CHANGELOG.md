@@ -10,6 +10,28 @@ traceability.
 
 ## [Unreleased]
 
+A Browser Source can now carry its own visualizer and look in its address. Copy `overlay`,
+`shared` and `control` to refresh every Timbre source and the dock; there is nothing to
+re-paste into Streamer.bot.
+
+### Added
+
+- **Pinned sources: a visualizer and a look in the address.** An overlay page reads its
+  address, for example `mic-visualizers-1920x1080.html?visualizer=rose&showBorder=0&gain=150`,
+  and keeps that visualizer and those settings whatever the dock is changed to. A setting
+  the address leaves out follows the dock as before, and a source with no parameters
+  behaves exactly as it did. The microphone and Microphone processing always follow the dock.
+  An unknown or malformed parameter is ignored, a number out of range is held to its range,
+  and `sbdebug=1` makes the page log the names it ignored.
+- **The dock has an "OBS source for this look" section.** Pick a page size and click **Copy
+  source address** to get the address for the look the dock shows now; the address is also
+  shown in a field to copy by hand if the clipboard is refused.
+- `TIMBRE.lookFromQuery` and `TIMBRE.lookToQuery` in `shared/viz-config.js` turn a look into
+  an address and back.
+- Not yet checked: how two or three pinned sources behave together in one OBS. Each source
+  opens its own microphone capture and loads every effect, and each WebGL visualizer has its
+  own GL context, so several at once cost more GPU.
+
 ## [1.0.216] — 2026-11-23
 
 The pitch of your voice now leads in Ink and Metaball. Copy `overlay` and refresh every
