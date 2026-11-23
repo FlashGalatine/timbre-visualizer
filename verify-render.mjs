@@ -5072,6 +5072,376 @@ async function main() {
 
     }
 
+    // ── The Christmas tree: a kit scene of a lit tree in the snow, which a thump shakes the snow off ──
+    {   // its own block: the names below are the tree's own
+    // Build the scene afresh, drive the level, the 32 bins and the mic's peak by hand, and read the
+    // canvas and the scene after each step. A step gives level, secs, and either all (every bin,
+    // 0..1) or bins ([[bin, 0..1], ...]); peak is the raw peak the thump hears (0 unless given);
+    // idle: true has the mic off, off: true has the mic and Idle animation off; knobs sets settings
+    // from that step on; watchEdge: the canvas's four edges are looked at after every frame of the
+    // step, not only its last; gap: milliseconds the page stops drawing for, before the step;
+    // wobble: every other frame comes that share of a frame early and the rest that much late.
+    // Beside the scene, the tree is made again here from the arithmetic alone, frame for frame (the
+    // bands followed, each thump and settling as the scene reports it, every step, and everything
+    // that is sent to be drawn), and model says how far the scene's own is from it.
+    const TREE = 'christmas-tree';
+    const treeRun = (steps, { fps = 60, knobs = null, hue = null, colorSpeed = null, gain = null } = {}) => wide.evaluate(({ id, steps, fps, knobs, hue, colorSpeed, gain }) => {
+      window.frame = function () {};
+      const saved = { frequencies, micActive, cfgIdleAnim, cfgColorHue, cfgColorSpeed, cfgGain, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz[id]);
+      try {
+        if (knobs) Object.assign(perViz[id], knobs);
+        if (hue !== null) cfgColorHue = hue;
+        if (colorSpeed !== null) cfgColorSpeed = colorSpeed;
+        if (gain !== null) cfgGain = gain;
+        TimbreScene.testLevel = 0;
+        micPeak = 0;
+        setActiveViz('visualizer'); setActiveViz(id);
+        const K = TimbreTree, follow = TimbreScene.follow, T6 = K.TIERS.length;
+        const knob = (name, otherwise = 50) => (typeof perViz[id][name] === 'number' ? perViz[id][name] : otherwise);
+        const m = { ok: true, bands: new Float32Array(8), tr: K.createTree(K.SEED, K.countFor(knob('lightDensity', 60))), clock: 0, thumps: 0, jostles: 0, settles: 0, random: K.rng(7),
+          sent: { bright: new Float32Array(K.LIGHTS_MAX), bulb: new Float32Array(K.LIGHTS_MAX * 3), halo: new Float32Array(K.LIGHTS_MAX * 3), haloSize: new Float32Array(K.LIGHTS_MAX), ball: new Float32Array(K.BAUBLES * 3), ballCol: new Float32Array(K.BAUBLES * 3),
+            ballHow: new Float32Array(K.BAUBLES * 2), cap: new Float32Array(T6 * 2), flake: new Float32Array(K.FLAKES * 4), star: new Float32Array(8), string: new Float32Array(4) } };
+        const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), f = new Uint8Array(32), out = [];
+        let now = 100000 + 1000 / 120, last = null;
+        for (const st of steps) {
+          TimbreScene.testLevel = st.level;
+          micActive = !st.idle && !st.off;
+          cfgIdleAnim = st.off ? false : saved.cfgIdleAnim;
+          if (st.knobs) Object.assign(perViz[id], st.knobs);
+          f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
+          if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
+          frequencies = f;
+          micPeak = st.peak || 0;
+          let stepsTaken = 0, stepsMost = 0, stepsLeast = 99, leanMost = 0, clumpsMost = 0, fallingMost = 0, fallingLeast = 999, swingMost = 0, levelMost = 0, looseFrames = 0, phases = [], edgeFrames = 0, flashMost = 0;
+          const W0 = gl.drawingBufferWidth, H0 = gl.drawingBufferHeight;
+          // Is anything solid drawn in this strip of the canvas? (For a step with watchEdge, the four edges are looked at after every frame.)
+          const strip = (x, y, sw, sh) => { const b = new Uint8Array(sw * sh * 4); gl.readPixels(x, y, sw, sh, gl.RGBA, gl.UNSIGNED_BYTE, b); for (let q = 3; q < b.length; q += 4) if (b[q] >= 25) return true; return false; };
+          if (st.gap) { now += st.gap; m.ok = false; }   // what the machine does about a page that stopped is its own business: the tree is not made again past one
+          for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) {
+            const dt = (1 + (st.wobble || 0) * (i % 2 ? 1 : -1)) / fps;
+            now += 1000 * dt;
+            currentViz.draw(now, dt);
+            const live = window.__timbre.scene.state;
+            if (st.watchEdge && (strip(0, H0 - 4, W0, 4) || strip(0, 0, W0, 4) || strip(0, 0, 4, H0) || strip(W0 - 4, 0, 4, H0))) edgeFrames++;
+            stepsTaken += live.steps; if (live.steps > stepsMost) stepsMost = live.steps; if (live.steps < stepsLeast) stepsLeast = live.steps;
+            if (live.lean > leanMost) leanMost = live.lean; if (live.clumps > clumpsMost) clumpsMost = live.clumps; if (live.flash > flashMost) flashMost = live.flash;
+            if (live.falling > fallingMost) fallingMost = live.falling; if (live.falling < fallingLeast) fallingLeast = live.falling;
+            for (const a of live.swingOf) if (Math.abs(a) > swingMost) swingMost = Math.abs(a);
+            for (const v of live.levels) if (v > levelMost) levelMost = v;
+            if (live.phase === 'pieces') looseFrames++;
+            if (phases[phases.length - 1] !== live.phase) phases.push(live.phase);
+            // The same frame, from the arithmetic alone.
+            const isLive = micActive || cfgIdleAnim, count = K.countFor(knob('lightDensity', 60));
+            if (isLive) m.clock += dt;
+            if (count !== m.tr.n) K.restring(m.tr, count);
+            for (let b = 0; b < 8; b++) {
+              let v = 0;
+              if (micActive) v = K.loudness(f, b, cfgGain); else if (cfgIdleAnim) v = K.idle(b, m.clock);
+              m.bands[b] = follow(m.bands[b], v, v > m.bands[b] ? K.BAND_RATE[0] : K.BAND_RATE[1], dt);
+              if (v === 0) m.bands[b] = K.settle(m.bands[b]);
+            }
+            if (live.thumps > m.thumps) { m.thumps = live.thumps; m.random = K.rng(1000 + m.thumps); K.shake(m.tr, 1, m.random); }
+            else if (live.jostles > m.jostles) { m.jostles = live.jostles; K.shake(m.tr, K.JOSTLE, m.random); }
+            else if (live.settles > m.settles) { m.settles = live.settles; K.resettle(m.tr); }
+            if (isLive) K.advance(m.tr, dt, { flame: live.flame, kick: live.kick, burst: live.burst, bands: m.bands, snow: K.snowFor(knob('snowfall')) });
+            K.dress(m.sent, m.tr, { pal: live.look.pal, balls: live.look.balls, kick: live.look.kick, glow: live.look.glow });
+          }
+          const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);   // row 0 is the bottom of the canvas
+          const s = window.__timbre.scene, state = s.state, n = state.lights, tr = m.tr;
+          const mul = (mt, v) => [0, 1, 2, 3].map((r) => mt[r] * v[0] + mt[4 + r] * v[1] + mt[8 + r] * v[2] + mt[12 + r] * v[3]);
+          // Where a place on the tree (from its foot, leaning as it leans) falls on the canvas, how far it is from the eye, and the colour there.
+          const seen = (x, y, z) => { const e = mul(state.view, mul(state.world, [x, y, z, 1])), c = mul(state.proj, e); return [Math.floor((c[0] / c[3] * 0.5 + 0.5) * w), Math.floor((c[1] / c[3] * 0.5 + 0.5) * h), -e[2]]; };
+          const rgbaAt = (x, y, z) => { const [px0, py0] = seen(x, y, z); return px0 < 0 || py0 < 0 || px0 >= w || py0 >= h ? [0, 0, 0, -1] : Array.from(px.subarray((py0 * w + px0) * 4, (py0 * w + px0) * 4 + 4)); };
+          // solid: pixels something covers. part: pixels half covered. edge: anything solid at the canvas's edge. Light is what is not solid:
+          // light (all of it, in thousands), lightLow (below the lowest boughs: what lands on the ground), starGlow (within 70 pixels of the star).
+          // Inside the tree's own box: white (snow) and green (boughs).
+          const top = seen(0, K.TIERS[T6 - 1][2] + K.TIERS[T6 - 1][1] + 0.03, 0), lo = seen(-1.3, K.rimY(0) - 0.12, 0), hi = seen(1.3, K.rimY(0) - 0.12, 0), starAt = seen(0, K.STAR_Y, 0);
+          let solid = 0, part = 0, edge = 0, white = 0, green = 0, light = 0, lightLow = 0, starGlow = 0, sx = 0;
+          for (let i = 0; i < px.length; i += 4) {
+            const x = (i / 4) % w, y = Math.floor(i / 4 / w), a = px[i + 3], r = px[i], g = px[i + 1], b = px[i + 2];
+            if (a >= 250) {
+              solid++; sx += x;
+              if (x < 4 || y < 4 || x >= w - 4 || y >= h - 4) edge++;
+              if (x >= lo[0] && x <= hi[0] && y >= lo[1] && y <= top[1]) {
+                if (Math.min(r, g, b) > 170 && Math.max(r, g, b) - Math.min(r, g, b) < 50) white++;
+                else if (g > 1.25 * r && g > 1.1 * b && g > 40) green++;
+              }
+            } else {
+              if (a >= 25) { part++; if (x < 4 || y < 4 || x >= w - 4 || y >= h - 4) edge++; }
+              const sum = r + g + b;
+              light += sum; if (y < lo[1]) lightLow += sum; if (Math.hypot(x - starAt[0], y - starAt[1]) < 70) starGlow += sum;
+            }
+          }
+          const diff = { n: 0, max: 0 };
+          if (last && last.length === px.length) for (let i = 0; i < px.length; i++) { const d = Math.abs(px[i] - last[i]); if (d) { diff.n++; if (d > diff.max) diff.max = d; } }
+          last = px;
+          // Each light of the string and each bauble: the colour drawn at its middle, and whether it is on the side of the tree toward the eye.
+          const facing = (x, y, z) => seen(x, y, z)[2] < seen(0, y, 0)[2] - 0.45 * Math.hypot(x, z);
+          const at = state.lightAt, bulbPx = [], bulbFront = [], ballPx = [], ballFront = [], ball = state.sentBall;
+          for (let j = 0; j < n; j++) { bulbPx.push(rgbaAt(at[j * 3], at[j * 3 + 1], at[j * 3 + 2])); bulbFront.push(facing(at[j * 3], at[j * 3 + 1], at[j * 3 + 2])); }
+          for (let b = 0; b < K.BAUBLES; b++) { ballPx.push(rgbaAt(ball[b * 3], ball[b * 3 + 1], ball[b * 3 + 2])); ballFront.push(facing(ball[b * 3], ball[b * 3 + 1], ball[b * 3 + 2])); }
+          // The tree made again, beside the scene's own.
+          const model = { ok: m.ok, count: tr.n, gapSent: 0, gapState: 0, gapBands: 0 };
+          if (tr.n !== n) model.ok = false;
+          else {
+            for (const [mine, theirs, len] of [[m.sent.bright, state.sentBright, n], [m.sent.bulb, state.sentBulb, n * 3], [m.sent.halo, state.sentHalo, n * 3], [m.sent.haloSize, state.sentHaloSize, n], [m.sent.ball, state.sentBall, K.BAUBLES * 3],
+              [m.sent.ballCol, state.sentBallCol, K.BAUBLES * 3], [m.sent.ballHow, state.sentBallHow, K.BAUBLES * 2], [m.sent.cap, state.sentCap, T6 * 2], [m.sent.flake, state.sentFlake, K.FLAKES * 4], [m.sent.star, state.sentStar, 8], [m.sent.string, state.sentString, 4], [tr.string.at, at, n * 3]])
+              for (let i = 0; i < len; i++) model.gapSent = Math.max(model.gapSent, Math.abs(mine[i] - theirs[i]));
+            for (let i = 0; i < T6; i++) model.gapState = Math.max(model.gapState, Math.abs(tr.snow[i] - state.snowOf[i]));
+            for (let i = 0; i < 4; i++) model.gapState = Math.max(model.gapState, Math.abs(tr.lean[i] - state.leanOf[i]));
+            model.gapState = Math.max(model.gapState, Math.abs(tr.time - state.time), Math.abs(tr.left - state.left), Math.abs(tr.flash - state.flash), Math.abs(tr.lying - state.lying), Math.abs(tr.star - state.star), Math.abs(m.clock - state.clock) > 1e-9 ? 1 : 0);
+            for (let b = 0; b < 8; b++) model.gapBands = Math.max(model.gapBands, Math.abs(state.bands[b] - m.bands[b]));
+            model.counts = state.falling === tr.falling && state.clumps === tr.clumps;
+          }
+          out.push({ state, model, solid, part, edge, edgeFrames, white, green, light: light / 1000, lightLow: lightLow / 1000, starGlow: starGlow / 1000, stepsTaken, stepsMost, stepsLeast, leanMost, clumpsMost, fallingMost, fallingLeast, swingMost, levelMost, flashMost, looseFrames,
+            phases: phases.join(), bright: state.sentBright, glowOf: state.glowOf, u: Array.from(tr.string.u), bulbPx, bulbFront, ballPx, ballFront, ballTier: Array.from(tr.spots.tier), ballHue: Array.from(tr.spots.hue),
+            starPx: rgbaAt(0, K.STAR_Y - 0.03, K.STAR[2]), trunkPx: rgbaAt(-0.06, 0.25, 0.1), centroidX: solid ? sx / solid : 0, cornerAlpha: px[3], canvas: [w, h], diff, kitCam: s.camera, hue: cfgColorHue });
+        }
+        return out;
+      } finally {
+        frequencies = saved.frequencies; micActive = saved.micActive; cfgIdleAnim = saved.cfgIdleAnim; cfgColorHue = saved.cfgColorHue; cfgColorSpeed = saved.cfgColorSpeed; cfgGain = saved.cfgGain;
+        if (saved.micPeak !== undefined) micPeak = saved.micPeak;
+        Object.assign(perViz[id], knobs0); TimbreScene.testLevel = null;
+      }
+    }, { id: TREE, steps, fps, knobs, hue, colorSpeed, gain });
+    // A picture is as the last one was, but for the stray pixel this GPU allows itself (see the glass prism's block).
+    const same = (r) => r.diff.n <= 8 && r.diff.max <= 1;
+    // The tree made again from the arithmetic is the scene's own, to the last digit.
+    const remade = (r) => r.model.ok && r.model.gapSent === 0 && r.model.gapState === 0 && r.model.gapBands === 0 && r.model.counts;
+    const still = { knobs: { cameraDrift: 0 }, colorSpeed: 0, gain: 1 };
+    const like = (c, d) => (c[0] * d[0] + c[1] * d[1] + c[2] * d[2]) / ((Math.hypot(c[0], c[1], c[2]) || 1) * (Math.hypot(d[0], d[1], d[2]) || 1));
+    const lit = (c) => c[3] >= 250 ? Math.max(c[0], c[1], c[2]) : 0;
+    const gold = (c) => c[3] >= 250 && c[0] > 150 && c[0] >= c[1] && c[1] > 1.2 * c[2];
+    // The mean of how bright the lights toward the eye are drawn, for those whose place along the string is from a to b.
+    const stretch = (r, a, b) => { let sum = 0, n = 0; r.bulbPx.forEach((c, j) => { if (r.bulbFront[j] && r.u[j] >= a && r.u[j] < b && c[3] >= 250) { sum += c[0] + c[1] + c[2]; n++; } }); return n ? sum / n : 0; };
+    const brightest = (r) => r.u[r.bright.indexOf(Math.max(...r.bright))];
+    // The mean of how bright a tier's baubles toward the eye are drawn, and of their inner light.
+    const tierBalls = (r, tier) => { let sum = 0, n = 0; r.ballPx.forEach((c, b) => { if (r.ballTier[b] === tier && r.ballFront[b] && c[3] >= 250) { sum += c[0] + c[1] + c[2]; n++; } }); return n ? sum / n : 0; };
+    const tierGlow = (r, tier) => { let sum = 0; r.glowOf.forEach((g, b) => { if (r.ballTier[b] === tier) sum += g / 7; }); return sum; };
+    // A thump, held for three frames; talking; and no sound at all.
+    const thump = { level: 0, secs: 0.05, peak: 1 }, talk = { level: 0.6, all: 0.5 }, hush = { level: 0 };
+
+    await activate(TREE);
+    const trState = await sceneState();
+    const sit = await treeRun([Object.assign({ secs: 1 }, hush), Object.assign({ secs: 0.5 }, hush)], still);
+    const ss = sit[1].state, far = 2.0 / Math.tan(Math.PI / 12);
+    check('christmas tree is a kit scene: a solid tree on its drift, a transparent corner and nothing at the edge, seen from as far as a view 30 degrees wide asks, looking 6 degrees down',
+      !!trState && trState.active === true && trState.targetSize[0] === 1728 && sit[1].solid > 120000 && sit[1].solid < 160000 && sit[1].cornerAlpha === 0 && sit[1].edge === 0
+      && ss.solid === true && ss.glowAdds === true && ss.neverCulled === true && JSON.stringify(ss.drawn) === '{"lights":96,"glows":96,"baubles":42,"flakes":408,"caps":6}' && ss.phase === 'whole' && ss.live === true
+      && Math.abs(Math.hypot(sit[1].kitCam[0], sit[1].kitCam[1] - 1.5, sit[1].kitCam[2]) - far) < 1e-3 && Math.abs(sit[1].kitCam[1] - 1.5 - far * Math.sin(Math.PI / 30)) < 1e-3 && ss.lights3.starShadow === true,
+      JSON.stringify({ size: trState && trState.targetSize, solid: sit[1].solid, part: sit[1].part, edge: sit[1].edge, corner: sit[1].cornerAlpha, flags: [ss.solid, ss.glowAdds, ss.neverCulled], drawn: ss.drawn, cam: sit[1].kitCam }));
+    check('christmas tree: in silence the snow lies on every tier, nothing moves but the falling snow and the twinkling lights, the star is a plain gold star, and its light lies on the snow round the tree',
+      ss.snow === 1 && ss.lean === 0 && ss.thumps === 0 && ss.star === 0 && ss.clumps === 0 && ss.falling === 55 && Math.abs(ss.lights3.star - 11) < 1e-6 && Math.abs(ss.starLook.gold - 0.9) < 1e-6 && sit[1].white > 6000 && sit[1].green > 6000
+      && gold(sit[1].starPx) && sit[1].lightLow > 100 && sit[1].stepsTaken === 30 && ss.string > 0.2 && ss.string < 0.33 && sit.every(remade),
+      JSON.stringify({ snow: ss.snow, falling: ss.falling, star: [ss.lights3.star, ss.starLook], white: sit[1].white, green: sit[1].green, starPx: sit[1].starPx, low: sit[1].lightLow, string: ss.string, model: sit[1].model }));
+    {
+      const fronts = sit[1].bulbPx.map((c, j) => [c, j]).filter(([c, j]) => sit[1].bulbFront[j] && c[3] >= 250 && lit(c) > 120);
+      // A light is drawn hot, so pale: it is told by which of its colour's parts are the stronger. Of the five, the first, the third and the last are far apart in the palette.
+      const parts = (c) => [c[0], c[1], c[2]].map((v) => v - Math.min(c[0], c[1], c[2])), told = fronts.filter(([c, j]) => [0, 2, 4].includes(j % 5));
+      const own = told.filter(([c, j]) => { const mine = like(parts(c), parts(ss.palRGB[j % 5])); return [0, 2, 4].every((k) => k === j % 5 || mine > like(parts(c), parts(ss.palRGB[k]))); }).length;
+      const balls = sit[1].ballPx.map((c, b) => [c, b]).filter(([c, b]) => sit[1].ballFront[b] && c[3] >= 250), ownBalls = balls.filter(([c, b]) => like(c, ss.ballsRGB[sit[1].ballHue[b]]) > 0.85).length;
+      check('christmas tree: the lights of the string are the palette\'s colours, five in turn, and the baubles\' are seven of them; the trunk is brown',
+        fronts.length >= 25 && told.length >= 12 && own >= 0.85 * told.length && balls.length >= 12 && ownBalls >= 0.7 * balls.length && sit[1].trunkPx[3] >= 250 && sit[1].trunkPx[0] > sit[1].trunkPx[2],
+        JSON.stringify({ fronts: fronts.length, told: told.length, own, balls: balls.length, ownBalls, pal: ss.palRGB, trunk: sit[1].trunkPx, some: fronts.slice(0, 6) }));
+    }
+
+    // The voice.
+    const loud = await treeRun([Object.assign({ secs: 0.5 }, hush), { level: 0.9, secs: 1.5 }], still), ls = loud[1].state;
+    check('christmas tree: the star hears the voice: its gold, its glow and its rays grow, the light it throws on the snow rises, and every light of the string is bright',
+      ls.star > 0.85 && ls.starLook.gold > 4 && ls.starLook.glow > ss.starLook.glow + 0.5 && ls.starLook.rays > ss.starLook.rays + 0.9 && ls.lights3.star > 35 && ls.lights3.string > ss.lights3.string + 5 && loud[1].starGlow > 2 * sit[1].starGlow
+      && loud[1].lightLow > 1.5 * sit[1].lightLow && stretch(loud[1], 0, 1) > 1.1 * stretch(sit[1], 0, 1) && ls.string > 1.2 && loud[1].edge === 0 && loud.every(remade),
+      JSON.stringify({ star: ls.star, look: ls.starLook, lights: ls.lights3, glow: [sit[1].starGlow, loud[1].starGlow], low: [sit[1].lightLow, loud[1].lightLow], bulbs: [stretch(sit[1], 0, 1), stretch(loud[1], 0, 1)], model: loud[1].model }));
+    const pulse = await treeRun([Object.assign({ secs: 1 }, hush), { level: 1, secs: 0.1 }, Object.assign({ secs: 0.25 }, hush), Object.assign({ secs: 0.5 }, hush)], still);
+    check('christmas tree: what the star heard runs down the string: a syllable is a pulse of light that is a quarter of the way down after a quarter of a second and most of the way down half a second later',
+      Math.abs(brightest(pulse[2]) - 15 / 66) < 0.08 && Math.abs(brightest(pulse[3]) - 45 / 66) < 0.08 && stretch(pulse[2], 0.1, 0.35) > 1.05 * stretch(pulse[2], 0.6, 0.85) && stretch(pulse[3], 0.55, 0.8) > 1.05 * stretch(pulse[3], 0.05, 0.3) && pulse.every(remade),
+      JSON.stringify({ at: [brightest(pulse[2]), brightest(pulse[3])], early: [stretch(pulse[2], 0.1, 0.35), stretch(pulse[2], 0.6, 0.85)], late: [stretch(pulse[3], 0.05, 0.3), stretch(pulse[3], 0.55, 0.8)], model: pulse.map((r) => r.model.ok) }));
+    const low = await treeRun([Object.assign({ secs: 0.5 }, hush), { level: 0.05, bins: [[0, 0.8]], secs: 1 }], still), high = await treeRun([Object.assign({ secs: 0.5 }, hush), { level: 0.05, bins: [[7, 0.8]], secs: 1 }], still);
+    const [gained] = await treeRun([{ level: 0.02, bins: [[0, 0.2]], secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0, gain: 3 });
+    check('christmas tree: the baubles are a spectrum: the lowest band lights the lowest tier\'s and sets them swinging, the highest the top tier\'s; Gain makes a band louder to them',
+      tierGlow(low[1], 0) > 0.6 && tierGlow(low[1], 5) === 0 && tierGlow(low[1], 3) === 0 && tierGlow(high[1], 5) > 0.6 && tierGlow(high[1], 0) === 0 && low[1].swingMost > 0.1 && tierBalls(low[1], 0) > tierBalls(low[0], 0) + 60 && tierBalls(high[1], 5) > tierBalls(high[0], 5) + 60
+      && Math.abs(tierBalls(low[1], 5) - tierBalls(low[0], 5)) < 30 && Math.abs(gained.state.levels[0] - (5 / 6) * 3 * Math.round(0.2 * 255) / 255) < 1e-3 && low.every(remade) && high.every(remade) && remade(gained),
+      JSON.stringify({ glow: [tierGlow(low[1], 0), tierGlow(low[1], 5), tierGlow(high[1], 5), tierGlow(high[1], 0)], swing: low[1].swingMost, drawn: [tierBalls(low[0], 0), tierBalls(low[1], 0), tierBalls(high[0], 5), tierBalls(high[1], 5), tierBalls(low[0], 5), tierBalls(low[1], 5)], gained: gained.state.levels[0] }));
+
+    // The thump.
+    const calm3 = { knobs: { cameraDrift: 0, resettleSeconds: 3 }, colorSpeed: 0, gain: 1 };
+    const th = await treeRun([Object.assign({ secs: 1 }, hush), thump, Object.assign({ secs: 0.3 }, hush), Object.assign({ secs: 1.7, watchEdge: true }, hush), Object.assign({ secs: 3 }, hush), Object.assign({ secs: 14 }, hush), Object.assign({ secs: 0.5 }, hush)], calm3);
+    check('christmas tree: a thump of the mic shakes the tree: it rocks on its trunk, every bauble swings, the lights flicker, clumps of snow fall from every tier and the boughs are bare',
+      th[0].state.snow === 1 && th[1].state.thumps === 1 && th[1].state.phase === 'pieces' && Math.max(th[1].clumpsMost, th[2].clumpsMost) === 108 && th[1].flashMost > 0.9 && th[2].leanMost > 0.03 && th[2].leanMost < 0.12 && th[2].swingMost > 0.2
+      && th[2].state.snow < 0.3 && th[3].state.snow === 0 && th[3].state.clumps === 0 && th[3].state.drawn.caps === 0 && th[3].white < 0.3 * sit[1].white && th[3].green > 1.2 * sit[1].green && th.slice(0, 4).every(remade),
+      JSON.stringify({ thumps: th[1].state.thumps, phase: th[1].state.phase, clumps: [th[1].clumpsMost, th[2].clumpsMost, th[3].state.clumps], lean: th[2].leanMost, swing: th[2].swingMost, snow: th.map((r) => +r.state.snow.toFixed(3)), white: [sit[1].white, th[3].white], green: [sit[1].green, th[3].green], model: th.map((r) => r.model) }));
+    check('christmas tree: the tree comes to rest, and after the calm wait the snow settles on the boughs again until it is as it was; nothing is drawn at the edge of the canvas while the snow falls',
+      th[3].state.lean < 0.002 && th[3].edgeFrames === 0 && th.every((r) => r.edge === 0) && th[4].phases.endsWith('whole') && th[4].phases.includes('returning') && th[4].state.settles === 1 && th[4].state.snow > 0.05 && th[4].state.snow < 0.9
+      && th[5].state.snow === 1 && th[5].state.lean === 0 && Math.abs(th[6].white - sit[1].white) < 0.15 * sit[1].white && th[6].state.drawn.caps === 6 && th.every(remade),
+      JSON.stringify({ lean: th[3].state.lean, edgeFrames: th[3].edgeFrames, phases: th.map((r) => r.phases), settles: th[4].state.settles, snow: th.map((r) => +r.state.snow.toFixed(3)), white: [sit[1].white, th[6].white], model: th.map((r) => r.model.ok) }));
+    const again = await treeRun([Object.assign({ secs: 1 }, hush), thump, Object.assign({ secs: 1.6 }, hush), thump, Object.assign({ secs: 0.4 }, hush)], calm3);
+    check('christmas tree: a peak while the tree is bare rocks it again, and throws no snow, for there is none', again[2].state.jostles === 0 && again[2].state.clumps === 0 && again[3].state.jostles === 1 && again[3].state.thumps === 1 && again[3].clumpsMost === 0 && again[4].clumpsMost === 0
+      && again[4].leanMost > 0.015 && again[3].flashMost > 0.55 && again.every((r) => r.edge === 0) && again.every(remade),
+      JSON.stringify({ jostles: again.map((r) => r.state.jostles), clumps: again.map((r) => r.clumpsMost), lean: again[4].leanMost, flash: again[3].flashMost, model: again.map((r) => r.model.ok) }));
+    const watched = (st) => Object.assign({ watchEdge: true }, st), often = [Object.assign({ secs: 0.5 }, hush), watched(thump)];
+    for (let i = 0; i < 6; i++) often.push(watched(Object.assign({ secs: 0.7 }, talk)), watched(thump));
+    often.push(watched(Object.assign({ secs: 1 }, talk)));
+    const jostled = await treeRun(often, { knobs: { cameraDrift: 100, resettleSeconds: 3, lightDensity: 100, snowfall: 100, starGlow: 100 }, colorSpeed: 0, gain: 1 }), lastJ = jostled[jostled.length - 1];
+    check('christmas tree: shaken again and again while it is loud, with the most lights, the most snow, the star at its brightest and the camera swaying its furthest, nothing solid leaves the picture: nothing is drawn at the edge of the canvas in any frame',
+      lastJ.state.jostles >= 5 && lastJ.state.thumps === 1 && lastJ.state.lights === 128 && lastJ.fallingMost > 170 && jostled.slice(1).every((r) => r.edgeFrames === 0 && r.edge === 0) && jostled.every(remade),
+      JSON.stringify({ jostles: lastJ.state.jostles, thumps: lastJ.state.thumps, falling: lastJ.fallingMost, edgeFrames: jostled.map((r) => r.edgeFrames), edge: jostled.map((r) => r.edge), model: jostled.map((r) => r.model.ok) }));
+    const stopped = await treeRun([Object.assign({ secs: 0.6 }, hush), thump, Object.assign({ secs: 0.1 }, hush), Object.assign({ secs: 0.1, gap: 4000 }, hush)], calm3);
+    check('christmas tree: after the page has stopped drawing the tree is as it was made: the snow on every tier, nothing rocking, no clump in the air', stopped[2].state.phase === 'pieces' && stopped[2].state.clumps > 50 && stopped[2].state.lean > 0 && stopped[3].state.phase === 'whole'
+      && stopped[3].state.snow === 1 && stopped[3].state.lean === 0 && stopped[3].state.clumps === 0 && stopped[3].state.flash === 0 && stopped[3].state.drawn.caps === 6,
+      JSON.stringify({ phase: stopped.map((r) => r.state.phase), snow: stopped.map((r) => r.state.snow), clumps: stopped.map((r) => r.state.clumps), lean: stopped.map((r) => r.state.lean) }));
+    const [, , never] = await treeRun([Object.assign({ secs: 0.6 }, hush), thump, Object.assign({ secs: 0.5 }, hush)], { knobs: { cameraDrift: 0, shakeSensitivity: 0 }, colorSpeed: 0, gain: 1 });
+    const lasts = [];
+    for (const secs of [1, 3]) { const r = await treeRun([Object.assign({ secs: 0.6 }, hush), thump, Object.assign({ secs: 6 }, hush)], { knobs: { cameraDrift: 0, resettleSeconds: secs }, colorSpeed: 0, gain: 1 }); lasts.push(r[2].looseFrames / 60); }
+    check('christmas tree: Shake sensitivity 0 is never shaken; Resettle seconds is the calm wait before the snow may settle', never.state.thumps === 0 && never.state.snow === 1 && never.leanMost === 0 && lasts[0] > 0.9 && lasts[0] < 1.2 && lasts[1] > 2.9 && lasts[1] < 3.2 && Math.abs(lasts[1] - lasts[0] - 2) < 0.05,
+      JSON.stringify({ never: [never.state.thumps, never.state.snow], lasts }));
+    const [, deaf] = await treeRun([{ level: 0, idle: true, secs: 1 }, { level: 0, idle: true, secs: 0.3, peak: 1 }], still);
+    check('christmas tree: with the mic off a peak shakes nothing', deaf.state.phase === 'whole' && deaf.state.thumps === 0 && deaf.state.snow === 1 && deaf.leanMost === 0 && deaf.clumpsMost === 0 && remade(deaf), JSON.stringify({ phase: deaf.state.phase, thumps: deaf.state.thumps, lean: deaf.leanMost }));
+
+    // The settings.
+    const dens = await treeRun([Object.assign({ secs: 0.5, knobs: { lightDensity: 0 } }, hush), Object.assign({ knobs: { lightDensity: 0 } }, thump), Object.assign({ secs: 1, knobs: { lightDensity: 0 } }, hush), Object.assign({ secs: 0.2, knobs: { lightDensity: 100 } }, hush), Object.assign({ secs: 0.2, knobs: { lightDensity: 60 } }, hush)], calm3);
+    check('christmas tree: Light density is how many lights are on the string, 48 to 128; when it changes the string is laid again and nothing else is touched', dens[0].state.lights === 48 && dens[0].state.drawn.lights === 48 && dens[0].state.drawn.glows === 48 && dens[0].bulbPx.length === 48
+      && dens[2].state.snow < 0.01 && dens[3].state.lights === 128 && dens[3].state.drawn.lights === 128 && dens[3].state.snow === dens[2].state.snow && dens[3].state.strung === dens[2].state.strung + 1 && dens[4].state.lights === 96 && dens[4].state.strung === dens[3].state.strung + 1
+      && dens[3].bulbPx.filter((c, j) => dens[3].bulbFront[j] && lit(c) > 120).length > dens[0].bulbPx.filter((c, j) => dens[0].bulbFront[j] && lit(c) > 120).length + 15 && dens.every((r) => r.edge === 0) && dens.every(remade),
+      JSON.stringify({ lights: dens.map((r) => r.state.lights), strung: dens.map((r) => r.state.strung), snow: dens.map((r) => r.state.snow), seen: [dens[0], dens[3]].map((r) => r.bulbPx.filter((c, j) => r.bulbFront[j] && lit(c) > 120).length), model: dens.map((r) => r.model) }));
+    const glows = [];
+    for (const g of [0, 50, 100]) glows.push((await treeRun([{ level: 0.9, secs: 1.5 }], { knobs: { cameraDrift: 0, starGlow: g }, colorSpeed: 0, gain: 1 }))[0]);
+    check('christmas tree: Star glow is how far the voice swings the star: not at all at 0, and further at 100 than at 50', glows.every((r) => r.state.star > 0.85) && Math.abs(glows[0].state.starLook.gold - 0.9) < 1e-6 && Math.abs(glows[0].state.lights3.star - 11) < 1e-6 && glows[0].state.starLook.rays < 0.71
+      && glows[1].state.lights3.star > 35 && glows[2].state.lights3.star > glows[1].state.lights3.star + 8 && glows[2].state.starLook.rays > glows[1].state.starLook.rays + 0.3 && glows[1].starGlow > 2 * glows[0].starGlow && glows[2].starGlow > 1.1 * glows[1].starGlow
+      && glows.every(remade) && glows.every((r) => r.edge === 0),
+      JSON.stringify({ gold: glows.map((r) => r.state.starLook.gold), light: glows.map((r) => r.state.lights3.star), rays: glows.map((r) => r.state.starLook.rays), drawn: glows.map((r) => r.starGlow) }));
+    const snows = [];
+    for (const sn of [0, 50, 100]) snows.push((await treeRun([Object.assign({ secs: 14 }, hush)], { knobs: { cameraDrift: 0, snowfall: sn }, colorSpeed: 0, gain: 1 }))[0]);
+    check('christmas tree: Snowfall is how much snow falls: none at 0, 55 flakes in silence at 50, twice as many at 100', snows[0].state.falling === 0 && snows[1].state.falling === 55 && snows[2].state.falling === 110 && snows[2].solid > snows[0].solid + 150 && snows.every(remade) && snows.every((r) => r.edge === 0),
+      JSON.stringify({ falling: snows.map((r) => r.state.falling), solid: snows.map((r) => r.solid) }));
+    const drift = [];
+    for (const d of [0, 50, 100]) drift.push((await treeRun([Object.assign({ secs: 2 }, hush)], { knobs: { cameraDrift: d }, colorSpeed: 0, gain: 1 }))[0]);
+    check('christmas tree: Camera drift sways the camera: not at all at 0, twice as far at 100 as at 50', drift[0].state.orbit === 0 && Math.abs(drift[1].state.orbit) > 1e-3 && Math.abs(drift[2].state.orbit - 2 * drift[1].state.orbit) < 1e-9 && Math.abs(drift[1].kitCam[0]) > 0.01 && Math.abs(drift[0].kitCam[0]) < 1e-9 && drift.every(remade),
+      JSON.stringify({ orbit: drift.map((r) => r.state.orbit), cam: drift.map((r) => r.kitCam[0]) }));
+    const [hue0] = await treeRun([Object.assign({ secs: 0.5 }, hush)], { knobs: { cameraDrift: 0 }, colorSpeed: 0, gain: 1, hue: 0 }), [hue3] = await treeRun([Object.assign({ secs: 0.5 }, hush)], { knobs: { cameraDrift: 0 }, colorSpeed: 0, gain: 1, hue: 3 });
+    check('christmas tree: the lights\' and the baubles\' colours move as the palette moves them, with Colour hue; the star stays gold and the boughs green', hue0.state.colorT === 0 && hue3.state.colorT === 3 && JSON.stringify(hue0.state.palRGB) !== JSON.stringify(hue3.state.palRGB) && JSON.stringify(hue0.state.ballsRGB) !== JSON.stringify(hue3.state.ballsRGB)
+      && gold(hue0.starPx) && gold(hue3.starPx) && Math.abs(hue3.green - hue0.green) < 0.1 * hue0.green && remade(hue0) && remade(hue3),
+      JSON.stringify({ t: [hue0.state.colorT, hue3.state.colorT], pal: [hue0.state.palRGB, hue3.state.palRGB], star: [hue0.starPx, hue3.starPx], green: [hue0.green, hue3.green] }));
+
+    // The mic off; nothing live; frame rates.
+    const idle = await treeRun([{ level: 0.3, idle: true, secs: 14 }, { level: 0.3, idle: true, secs: 0.3, peak: 1 }], still);
+    check('christmas tree: with the mic off and Idle animation on, the star and the string breathe with the slow swell, the bands swell in turn up the tree and light its baubles, the snow falls, and nothing shakes it',
+      idle[0].state.star > 0.25 && idle[0].state.star < 0.35 && idle[0].levelMost > 0.25 && idle[0].levelMost < 0.36 && idle[0].stepsTaken === 840 && idle[0].state.falling > 55 && idle[1].state.thumps === 0 && idle[1].state.kick === 0 && idle[1].state.snow === 1 && idle.every(remade),
+      JSON.stringify({ star: idle[0].state.star, level: idle[0].levelMost, steps: idle[0].stepsTaken, falling: idle[0].state.falling, thumps: idle[1].state.thumps, model: idle.map((r) => r.model) }));
+    const off = await treeRun([{ level: 0.9, all: 0.6, secs: 1 }, { level: 0, off: true, secs: 0.5 }, { level: 0, off: true, secs: 0.5 }, { level: 0, off: true, secs: 0.3, peak: 1 }, Object.assign({ secs: 1 }, hush)], still);
+    check('christmas tree: with the mic and Idle animation off, nothing moves: the lights stay as they were, the snow hangs in the air and the picture does not change; it goes on when the mic is back',
+      off[1].state.live === false && off[2].stepsTaken === 0 && off[3].stepsTaken === 0 && off[2].state.string === off[1].state.string && same(off[2]) && same(off[3]) && off[3].state.thumps === 0 && off[4].stepsTaken === 60 && off[4].state.string < off[2].state.string && off.every(remade),
+      JSON.stringify({ live: off.map((r) => r.state.live), steps: off.map((r) => r.stepsTaken), string: off.map((r) => +r.state.string.toFixed(3)), diff: off.map((r) => r.diff), model: off.map((r) => r.model.ok) }));
+    const offMid = await treeRun([Object.assign({ secs: 0.6 }, hush), thump, Object.assign({ secs: 0.15 }, hush), { level: 0, off: true, secs: 0.5 }, { level: 0, off: true, secs: 0.5 }, Object.assign({ secs: 2 }, hush)], calm3);
+    check('christmas tree: the mic going off while the tree rocks and clumps are in the air stops them where they are, and no time passes for the thump; they go on when the mic is back', offMid[2].state.clumps > 40 && offMid[2].state.lean > 0.005 && offMid[3].stepsTaken === 0 && offMid[4].stepsTaken === 0
+      && offMid[4].state.clumps === offMid[2].state.clumps && offMid[4].state.lean === offMid[2].state.lean && same(offMid[4]) && offMid[4].state.phase === 'pieces' && offMid[5].state.clumps === 0 && offMid[5].state.phase === 'pieces' && offMid.every(remade),
+      JSON.stringify({ clumps: offMid.map((r) => r.state.clumps), lean: offMid.map((r) => +r.state.lean.toFixed(4)), steps: offMid.map((r) => r.stepsTaken), phase: offMid.map((r) => r.state.phase), diff: offMid[4].diff, model: offMid.map((r) => r.model.ok) }));
+    const [at60] = await treeRun([Object.assign({ secs: 2 }, talk)], still), [at30] = await treeRun([Object.assign({ secs: 2 }, talk)], Object.assign({ fps: 30 }, still)), [early] = await treeRun([Object.assign({ secs: 1, wobble: 0.2 }, talk)], still);
+    check('christmas tree: at 30 frames a second it takes two steps a frame and is the same tree as at 60; frames a fifth early and late are still one step each', at60.stepsTaken === 120 && at30.stepsTaken === 120 && at60.stepsMost === 1 && at30.stepsMost === 2 && at30.stepsLeast === 2
+      && early.stepsMost === 1 && early.stepsLeast === 1 && at30.state.time === at60.state.time && JSON.stringify(at30.state.snowOf) === JSON.stringify(at60.state.snowOf) && at30.state.falling === at60.state.falling && remade(at60) && remade(at30) && remade(early),
+      JSON.stringify({ steps: [at60.stepsTaken, at30.stepsTaken, early.stepsTaken], most: [at60.stepsMost, at30.stepsMost, early.stepsMost], time: [at60.state.time, at30.state.time], model: [at60.model, at30.model, early.model] }));
+    const [, longFrame] = await treeRun([Object.assign({ secs: 0.5 }, hush), { level: 0, secs: 0.5, peak: 1 }], Object.assign({ fps: 2 }, calm3));
+    check('christmas tree: a frame that takes half a second is six steps and no more, and the tree is still in the picture', longFrame.stepsMost === 6 && longFrame.stepsTaken === 6 && longFrame.edge === 0 && longFrame.state.left === 0 && longFrame.state.thumps === 1,
+      JSON.stringify({ most: longFrame.stepsMost, taken: longFrame.stepsTaken, edge: longFrame.edge, left: longFrame.state.left, thumps: longFrame.state.thumps }));
+    await pushConfig((c) => { c.activeViz = TREE; c.placement.x = 30; });
+    await wide.waitForTimeout(300);
+    const [placed] = await treeRun([Object.assign({ secs: 1 }, hush)], still);
+    await pushConfig((c) => { c.placement.x = 0; });
+    await wide.waitForTimeout(300);
+    check('christmas tree: Scene placement slides it', placed.centroidX - sit[0].centroidX > 150 && placed.solid > 0.9 * sit[0].solid, JSON.stringify({ x: [sit[0].centroidX, placed.centroidX], solid: [sit[0].solid, placed.solid] }));
+
+    // The small page.
+    const smallTree = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz['christmas-tree']); window.frame = function () {}; try { perViz['christmas-tree'].cameraDrift = 0; TimbreScene.testLevel = 0; frequencies = new Uint8Array(32); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('christmas-tree');
+      const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+      const read = () => { gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); let solid = 0, edge = 0; for (let i = 0; i < px.length; i += 4) if (px[i + 3] >= 250) { solid++; const x = (i / 4) % w, y = Math.floor(i / 4 / w); if (x < 2 || y < 2 || x >= w - 2 || y >= h - 2) edge++; } return { solid, edge }; };
+      let now = 200000;
+      for (let i = 0; i < 60; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      const quiet = read(), snow0 = window.__timbre.scene.state.snow;
+      TimbreScene.testLevel = 0.95;
+      for (let i = 0; i < 60; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      const loud = read(), star = window.__timbre.scene.state.star;
+      micPeak = 1; TimbreScene.testLevel = 0;
+      for (let i = 0; i < 4; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      micPeak = 0;
+      for (let i = 0; i < 20; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      const shaken = read(), s2 = window.__timbre.scene.state;
+      return { canvas: [w, h], quiet, snow0, loud, star, shaken, clumps: s2.clumps, thumps: s2.thumps, snow: s2.snow };
+    } finally { TimbreScene.testLevel = null; window.frame = fr; frequencies = heard.frequencies; micActive = heard.micActive; if (heard.micPeak !== undefined) micPeak = heard.micPeak; Object.assign(perViz['christmas-tree'], knobs0); setActiveViz('visualizer'); } });
+    check('christmas tree: on the small page the tree is drawn, its star hears the voice, and a thump shakes its snow off, all inside the picture', smallTree.snow0 === 1 && smallTree.quiet.solid > 300 && smallTree.quiet.edge === 0 && smallTree.star > 0.85 && smallTree.loud.edge === 0
+      && smallTree.thumps === 1 && smallTree.clumps > 30 && smallTree.snow < 0.5 && smallTree.shaken.edge === 0,
+      JSON.stringify(smallTree));
+    await wide.bringToFront();
+    await wide.waitForTimeout(300);
+    // Loud, with the most lights and the most snow, just after a thump: a frame's script time, and a frame drawn and finished by the GPU.
+    const trCost = await wide.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz['christmas-tree']); window.frame = function () {}; try { perViz['christmas-tree'].lightDensity = 100; perViz['christmas-tree'].snowfall = 100; TimbreScene.testLevel = 0.9; frequencies = new Uint8Array(32).fill(150); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('christmas-tree');
+      const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), one = new Uint8Array(4); let now = performance.now();
+      for (let i = 0; i < 180; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      micPeak = 1; for (let i = 0; i < 4; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); } micPeak = 0;
+      let script = 0, whole = 0;
+      for (let i = 0; i < 60; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); script += performance.now() - t; }
+      for (let i = 0; i < 60; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, one); whole += performance.now() - t; }
+      return { script: script / 60, whole: whole / 60, lights: window.__timbre.scene.state.lights, thumps: window.__timbre.scene.state.thumps }; } finally { TimbreScene.testLevel = null; window.frame = fr; frequencies = heard.frequencies; micActive = heard.micActive; if (heard.micPeak !== undefined) micPeak = heard.micPeak; Object.assign(perViz['christmas-tree'], knobs0); } });
+    check('christmas tree: loud, with 128 lights and the most snow, just after a thump, draw() averages under 2 ms of script time, and a frame drawn and finished by the GPU under 7 ms (' + trCost.script.toFixed(2) + ' and ' + trCost.whole.toFixed(2) + ' ms)',
+      trCost.lights === 128 && trCost.thumps === 1 && trCost.script < 2 && trCost.whole < 7, JSON.stringify(trCost));
+
+    // One light of the string, its glow, one bauble and one flake, each alone under the tree's own shaders, drawn without
+    // perspective: what a line of a shader does to one small ball is lost in a picture of the whole tree. Each is half a unit
+    // in radius at the origin (the glow one unit across); there are 300 pixels to the unit.
+    const loneTree = await wide.evaluate(() => {
+      const K = TimbreTree, N = 360, PX = N / 1.2;
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = N;
+      const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false });
+      const made = [];
+      try {
+        renderer.setPixelRatio(1); renderer.setSize(N, N, false); renderer.setClearColor(0x000000, 0);
+        const gl = renderer.getContext(), px = new Uint8Array(N * N * 4), cam = new THREE.OrthographicCamera(-0.6, 0.6, 0.6, -0.6, 0.1, 10);
+        const shot = (mesh, eye) => { const sc = new THREE.Scene(); sc.add(mesh); cam.position.set(eye[0], eye[1], eye[2]); cam.up.set(0, 1, 0); cam.lookAt(0, 0, 0); cam.updateMatrixWorld(true); renderer.render(sc, cam); gl.readPixels(0, 0, N, N, gl.RGBA, gl.UNSIGNED_BYTE, px); };
+        // The colour at a place in the picture, in units from its middle (right, up).
+        const at = (x, y) => { const c = Math.floor(N / 2 + x * PX), r = Math.floor(N / 2 + y * PX); return Array.from(px.subarray((r * N + c) * 4, (r * N + c) * 4 + 4)); };
+        const litPixels = () => { let n = 0; for (let i = 0; i < N * N; i++) if (px[i * 4] > 20) n++; return n; };
+        const many = (shape, vertexShader, fragmentShader, sent, uniforms) => {
+          const geo = new THREE.InstancedBufferGeometry();
+          geo.setAttribute('position', shape.attributes.position); geo.setIndex(shape.index);
+          if (shape.attributes.normal) geo.setAttribute('normal', shape.attributes.normal);
+          for (const [name, v] of Object.entries(sent)) geo.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(v), v.length));
+          geo.instanceCount = 1;
+          const m = new THREE.Mesh(geo, new THREE.ShaderMaterial({ vertexShader, fragmentShader, uniforms: uniforms || {} }));
+          m.frustumCulled = false; made.push(geo, m.material, shape);
+          return m;
+        };
+        const FRONT = [0, 0, 3], ROUND = [3, 0, 3], out = {};
+        // A light: its own colour at its middle, dimmer toward its limb.
+        shot(many(new THREE.SphereGeometry(1, 48, 32), K.BULB_VERT, K.BULB_FRAG, { iPos: [0, 0, 0], iCol: [0.8, 0.4, 0.2] }, { uR: { value: 0.5 } }), FRONT);
+        out.bulb = [at(0, 0), at(0.45, 0), at(0.55, 0)];
+        // Its glow: brightest at its middle, fading to nothing at its rim; and turned to face the eye from wherever it is seen.
+        const glow = () => many(new THREE.PlaneGeometry(1, 1), K.HALO_VERT, K.HALO_FRAG, { iPos: [0, 0, 0], iCol: [1, 0.5, 0.25], iSize: [1] });
+        shot(glow(), FRONT); out.halo = [at(0, 0), at(0.25, 0), at(0.4, 0), at(0.49, 0.49)]; out.haloLit = litPixels();
+        shot(glow(), ROUND); out.haloRound = litPixels(); out.haloRoundMid = at(0, 0);
+        // A bauble: lit from the upper right, with a white highlight there; lit from inside when its tier sounds.
+        const ball = (inner) => many(new THREE.SphereGeometry(1, 48, 32), K.BAUBLE_VERT, K.BAUBLE_FRAG, { iPos: [0, 0, 0], iCol: [0.2, 0.4, 0.9], iHow: [0.5, inner] });
+        shot(ball(0), FRONT);
+        let hi = 0; for (let i = 0; i < N * N; i++) hi = Math.max(hi, Math.min(px[i * 4], px[i * 4 + 1], px[i * 4 + 2]));
+        out.ball = [at(0, 0), at(0.2, 0.3), at(-0.2, -0.3), at(0.45, 0)]; out.ballHighlight = hi;
+        shot(ball(1), FRONT); out.ballLit = [at(0, 0), at(0.45, 0)];
+        // A flake: white, a little brighter above.
+        shot(many(new THREE.SphereGeometry(1, 48, 32), K.FLAKE_VERT, K.FLAKE_FRAG, { iAt: [0, 0, 0, 0.5] }), FRONT);
+        out.flake = [at(0, 0.45), at(0, 0), at(0, -0.45), at(0.55, 0)];
+        return out;
+      } finally { for (const m of made) m.dispose(); renderer.dispose(); renderer.forceContextLoss(); }
+    });
+    {
+      const [mid, limb, off] = loneTree.bulb, [h0, h1, h2, h3] = loneTree.halo, [b0, bLit, bDark, bLimb] = loneTree.ball, [f1, f0, f2, fOff] = loneTree.flake;
+      check('christmas tree: a light of the string alone is a ball of its own colour, brightest where it faces the eye; its glow is a disc brightest at its middle and gone at its rim, which faces the eye from wherever it is seen',
+        mid[3] === 255 && Math.abs(mid[0] - 204) <= 4 && Math.abs(mid[1] - 102) <= 4 && Math.abs(mid[2] - 51) <= 4 && limb[0] > 0.6 * mid[0] && limb[0] < 0.85 * mid[0] && off[3] === 0
+        && h0[0] > 240 && Math.abs(h0[1] - 0.5 * h0[0]) < 6 && h1[0] > 60 && h1[0] < 105 && h2[0] < 15 && h3[0] === 0 && loneTree.haloLit > 20000 && Math.abs(loneTree.haloRound - loneTree.haloLit) < 0.1 * loneTree.haloLit && loneTree.haloRoundMid[0] > 240,
+        JSON.stringify({ bulb: loneTree.bulb, halo: loneTree.halo, lit: [loneTree.haloLit, loneTree.haloRound], round: loneTree.haloRoundMid }));
+      check('christmas tree: a bauble alone is a ball of its own colour, lit from the upper right with a white highlight there and a paler rim, and lit from inside, most at its middle, when its tier sounds; a flake is white, a little brighter above',
+        b0[3] === 255 && b0[2] > b0[1] && b0[1] > b0[0] && bLit[2] > 1.5 * bDark[2] && loneTree.ballHighlight > 200 && bLimb[0] * b0[2] > 1.15 * b0[0] * bLimb[2] &&loneTree.ballLit[0][0] > b0[0] + 80 && loneTree.ballLit[0][0] - b0[0] > 1.5 * (loneTree.ballLit[1][0] - bLimb[0])
+        && f0[3] === 255 && fOff[3] === 0 && f1[0] > f2[0] + 30 && f2[0] > 150 && f2[2] >= f2[0] && f0[0] > f2[0] && f0[0] <= f1[0],
+        JSON.stringify({ ball: loneTree.ball, highlight: loneTree.ballHighlight, lit: loneTree.ballLit, flake: loneTree.flake }));
+    }
+
+    }
+
     // Every kit scene, so the next one is covered without a new check.
     const gpuAfterSelect = (name) => wide.evaluate((n) => { setActiveViz('visualizer'); setActiveViz(n); currentViz.draw(performance.now(), 1 / 60); const s = window.__timbre.scene; return [s.memory.geometries, s.memory.textures, s.programs]; }, name);
     for (const name of T.VIZ_SCENES) {
@@ -5102,7 +5472,7 @@ async function main() {
       } finally { gl.createTexture = create; gl.deleteTexture = del; }
       return out;
     }, T.VIZ_SCENES);
-    const TEXTURES = { 'thanksgiving-harvest': 9, 'winter-aurora': 8, 'pride-ribbon': 5, 'bi-pride-ribbon': 5, 'ace-pride-ribbon': 5, 'trans-pride-ribbon': 5, 'july-fourth-stripes': 7, 'sunburst-3d': 5, 'mountains-3d': 5, 'phosphor': 4, 'chladni': 4, 'glass-prism': 4, 'metaball': 3, 'ink': 3, 'shards': 3, 'jelly': 3, 'school-of-fish': 2, 'boids': 2, 'rose': 2 };
+    const TEXTURES = { 'thanksgiving-harvest': 9, 'winter-aurora': 8, 'pride-ribbon': 5, 'bi-pride-ribbon': 5, 'ace-pride-ribbon': 5, 'trans-pride-ribbon': 5, 'july-fourth-stripes': 7, 'sunburst-3d': 5, 'mountains-3d': 5, 'phosphor': 4, 'chladni': 4, 'glass-prism': 4, 'metaball': 3, 'ink': 3, 'shards': 3, 'jelly': 3, 'school-of-fish': 2, 'boids': 2, 'rose': 2, 'christmas-tree': 2 };
     check('a scene deletes every GL texture it made, whichever scene ran before it',
       Object.keys(texturesLeft).length === T.VIZ_SCENES.length ** 2 && Object.entries(texturesLeft).every(([pair, [made, left]]) => made >= TEXTURES[pair.split(' then ')[1]] && left === 0), JSON.stringify(texturesLeft));
 

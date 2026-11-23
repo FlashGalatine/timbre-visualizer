@@ -57,10 +57,10 @@ OBS Browser Source and
 
 ## The 52 effects
 
-33 canvas-2D + 19 WebGL (three.js, vendored — works offline). Includes spectrum bars,
+32 canvas-2D + 20 WebGL (three.js, vendored — works offline). Includes spectrum bars,
 waveforms, matrix rain with custom text, seasonal/holiday scenes, Pride flags, and
 floating 3D scenes that answer the voice (a rose that blooms, birds on a wire, a school
-of fish). Add your own: drop a factory file in `overlay/factories/`, register it in
+of fish, a Christmas tree whose lights carry your voice). Add your own: drop a factory file in `overlay/factories/`, register it in
 `shared/viz-config.js`, add a `<script>` tag — see [docs/EFFECTS.md](docs/EFFECTS.md).
 
 ## Verification

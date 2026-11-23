@@ -1385,6 +1385,85 @@ Things worth knowing:
   sound and no thump the rose is the same at any.
 - The scene is made to fill the frame at Scene Size 100. Enlarged past that it is cropped.
 
+## The Christmas tree (`TimbreTree`)
+
+`overlay/christmas-tree.js` is the Christmas Tree effect, as `globalThis.TimbreTree`: a lit
+fir tree in the snow, whose star hears the voice, whose string of lights carries it down the
+tree, whose baubles are a spectrum, and which a thump of the mic shakes the snow off.
+`factories/christmas-tree.js` is one line,
+`VIZ_FACTORIES['christmas-tree'] = TimbreScene.factory(() => TimbreTree.definition())`. It
+follows the rose closely. It offers:
+
+- **The sound and the settings.** `loudness`, `settle` and `idle` as the rose has them
+  (with the mic off the bands swell in turn, from the lowest up). `countFor(lightDensity)`
+  is how many lights are on the string: 48 at 0, 96 at the default of 60, 128 at 100.
+  `glowFor(starGlow)` and `snowFor(snowfall)` are shares of the usual: 0 at 0, 1 at 50, 2 at
+  100. `levelOf(bands, i)` is what tier `i` hears: its own place among the eight bands,
+  between two of them, the lowest at the foot and the highest under the star.
+- **The tree's shape.** `TIERS` is the six tiers of boughs, foot to top (how far out the rim
+  reaches, how tall, the height of its base). A tier is a skirt with a rim of seven tips
+  that hangs a fifth of its height below its base, each tier turned from the one below.
+  `rimY(i)` and `rimR(i, phi)` are a rim's height and how far out it is the way `phi` round;
+  `tierR(i, y, phi)` is how far out a tier's boughs are at a height (0 above its top and below
+  its rim); `surfaceR(y, phi)` is how far out the tree reaches: its boughs, or between one
+  rim and the next 0.92 of the line from rim to rim, along which a string hangs.
+  `garland(n)` is the string: a spiral down that surface, 0.42 lower each turn, with `n`
+  lights evenly along it (`at`, three numbers each, from the tree's foot; `u`, how far along
+  the string each is; `wire`, the string's own path; `length`). `baubleSpots()` is the 42
+  baubles: each one's tier, the way round it hangs (under a tip), its radius and which of
+  seven colours it is. `tierGrid(snow)`, `driftGrid()` and `starPoints()` are the points and
+  triangles of a tier (or the snow lying on it), the drift and the star; `driftHeight(x, z)`
+  is the drift's height, and `snowAt(x, z)` is where falling snow lands: on the drift, or
+  beyond it a little above the unseen ground (`FLOOR`), so that no flake is drawn at the
+  bottom edge of the picture.
+- **The tree's state.** `createTree(seed, n)` makes a tree with `n` lights: what the star
+  heard at each of its last 96 steps (`hist`), the star's own level, the lean of the trunk
+  and its speed, sideways and toward the viewer (`lean`), how much snow lies on each tier
+  (`snow`, 0 to 1) and whether it may lie (`lying`), what each tier hears (`level`), each
+  bauble's swing, its speed and its inner light, each light's own twinkle, and every flake
+  and clump (`flake`, `flakeV`, `on`). `lay(tr, n)` lays it again whole, as it was made;
+  `restring(tr, n)` lays the string alone, which is all that Light density changes.
+  `heard(tr, ago)` is what the star heard so many steps ago, between two steps too.
+- **The thump.** `shake(tr, strength, random)` pushes the trunk, sets every bauble swinging,
+  and makes each tier with snow on it throw clumps (eighteen at most, as many as it has
+  snow), outward and down; the snow itself goes a moment later, the top tiers first.
+  `resettle(tr)` lets the snow settle again. The scene calls them when the shatter machine
+  says so: `shake` at 1 for a thump and at `JOSTLE` (0.6) for a peak while the tree is bare,
+  `resettle` after the calm wait, and `lay` when the page had stopped drawing.
+- **The step.** `stepTree(tr, how)` is one step of 1/60 s: the star follows the voice (up
+  fast, down slowly) and what it heard is remembered; the trunk and each bauble are springs
+  that come to rest; each tier's snow goes or settles; each bauble's inner light follows its
+  tier, and a rise in the tier sets it swinging; flakes fall and sway, and one that lands
+  starts again at the top while there should be as many (two more at most start in a step);
+  clumps fall faster and faster, keep over the drift (`KEEP`), and end at the snow.
+  `advance(tr, dt, how)` takes the steps that are due, a step once half of it is due and six
+  at most. `how` is the voice (`flame`), a beat (`kick`), beats lately (`burst`), the eight
+  bands and Snowfall's share (`snow`).
+- **What is drawn.** `dress(out, tr, look)` works out everything that changes: each light's
+  level (its twinkle, what the star heard when the voice now at that light was spoken, a
+  beat by its own share, and the flicker while the tree rocks), its colour and its glow's
+  colour and size; each bauble's place on its string, colour and inner light; where each
+  tier's snow is drawn and how much of it; every flake as drawn (smaller to nothing toward
+  the sides and the top of its air and as it lands); the star's own light, its glow, its
+  rays and the light it throws; and the string's light. `look` gives the string's five
+  colours and the baubles' seven (`pal`, `balls`), a beat, and Star glow's share.
+- **The camera.** `swayFor` and `orbitAt` as the rose has them.
+
+Worth knowing:
+
+- The boughs, the snow, the trunk, the drift, the presents and the star are three.js's own
+  lit materials, so the star's light (a point light that casts shadows) and the string's
+  (one more, in front of the tree) light them. What is drawn many times over has a small
+  shader of its own: a light of the string, its glow (added light, a disc that faces the
+  eye), a bauble and a flake. The render suite draws one of each alone to check them.
+- With the mic off and Idle animation on, the kit's slow swell stands in for the voice, so
+  the star and the string breathe; a beat and a thump are the mic's alone. With the mic and
+  Idle animation off no step is taken: the snow hangs in the air.
+- The string's lights are sent where they are only when the string is laid; everything else
+  that is sent is sent every frame.
+- Clumps of snow fall straight through the boughs below them, and the lowest boughs reach a
+  little past the drift at the front.
+
 ## Wire format (for driving Timbre from elsewhere)
 
 Anything that can call a Streamer.bot action can drive Timbre:

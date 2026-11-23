@@ -579,7 +579,7 @@
     let uploads = [], places = [];
     // What the checks read. clock: seconds the scene has been live. lights: how many are on the
     // string. steps: steps taken this frame. phase: the thump's (whole, pieces or returning).
-    const s = { flame: 0, kick: 0, clock: 0, live: false, orbit: 0, colorT: 0, lights: 0, steps: 0, stepped: 0, snow: 1, lean: 0, falling: 0, clumps: 0, star: 0, string: 0,
+    const s = { flame: 0, kick: 0, burst: 0, clock: 0, live: false, orbit: 0, colorT: 0, lights: 0, steps: 0, stepped: 0, snow: 1, lean: 0, falling: 0, clumps: 0, star: 0, string: 0,
       phase: 'whole', thumps: 0, jostles: 0, settles: 0, strung: 0 };
 
     // The string's lights are where the string is: sent when it is laid.
@@ -787,7 +787,7 @@
       s.phase = machine.state;
 
       // The tree is stepped, and dressed.
-      how.flame = flame; how.kick = s.kick; how.burst = micActive ? audio.burst : 0; how.snow = snowFor(knob('snowfall'));
+      how.flame = flame; how.kick = s.kick; how.burst = s.burst = settle(micActive ? audio.burst : 0); how.snow = snowFor(knob('snowfall'));
       s.steps = s.live ? advance(tree, dt, how) : 0;
       s.stepped += s.steps;
       // The colours: the string's five and the baubles' seven, from round the palette (they move only as the palette's own Colour speed moves them).
@@ -797,10 +797,10 @@
       look.kick = s.kick; look.glow = glowFor(knob('starGlow'));
       show();
       let snow = 0;
-      for (let i = 0; i < T; i++) snow += tree.snow[i] / T;
+      for (let i = 0; i < T; i++) snow += tree.snow[i];
       let mean = 0;
       for (let j = 0; j < tree.n; j++) mean += sent.bright[j] / tree.n;
-      s.snow = snow; s.lean = Math.hypot(tree.lean[0], tree.lean[2]); s.falling = tree.falling; s.clumps = tree.clumps; s.star = tree.star; s.string = mean;
+      s.snow = snow / T; s.lean = Math.hypot(tree.lean[0], tree.lean[2]); s.falling = tree.falling; s.clumps = tree.clumps; s.star = tree.star; s.string = mean;
     }
 
     return {
@@ -823,6 +823,7 @@
           lights3: { star: starLight.intensity, starShadow: starLight.castShadow, string: stringLight.intensity, stringColor: stringLight.color.toArray() },
           starLook: { gold: star.material.emissiveIntensity, glow: starGlow.scale.x, glowA: starGlow.material.opacity, rays: starRays.scale.x, raysA: starRays.material.opacity },
           tilt: [group.rotation.x, group.rotation.z], foot: group.position.toArray(),
+          palRGB: Array.from({ length: HUES[0] }, (v, i) => getColor(s.colorT + i * (PALETTE.length / HUES[0])).slice(0, 3)), ballsRGB: Array.from({ length: HUES[1] }, (v, i) => getColor(s.colorT + (i + 0.5) * (PALETTE.length / HUES[1])).slice(0, 3)),
           // How the scene stands and how the camera saw the last frame, so that a check can say where on the canvas a thing was drawn.
           world: group.matrixWorld.toArray(), view: camera.matrixWorldInverse.toArray(), proj: camera.projectionMatrix.toArray(),
         }, s);

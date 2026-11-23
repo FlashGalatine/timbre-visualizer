@@ -12,6 +12,16 @@ traceability.
 
 ### Added
 
+- **Christmas Tree settings**: `snowfall` (0 to 100, default 50: how much snow falls; none
+  at 0, twice as much at 100), `shakeSensitivity` (0 to 100, default 50; never at 0),
+  `resettleSeconds` (0 to 10, default 3: the calm wait before the snow settles on the boughs
+  again) and `cameraDrift` (0 to 100, default 50) for the Christmas Tree effect, which also
+  has the shared Scene placement sliders now. `lightDensity` stays (48 to 128 lights on the
+  string, 96 at its default of 60) and so does `starGlow` (how far the voice swings the
+  star: not at all at 0, twice as far at 100), each with any saved value. What the new tree
+  is made of is in `overlay/christmas-tree.js` (`TimbreTree`), loaded by all three overlay
+  pages and by `verify` under Node, and documented in `docs/EFFECTS.md` ("The Christmas
+  tree").
 - **Rose settings**: `density` (0 to 100, default 50: 40 to 72 petals, of which 43% are
   always out), `thorns` (0 to 100, default 50: how long the thorns grow; none at 0),
   `scatterSensitivity` (0 to 100, default 50; never at 0), `regatherSeconds` (0 to 10,
@@ -223,6 +233,23 @@ traceability.
 
 ### Changed
 
+- **Christmas Tree is now a lit tree in the snow**, a scene on the scene kit. The flat tree
+  of pixels over a dark sky is gone. A fir tree stands on a drift of snow with presents round
+  its foot: six tiers of boughs with snow lying on them, a gold star, a string of lights
+  wound round it, and a bauble under the tip of every bough. The star hears the voice and
+  flares at once, and what it heard runs down the string of lights, so each syllable is a
+  pulse of light that winds round the tree from the star to its lowest boughs in about a
+  second; in silence the lights glow low and twinkle. The baubles are a spectrum: each tier
+  listens to a part of the sound, low at the foot and high under the star, and its baubles
+  light from inside and swing when it sounds. The star and the string are real lights: the
+  star lights the snow round the tree, and the tree and the presents throw shadows. A thump
+  of the mic shakes the tree: it rocks on its trunk, the baubles swing, the lights flicker,
+  and the snow comes off every bough as falling clumps; after a calm wait it settles again.
+  Snow falls all the while, a little more when you speak. With the mic off and Idle
+  animation on, the star and the string breathe with a slow swell and the bands swell in
+  turn up the tree. The lights and the baubles take the palette's colours; the tree stays
+  green and the star gold. Everything but the glows is solid, so it shows over a bright
+  backdrop too. The effect's name and id are unchanged.
 - **Rose is now a rose the voice makes bloom**, made in code, a scene on the scene kit. The
   spinning wireframe of a model file is gone. One rose floats in the box on a leaning stem
   with two leaves; in silence it is a small, neat rose with every petal on its head and a
@@ -478,6 +505,9 @@ traceability.
 
 ### Removed
 
+- **Christmas Tree's `snowSpeed` setting.** How fast the old square snow fell has no place
+  in the new scene; `snowfall` (how much falls) takes its place. A saved `snowSpeed` is
+  dropped when the config is read.
 - **The rose model and the "3D model" settings.** `overlay/assets/rose.stl` and its notice
   are gone, with the shared settings group that only the old Rose still used (`stlObject`:
   intensity, zoom, sparks, sensitivity, jitter, smoothing, rotation, position, clones,
