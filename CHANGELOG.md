@@ -10,6 +10,31 @@ traceability.
 
 ## [Unreleased]
 
+## [1.0.175] — 2026-11-23
+
+The first tagged release since 1.0.9. It collects everything that landed on `main` in
+between (the redesign of every WebGL effect onto the scene kit, the first eight seasonal
+scenes, the afterglow, Black Hole, Television and School of Fish), listed below as it was
+recorded at the time, plus the two items under "Setup and history".
+
+### Setup and history
+
+- **Setup: put `Timbre Push` in a blocking action queue.** `docs/SETUP.md` step 2, the
+  README and the wire-format notes in `docs/EFFECTS.md` now say so. In the default queue
+  Streamer.bot can run two requests for the action at once, and both runs then see one
+  request's arguments: a dock change can be lost, or an older config broadcast last.
+  Measured on Streamer.bot 1.0.7 with a test action: 25 of 25 back-to-back requests mixed
+  their arguments in the default queue, 0 of 25 in a blocking queue. Nothing to re-paste:
+  `actions/timbre-push.cs` has not changed since the first commit. The setup guide's
+  tested version is now 1.0.7.
+- **The repository's history was rewritten on 2026-11-23.** Four model files that should not
+  have been published were removed from every commit: the CC BY-NC-ND Japandi rose mesh,
+  an earlier rose mesh of unrecorded origin, and the Lightning Sword and Save the Queen
+  models. No file in the current tree changed. **Every commit hash from before this
+  release is different**, and the hashes cited in this changelog and in `docs/` have been
+  corrected. A clone or fork made before 2026-11-23 must be made again.
+
+
 ### Added
 
 - **Christmas Tree settings**: `snowfall` (0 to 100, default 50: how much snow falls; none
@@ -567,4 +592,6 @@ StreamService / ControlPanel toolkit. (`ee5c34a`)
 
 Verified offline: `verify` 28/28, `verify:render` 14/14.
 
-[1.0.9]: https://github.com/FlashGalatine/timbre-visualizer/compare/ee5c34a...main
+[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.175...main
+[1.0.175]: https://github.com/FlashGalatine/timbre-visualizer/compare/d85cf93...v1.0.175
+[1.0.9]: https://github.com/FlashGalatine/timbre-visualizer/compare/ee5c34a...d85cf93
