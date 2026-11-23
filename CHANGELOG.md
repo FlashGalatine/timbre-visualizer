@@ -10,6 +10,35 @@ traceability.
 
 ## [Unreleased]
 
+## [1.0.198] — 2026-11-23
+
+Chladni hears pitch. Copy `overlay` and refresh the sources; nothing to re-paste.
+
+### Changed
+
+- **Chladni: a voice's pitch now picks the sand's figure.** The plate listens to the 12
+  lowest of the finer bands (60 to 438 Hz), where the pitch of a voice is. Before, it
+  weighed 16 values 750 Hz apart and every voice asked for the last, most intricate
+  figure. On recorded voices from 90 to 300 Hz the figures now run from the fourth to
+  the tenth, rising with pitch; a kick drum asks for the first two and a band for the
+  fourth.
+- **The figure is steadier.** It changes only when the tone is clearly past the edge
+  between two figures. On the recorded voices the figure asked for changed once in six
+  seconds (to the voice's own), against six to twelve times before.
+- **Gain no longer changes which figure is picked.** It only decides whether there is
+  enough sound to tell a tone.
+- A sound with nothing below 438 Hz, such as a whistle, has no tone, and the plate keeps
+  the figure it has.
+
+### Unchanged
+
+- Idle animation is the same on every frame, and so are the shake, the throws and the
+  sand itself.
+
+### Not checked
+
+- A real microphone and real voices in OBS; the measurements use recorded test sounds.
+
 ## [1.0.196] — 2026-11-23
 
 A setting for the raw microphone. **Pages first, then re-paste:** copy `overlay`,
@@ -953,7 +982,8 @@ StreamService / ControlPanel toolkit. (`ee5c34a`)
 
 Verified offline: `verify` 28/28, `verify:render` 14/14.
 
-[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.196...main
+[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.198...main
+[1.0.198]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.196...v1.0.198
 [1.0.196]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.194...v1.0.196
 [1.0.194]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.191...v1.0.194
 [1.0.191]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.189...v1.0.191

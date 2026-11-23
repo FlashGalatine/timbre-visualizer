@@ -24,8 +24,10 @@
   const THICK = 0.09;                       // how thick the plate is
   const G = 48;                             // cells along a side of the plate's grid
   const T = 2048;                           // table cells across the plate
-  const BANDS = 16;                         // bins the tone is weighed over
-  const TONE_LOW = 0.4, TONE_SPAN = 2.6;    // the tone is 0 with the sound's weight at bin 0.4 and 1 at bin 3
+  const BANDS = 12;                         // log bands the tone is weighed over: the 12 lowest, 60 to 438 Hz
+  const TONE_LOW = 3, TONE_SPAN = 6;        // the tone is 0 with the sound's weight at band 3 and 1 at band 9
+  const EDGE = 0.4;                         // how far past the edge of the figure it wants the mic's tone must go before it wants another, in figures
+  const IDLE_BANDS = 16, IDLE_LOW = 0.4, IDLE_SPAN = 2.6;   // Idle animation's own pretended bands, and its tone: 0 with their weight at 0.4 and 1 at 3
   const BLEND = 0.8;                        // seconds the plate takes to change figure
   const PAUSE = 0.45;                       // seconds of quiet that make the next sound a new phrase
   const HOLD = 3;                           // seconds a figure is kept within a phrase
@@ -87,20 +89,33 @@
     return out;
   }
 
-  // How loud a band is, 0..1: its bin, times Gain.
+  // How loud a band is, 0..1: its value of 255, times Gain.
   function loudness(bins, band, gain) {
     if (!bins || !(band < bins.length)) return 0;
     return clamp01((bins[band] / 255) * gain);
   }
 
-  // The tone, 0..1: where the sound's weight sits among the bands (each 0..1). A band weighs
-  // as its square, so the bands that sound decide it and a floor of hiss under them does not.
-  // With too little sound to tell, -1.
-  function toneOf(bands) {
+  // Where the sound's weight sits among the first `count` bands (each 0..1, before Gain), as
+  // a band number. A band weighs as its square, so the bands that sound decide it and a
+  // floor of hiss under them does not. With too little sound to tell, -1: Gain says how
+  // loud the microphone is, so the sound is weighed times Gain for that test, and for
+  // nothing else. The place itself is the same at every Gain.
+  function centreOf(bands, count, gain = 1) {
     let sum = 0, moment = 0;
-    for (let b = 0; b < BANDS; b++) { const w = bands[b] * bands[b]; sum += w; moment += b * w; }
-    if (!(sum > 0.02)) return -1;
-    return clamp01((moment / sum - TONE_LOW) / TONE_SPAN);
+    for (let b = 0; b < count; b++) { const w = bands[b] * bands[b]; sum += w; moment += b * w; }
+    return sum * gain * gain > 0.02 ? moment / sum : -1;
+  }
+
+  // The tone, 0..1: where the sound's weight sits among the 12 lowest log bands, where a
+  // voice's pitch and the note an octave above it are. What sounds above them (the vowels,
+  // an "s") does not count, so a higher voice has a higher tone whatever it is saying.
+  // TONE_LOW and TONE_SPAN were fitted on recorded sound: a voice at 150 Hz sits in the
+  // middle of the sixth figure's share of the tone and one at 220 Hz in the middle of the
+  // eighth's, with a kick drum and a band below them and above 0. With too little sound
+  // in those bands at this Gain to tell, -1.
+  function toneOf(bands, gain = 1) {
+    const centre = centreOf(bands, BANDS, gain);
+    return centre < 0 ? -1 : clamp01((centre - TONE_LOW) / TONE_SPAN);
   }
 
   // A running mean: `mean` over `weight` seconds so far, with `value` for dt more.
@@ -112,6 +127,14 @@
   function wantFigure(tone) {
     if (!(tone > 0)) return 0;
     return Math.min(FIGURES.length - 1, Math.floor(tone * FIGURES.length));
+  }
+
+  // The figure the mic's tone asks for, given the one it asked for last (`was`): the same
+  // one, until the tone is EDGE of a figure past its edge, either way. So a voice whose
+  // tone lies on the edge between two figures does not go back and forth between them.
+  function heldFigure(tone, was) {
+    const at = tone * FIGURES.length;
+    return at >= was + 1 + EDGE || at < was - EDGE ? wantFigure(tone) : was;
   }
 
   // What the plate remembers of the voice: the figure it has and the one it had, the figure
@@ -347,17 +370,25 @@
     return Math.min(1, Math.sqrt(x * x + z * z) / Math.SQRT2);
   }
 
-  // With the mic off and Idle animation on: how loud band b pretends to be at t seconds.
-  // The weight drifts slowly up and down the bands, between the two ends of the tone, and
-  // the tone with it.
+  // With the mic off and Idle animation on: how loud band b of 16 pretends to be at t
+  // seconds. The weight drifts slowly up and down those bands, between the two ends of the
+  // tone, and the tone with it. These are the bands and the tone the plate had before it
+  // heard the log bands, kept as they were so that Idle animation looks as it did.
   function idle(b, t) {
-    const d = b - (TONE_LOW + TONE_SPAN * (0.5 + 0.5 * Math.sin(0.08 * t)));
+    const d = b - (IDLE_LOW + IDLE_SPAN * (0.5 + 0.5 * Math.sin(0.08 * t)));
     return Math.exp(-(d * d) / 1.5);
+  }
+  // The tone of those pretended bands at t seconds, 0..1.
+  const PRETEND = new Float32Array(IDLE_BANDS);
+  function idleTone(t) {
+    for (let b = 0; b < IDLE_BANDS; b++) PRETEND[b] = idle(b, t);
+    const centre = centreOf(PRETEND, IDLE_BANDS);
+    return centre < 0 ? -1 : clamp01((centre - IDLE_LOW) / IDLE_SPAN);
   }
 
   // ── The scene ───────────────────────────────────────────────────────────────
   // Everything below runs only when the scene is built: THREE, TimbreScene and the core.js
-  // globals (the mic, the bins, the palette, the settings) are looked up then.
+  // globals (the mic, the log bands, the palette, the settings) are looked up then.
 
   // The scene definition, for TimbreScene.factory().
   function definition() {
@@ -461,11 +492,13 @@
       if (s.live) s.clock += dt;
       s.flame = audio.flame; s.kick = audio.kick; s.level = audio.level;
 
-      // The tone. After a pause it is the mean of what is heard over the first ONSET seconds
-      // of the voice, and the phrase waits for that; within a phrase the tone is followed.
-      for (let b = 0; b < BANDS; b++) bands[b] = micActive ? loudness(slices, b, cfgGain) : cfgIdleAnim ? idle(b, s.clock) : 0;
+      // The tone: the mic's, from the log bands; with the mic off, Idle animation's own; with
+      // both off, none. After a pause it is the mean of what is heard over the first ONSET
+      // seconds of the voice, and the phrase waits for that; within a phrase the tone is followed.
+      let heard = -1;
+      if (micActive) { for (let b = 0; b < BANDS; b++) bands[b] = loudness(frequencies, b, 1); heard = toneOf(bands, cfgGain); }
+      else if (cfgIdleAnim) heard = idleTone(s.clock);
       if (st.quiet > PAUSE) { s.cold = true; s.heardFor = 0; }
-      const heard = toneOf(bands);
       if (heard >= 0) {
         if (s.cold) {
           s.tone = meanOf(s.tone, heard, s.heardFor, dt);
@@ -473,7 +506,8 @@
           if (s.heardFor >= ONSET - 1e-9) s.cold = false;
         } else s.tone = follow(s.tone, heard, TONE_RATE, dt);
       }
-      s.want = wantFigure(s.tone);
+      // The mic's tone must go past an edge to change the figure wanted; Idle animation's is taken as it is.
+      s.want = micActive ? heldFigure(s.tone, s.want) : wantFigure(s.tone);
       listen(st, audio.level, s.cold ? -1 : s.want, dt);
       const mix = blendOf(st.since), figA = FIGURES[st.from], figB = FIGURES[st.figure];
       s.mix = mix;
@@ -588,8 +622,8 @@
   }
 
   globalThis.TimbreChladni = {
-    GRAINS_MIN, GRAINS_MAX, HALF, THICK, G, T, BANDS, TONE_LOW, TONE_SPAN, BLEND, PAUSE, HOLD, HUSH, LOUD, HUM, REST, GRAV, REACH, SPREAD, FLEX, BEAT, RIM, ONSET, TONE_RATE, LIFT, SIZE, RINGS, STEPS_MAX, PITCH, FOV, FRAME, AIR, BOX, SEED,
-    FIGURES, grainCount, value, cell, sample, loudness, toneOf, meanOf, wantFigure, voice, phraseFigure, listen, blendOf, shakeOf, pace, jostle, hopChance, hopSpeed, thrown, stepsFor,
-    createSand, stepSand, throwSand, measure, bend, glow, sandBright, pale, grainSize, turn, bounds, poseFor, SWAY, radius, idle, definition,
+    GRAINS_MIN, GRAINS_MAX, HALF, THICK, G, T, BANDS, TONE_LOW, TONE_SPAN, EDGE, IDLE_BANDS, IDLE_LOW, IDLE_SPAN, BLEND, PAUSE, HOLD, HUSH, LOUD, HUM, REST, GRAV, REACH, SPREAD, FLEX, BEAT, RIM, ONSET, TONE_RATE, LIFT, SIZE, RINGS, STEPS_MAX, PITCH, FOV, FRAME, AIR, BOX, SEED,
+    FIGURES, grainCount, value, cell, sample, loudness, centreOf, toneOf, meanOf, wantFigure, heldFigure, voice, phraseFigure, listen, blendOf, shakeOf, pace, jostle, hopChance, hopSpeed, thrown, stepsFor,
+    createSand, stepSand, throwSand, measure, bend, glow, sandBright, pale, grainSize, turn, bounds, poseFor, SWAY, radius, idle, idleTone, definition,
   };
 })();

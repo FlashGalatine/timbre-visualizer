@@ -6,10 +6,11 @@
 //
 //   node tools/compare-input.mjs [--ref <git ref>] [--out <folder>] [--steps a,b,...]
 //                                [--signals a,b,...] [--only effect,effect,...] [--db]
+//                                [--watch field,field,...] [--after <seconds>] [--idle <seconds>]
 //
 //   --ref      the old build (default: HEAD). Its overlay/ and shared/ are read out of git.
 //   --out      where everything is written (default: a folder in the system's temp folder).
-//   --steps    record, levels, render, floor, compare, sheets, expect (default: the first five but floor)
+//   --steps    record, levels, render, floor, compare, sheets, state, expect (default: the first five but floor)
 //                record   traces/<build>-<signal>.json: what each sampler published per look
 //                levels   levels.txt: the 32 values and every reader's derived level, old against new
 //                render   shots/<effect>/<signal>-t<time>-<build>.png and numbers.json
@@ -17,8 +18,14 @@
 //                         build differ: the noise under the comparison)
 //                compare  compare.txt and compare.json: per effect the share of pixels that
 //                         differ and the change in light, sorted from most changed to least
-//                sheets   sheets/<effect>.png: old on the left, new on the right, the first
-//                         picture signal above the second
+//                sheets   sheets/<effect>.png: old on the left, new on the right, one row for
+//                         each picture signal
+//                state    state.txt and state.json: for the kit scenes named by --only, the
+//                         fields of the scene's state named by --watch, read on every frame of
+//                         every picture signal (needs record): each field's least, middle and
+//                         greatest value, old against new, and for a field of whole numbers how
+//                         often it changes and how long it is at each value. With --idle, the
+//                         same over that many seconds with the mic off and Idle animation on.
 //                expect   writes tools/input-expectations.json from this run's record and render
 //                         of the working tree: the numbers verify-render.mjs holds the guarded
 //                         effects to (GUARD in tools/input-replay.mjs). Run it, with record and
@@ -26,6 +33,9 @@
 //   --signals  which signals (default: all six for record and levels; speech and kick for pictures)
 //   --only     only these effects, for render, compare and sheets
 //   --db       record also keeps the fine spectrum of every look (large files; for fitting)
+//   --watch    the fields of a scene's state the state step reads (as its debug() names them)
+//   --after    the state step leaves out the frames before this many seconds (default: 0)
+//   --idle     the state step also runs this many seconds of Idle animation
 //
 // It serves the pages itself on the suites' side port (7476) and nothing listens on 8090,
 // so it must not run while a suite or the mock does. It never touches 8080 or 7474.
@@ -54,6 +64,7 @@ const ALL_SIGNALS = list('signals', SIGNALS);
 const PICTURE_SIGNALS = list('signals', ['speech', 'kick']).filter((s) => TIMES[s]);
 const ONLY = list('only', null);
 const WITH_DB = args.includes('--db');
+const WATCH = list('watch', null), AFTER = Number(opt('after', 0)), IDLE = Number(opt('idle', 0));
 for (const s of ALL_SIGNALS) if (!SIGNALS.includes(s)) { console.error('unknown signal ' + s); process.exit(1); }
 
 await import('file:///' + resolve(ROOT, 'shared/viz-config.js').replace(/\\/g, '/'));
@@ -293,18 +304,18 @@ async function compare() {
 // ── sheets ───────────────────────────────────────────────────────────────────
 async function sheets(browser) {
   await mkdir(resolve(OUT, 'sheets'), { recursive: true });
-  const two = PICTURE_SIGNALS.slice(0, 2);
+  const shown = PICTURE_SIGNALS;
   const page = await browser.newPage();
   for (const name of NAMES) {
     const cells = [];
-    for (const signal of two) {
+    for (const signal of shown) {
       const t = TIMES[signal][Math.min(1, TIMES[signal].length - 1)];
       for (const v of ['old', 'new']) {
         if (!existsSync(shotPath(name, signal, t, v))) continue;
         cells.push({ label: `${name} | ${signal} t=${t.toFixed(2)}s | ${v === 'old' ? 'old (' + REF + ')' : 'new'}`, url: 'data:image/png;base64,' + readFileSync(shotPath(name, signal, t, v)).toString('base64') });
       }
     }
-    if (cells.length !== two.length * 2) { console.log(`  no sheet for ${name}: pictures missing`); continue; }
+    if (cells.length !== shown.length * 2) { console.log(`  no sheet for ${name}: pictures missing`); continue; }
     const png = await page.evaluate(async (cells) => {
       const c = document.createElement('canvas'); c.width = 1728; c.height = 312 * (cells.length / 2); const x = c.getContext('2d');
       for (let i = 0; i < cells.length; i++) {
@@ -320,6 +331,57 @@ async function sheets(browser) {
   }
   await page.close();
   console.log('sheets in ' + resolve(OUT, 'sheets'));
+}
+
+// ── state ────────────────────────────────────────────────────────────────────
+async function state(browser) {
+  if (!WATCH || !ONLY) throw new Error('the state step needs --only (kit scenes) and --watch (fields of their state)');
+  const FPS = 60, runs = [...PICTURE_SIGNALS.map((signal) => ({ signal, seconds: SECONDS, mic: true, after: AFTER })), ...(IDLE > 0 ? [{ signal: 'idle animation', seconds: IDLE, mic: false, after: 0 }] : [])];
+  const seen = {};
+  for (const build of ['old', 'new']) {
+    serving = build;
+    const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } }), page = await context.newPage();
+    page.on('pageerror', (e) => console.log('  pageerror:', String(e).slice(0, 200)));
+    await page.addInitScript(() => { navigator.mediaDevices.getUserMedia = () => new Promise(() => {}); });   // no microphone: the tool feeds the sound
+    await page.goto(pageUrl, { waitUntil: 'load' });
+    await page.waitForFunction(() => window.__timbre && typeof currentViz !== 'undefined' && currentViz, null, { timeout: 15000 });
+    for (const name of NAMES) for (const run of runs) {
+      const ticks = run.mic ? loadTrace(build, run.signal).ticks.map(({ t, f, w, p, b, s }) => ({ t, f, w, p, b, s })) : [];
+      const res = await page.evaluate(replayInPage, { name, ticks, times: [run.seconds], fps: FPS, watch: WATCH, mic: run.mic });
+      ((seen[name] = seen[name] || {})[run.signal] = seen[name][run.signal] || {})[build] = res.watched;
+      console.log(`watched ${build} ${run.signal} ${name}: ${res.watched.length} frames, ${Math.round(res.ms)} ms`);
+    }
+    await context.close();
+  }
+  const num = (v) => (typeof v === 'number' ? (Number.isInteger(v) ? String(v) : v.toFixed(3)) : String(v));
+  const lines = [`Fields of the scene's state on every frame at ${FPS} frames a second, old (${REF}) against new.`,
+    'least, middle, greatest: over the frames looked at. For a field of whole numbers: changes (how often it differs from the frame before),',
+    'a second, and how long it is at each value, in seconds. same: whether old and new hold the same value on every frame.'];
+  const json = {};
+  for (const name of NAMES) for (const run of runs) {
+    const both = seen[name][run.signal], from = Math.round(run.after * FPS);
+    lines.push('', `=== ${name} | ${run.signal} | ${run.seconds} s${run.after ? `, from ${run.after} s on` : ''} ===`);
+    WATCH.forEach((key, col) => {
+      const row = { same: both.old.length === both.new.length && both.old.every((r, i) => r[col] === both.new[i][col]) };
+      for (const build of ['old', 'new']) {
+        const values = both[build].slice(from).map((r) => r[col]), sorted = values.filter((v) => typeof v === 'number').sort((a, b) => a - b);
+        const whole = sorted.length === values.length && sorted.every(Number.isInteger);
+        const out = row[build] = { least: sorted[0], middle: sorted[Math.floor(sorted.length / 2)], greatest: sorted[sorted.length - 1] };
+        let text = `  ${key.padEnd(10)} ${build}  least ${num(out.least)}  middle ${num(out.middle)}  greatest ${num(out.greatest)}`;
+        if (whole) {
+          out.changes = values.filter((v, i) => i > 0 && v !== values[i - 1]).length; out.aSecond = out.changes / (values.length / FPS); out.held = {};
+          for (const v of values) out.held[v] = (out.held[v] || 0) + 1 / FPS;
+          text += `  changes ${out.changes} (${out.aSecond.toFixed(2)} a second)  at ${Object.entries(out.held).map(([v, s]) => `${v}: ${s.toFixed(2)} s`).join(', ')}`;
+        }
+        lines.push(text);
+      }
+      lines.push(`  ${key.padEnd(10)} same on every frame of the whole run: ${row.same ? 'yes' : 'no'}`);
+      ((json[name] = json[name] || {})[run.signal] = json[name][run.signal] || {})[key] = row;
+    });
+  }
+  await writeFile(resolve(OUT, 'state.txt'), lines.join('\n') + '\n');
+  await writeFile(resolve(OUT, 'state.json'), JSON.stringify(json, null, 1));
+  console.log(lines.join('\n'));
 }
 
 // ── expect ───────────────────────────────────────────────────────────────────
@@ -347,7 +409,7 @@ ${lines.join(',\n')}
 
 // ── run ──────────────────────────────────────────────────────────────────────
 await mkdir(OUT, { recursive: true });
-const needsPages = STEPS.some((s) => ['record', 'render', 'floor'].includes(s)), needsBrowser = needsPages || STEPS.includes('sheets');
+const needsPages = STEPS.some((s) => ['record', 'render', 'floor', 'state'].includes(s)), needsBrowser = needsPages || STEPS.includes('sheets');
 let server = null, browser = null;
 try {
   if (needsPages) { loadOld(); server = await startServer(); }
@@ -358,6 +420,7 @@ try {
   if (STEPS.includes('floor')) await render(browser, 'old2');
   if (STEPS.includes('compare')) await compare();
   if (STEPS.includes('sheets')) await sheets(browser);
+  if (STEPS.includes('state')) await state(browser);
   if (STEPS.includes('expect')) await expect();
   console.log('\nwritten to ' + OUT);
 } catch (e) {
