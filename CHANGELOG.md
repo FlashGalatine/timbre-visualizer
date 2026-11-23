@@ -10,6 +10,39 @@ traceability.
 
 ## [Unreleased]
 
+## [1.0.179] — 2026-11-23
+
+Copy the `shared` folder, reload the dock and refresh the overlay sources. Nothing to
+re-paste: it works with the `Timbre Push` you already have.
+
+### Fixed
+
+- **A page no longer talks over itself.** The transport every page loads
+  (`shared/panel-client-sb.js`) now sends one request to Streamer.bot at a time and waits
+  for the broadcast that answers it (or 800 ms) before sending the next. Before, a change
+  made in the dock as the dock connected could land beside the dock's own "send me the
+  saved settings" request and be lost, on an install that has not put `Timbre Push` in a
+  blocking queue. When several changes are waiting, only the newest is sent. This orders
+  one page's own requests only; two different pages are still ordered only by the
+  blocking queue (`docs/SETUP.md`, step 2).
+- **`?sbport=` takes a port number and nothing else.** A value such as `1@evil.example`
+  used to point the page at another machine; anything that is not a number from 1 to 65535
+  now falls back to 8080. A URL the browser refuses no longer stops the page from
+  reconnecting.
+- **Reconnecting backs off properly.** The wait went back to 2 seconds the moment a
+  connection opened, so a Streamer.bot that accepted and dropped connections was dialled
+  every 2 seconds for good. It now goes back only after a connection has stayed open
+  5 seconds, and each wait has a random part, so every page does not come back in the
+  same instant.
+
+### Added
+
+- The transport reads Streamer.bot's reply to each request and raises three events for
+  pages to use: `sb:action-queued` (with the name of the queue the action is in),
+  `sb:action-error` (for example, the action does not exist) and `sb:action-timeout`
+  (no answer came). The dock starts using them in the next release.
+- `/mock/drop` in the mock: accept a connection, then drop it.
+
 ## [1.0.177] — 2026-11-23
 
 Tools only: nothing a streamer installs changes, and there is nothing to re-paste.
@@ -628,7 +661,8 @@ StreamService / ControlPanel toolkit. (`ee5c34a`)
 
 Verified offline: `verify` 28/28, `verify:render` 14/14.
 
-[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.177...main
+[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.179...main
+[1.0.179]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.177...v1.0.179
 [1.0.177]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.175...v1.0.177
 [1.0.175]: https://github.com/FlashGalatine/timbre-visualizer/compare/d85cf93...v1.0.175
 [1.0.9]: https://github.com/FlashGalatine/timbre-visualizer/compare/ee5c34a...d85cf93

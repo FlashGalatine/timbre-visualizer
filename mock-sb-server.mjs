@@ -23,6 +23,9 @@
 //                         together all see ONE request's arguments. Also MOCK_ARG_BLEED=1.
 //   /mock/throw?on=1|0    Timbre Push throws: it broadcasts timbre:error, stores nothing.
 //   /mock/missing?on=1|0  Timbre Push is "not found", as when it was never imported.
+//   /mock/drop?on=1|0     every NEW WebSocket connection is accepted and then closed at
+//                         once (a server that is up but will not keep a client). Turning
+//                         it on empties the list of drop times that /mock/stats reports.
 //   /mock/stats           what the mock has seen, and the stored config text.
 //
 // Where it differs from Streamer.bot, on purpose: it refuses WebSocket connections
@@ -121,6 +124,8 @@ const BLEED_WINDOW_MS = 10;        // requests for the action this close togethe
 let argBleed = process.env.MOCK_ARG_BLEED === '1';
 let throwPush = false;             // the action throws: timbre:error, nothing stored
 let actionMissing = false;         // the action is "not found"
+let dropConnections = false;       // accept a new WebSocket connection, then close it
+let dropTimes = [];                // when each dropped connection arrived (ms), newest last
 let pending = null;                // overlap mode: [{ args }] waiting out the window
 const runLog = [];                 // [{ action, did, bled }] newest last
 let totalRuns = 0, totalBroadcasts = 0;
@@ -153,8 +158,12 @@ const http = createServer(async (req, res) => {
       if (query.has('on')) actionMissing = query.get('on') === '1';
       return json(res, { actionMissing });
     }
+    if (path === '/mock/drop') {
+      if (query.has('on')) { dropConnections = query.get('on') === '1'; if (dropConnections) dropTimes = []; }
+      return json(res, { dropConnections });
+    }
     if (path === '/mock/stats') {
-      return json(res, { argBleed, throwPush, actionMissing, totalRuns, totalBroadcasts, cachedConfig, runs: runLog.slice(-50) });
+      return json(res, { argBleed, throwPush, actionMissing, dropConnections, dropTimes: dropTimes.slice(-50), totalRuns, totalBroadcasts, cachedConfig, runs: runLog.slice(-50) });
     }
     if (path === '/' || path === '/index.html') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -201,6 +210,13 @@ const clients = new Set();
 
 wss.on('error', (err) => { console.error('[mock] WS error:', err.message); process.exit(1); });
 wss.on('connection', (ws) => {
+  if (dropConnections) {
+    // The handshake is done, so the page sees its socket open and then close.
+    dropTimes.push(Date.now());
+    ws.on('error', () => {});
+    ws.close();
+    return;
+  }
   clients.add(ws);
   ws.subscribedCustom = false; // only a correctly-subscribed client receives broadcasts
   // Without a listener, a protocol error on one connection (a frame over the limit,

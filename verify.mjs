@@ -76,7 +76,19 @@
 //      config stored as sent after the C#'s two-character check, the
 //      timbre:error switch, the overlap mode (runs that land together share
 //      one request's arguments), and that bad paths, bad frames, oversized
-//      frames and foreign origins do not bring it down.
+//      frames and foreign origins do not bring it down. Then the transport
+//      against that overlap mode: an edit sent as a page connects is not lost
+//      to the page's own sync, a burst from one page is runs that do not
+//      overlap, a dock edit beside a second page's connect is what every
+//      client ends with, the events raised from the replies, and a mock that
+//      accepts and then drops each connection sees the wait grow.
+//  27. Transport logic — the REAL shared/panel-client-sb.js run under a
+//      stand-in WebSocket and a clock the test turns: what every page relies
+//      on (kept), one DoAction in flight with the fail-safe and the newest
+//      queued push, the connect-time sync through the same queue, the queue
+//      cleared on close, the events raised from replies, ?sbport= (no socket
+//      is ever opened: the stand-in records the URL), a WebSocket constructor
+//      that throws, and the backoff. (Runs before section 4.)
 //
 // The suite refuses to start when something already answers on its side ports
 // (a mock left over from a run that was killed), and stops its own mock when it
@@ -7072,6 +7084,328 @@ await import('./overlay/christmas-tree.js');
   }
 }
 
+// ── 27. The transport by itself (a stand-in socket and a clock the test turns) ─
+// shared/panel-client-sb.js is one function that reads its globals when it runs, so
+// the REAL file can be run any number of times, each time handed its own window,
+// WebSocket, timers and Math.random. Nothing here opens a socket: the stand-in
+// WebSocket only records the URL it was given and what was sent on it.
+console.log('\n[27] transport logic (stand-in socket, test clock)');
+const TRANSPORT_SRC = await readFile(resolve(__dirname, 'shared/panel-client-sb.js'), 'utf8');
+const TRANSPORT_EVENTS = ['sb:connection', 'svc:message', 'sb:action-queued', 'sb:action-error', 'sb:action-timeout'];
+// env: { WebSocket, setTimeout, clearTimeout, random?, search?, wsUrl?, syncAction? }.
+// Returns the page's window, every transport event it raised (in order), its body's
+// classes, and what loading the file threw (null when it loaded).
+function loadTransport(env) {
+  const win = new EventTarget();
+  if (env.wsUrl !== undefined) win.__SB_WS_URL = env.wsUrl;
+  if (env.syncAction !== undefined) win.__SB_SYNC_ACTION = env.syncAction;
+  const seen = [];
+  for (const type of TRANSPORT_EVENTS) win.addEventListener(type, (e) => seen.push({ type, detail: e.detail }));
+  const classes = new Set();
+  const doc = { readyState: 'complete', addEventListener() {}, body: { classList: { toggle(c, on) { if (on) classes.add(c); else classes.delete(c); } } } };
+  const math = Object.create(Math);
+  if (env.random) math.random = env.random;
+  let threw = null;
+  try {
+    new Function('window', 'document', 'location', 'WebSocket', 'setTimeout', 'clearTimeout', 'Math', 'console', TRANSPORT_SRC)(
+      win, doc, { search: env.search || '' }, env.WebSocket, env.setTimeout, env.clearTimeout, math, { log() {} });
+  } catch (e) { threw = e; }
+  return { win, seen, classes, threw, of: (type) => seen.filter((s) => s.type === type).map((s) => s.detail) };
+}
+// A clock that moves only when told to, and a WebSocket that connects to nothing.
+function fakeWorld() {
+  let now = 0, seq = 0;
+  const timers = [];
+  const w = {
+    sockets: [],   // every stand-in socket that was made, oldest first
+    urls: [],      // every URL `new WebSocket` was called with, the throwing calls too
+    throwNext: 0,  // this many of the next `new WebSocket` calls throw
+    setTimeout: (fn, ms) => { timers.push({ id: ++seq, at: now + (Number(ms) || 0), fn }); return seq; },
+    clearTimeout: (id) => { const i = timers.findIndex((t) => t.id === id); if (i >= 0) timers.splice(i, 1); },
+    advance(ms) {
+      const end = now + ms;
+      for (;;) {
+        let due = null;
+        for (const t of timers) if (t.at <= end && (!due || t.at < due.at || (t.at === due.at && t.id < due.id))) due = t;
+        if (!due) break;
+        timers.splice(timers.indexOf(due), 1);
+        now = due.at;
+        due.fn();
+      }
+      now = end;
+    },
+    // Turn the clock, timer by timer, until `new WebSocket` is called again. Returns the
+    // time that took, or -1 when no timer is left that would do it.
+    untilNextSocket() {
+      const n = w.urls.length, t0 = now;
+      while (w.urls.length === n) {
+        if (!timers.length || now - t0 > 120000) return -1;
+        w.advance(Math.max(0, Math.min(...timers.map((t) => t.at)) - now));
+      }
+      return now - t0;
+    },
+  };
+  w.WebSocket = class {
+    constructor(url) {
+      w.urls.push(String(url));
+      if (w.throwNext > 0) { w.throwNext--; throw new SyntaxError('stand-in: the URL is invalid'); }
+      this.url = String(url); this.readyState = 0; this.sent = [];
+      w.sockets.push(this);
+    }
+    send(text) { if (this.readyState !== 1) throw new Error('stand-in: send on a socket that is not open'); this.sent.push(JSON.parse(text)); }
+    open() { this.readyState = 1; if (this.onopen) this.onopen({}); }
+    drop() { this.readyState = 3; if (this.onclose) this.onclose({}); }
+    receive(m) { if (this.onmessage) this.onmessage({ data: typeof m === 'string' ? m : JSON.stringify(m) }); }
+    actions() { return this.sent.filter((m) => m.request === 'DoAction'); }
+    // What Streamer.bot sends, as measured on 1.0.7.
+    ack() { const s = this.sent.find((m) => m.request === 'Subscribe'); this.receive({ id: s.id, status: 'ok', result: { events: s.events } }); }
+    replyOk(m, queueName = 'Timbre Blocking') {
+      const args = { ...m.args, actionId: 'a-1', actionName: m.action.name, runningActionId: 'r-1', actionQueuedAt: '2026-11-23T00:00:00.000Z' };
+      if (queueName !== null) args.queueName = queueName;
+      this.receive({ id: m.id, status: 'ok', args });
+    }
+    replyError(m, error = `The action '${m.action.name}' was not found`) { this.receive({ id: m.id, status: 'error', error }); }
+    custom(data) { this.receive({ timeStamp: '2026-11-23T00:00:00.0000000', event: { source: 'General', type: 'Custom' }, data }); }
+    config(config) { this.custom({ type: 'timbre:config', config }); }
+  };
+  return w;
+}
+{
+  const J = JSON.stringify;
+  const start = (opts = {}) => {
+    const w = fakeWorld();
+    const t = loadTransport({ WebSocket: w.WebSocket, setTimeout: w.setTimeout, clearTimeout: w.clearTimeout, random: () => 0, ...opts });
+    return { w, t, push: (v, name = 'Timbre Push') => t.win.sbDoAction(name, { config: J({ v }) }) };
+  };
+  const pushed = (m) => (m && m.args && typeof m.args.config === 'string' ? JSON.parse(m.args.config).v : (m && m.args && m.args.reason) || '?');
+
+  // What every page already relies on. These pass before and after the sprint.
+  {
+    const { w, t } = start();
+    const s = w.sockets[0];
+    const atLoad = t.threw === null && w.urls.length === 1 && w.urls[0] === 'ws://127.0.0.1:8080/' && J(t.seen) === '[{"type":"sb:connection","detail":{"connected":false}}]'
+      && t.classes.has('offline') && typeof t.win.sbDoAction === 'function' && t.win.sbDoAction('Timbre Push', { config: '{}' }) === false;
+    s.open();
+    const atOpen = J(s.sent) === '[{"request":"Subscribe","id":"1","events":{"general":["Custom"]}}]' && J(t.of('sb:connection')) === '[{"connected":false},{"connected":true}]' && !t.classes.has('offline');
+    s.ack();
+    w.advance(400);
+    ok(atLoad && atOpen && J(s.actions()) === '[{"request":"DoAction","id":"2","action":{"name":"Timbre Push"},"args":{"reason":"overlay-connect"}}]',
+      'kept: a page starts offline (the event, the body class, sbDoAction false) and dials ws://127.0.0.1:8080/ by default; on open it subscribes to general.Custom and says it is connected; on the Subscribe reply it sends one sync DoAction, and the 400 ms fallback does not send a second');
+    const late = start(), s2 = late.w.sockets[0];
+    s2.open();
+    late.w.advance(399);
+    const before = s2.actions().length;
+    late.w.advance(1);
+    const quiet = start({ syncAction: '' }), s3 = quiet.w.sockets[0];
+    s3.open(); s3.ack(); quiet.w.advance(1000);
+    ok(before === 0 && s2.actions().length === 1 && pushed(s2.actions()[0]) === 'overlay-connect' && s3.actions().length === 0 && quiet.t.win.sbDoAction('Timbre Push', { config: '{"a":1}' }) === true
+      && J(s3.actions()) === '[{"request":"DoAction","id":"2","action":{"name":"Timbre Push"},"args":{"config":"{\\"a\\":1}"}}]',
+      'kept: with no Subscribe reply the sync goes after 400 ms; with __SB_SYNC_ACTION set to "" there is no sync; and sbDoAction on an idle open socket sends at once, in the same shape as before, and returns true');
+    const m = start(), s4 = m.w.sockets[0];
+    s4.open(); s4.ack();
+    s4.config({ activeViz: 'matrix', gain: 150 });
+    s4.receive({ event: { source: 'General', type: 'Custom' }, data: '{"type":"timbre:error","message":"x"}' });
+    s4.custom({ noType: true });
+    s4.receive('not json');
+    s4.receive({ event: { source: 'Twitch', type: 'ChatMessage' }, data: { type: 'timbre:config', config: {} } });
+    ok(J(m.t.of('svc:message')) === '[{"type":"timbre:config","config":{"activeViz":"matrix","gain":150}},{"type":"timbre:error","message":"x"}]',
+      'kept: every General.Custom broadcast with a data.type is raised as svc:message with the data as sent (data sent as text is parsed); anything else is ignored');
+  }
+
+  // Row 2.1 — one DoAction in flight.
+  {
+    const { w, t, push } = start();
+    const s = w.sockets[0];
+    s.open(); s.ack();
+    const sync = s.actions()[0];
+    const accepted = [push('a'), push('b'), push('c')];
+    const heldBySync = s.actions().length === 1;
+    s.replyOk(sync);
+    const heldAfterReply = s.actions().length === 1;
+    w.advance(799);
+    const heldAt799 = s.actions().length === 1;
+    w.advance(1);
+    ok(J(accepted) === '[true,true,true]' && heldBySync && heldAfterReply && heldAt799 && s.actions().map(pushed).join() === 'overlay-connect,c',
+      'one in flight: three pushes made while the connect-time sync is in flight are accepted (true) and held; the sync\'s reply does not release them (it is sent on queueing); with no broadcast, the fail-safe releases one at 800 ms, and it is the newest push, the two older ones replaced — sent: ' + s.actions().map(pushed).join());
+    ok(J(t.of('sb:action-timeout')) === J([{ action: 'Timbre Push', id: sync.id, push: false, replied: true }]),
+      'a send released by the fail-safe raises sb:action-timeout { action, id, push, replied } — ' + J(t.of('sb:action-timeout')));
+    // c is in flight. d waits; another action waits behind it; e takes d's place.
+    const c = s.actions()[1];
+    push('d'); t.win.sbDoAction('Some Other Action', { n: 1 }); push('e');
+    const cStays = s.actions().length === 2;
+    s.replyOk(c);
+    const replyOnly = s.actions().length === 2;
+    s.config({ v: 'c' });
+    const afterBroadcast = s.actions().map(pushed).join();
+    // e is in flight. Its broadcast comes BEFORE its reply: both are needed, in either order.
+    const e = s.actions()[2];
+    s.config({ v: 'e' });
+    const broadcastOnly = s.actions().length === 3;
+    s.replyOk(e);
+    ok(cStays && replyOnly && afterBroadcast === 'overlay-connect,c,e' && broadcastOnly && s.actions().length === 4 && s.actions()[3].action.name === 'Some Other Action' && J(s.actions()[3].args) === '{"n":1}',
+      'one in flight: the next send goes when the timbre:config broadcast for the one in flight has arrived, whichever of the reply and the broadcast comes first; a newer queued push replaces the older queued push in its place and never the one in flight; a queued DoAction that is not a config push is kept — sent: ' + s.actions().map((m) => (m.action.name === 'Timbre Push' ? pushed(m) : m.action.name)).join());
+    // The other action is in flight and gets no broadcast. A push for ANOTHER action name does not replace Timbre Push's.
+    push('f'); push('g', 'Not Timbre'); push('h');
+    w.advance(800);
+    const f1 = s.actions().slice(4).map((m) => m.action.name + ':' + pushed(m)).join();
+    s.replyOk(s.actions()[4]); s.config({ v: 'h' });
+    const f2 = s.actions().slice(4).map((m) => m.action.name + ':' + pushed(m)).join();
+    ok(f1 === 'Timbre Push:h' && f2 === 'Timbre Push:h,Not Timbre:g', 'a queued push is replaced only by a push for the same action — ' + f2);
+    const ids = s.sent.map((m) => m.id);
+    ok(new Set(ids).size === ids.length && ids.every((id) => typeof id === 'string' && id !== ''), 'every request on the socket has its own id, a non-empty string');
+  }
+  {
+    // The connect-time sync goes through the same queue: a push made the moment the socket
+    // opens (before the Subscribe reply) is in flight, so the sync waits for its broadcast.
+    const { w, t, push } = start();
+    const s = w.sockets[0];
+    let atOpen = null;
+    t.win.addEventListener('sb:connection', (e) => { if (e.detail.connected) atOpen = push('edit'); });
+    s.open();
+    const subscribedFirst = s.sent.length === 2 && s.sent[0].request === 'Subscribe' && pushed(s.sent[1]) === 'edit';
+    s.ack();
+    w.advance(400);
+    const syncHeld = s.actions().length === 1;
+    s.replyOk(s.actions()[0]);
+    s.config({ v: 'edit' });
+    ok(atOpen === true && subscribedFirst && syncHeld && s.actions().map(pushed).join() === 'edit,overlay-connect',
+      'the connect-time sync goes through the same queue: a push made as the socket opens is sent after the Subscribe, and the sync is held (past the Subscribe reply and the 400 ms fallback) until that push\'s broadcast has arrived — sent: ' + s.sent.map((m) => (m.request === 'Subscribe' ? 'Subscribe' : pushed(m))).join());
+  }
+  {
+    // A page that answers a broadcast with a push of its own (a dock re-sending an edit it
+    // kept). That push is sent AFTER the broadcast it answers, so that broadcast is not
+    // the end of its run and must not release it.
+    const { w, t, push } = start();
+    const s = w.sockets[0];
+    s.open(); s.ack(); s.replyOk(s.actions()[0]);
+    w.advance(800);
+    let answered = false;
+    t.win.addEventListener('svc:message', () => { if (!answered) { answered = true; push('answer'); } });
+    s.config({ v: 'from another page' });
+    push('next');
+    const answer = s.actions()[1];
+    s.replyOk(answer);
+    const held = s.actions().length === 2;
+    s.config({ v: 'answer' });
+    ok(!!answer && pushed(answer) === 'answer' && held && s.actions().map(pushed).join() === 'overlay-connect,answer,next',
+      'a push a page makes from inside its svc:message listener is not released by the broadcast it was answering: the next send still waits for that push\'s own broadcast — sent before it: ' + (held ? 'nothing' : 'the next push'));
+  }
+  {
+    // The queue is emptied when the socket closes: nothing held is sent later, on this
+    // socket or the next, and no fail-safe fires for a send the close ended.
+    const { w, t, push } = start();
+    const s = w.sockets[0];
+    s.open(); s.ack();
+    const held = push('lost');
+    s.drop();
+    const refused = push('while-closed');
+    const waited = w.untilNextSocket();
+    const s1 = w.sockets[1];
+    s1.open(); s1.ack();
+    s1.replyOk(s1.actions()[0]); s1.config({ v: 'saved' });
+    w.advance(5000);
+    ok(held === true && refused === false && waited === 2000 && s.actions().map(pushed).join() === 'overlay-connect' && s1.actions().map(pushed).join() === 'overlay-connect'
+      && t.of('sb:action-timeout').length === 0 && J(t.of('sb:connection')) === '[{"connected":false},{"connected":true},{"connected":false},{"connected":true}]',
+      'the queue is cleared on close: a push held behind the send in flight is never sent, not on the old socket and not after the reconnect; the fail-safe of the send the close ended does not fire; and sbDoAction returns false while the socket is closed — old socket: ' + s.actions().map(pushed).join() + '; new socket: ' + s1.actions().map(pushed).join() + '; timeouts: ' + t.of('sb:action-timeout').length);
+  }
+
+  // Row 2.2 — replies are read.
+  {
+    const { w, t, push } = start();
+    const s = w.sockets[0];
+    s.open(); s.ack();
+    const sync = s.actions()[0];
+    s.replyOk(sync, 'Default');
+    w.advance(800);
+    push('p1');
+    const p1 = s.actions()[1];
+    s.replyOk(p1, 'Timbre Blocking'); s.config({ v: 'p1' });
+    push('p2');
+    const p2 = s.actions()[2];
+    s.replyOk(p2, null); s.config({ v: 'p2' });
+    ok(J(t.of('sb:action-queued')) === J([
+      { action: 'Timbre Push', id: sync.id, push: false, queueName: 'Default', defaultQueue: true },
+      { action: 'Timbre Push', id: p1.id, push: true, queueName: 'Timbre Blocking', defaultQueue: false },
+      { action: 'Timbre Push', id: p2.id, push: true, queueName: null, defaultQueue: false },
+    ]), 'an "ok" reply raises sb:action-queued { action, id, push, queueName, defaultQueue }: the queue Streamer.bot put the action in, and whether it is the Default queue — ' + J(t.of('sb:action-queued')));
+    push('p3'); push('p4');
+    const p3 = s.actions()[3];
+    const heldByP3 = s.actions().length === 4;
+    s.replyError(p3);
+    const p4 = s.actions()[4];
+    s.replyError(p4, 'Something else went wrong');
+    s.receive({ id: 'never-sent', status: 'error', error: 'x' });
+    s.receive({ id: p3.id, status: 'error', error: 'a second reply to the same request' });
+    ok(heldByP3 && !!p4 && pushed(p4) === 'p4' && J(t.of('sb:action-error')) === J([
+      { action: 'Timbre Push', id: p3.id, push: true, code: 'action-missing', error: "The action 'Timbre Push' was not found" },
+      { action: 'Timbre Push', id: p4.id, push: true, code: 'error', error: 'Something else went wrong' },
+    ]) && J(t.of('sb:connection')) === '[{"connected":false},{"connected":true}]' && t.of('sb:action-timeout').length === 1,
+      'a status:"error" reply raises sb:action-error { action, id, push, code, error }: code is "action-missing" for Streamer.bot\'s "was not found" reply and "error" for any other; the send is released at once (no run, so no broadcast will come); the connection stays reported as connected; a reply to an id that is not waiting raises nothing — ' + J(t.of('sb:action-error')));
+    // The action threw: the C# broadcasts timbre:error. That run is over, so the next may go.
+    push('p5'); push('p6');
+    s.replyOk(s.actions()[5]);
+    s.custom({ type: 'timbre:error', message: 'boom' });
+    ok(s.actions().length === 7 && pushed(s.actions()[6]) === 'p6', 'a timbre:error broadcast (the action threw) releases the send in flight as a timbre:config does');
+  }
+
+  // Row 2.3 — sbport, and a WebSocket constructor that throws.
+  {
+    const urlFor = (search, wsUrl) => { const { w } = start({ search, wsUrl }); return w.urls[0]; };
+    const bad = ['1@evil.example', '1%40evil.example', '8090@evil.example:9', 'abc', '0', '00000', '65536', '99999', '123456', '-1', '+80', '80.5', '1e3', '0x50', '%208090', '8090%20', '8090/x', '8090%2F..', '8090%23', '%EF%BC%98%EF%BC%90', ''];
+    const got = bad.map((v) => urlFor('?sbport=' + v));
+    ok(got.every((u) => u === 'ws://127.0.0.1:8080/'),
+      `?sbport= is refused unless it is 1 to 5 digits and 1 to 65535: ${bad.length} other values (with "@", letters, signs, a path, a fragment, spaces, full-width digits, 0, 65536, six digits, empty) all leave the page on ws://127.0.0.1:8080/ — the stand-in socket was handed: ` + [...new Set(got)].join(' '));
+    const good = { 1: 1, 80: 80, 8090: 8090, 65535: 65535, '08090': 8090, '00080': 80 };
+    ok(Object.keys(good).every((v) => urlFor('?sbport=' + v) === `ws://127.0.0.1:${good[v]}/`) && urlFor('?sbdebug=1&sbport=8090') === 'ws://127.0.0.1:8090/' && urlFor('') === 'ws://127.0.0.1:8080/'
+      && urlFor('?sbport=1@evil.example', 'ws://127.0.0.1:9001/') === 'ws://127.0.0.1:9001/' && urlFor('?sbport=8090', 'ws://127.0.0.1:9001/') === 'ws://127.0.0.1:9001/',
+      'a valid ?sbport= still picks the port (1, 80, 8090, 65535; leading zeros are read as the number), and window.__SB_WS_URL still wins over it');
+  }
+  {
+    const { w, t, push } = start();
+    const before = { threw: t.threw, sockets: w.sockets.length };
+    const w2 = fakeWorld();
+    w2.throwNext = 2;
+    const t2 = loadTransport({ WebSocket: w2.WebSocket, setTimeout: w2.setTimeout, clearTimeout: w2.clearTimeout, random: () => 0 });
+    const offline = t2.threw === null && J(t2.seen) === '[{"type":"sb:connection","detail":{"connected":false}}]' && typeof t2.win.sbDoAction === 'function' && t2.win.sbDoAction('Timbre Push', { config: '{}' }) === false;
+    const first = w2.untilNextSocket(), second = w2.untilNextSocket();
+    const s = w2.sockets[0];
+    if (s) { s.open(); s.ack(); }
+    ok(before.threw === null && before.sockets === 1 && offline && first === 2000 && second === 3000 && w2.urls.length === 3 && w2.sockets.length === 1 && !!s && s.actions().length === 1
+      && J(t2.of('sb:connection')) === '[{"connected":false},{"connected":true}]' && push('x') === false,
+      `a throw from new WebSocket does not end the transport: the page stays offline and tries again on the same backoff (2 s, then 3 s), and connects when the constructor stops throwing — loading threw: ${t2.threw && t2.threw.message}; waits: ${first}, ${second}; attempts: ${w2.urls.length}`);
+  }
+
+  // Row 2.4 — the backoff.
+  {
+    const { w } = start();
+    const refused = [];
+    for (let i = 0; i < 8; i++) { w.sockets[w.sockets.length - 1].drop(); refused.push(w.untilNextSocket()); }
+    ok(refused.join() === '2000,3000,4500,6750,10125,15000,15000,15000', 'kept: while Streamer.bot is down the wait grows by half each time from 2 s to a 15 s cap (random part 0) — ' + refused.join());
+    // Accept, then drop: the wait must keep growing (TIM-30).
+    const d = start(), waits = [];
+    const last = () => d.w.sockets[d.w.sockets.length - 1];
+    for (let i = 0; i < 4; i++) { last().open(); last().drop(); waits.push(d.w.untilNextSocket()); }
+    ok(waits.join() === '2000,3000,4500,6750', 'a server that accepts and then drops sees the wait grow (2 s, 3 s, 4.5 s, 6.75 s), not a fixed 2 s loop — ' + waits.join());
+    // Open for 4.999 s: still not "stayed open". Open for 5 s: back to the base.
+    last().open(); last().ack(); d.w.advance(4999); last().drop();
+    const short = d.w.untilNextSocket();
+    last().open(); last().ack(); d.w.advance(5000); last().drop();
+    const long = d.w.untilNextSocket();
+    last().drop();
+    const next = d.w.untilNextSocket();
+    last().open(); d.w.advance(2000); last().drop(); d.w.untilNextSocket();
+    last().open(); d.w.advance(3500); last().drop();
+    const notSummed = d.w.untilNextSocket();
+    ok(short === 10125 && long === 2000 && next === 3000 && notSummed > 3000,
+      `the wait returns to 2 s only after a connection has stayed open for 5 s: open 4.999 s then closed, the next wait still grows (${short}); open 5 s then closed, it is ${long} and grows again from there (${next}); two short connections do not add up to a long one (${notSummed})`);
+    // The random part: up to a quarter on top, never less than the plain wait.
+    const waitsFor = (random) => { const r = start({ random }); const out = []; for (let i = 0; i < 3; i++) { r.w.sockets[r.w.sockets.length - 1].drop(); out.push(r.w.untilNextSocket()); } return out; };
+    const half = waitsFor(() => 0.5), most = waitsFor(() => 0.999999), mixed = (() => { let i = 0; const seq = [0.1, 0.9, 0.4]; return waitsFor(() => seq[i++ % 3]); })();
+    ok(half.join() === '2250,3375,5063' && most.join() === '2500,3750,5625' && mixed.join() === '2050,3675,4950',
+      `each wait gets a random part of up to a quarter on top, so pages that lost Streamer.bot together do not all come back in the same instant, and the growth itself is not randomized — random 0.5: ${half.join()}; just under 1: ${most.join()}; 0.1, 0.9, 0.4: ${mixed.join()}`);
+  }
+}
+
 // ── 4. Live transport seam (mock SB + real panel-client-sb.js) ───────────────
 console.log('\n[4] transport seam vs mock');
 {
@@ -7266,6 +7600,108 @@ console.log('\n[4] transport seam vs mock');
   await wait(60);
   ok(vizOf(b) === 'waveform,dna' && !!a.replies.get(o3) && !!a.replies.get(o3).args && a.replies.get(o3).args.queueName !== 'Default' && ((await stats()).runs || []).slice(-2).every((r) => r.bled === false),
     'overlap mode off (a blocking queue): each run keeps its own arguments, in the order sent');
+
+  // ── Sprint 2: the transport against the mock's overlap mode ───────────────
+  // The real file again, as in section 27, but with real sockets (to the mock on its side
+  // port, never anywhere else) and real timers. stop() ends a page: its sockets are closed
+  // and none of its timers does anything afterwards.
+  const livePage = (opts = {}) => {
+    let stopped = false;
+    const socks = [];
+    class PageSocket extends WebSocket {
+      constructor(url) { super(url); socks.push(this); }
+      send(data) { if (opts.onSend) { try { opts.onSend(JSON.parse(data)); } catch {} } super.send(data); }
+    }
+    const t = loadTransport({
+      WebSocket: PageSocket, wsUrl: `ws://127.0.0.1:${WS_PORT}/`, syncAction: 'Timbre Push',
+      setTimeout: (fn, ms) => setTimeout(() => { if (!stopped) fn(); }, ms), clearTimeout,
+    });
+    t.stop = () => { stopped = true; for (const s of socks) { try { s.onclose = null; s.close(); } catch {} } };
+    t.viz = () => t.of('svc:message').map((e) => (e.type === 'timbre:config' ? e.config.activeViz : e.type));
+    return t;
+  };
+  const viz = (name) => JSON.stringify({ activeViz: name });
+  const lastOf = (list) => list[list.length - 1];
+  const lastViz = (c) => { const e = lastOf(c.events); return e && e.type === 'timbre:config' ? e.config.activeViz : null; };
+  {
+    // TIM-01, the one-socket case. The saved config is "waveform". A page makes an edit the
+    // moment its socket opens; its own connect-time sync follows within a millisecond or
+    // two. In the Default queue those two runs overlap, and both see the sync's arguments.
+    await doAction(a, 'Timbre Push', { config: viz('waveform') });
+    await until(() => lastViz(b) === 'waveform', 600);
+    await get('/mock/bleed?on=1');
+    clear();
+    const dock = livePage();
+    let sentAtOpen = null;
+    dock.win.addEventListener('sb:connection', (e) => { if (e.detail.connected && sentAtOpen === null) sentAtOpen = dock.win.sbDoAction('Timbre Push', { config: viz('peak-hold') }); });
+    await until(() => b.events.length >= 2, 2500);
+    await wait(150);
+    const runs1 = ((await stats()).runs || []).slice(-2).map((r) => r.did + (r.bled ? '+bled' : '')).join();
+    ok(sentAtOpen === true && (await stats()).cachedConfig === viz('peak-hold') && lastViz(a) === 'peak-hold' && lastViz(b) === 'peak-hold' && lastOf(dock.viz()) === 'peak-hold' && runs1 === 'push,sync',
+      `overlap mode (the Default queue): an edit a page sends as it connects is not lost to that page's own connect-time sync — the edit is saved and is the config every client ends with (runs: ${runs1}; saved: ${(await stats()).cachedConfig}; the clients saw ${vizOf(a)} / ${vizOf(b)} / ${dock.viz().join()})`);
+
+    // A burst from one page: one run at a time, and only the newest waits.
+    clear();
+    const burst = ['dna', 'matrix', 'visualizer'].map((n) => dock.win.sbDoAction('Timbre Push', { config: viz(n) }));
+    await until(() => b.events.length >= 2, 2500);
+    await wait(150);
+    const runs2 = ((await stats()).runs || []).slice(-2).map((r) => r.did + (r.bled ? '+bled' : '')).join();
+    ok(burst.join() === 'true,true,true' && vizOf(b) === 'dna,visualizer' && runs2 === 'push,push' && (await stats()).cachedConfig === viz('visualizer'),
+      `overlap mode: three pushes made back to back by one page are two runs that do not overlap — the first, then the newest; the middle one was replaced while it waited (broadcasts: ${vizOf(b)}; runs: ${runs2})`);
+
+    // The plan's wording: a dock edit sent within 5 ms of a second client's connect (here,
+    // on a 3 ms timer started as that client's connect-time sync leaves it; the timer can
+    // fire late). Two sockets, so no page's queue orders them: with the edit the later of
+    // the two, either both runs carry the edit or the sync has already run. This passed
+    // before the queue too. The other order (the sync a few ms AFTER the edit) loses the
+    // edit in the Default queue whatever a page does; only a blocking queue prevents it.
+    clear();
+    let dockSent = null;
+    const second = livePage({ onSend: (m) => { if (m.request === 'DoAction' && dockSent === null) { dockSent = false; setTimeout(() => { dockSent = dock.win.sbDoAction('Timbre Push', { config: viz('ring-bars') }); }, 3); } } });
+    await until(() => lastViz(b) === 'ring-bars' && lastOf(second.viz()) === 'ring-bars', 2500);
+    await wait(250);
+    ok(dockSent === true && (await stats()).cachedConfig === viz('ring-bars') && lastViz(a) === 'ring-bars' && lastViz(b) === 'ring-bars' && lastOf(dock.viz()) === 'ring-bars' && lastOf(second.viz()) === 'ring-bars',
+      `overlap mode: a dock edit sent just after a second page's connect-time sync is the config every client ends with (the clients saw ${vizOf(b)} / ${dock.viz().slice(-3).join()} / ${second.viz().join()})`);
+    second.stop();
+
+    // Replies are read: the queue's name, and the missing action.
+    const queuedBleed = dock.of('sb:action-queued');
+    await get('/mock/bleed?on=0');
+    clear();
+    dock.win.sbDoAction('Timbre Push', { config: viz('waveform') });
+    await until(() => lastViz(b) === 'waveform', 1500);
+    const blocking = lastOf(dock.of('sb:action-queued'));
+    ok(queuedBleed.length >= 5 && queuedBleed.every((d) => d.action === 'Timbre Push' && d.queueName === 'Default' && d.defaultQueue === true && typeof d.id === 'string') && queuedBleed.filter((d) => d.push).length === 4
+      && JSON.stringify({ ...blocking, id: '' }) === '{"action":"Timbre Push","id":"","push":true,"queueName":"Mock Blocking","defaultQueue":false}',
+      `against the mock, every reply raises sb:action-queued with the queue's name: "Default" (defaultQueue true) in overlap mode, the blocking queue's name (defaultQueue false) otherwise — ${queuedBleed.length} in overlap mode, then ${JSON.stringify(blocking)}`);
+    await get('/mock/missing?on=1');
+    clear();
+    const t0 = Date.now();
+    dock.win.sbDoAction('Timbre Push', { config: viz('dna') });
+    await until(() => dock.of('sb:action-error').length > 0, 1500);
+    await get('/mock/missing?on=0');
+    dock.win.sbDoAction('Timbre Push', { config: viz('matrix') });
+    await until(() => lastViz(b) === 'matrix', 1500);
+    const took = Date.now() - t0, errs = dock.of('sb:action-error');
+    ok(errs.length === 1 && JSON.stringify({ ...errs[0], id: '' }) === '{"action":"Timbre Push","id":"","push":true,"code":"action-missing","error":"The action \'Timbre Push\' was not found"}'
+      && lastViz(b) === 'matrix' && took < 700 && (await stats()).cachedConfig === viz('matrix') && lastOf(dock.of('sb:connection')).connected === true,
+      `against the mock, a missing Timbre Push raises sb:action-error with code "action-missing" and Streamer.bot's own words, the page stays connected, and the next push is not held back by the fail-safe (${took} ms for both) — ${JSON.stringify(errs)}`);
+    dock.stop();
+  }
+  {
+    // TIM-30: a server that accepts a connection and then drops it. Real timers: this
+    // waits for three connections, about 6 seconds.
+    await get('/mock/drop?on=1');
+    const page = livePage();
+    let times = [];
+    const t0 = Date.now();
+    while (Date.now() - t0 < 9000 && times.length < 3) { await wait(100); times = (await stats()).dropTimes || []; }
+    page.stop();
+    await get('/mock/drop?on=0');
+    const gap1 = times[1] - times[0], gap2 = times[2] - times[1];
+    ok(times.length >= 3 && gap1 >= 1900 && gap1 <= 2700 && gap2 >= 2900 && gap2 <= 4000 && page.of('sb:connection').filter((d) => d.connected).length >= 2,
+      `a mock that accepts each connection and then drops it sees the page's wait grow: ${Math.round(gap1)} ms between the first two connections, ${Math.round(gap2)} ms before the third (2 s to 2.5 s, then 3 s to 3.75 s) — ${times.length} connections in ${Date.now() - t0} ms`);
+  }
 
   // What the mock serves: Streamer.bot 1.0.7 gives .svg, .woff and .woff2 no type of their own.
   const font = await get('/timbre-overlay/fonts/audiowide.woff2'), css = await get('/timbre-overlay/timbre.css'), js = await get('/timbre-shared/viz-config.js');
