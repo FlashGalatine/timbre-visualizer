@@ -36,10 +36,11 @@ Script-scope globals available to factories (from core.js):
 | `ctx`, `canvas2d` | 2D canvas + context (visible for 2D effects) |
 | `canvas3d` | WebGL canvas (visible for effects listed in `VIZ_USES_3D`) |
 | `W`, `H`, `SCALE` | canvas buffer size + width-based scale factor (1.0 at 260 px wide) |
-| `frequencies` | `Uint8Array(32)` FFT bins, 0–255, or `null` when no mic |
-| `waveform` | `Uint8Array(64)` time-domain samples, 0–255, or `null` |
+| `frequencies` | `Uint8Array(32)`: 32 bands from 60 Hz to 12 kHz, low to high, 0–255, or `null` when no mic (below) |
+| `waveform` | `Uint8Array(64)`: the newest 64 input samples, 0–255 (128 is rest), or `null` |
 | `micActive` | mic currently captured |
 | `micPeak` | loudest input sample over at least the last two looks (4096 samples at 48 kHz), 0 to 1, before Gain, or `null` when no mic |
+| `micBands` | the same sound summed up once per look: `{ bass, mid, treble, rms, centroid, level, beat, beats }`, or `null` when no mic (below) |
 | `cfgGain`, `cfgBars`, `cfgBounce`, `cfgColorSpeed`, `cfgColorHue`, `cfgIdleAnim`, `cfgEffectBgOpacity` | normalized global knobs |
 | `perViz['my-effect']` | your effect's own knobs |
 | `getColor(t)` | palette lookup → `[r,g,b]`, a new array each call |
@@ -47,6 +48,58 @@ Script-scope globals available to factories (from core.js):
 | `getColorCss(t)`, `paletteStep(t)`, `PALETTE_RGB`, `PALETTE_CSS` | the palette as a table of 256 colours with ready CSS strings (below) |
 | `ema`, `decay`, `chance`, `fadeOrClear` | per-second helpers (below) |
 | `THREE` | three.js r160 (vendored) |
+
+**The sound.** `overlay/audio-capture.js` opens the microphone raw (echo cancellation, noise
+suppression and automatic gain asked off; a device that refuses is opened without the three
+flags, and the console says which) and looks at it about 30 times a second. Everything it
+publishes is before Gain.
+
+- `frequencies` is 32 bands, each the same musical width (about a quarter of an octave):
+  band `k` runs from `60 · 200^(k/32)` Hz to `60 · 200^((k+1)/32)` Hz. The edges, in Hz:
+  60, 71, 84, 99, 116, 137, 162, 191, 226, 266, 314, 371, 438, 516, 609, 719, 849, 1001, 1182,
+  1394, 1645, 1942, 2291, 2704, 3191, 3766, 4444, 5244, 6188, 7302, 8617, 10169, 12000. A voice's
+  pitch is in bands 2 to 8, its vowels in 9 to 24, and "s" and "t" in 25 to 31. (The 32 values
+  used to be 32 bins 750 Hz wide from 0 to 24 kHz, with a whole voice in the first six. The
+  notes on single effects further down still say "bins": they mean these values.)
+- A band is folded from a 2048-point analysis (1024 bins, 23.4 Hz apart at 48 kHz; twice as
+  many points for each doubling of the sample rate, so a bin stays about 23 Hz). Its value
+  is the **mean power** of the bins it overlaps, each counted by the Hz of overlap, in
+  decibels, plus 15 dB (`BAND_LIFT_DB`), on the browser's own byte scale (-100 dB is 0, -30 dB
+  is 255). The mean, so a wide band at the top reads no louder than a narrow one at the
+  bottom when every bin is at the same level. The 15 dB is 10·log10(32): a bin of this
+  analysis is 32 times narrower than one of the 64-point analysis it replaced, so a sound
+  spread over many bins (a breath, an "s", a hi-hat) would read 15 dB lower in each; with the
+  lift it reads what it read before. A single steady tone is not spread, so in the narrow low
+  bands it reads up to 15 dB (55 of 255) higher than it used to, and a tone louder than
+  about -31 dB of full scale fills its band.
+- Each bin is smoothed over time by the analyser, 0.7 a look, as it always was. What is
+  different is the stretch of sound a look sees: 43 ms (it was 1.3 ms), so two looks in a
+  row overlap, a value no longer jumps with where in a wave the look happened to fall, and
+  a sound shorter than 43 ms is spread over that long.
+- `waveform` is still the newest 64 samples, about a thousandth of a second: a fragment of
+  one cycle of a voice. Use `micBands.rms` for how loud the input is.
+- `micBands` is one object per microphone session, written afresh on every look:
+
+  | Field | Meaning |
+  |---|---|
+  | `bass` | the mean of bands 0 to 8 (60 Hz to 266 Hz), 0 to 1 |
+  | `mid` | the mean of bands 9 to 24 (266 Hz to 3.77 kHz), 0 to 1 |
+  | `treble` | the mean of bands 25 to 31 (3.77 kHz to 12 kHz), 0 to 1 |
+  | `rms` | the root mean square of the last 2048 input samples, 0 to 1 (a full-scale sine is 0.707) |
+  | `centroid` | where the weight of the 32 bands lies, 0 (all in band 0) to 1 (all in band 31); `60 · 200^centroid` is roughly its frequency in Hz. 0 in silence |
+  | `level` | one loudness: the larger of 3 × `rms` and 1.1 × the mean of bands 0 to 24. Times Gain and held to 1, it is the `level` the scene kit hands a scene |
+  | `beat` | `true` on the one look where `level` × Gain jumps above 1.35 × its recent average + 0.07, at most once every 220 ms |
+  | `beats` | how many beats this session has had |
+
+  The beat is the one value that takes Gain into account, because Gain is how the streamer
+  says how loud their microphone is. An effect draws faster or slower than the sampler
+  looks, so it should not test `beat` every frame (it would take one beat twice at 60 fps
+  and could miss one at 20): keep the `beats` you saw last and act when it has moved. The
+  scene kit does this for a scene (`audio.beat`).
+- Beside a cached `core.js` from before `micBands`, the sampler publishes the rest and no
+  `micBands`; beside a cached `audio-capture.js` from before it, `micBands` stays `null` and
+  the scene kit works its level out from `waveform` and `frequencies` as it used to. An
+  effect that reads `micBands` must allow for `null`.
 
 **The palette table.** An effect that paints many things a frame should not build a colour
 array and an `rgb(...)` string for each. `getColorCss(t)` returns a ready string for the
@@ -257,10 +310,11 @@ Sunburst need only the phase.
   `DEFAULT_PER_VIZ` a render check that shows the picture, or the state `debug()`
   reports, differs between two values of it.
 - **Read the sound in one place.** The kit hands `update` the level and the beat
-  (`audio`, above). A scene that wants the bands reads the core's `frequencies` through
+  (`audio`, above); both come from the sampler's `micBands` (its `level` times Gain, and
+  its count of beats). A scene that wants the bands reads the core's `frequencies` through
   one small function of its own module, as `loudness(bins, band, gain)` in
-  `overlay/rose.js` does. Do not paste the `bandAverage` helper of the older 2D effects
-  into a scene.
+  `overlay/rose.js` does, or reads `micBands.bass`, `mid` and `treble`. Do not paste the
+  `bandAverage` helper of the older 2D effects into a scene.
 
 ### Scene placement
 

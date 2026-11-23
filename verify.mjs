@@ -117,7 +117,11 @@
 //      request and a device switch; start() then setDevice() before the first
 //      request resolves, granted in either order; a stale failure; the request
 //      in force failing and its retry; an old track ending; and stop(), also
-//      with a request still waiting. (Runs before section 4.)
+//      with a request still waiting. Then Sprint 7: the three processing flags
+//      and the one retry without them for a device that refuses; the fold of a
+//      2048-point analysis into 32 bands (edges, weights, equal bins, a single
+//      tone, silence, the 0-255 range); and bass, mid, treble, rms, centroid,
+//      level and the beat on spectra made by hand. (Runs before section 4.)
 //  31. The eight 2D effects of Sprint 6, from their files: the seven that move
 //      take their time from the dt handed to draw(); the six that leave a trail
 //      fade it with fadeOrClear; the five that repaint lines over one share one
@@ -474,6 +478,19 @@ await import('./overlay/scene-kit.js');
   now += 1000 / 60; ok(env.step(0.95, now, 1 / 60, true).beat === false, 'no second beat inside 220 ms');
   const quiet = K.createEnvelope(); quiet.step(0.1, 16, 1 / 60, false);
   ok(quiet.step(0.9, 32, 1 / 60, false).beat === false, 'no beats without a mic');
+  {
+    // Sprint 7: handed the sampler's count of beats, the envelope takes its beats from it.
+    const e = K.createEnvelope(); let t = 0; const step = (level, count, mic = true) => { t += 1000 / 60; return e.step(level, t, 1 / 60, mic, count); };
+    const first = step(0.1, 7);
+    for (let i = 0; i < 30; i++) step(0.1, 7);
+    const jump = step(0.9, 7), moved = step(0.9, 8), same = step(0.9, 8), soon = step(0.9, 9), quietBeat = step(0.05, 10), noMic = step(0.9, 11, false), afterNoMic = step(0.9, 11);
+    ok(first.beat === false && jump.beat === false && moved.beat === true && moved.kick === 1 && near(moved.burst, 0.3, 0.01) && same.beat === false && soon.beat === true && quietBeat.beat === true && noMic.beat === false && afterNoMic.beat === false,
+      'with the sampler\'s count of beats the envelope fires when the count moves and only then: not on the first count it sees, not on a jump in level the sampler did not call a beat, once per count however many frames show it, and not without a mic');
+    const back = K.createEnvelope(); back.step(0.1, 16, 1 / 60, true, 3); back.step(0.1, 32, 1 / 60, true, 3);
+    for (let i = 0; i < 30; i++) back.step(0.1, 48 + i * 16, 1 / 60, true);
+    const own = back.step(0.9, 600, 1 / 60, true), again = back.step(0.9, 1000, 1 / 60, true, 5);
+    ok(own.beat === true && again.beat === false, 'without a count (a test level, an older sampler) the envelope finds the beat from the level as before, and a count that comes back is only noted');
+  }
 
   const big = K.createEnvelope(); let o;
   for (let i = 0; i < 50; i++) o = big.step(i % 2 ? 1 : 0, i * 100, 0.1, true);
@@ -7851,26 +7868,30 @@ console.log('\n[30] audio capture: one microphone request at a time');
   // the capture to fill are declared the same way, as the script's own `let`s (`peak: false`
   // leaves micPeak out, as a cached core.js from before it existed would). `holdLists` makes
   // enumerateDevices wait for the test too. No microphone, no audio and no real timer is used.
-  const loadCapture = ({ peak = true, holdLists = false } = {}) => {
-    const w = { peak, requests: [], streams: [], contexts: [], analysers: [], lists: [], intervals: new Map(), timeouts: new Map(), events: [], warns: [], seq: 0, now: 0 };
+  const loadCapture = ({ peak = true, holdLists = false, bands = true, rate = 48000 } = {}) => {
+    const w = { peak, bands, db: -65, requests: [], streams: [], contexts: [], analysers: [], lists: [], intervals: new Map(), timeouts: new Map(), events: [], warns: [], infos: [], seq: 0, now: 0 };
     const makeStream = (request) => {
       const s = { request, tracks: [{ stops: 0, onended: null, stop() { this.stops++; } }], getTracks() { return this.tracks; } };
       w.streams.push(s);
       return s;
     };
     class StandInAudioContext {
-      constructor() { this.state = 'running'; this.sampleRate = 48000; this.closes = 0; this.sources = []; this.analysers = []; w.contexts.push(this); }
+      constructor() { this.state = 'running'; this.sampleRate = rate; this.closes = 0; this.sources = []; this.analysers = []; w.contexts.push(this); }
       resume() { return Promise.resolve(); }
       close() { this.closes++; this.state = 'closed'; return Promise.resolve(); }
       createMediaStreamSource(stream) { const src = { stream, to: [], connect(node) { this.to.push(node); } }; this.sources.push(src); return src; }
       createAnalyser() {
-        const a = { fftSize: 2048, smoothingTimeConstant: 0.8, getByteFrequencyData(buf) { buf.fill(7); }, getByteTimeDomainData(buf) { buf.fill(128); buf[0] = 255; } };
+        // Every bin at w.db decibels, and a waveform at rest but for one full-scale sample (the
+        // oldest of the window, so the newest 64 that are published are all at rest).
+        const a = { fftSize: 2048, smoothingTimeConstant: 0.8, getByteFrequencyData(buf) { buf.fill(7); }, getFloatFrequencyData(buf) { buf.fill(w.db); },
+          getByteTimeDomainData(buf) { buf.fill(128); buf[0] = 255; }, getFloatTimeDomainData(buf) { buf.fill(0); buf[0] = 1; } };
         this.analysers.push(a); w.analysers.push(a);
         return a;
       }
     }
     const sandbox = {
-      console: { log() {}, warn: (...a) => w.warns.push(a.map(String).join(' ')) },
+      console: { log() {}, info: (...a) => w.infos.push(a.map(String).join(' ')), warn: (...a) => w.warns.push(a.map(String).join(' ')) },
+      performance: { now: () => w.now },
       CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; } },
       dispatchEvent: (e) => { if (e.type === 'timbre:mic') w.events.push(e.detail.state); return true; },
       navigator: { mediaDevices: {
@@ -7896,15 +7917,16 @@ console.log('\n[30] audio capture: one microphone request at a time');
     };
     sandbox.window = sandbox;
     vm.createContext(sandbox);
-    vm.runInContext(`let frequencies = null; let waveform = null; ${peak ? 'let micPeak = null; ' : ''}let micActive = false; globalThis.__see = (code) => eval(code);`, sandbox, { filename: 'stand-in for core.js' });
+    vm.runInContext(`let frequencies = null; let waveform = null; ${peak ? 'let micPeak = null; ' : ''}${bands ? 'let micBands = null; ' : ''}let micActive = false; globalThis.__see = (code) => eval(code);`, sandbox, { filename: 'stand-in for core.js' });
     vm.runInContext(captureText, sandbox, { filename: 'overlay/audio-capture.js' });
     w.see = sandbox.__see;
     w.capture = sandbox.timbreCapture;
     w.tick = () => { for (const t of [...w.intervals.values()]) t.fn(); };
+    w.look = (ms = 33) => { w.now += ms; w.tick(); };   // one look of the sampler, `ms` after the last
     w.advance = (ms) => { w.now += ms; for (const [id, t] of [...w.timeouts]) if (t.at <= w.now && w.timeouts.has(id)) { w.timeouts.delete(id); t.fn(); } };
     return w;
   };
-  const deviceOf = (req) => { const a = JSON.parse(req.constraints).audio; return a === true ? 'default' : a.deviceId.ideal; };
+  const deviceOf = (req) => { const a = JSON.parse(req.constraints).audio; return a === true || !a.deviceId ? 'default' : a.deviceId.ideal; };
   const liveStreams = (w) => w.streams.filter((s) => s.tracks.some((t) => t.stops === 0));
   const liveContexts = (w) => w.contexts.filter((c) => c.closes === 0);
   // What is alive: streams with a track that was never stopped (and the device each was asked
@@ -7918,11 +7940,12 @@ console.log('\n[30] audio capture: one microphone request at a time');
   const oneSession = (w, device) => {
     const a = alive(w), ctx = liveContexts(w)[0];
     if (!(a.streams === device && a.contexts === device && a.samplers === 1 && a.retries === 0)) return false;
-    if (ctx.analysers.length !== (w.peak ? 2 : 1) || ctx.analysers[0].fftSize !== 64 || ctx.analysers[0].smoothingTimeConstant !== 0.7) return false;
+    if (ctx.analysers.length !== (w.peak ? 2 : 1) || ctx.analysers[0].fftSize !== 2048 || ctx.analysers[0].smoothingTimeConstant !== 0.7) return false;
     w.tick();
-    return w.see('micActive') === true && w.see('frequencies').length === 32 && w.see('waveform').length === 64 && (w.peak ? w.see('micPeak') === 1 && ctx.analysers[1].fftSize === 4096 : true);
+    return w.see('micActive') === true && w.see('frequencies').length === 32 && w.see('waveform').length === 64 && (w.peak ? w.see('micPeak') === 1 && ctx.analysers[1].fftSize === 4096 : true)
+      && (!w.bands || (w.see('micBands') !== null && typeof w.see('micBands.beats') === 'number'));
   };
-  const nothingAlive = (w) => { const a = alive(w); return a.streams === '' && a.contexts === '' && a.samplers === 0 && a.retries === 0 && w.see('micActive') === false && w.see('frequencies') === null && w.see('waveform') === null && (!w.peak || w.see('micPeak') === null); };
+  const nothingAlive = (w) => { const a = alive(w); return a.streams === '' && a.contexts === '' && a.samplers === 0 && a.retries === 0 && w.see('micActive') === false && w.see('frequencies') === null && w.see('waveform') === null && (!w.peak || w.see('micPeak') === null) && (!w.bands || w.see('micBands') === null); };
 
   // ── What a single request does (unchanged by TIM-14) ──
   {
@@ -7932,14 +7955,14 @@ console.log('\n[30] audio capture: one microphone request at a time');
     const waiting = says(w);
     if (w.requests[0]) w.requests[0].resolve();
     await settle();
-    ok(asked === '{"audio":true}' && /^0 live stream.*, 0 open context.*, 0 sampler timer.*events acquiring$/.test(waiting) && oneSession(w, 'default') && w.events.join() === 'acquiring,listening' && w.contexts.length === 1 && w.analysers.length === 2,
-      `start() asks for the default microphone once, and when it is granted there is one stream, one context with its two analysers and one sampler timer, publishing 32 frequency values, 64 waveform values and the peak — ${says(w)}`);
+    ok(asked === '{"audio":{"echoCancellation":false,"noiseSuppression":false,"autoGainControl":false}}' && /^0 live stream.*, 0 open context.*, 0 sampler timer.*events acquiring$/.test(waiting) && oneSession(w, 'default') && w.events.join() === 'acquiring,listening' && w.contexts.length === 1 && w.analysers.length === 2,
+      `start() asks for the default microphone once, with echo cancellation, noise suppression and automatic gain off, and when it is granted there is one stream, one context with its two analysers and one sampler timer, publishing 32 frequency values, 64 waveform values and the peak — ${says(w)}`);
     w.capture.setDevice('mic-b', 'Mic B'); await settle();
     const switching = says(w), asked2 = w.requests.length > 1 ? w.requests[1].constraints : '';
     if (w.requests[1]) w.requests[1].resolve();
     await settle();
-    ok(asked2 === '{"audio":{"deviceId":{"ideal":"mic-b"}}}' && /^0 live stream.*, 0 open context.*, 0 sampler timer/.test(switching) && oneSession(w, 'mic-b') && w.streams[0].tracks[0].stops === 1 && w.contexts[0].closes === 1 && w.events.join() === 'acquiring,listening,acquiring,listening',
-      `setDevice() on a running capture closes the session it has and asks for the new microphone by its id (as ideal, not exact); granted, there is again one of each, on the new device — ${says(w)}`);
+    ok(asked2 === '{"audio":{"deviceId":{"ideal":"mic-b"},"echoCancellation":false,"noiseSuppression":false,"autoGainControl":false}}' && /^0 live stream.*, 0 open context.*, 0 sampler timer/.test(switching) && oneSession(w, 'mic-b') && w.streams[0].tracks[0].stops === 1 && w.contexts[0].closes === 1 && w.events.join() === 'acquiring,listening,acquiring,listening',
+      `setDevice() on a running capture closes the session it has and asks for the new microphone by its id (as ideal, not exact) with the same three flags off; granted, there is again one of each, on the new device — ${says(w)}`);
     w.capture.setDevice('mic-b', 'Mic B'); await settle();
     ok(w.requests.length === 2 && oneSession(w, 'mic-b'), 'setDevice() with the device already in use asks for nothing and leaves the session alone');
   }
@@ -8111,6 +8134,202 @@ console.log('\n[30] audio capture: one microphone request at a time');
       ok(asked === 2 && mine && one && w.contexts.length === 1 && nothingAlive(w),
         `stop() then start() while the first request is still waiting, granted ${order[0] === 0 ? 'oldest' : 'newest'} first: the one session is the second request's, and stop() then leaves nothing — ${said}`);
     }
+  }
+
+  // ── Sprint 7 (D-08): a device that refuses the three flags still opens ──
+  console.log('\n[30] audio capture: the raw microphone, the fold into 32 bands, and the shared bands');
+  const RAW_FLAGS = '"echoCancellation":false,"noiseSuppression":false,"autoGainControl":false';
+  {
+    const w = loadCapture();
+    w.capture.start(); await settle();
+    const saidRaw = loadCapture();
+    saidRaw.capture.start(); await settle(); saidRaw.requests[0].resolve(); await settle();
+    w.requests[0].reject('OverconstrainedError'); await settle();
+    const between = says(w), second = w.requests.length > 1 ? w.requests[1].constraints : '';
+    if (w.requests[1]) w.requests[1].resolve();
+    await settle();
+    w.advance(60000); await settle();
+    ok(second === '{"audio":true}' && /^0 live stream.*0 retry timer\(s\), 2 request\(s\), events acquiring$/.test(between) && oneSession(w, 'default') && w.requests.length === 2 && w.events.join() === 'acquiring,listening' && w.warns.length === 0
+      && w.infos.length === 1 && /WITHOUT the three flags/.test(w.infos[0]) && saidRaw.infos.length === 1 && /off\./.test(saidRaw.infos[0]) && !/WITHOUT/.test(saidRaw.infos[0]),
+      `a microphone that refuses the three flags (OverconstrainedError) is asked for once more without them, as { audio: true }, and opens: no MIC DENIED, no retry timer, and the console says which was used — ${says(w)} | said: ${w.infos[0]} | a device that takes them: ${saidRaw.infos[0]}`);
+    saidRaw.capture.stop();
+  }
+  {
+    const w = loadCapture();
+    w.capture.setDevice('mic-b', 'Mic B'); w.capture.start(); await settle();
+    const first = w.requests[0].constraints;
+    w.requests[0].reject('OverconstrainedError'); await settle();
+    const second = w.requests.length > 1 ? w.requests[1].constraints : '';
+    if (w.requests[1]) w.requests[1].resolve();
+    await settle();
+    ok(first === '{"audio":{"deviceId":{"ideal":"mic-b"},' + RAW_FLAGS + '}}' && second === '{"audio":{"deviceId":{"ideal":"mic-b"}}}' && oneSession(w, 'mic-b') && w.requests.length === 2,
+      `the same for a picked device: the second request keeps the device (as ideal) and drops only the three flags — ${first} then ${second}`);
+  }
+  {
+    // The second request refused too: reported and retried as any failure, and the retry starts with the flags again.
+    const w = loadCapture();
+    w.capture.start(); await settle();
+    w.requests[0].reject('OverconstrainedError'); await settle();
+    w.requests[1].reject('OverconstrainedError'); await settle();
+    const denied = says(w), asked = w.requests.length;
+    w.advance(10000); await settle();
+    const retry = w.requests.length > 2 ? w.requests[2].constraints : '';
+    // Another kind of failure is not asked for again without the flags.
+    const other = loadCapture();
+    other.capture.start(); await settle();
+    other.requests[0].reject('NotAllowedError'); await settle();
+    ok(asked === 2 && /0 live stream.*1 retry timer\(s\).*events acquiring,denied$/.test(denied) && w.warns.length === 1 && retry === '{"audio":{' + RAW_FLAGS + '}}' && w.requests.length === 3
+      && other.requests.length === 1 && other.events.join() === 'acquiring,denied' && other.timeouts.size === 1,
+      `refused without the flags as well, it is MIC DENIED with one retry after 10 seconds, which asks with the flags again (at most two requests an attempt); a failure of another kind (NotAllowedError) is not asked for a second time — ${denied}`);
+    w.capture.stop(); other.capture.stop();
+  }
+  {
+    // The request counter across the second request.
+    const late = loadCapture();
+    late.capture.start(); await settle();
+    late.requests[0].reject('OverconstrainedError'); await settle();
+    late.capture.setDevice('mic-b', 'Mic B'); await settle();
+    const inFlight = late.requests.map((r) => r.constraints).join(' ; ');
+    late.requests[1].resolve(); await settle();             // the overtaken request's second try is granted
+    const afterStale = says(late), staleStops = late.streams[0] ? late.streams[0].tracks[0].stops : -1, builtForStale = late.contexts.length;
+    late.requests[2].resolve(); await settle();
+    const early = loadCapture();
+    early.capture.start(); await settle();
+    early.capture.setDevice('mic-b', 'Mic B'); await settle();
+    early.requests[0].reject('OverconstrainedError'); await settle();   // overtaken before it was refused
+    const askedEarly = early.requests.length;
+    early.requests[1].resolve(); await settle();
+    const stopped = loadCapture();
+    stopped.capture.start(); await settle();
+    stopped.requests[0].reject('OverconstrainedError'); await settle();
+    stopped.capture.stop(); await settle();
+    stopped.requests[1].resolve(); await settle();
+    stopped.advance(60000); await settle();
+    ok(late.requests.length === 3 && staleStops === 1 && builtForStale === 0 && /^0 live stream.*0 open context/.test(afterStale) && oneSession(late, 'mic-b') && late.contexts.length === 1 && late.events.join() === 'acquiring,acquiring,listening'
+      && askedEarly === 2 && oneSession(early, 'mic-b') && early.requests.length === 2 && early.events.join() === 'acquiring,acquiring,listening'
+      && nothingAlive(stopped) && stopped.streams.length === 1 && stopped.streams[0].tracks[0].stops === 1 && stopped.contexts.length === 0 && stopped.requests.length === 2 && stopped.infos.length === 0,
+      `the request counter holds across the second request: overtaken while its second request waits, the stream it is then handed is stopped and nothing is built (${inFlight}); overtaken before it is refused, it asks for nothing more; and stop() while the second request waits leaves nothing alive — ${says(late)} | ${says(early)} | ${says(stopped)}`);
+  }
+
+  // ── Sprint 7 (D-07): the fold ──
+  {
+    const A = loadCapture().capture.analysis;
+    const near = (a, b, tol) => Math.abs(a - b) <= tol;
+    const edges = Array.from(A.bandEdges());
+    const ratio = Math.pow(200, 1 / 32);
+    ok(A.FFT_SIZE === 2048 && A.BANDS === 32 && A.WAVE_SIZE === 64 && edges.length === 33 && near(edges[0], 60, 1e-9) && near(edges[32], 12000, 1e-6) && edges.every((e, k) => k === 0 || near(e / edges[k - 1], ratio, 1e-12))
+      && near(edges[1], 70.81, 0.01) && near(edges[9], 266.3, 0.1) && near(edges[16], 848.5, 0.1) && near(edges[25], 3765.6, 0.1) && near(edges[31], 10168.9, 0.1),
+      `the 32 bands run from 60 Hz to 12 kHz, each ${ratio.toFixed(4)} times the one below (edge k is 60 · 200^(k/32)): ${edges.map((e) => e.toFixed(0)).join(' ')}`);
+
+    const plan = A.foldPlan(48000, 2048), width = 48000 / 2048;
+    // Every bin's weights over all bands add up to the part of it inside 60 Hz..12 kHz, and each band's to its own width.
+    const perBin = new Float64Array(1024);
+    let bandsWhole = true;
+    for (let b = 0; b < 32; b++) { let s = 0; for (let j = 0; j < plan.count[b]; j++) { const wgt = plan.weights[plan.start[b] + j]; s += wgt; perBin[plan.first[b] + j] += wgt; if (wgt < 0) bandsWhole = false; } if (!near(s, edges[b + 1] - edges[b], 1e-9) || !near(plan.total[b], s, 1e-9)) bandsWhole = false; }
+    let binsOnce = true;
+    for (let i = 0; i < 1024; i++) { const inside = Math.max(0, Math.min(12000, (i + 0.5) * width) - Math.max(60, (i - 0.5) * width)); if (!near(perBin[i], inside, 1e-9)) binsOnce = false; }
+    const narrow = Array.from(plan.count).filter((c, b) => edges[b + 1] - edges[b] < width).length;
+    ok(bandsWhole && binsOnce && plan.count[0] >= 1 && plan.count[31] > 70 && narrow === 5,
+      `at 48 kHz each band is made of the bins it overlaps, by the Hz of overlap: a band's weights add up to its width, and every Hz from 60 Hz to 12 kHz is in exactly one band (band 0 has ${plan.count[0]} bin(s), band 31 has ${plan.count[31]}; ${narrow} bands are narrower than a bin)`);
+
+    const flat = (dbValue, rate = 48000) => Array.from(A.fold(new Float32Array(1024).fill(dbValue), A.foldPlan(rate, 2048), new Uint8Array(32)));
+    const f60 = flat(-60), f60b = flat(-60, 44100), expect60 = Math.floor(255 * (-60 + A.BAND_LIFT_DB - A.MIN_DB) / (A.MAX_DB - A.MIN_DB));
+    ok(f60.every((v) => v === expect60) && f60b.every((v) => v === expect60) && flat(-80).every((v) => v === Math.floor(255 * (-80 + A.BAND_LIFT_DB + 100) / 70)) && A.BAND_LIFT_DB === 15 && A.MIN_DB === -100 && A.MAX_DB === -30,
+      `bins all at one level give 32 equal bands, at 48 kHz and at 44.1 kHz: a band of ${plan.count[31]} bins reads no louder than a band of ${plan.count[0]} (-60 dB in every bin is ${f60[0]} in every band: the mean power, plus ${A.BAND_LIFT_DB} dB, on the -100..-30 dB scale)`);
+
+    // One tone: one bin at -60 dB, the rest silent.
+    const tone = (hz) => { const db = new Float32Array(1024).fill(-Infinity), bin = Math.round(hz / width); db[bin] = -60; const out = Array.from(A.fold(db, plan, new Uint8Array(32)));
+      const top = out.indexOf(Math.max(...out)), centre = bin * width, home = edges.findIndex((e, k) => k < 32 && centre >= e && centre < edges[k + 1]);
+      return { hz, bin, top, home, lit: out.filter((v) => v > 0).length, value: out[top], out }; };
+    const tones = [65, 150, 440, 1100, 5000, 10000].map(tone);
+    const t1100 = tones[3];
+    ok(tones.every((t) => t.top === t.home && t.lit >= 1 && t.lit <= 2) && t1100.bin === 47 && t1100.home === 17 && t1100.lit === 1
+      && t1100.value === Math.floor(255 * (10 * Math.log10(1e-6 * width / (edges[18] - edges[17])) + 15 + 100) / 70),
+      `a single tone lands in the band that holds it and nowhere else but a neighbour its bin straddles: ${tones.map((t) => `${t.hz} Hz → band ${t.top} (${edges[t.top].toFixed(0)}-${edges[t.top + 1].toFixed(0)} Hz, ${t.value}, ${t.lit} lit)`).join('; ')}`);
+
+    const silent = Array.from(A.fold(new Float32Array(1024).fill(-Infinity), plan, new Uint8Array(32)));
+    const notNumbers = Array.from(A.fold(new Float32Array(1024).fill(NaN), plan, new Array(32).fill(9)));
+    ok(silent.every((v) => v === 0) && notNumbers.every((v) => v === 0), 'silence (every bin at -Infinity dB) gives 32 zeros, and so do bins that are no number');
+
+    // The range, into a plain array so that nothing but fold() clamps.
+    let seed = 99; const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+    let inRange = true;
+    for (let n = 0; n < 200; n++) { const db = new Float32Array(1024); for (let i = 0; i < 1024; i++) db[i] = -160 + 190 * rnd(); const out = A.fold(db, plan, new Array(32)); if (!out.every((v) => Number.isInteger(v) && v >= 0 && v <= 255)) inRange = false; }
+    const loud = Array.from(A.fold(new Float32Array(1024).fill(20), plan, new Array(32))), faint = Array.from(A.fold(new Float32Array(1024).fill(-130), plan, new Array(32)));
+    ok(inRange && loud.every((v) => v === 255) && faint.every((v) => v === 0), 'every value is a whole number from 0 to 255: bins far above the top of the scale give 255, bins far below give 0, and 200 random spectra stay inside');
+
+    const sizes = [8000, 16000, 22050, 24000, 32000, 44100, 48000, 88200, 96000, 192000, 0, NaN].map((r) => A.analysisSize(r));
+    const hi = loadCapture({ rate: 96000 });
+    hi.capture.start(); await settle(); hi.requests[0].resolve(); await settle(); hi.look();
+    const hiCtx = hi.contexts[0];
+    ok(sizes.join() === '512,1024,1024,1024,2048,2048,2048,4096,4096,8192,2048,2048' && hiCtx.analysers[0].fftSize === 4096 && hiCtx.analysers[1].fftSize === 8192
+      && hi.see('frequencies').length === 32 && Array.from(hi.see('frequencies')).every((v) => v === 182) && hi.see('waveform').length === 64 && Array.from(hi.see('waveform')).every((v) => v === 128),
+      `the analysis has 2048 points at 44.1 and 48 kHz and twice as many for each doubling of the sample rate (${sizes.slice(0, 10).join(' ')} at 8, 16, 22.05, 24, 32, 44.1, 48, 88.2, 96 and 192 kHz), so a bin stays about 23 Hz wide; at 96 kHz the sampler asks for 4096 and still publishes 32 bands and 64 samples`);
+    hi.capture.stop();
+    const slow = A.foldPlan(16000, 2048), s16 = Array.from(A.fold(new Float32Array(1024).fill(-60), slow, new Uint8Array(32)));
+    const firstDead = edges.findIndex((e, k) => k < 32 && e >= 8000);
+    ok(s16.slice(0, firstDead - 1).every((v) => v === expect60) && s16.slice(firstDead).every((v) => v === 0),
+      `at a 16 kHz sample rate the bands wholly above 8 kHz (from band ${firstDead}) read 0 and the rest read as at any rate, with no error`);
+  }
+
+  // ── Sprint 7 (R-02): bass, mid, treble, rms, centroid, level and the beat ──
+  {
+    const A = loadCapture().capture.analysis;
+    const near = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol;
+    const sum = (bands, samples) => A.summarize(bands, samples, {});
+    const sine = Float32Array.from({ length: 2048 }, (_, i) => Math.sin(i * 2 * Math.PI * 8 / 2048)), rest = new Float32Array(2048);
+    const all = sum(new Uint8Array(32).fill(255), sine), none = sum(new Uint8Array(32), rest);
+    const only = (lo, hi, v = 255) => { const b = new Uint8Array(32); b.fill(v, lo, hi); return sum(b, rest); };
+    const low = only(0, 9), mid = only(9, 25), high = only(25, 32), half = only(0, 32, 102), b0 = only(0, 1), b31 = only(31, 32), b10 = only(10, 11);
+    ok(A.BASS.join() === '0,9' && A.MID.join() === '9,25' && A.TREBLE.join() === '25,32'
+      && near(all.bass, 1) && near(all.mid, 1) && near(all.treble, 1) && near(all.rms, Math.SQRT1_2, 1e-6) && near(all.centroid, 0.5) && near(all.level, 3 * Math.SQRT1_2, 1e-5)
+      && [none.bass, none.mid, none.treble, none.rms, none.centroid, none.level].every((v) => v === 0)
+      && near(low.bass, 1) && low.mid === 0 && low.treble === 0 && near(low.centroid, 4 / 31) && near(low.level, 1.1 * 9 / 25)
+      && mid.bass === 0 && near(mid.mid, 1) && mid.treble === 0 && near(mid.centroid, 16.5 / 31) && near(mid.level, 1.1 * 16 / 25)
+      && high.bass === 0 && high.mid === 0 && near(high.treble, 1) && near(high.centroid, 28 / 31) && high.level === 0
+      && near(half.bass, 0.4) && near(half.mid, 0.4) && near(half.treble, 0.4) && near(half.level, 0.44)
+      && b0.centroid === 0 && near(b31.centroid, 1) && near(b10.centroid, 10 / 31),
+      `the summary of a spectrum: bass is the mean of bands 0-8, mid of 9-24 and treble of 25-31 (0 to 1); rms is the samples' own (a full-scale sine: ${all.rms.toFixed(3)}); centroid is where the weight lies (band 0: ${b0.centroid}, band 10: ${b10.centroid.toFixed(3)}, band 31: ${b31.centroid}, all equal: ${all.centroid}); level is the larger of 3 × rms and 1.1 × the mean of bands 0-24; silence is all zeros`);
+
+    const beat = A.createBeat(); let t = 0; const at = (level, ms = 33) => { t += ms; return beat.step(level, t); };
+    const firstLoud = A.createBeat().step(0.9, 0);
+    const steady = []; for (let i = 0; i < 40; i++) steady.push(at(0.3));
+    const jump = at(0.8), held = at(0.8), dip = at(0.1, 66), tooSoon = at(0.9, 66);
+    for (let i = 0; i < 20; i++) at(0.1);
+    const again = at(0.9), small = (() => { const b = A.createBeat(); let now = 0; for (let i = 0; i < 40; i++) b.step(0.02, now += 33); return b.step(0.08, now += 33); })();
+    const odd = A.createBeat(); odd.step(NaN, 0); const oddOut = [odd.step(Infinity, 33), odd.step(-5, 66), odd.step(undefined, 99)];
+    ok(firstLoud === false && steady.every((v) => v === false) && jump === true && held === false && dip === false && tooSoon === false && again === true && small === false && oddOut.every((v) => typeof v === 'boolean'),
+      'the beat: a jump above 1.35 × the recent average + 0.07 fires once, on that look only; a steady level, a loud first look, a jump inside 220 ms of the last beat and a jump that stays under the floor fire nothing; levels that are no number are taken as silence');
+
+    // The sampler publishes them, once per look.
+    const w = loadCapture();
+    w.capture.start(); await settle(); w.requests[0].resolve(); await settle();
+    w.db = -100; for (let i = 0; i < 10; i++) w.look();
+    const quietBands = Object.assign({}, w.see('micBands')), quietFreq = Array.from(w.see('frequencies'));
+    w.db = -65; w.look();
+    const hit = Object.assign({}, w.see('micBands')), hitFreq = Array.from(w.see('frequencies'));
+    w.look();
+    const after = Object.assign({}, w.see('micBands'));
+    w.db = -100; for (let i = 0; i < 60; i++) w.look();
+    w.db = -65; w.look();
+    const second = Object.assign({}, w.see('micBands'));
+    const v65 = Math.floor(255 * 50 / 70), rmsOne = Math.sqrt(1 / 2048);
+    ok(quietFreq.every((v) => v === 54) && near(quietBands.bass, 54 / 255) && quietBands.beat === false && quietBands.beats === 0
+      && hitFreq.every((v) => v === v65) && near(hit.bass, v65 / 255) && near(hit.mid, v65 / 255) && near(hit.treble, v65 / 255) && near(hit.centroid, 0.5) && near(hit.rms, rmsOne, 1e-7) && near(hit.level, 1.1 * v65 / 255)
+      && hit.beat === true && hit.beats === 1 && after.beat === false && after.beats === 1 && second.beat === true && second.beats === 2
+      && Array.from(w.see('waveform')).every((v) => v === 128) && w.see('micPeak') === 1,
+      `the sampler publishes micBands on every look: the three bands, rms, centroid and level of what it just folded (every bin at -65 dB: ${hitFreq[0]} in every band, bass ${hit.bass.toFixed(3)}, level ${hit.level.toFixed(3)}), beat true on the look the level jumps and false on the next, and beats counting them (${second.beats} after two); the waveform is the newest 64 samples and micPeak is as before`);
+    w.capture.stop();
+    ok(nothingAlive(w), 'stop() puts micBands back to null with the rest');
+
+    // Beside a core.js from before micBands existed (OBS can cache one file and not the other).
+    const old = loadCapture({ bands: false });
+    old.capture.start(); await settle(); old.requests[0].resolve(); await settle();
+    let threw = '';
+    try { old.look(); old.look(); } catch (e) { threw = String(e); }
+    ok(threw === '' && oneSession(old, 'default') && Array.from(old.see('frequencies')).every((v) => v === v65) && old.see('typeof micBands') === 'undefined',
+      `beside a core.js from before micBands the sampler still runs and publishes the 32 bands, the waveform and the peak, and writes no micBands ${threw}`);
+    old.capture.stop();
   }
 }
 

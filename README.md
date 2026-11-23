@@ -19,7 +19,9 @@ control.html ── DoAction "Timbre Push" {config} ──► Streamer.bot (C# c
 ```
 
 - **No audio crosses any wire.** Each overlay page runs its own `getUserMedia` →
-  `AnalyserNode` (fftSize 64, ~30 fps). Only the settings JSON travels, via Streamer.bot.
+  `AnalyserNode` (fftSize 2048, folded into 32 bands from 60 Hz to 12 kHz, ~30 fps). The
+  microphone is asked for raw: echo cancellation, noise suppression and automatic gain off.
+  Only the settings JSON travels, via Streamer.bot.
 - **One config message** (`timbre:config`) carries everything: active effect, global knobs,
   scene placement, the afterglow length, per-effect knobs, and the mic device to capture.
 - **Sync-on-connect:** when a page connects it fires `DoAction "Timbre Push"`, and the

@@ -9,8 +9,8 @@
    Transport: config arrives as `svc:message` CustomEvents dispatched by
    /timbre-shared/panel-client-sb.js (Streamer.bot General.Custom broadcasts).
    Audio never crosses the wire — audio-capture.js (loaded after this file)
-   fills the `frequencies` / `waveform` / `micActive` bindings from the
-   page's own microphone.
+   fills the `frequencies` / `waveform` / `micPeak` / `micBands` / `micActive`
+   bindings from the page's own microphone.
 
    All names, defaults, and ranges come from /timbre-shared/viz-config.js
    (the TIMBRE global) — the single source of truth shared with control.html.
@@ -147,6 +147,12 @@ const labelEl = document.querySelector('.viz-label');
 let frequencies = null;
 let waveform = null;
 let micPeak = null;   // loudest input sample (0..1) across the whole sample interval; null with no mic
+/* The sound summed up once per audio sample (about 30 a second), all before Gain except the
+   beat: { bass, mid, treble, rms, centroid, level, beat, beats }. null with no mic. `beat` is
+   true for the one sample a beat is found on; `beats` counts them, so a reader that draws
+   faster or slower than the sampler compares the count with the one it saw last and neither
+   misses a beat nor takes one twice. See docs/EFFECTS.md. */
+let micBands = null;
 let micActive = false;
 
 /* ── Shared visualizer config — normalized values the factories consume.
@@ -348,6 +354,7 @@ window.__timbre = {
   get micActive() { return micActive; },
   get frequencies() { return frequencies; },
   get micPeak() { return micPeak; },
+  get micBands() { return micBands; },
   get currentVizName() { return currentVizName; },
   get cfgGain() { return cfgGain; },
   get config() { return timbreConfig; },

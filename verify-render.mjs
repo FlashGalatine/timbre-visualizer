@@ -423,6 +423,24 @@ async function main() {
     check('analyser sees audio energy (fake tone)', energy);
     check('micPeak is a level between 0 and 1 while listening', await page.waitForFunction(
       () => typeof window.__timbre.micPeak === 'number' && window.__timbre.micPeak > 0 && window.__timbre.micPeak <= 1, { timeout: 5000 }).then(() => true).catch(() => false));
+    {
+      // Sprint 7: the real AnalyserNode behind the fold. The fake device's sound has to show in
+      // the 32 bands and in the summary, as numbers in range.
+      const heard = await page.waitForFunction(() => {
+        const b = window.__timbre.micBands, f = window.__timbre.frequencies;
+        return !!b && !!f && b.level > 0 && b.rms > 0 && Array.from(f).some((v) => v > 0);
+      }, null, { timeout: 5000 }).then(() => page.evaluate(() => {
+        const b = window.__timbre.micBands, f = Array.from(window.__timbre.frequencies);
+        return { bands: Object.assign({}, b), f, wave: waveform.length };
+      })).catch(() => null);
+      const inRange = (v) => typeof v === 'number' && v >= 0 && v <= 1;
+      check('while listening the sampler publishes 32 bands of 0-255, 64 waveform samples and micBands (bass, mid, treble, rms and centroid from 0 to 1, a level, a beat flag and a count of beats)',
+        !!heard && heard.f.length === 32 && heard.f.every((v) => Number.isInteger(v) && v >= 0 && v <= 255) && heard.wave === 64
+        && ['bass', 'mid', 'treble', 'rms', 'centroid'].every((k) => inRange(heard.bands[k])) && heard.bands.level > 0 && Number.isFinite(heard.bands.level)
+        && typeof heard.bands.beat === 'boolean' && Number.isInteger(heard.bands.beats) && heard.bands.beats >= 0, JSON.stringify(heard));
+      const asked = await page.evaluate(() => { const t = window.timbreCapture.analysis; return { fft: t.FFT_SIZE, bands: t.BANDS, lo: t.BAND_LOW_HZ, hi: t.BAND_HIGH_HZ }; });
+      check('the analysis is 2048 points folded into 32 bands from 60 Hz to 12 kHz', asked.fft === 2048 && asked.bands === 32 && asked.lo === 60 && asked.hi === 12000, JSON.stringify(asked));
+    }
 
     {
     // Streamer.bot serves a .woff2 as application/octet-stream, and so does the mock. The font must load all the same.
