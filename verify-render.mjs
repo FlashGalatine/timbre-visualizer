@@ -4774,11 +4774,11 @@ async function main() {
     const roState = await sceneState();
     const sit = await roseRun([Object.assign({ secs: 1 }, hush), Object.assign({ secs: 0.5 }, hush)], still);
     const ss = sit[1].state;
-    check('rose is a kit scene: a solid rose on its stem, a transparent corner and nothing at the edge',
+    check('rose is a kit scene: a solid rose on its stem, a transparent corner and nothing at the edge, seen from as far as a view 30 degrees wide asks, looking 10 degrees down',
       !!roState && roState.active === true && roState.targetSize[0] === 1728 && sit[1].solid > 32000 && sit[1].solid < 40500 && sit[1].cornerAlpha === 0 && sit[1].edge === 0
       && ss.solid === true && ss.neverCulled === true && ss.petals === 56 && ss.kept === 24 && ss.drawn === 67 && ss.gridPoints === 135 && ss.triangles === 224 && ss.stalkPoints === 914 && ss.stalkTriangles === 1596
-      && ss.phase === 'whole' && ss.live === true && ss.hues === 0.03 && JSON.stringify(ss.pal) === JSON.stringify(sit[1].pal) && JSON.stringify(ss.green) === JSON.stringify(sit[1].greenWant),
-      JSON.stringify({ size: roState && roState.targetSize, solid: sit[1].solid, part: sit[1].part, edge: sit[1].edge, corner: sit[1].cornerAlpha, flags: [ss.solid, ss.neverCulled], drawn: ss.drawn, counts: [ss.gridPoints, ss.triangles, ss.stalkPoints, ss.stalkTriangles], pal: ss.pal, want: sit[1].pal, green: [ss.green, sit[1].greenWant] }));
+      && ss.phase === 'whole' && ss.live === true && ss.hues === 0.03 && Math.abs(Math.hypot(sit[1].kitCam[0], sit[1].kitCam[1] + 0.2, sit[1].kitCam[2]) - 1.6 / Math.tan(Math.PI / 12)) < 1e-3 && Math.abs(sit[1].kitCam[1] + 0.2 - (1.6 / Math.tan(Math.PI / 12)) * Math.sin(Math.PI / 18)) < 1e-3 && JSON.stringify(ss.pal) === JSON.stringify(sit[1].pal) && JSON.stringify(ss.green) === JSON.stringify(sit[1].greenWant),
+      JSON.stringify({ size: roState && roState.targetSize, solid: sit[1].solid, part: sit[1].part, edge: sit[1].edge, corner: sit[1].cornerAlpha, flags: [ss.solid, ss.neverCulled], drawn: ss.drawn, cam: sit[1].kitCam, counts: [ss.gridPoints, ss.triangles, ss.stalkPoints, ss.stalkTriangles], pal: ss.pal, want: sit[1].pal, green: [ss.green, sit[1].greenWant] }));
     check('rose: in silence every petal is on the head, 24 of them out, and the stem has no thorns', ss.attached === 56 && ss.open === 24 && ss.flying === 0 && ss.coming === 0 && ss.thorns === 0 && thornsDrawn(sit[1]) <= 4 && sit[1].away === 0 && sit[1].petal > 20000 && sit[1].green > 9500
       && sit[1].stemMid[3] >= 250 && sit[1].stepsTaken === 30 && sit.every(remade),
       JSON.stringify({ attached: ss.attached, open: ss.open, thorns: [ss.thorns, thornsDrawn(sit[1])], away: sit[1].away, petal: sit[1].petal, green: sit[1].green, stem: sit[1].stemMid, steps: sit[1].stepsTaken, model: sit[1].model }));
@@ -4811,13 +4811,13 @@ async function main() {
 
     // The thump.
     const calm3 = { knobs: { cameraDrift: 0, regatherSeconds: 3 }, colorSpeed: 0, gain: 1 };
-    const th = await roseRun([Object.assign({ secs: 1 }, hush), thump, Object.assign({ secs: 0.5 }, hush), Object.assign({ secs: 2 }, hush), Object.assign({ secs: 7 }, hush), Object.assign({ secs: 9 }, hush), Object.assign({ secs: 0.5 }, hush)], calm3);
-    const gold = (c) => c[3] >= 250 && c[0] > 150 && c[0] > 1.1 * c[1] && c[1] > 1.3 * c[2];
+    const th = await roseRun([Object.assign({ secs: 1 }, hush), thump, Object.assign({ secs: 0.5 }, hush), Object.assign({ secs: 2 }, hush), Object.assign({ secs: 7, watchEdge: true }, hush), Object.assign({ secs: 9 }, hush), Object.assign({ secs: 0.5 }, hush)], calm3);
+    const gold = (c) => c[3] >= 250 && c[0] > 150 && c[0] > 1.1 * c[1] && c[1] > 1.6 * c[2];
     check('rose: a thump of the mic throws every petal off the head: they are all in the air at once, the head nods, and its golden heart is bare', th[0].state.attached === 56 && th[1].state.thumps === 1 && th[1].state.phase === 'pieces' && th[1].state.flying === 56 && th[1].state.attached === 0 && th[1].flashMost === 1
-      && th[2].dipMost < -0.03 && th[2].away > 0.6 * th[2].petal && th[2].petal > 6000 && gold(th[2].heart) && !gold(th[0].heart) && th[2].onCanvas === 56 && th[2].onPetal >= 40,
-      JSON.stringify({ attached: [th[0].state.attached, th[1].state.attached], thumps: th[1].state.thumps, phase: th[1].state.phase, flying: th[1].state.flying, flash: th[1].flashMost, dip: th[2].dipMost, away: [th[2].away, th[2].petal], heart: [th[0].heart, th[2].heart], on: [th[2].onPetal, th[2].onCanvas] }));
+      && th[2].dipMost < -0.03 && th[3].away > 0.08 * th[3].petal && th[3].petalBox.w > 2 * sit[1].petalBox.w && th[2].petal > 6000 && gold(th[2].heart) && !gold(th[0].heart) && th[2].onCanvas === 56 && th[2].onPetal >= 40,
+      JSON.stringify({ attached: [th[0].state.attached, th[1].state.attached], thumps: th[1].state.thumps, phase: th[1].state.phase, flying: th[1].state.flying, flash: th[1].flashMost, dip: th[2].dipMost, away: [th[3].away, th[3].petal], box: [sit[1].petalBox.w, th[3].petalBox.w], heart: [th[0].heart, th[2].heart], on: [th[2].onPetal, th[2].onCanvas] }));
     check('rose: loose, the petals fly as a flock through the silence, inside the picture, every one fully grown; after the calm wait they come home from the heart outward and the rose is whole; then it folds to the small rose again', th[3].state.flying === 56 && th[3].flyingLeast === 56
-      && th[3].grownOf.every((g) => g > 0.99) && th[3].speed > 0.9 && th[3].fromLead < 1.3 && th.every((r) => r.edge === 0) && th[4].phases === 'pieces,returning,whole' && th[4].comingMost > 10 && th[4].state.attached === 56 && th[4].homeAt > 120 && th[4].homeAt < 400
+      && th[3].grownOf.every((g) => g > 0.99) && th[3].speed > 0.9 && th[3].fromLead < 1.3 && th.every((r) => r.edge === 0) && th[4].phases === 'pieces,returning,whole' && th[4].edgeFrames === 0 && th[4].comingMost > 10 && th[4].state.attached === 56 && th[4].homeAt > 120 && th[4].homeAt < 400
       && th[4].state.gathers === 1 && th[5].state.open === 24 && th[5].state.attached === 56 && Math.abs(th[6].petal - sit[1].petal) < 0.12 * sit[1].petal && !gold(th[6].heart) && th[6].away === 0 && th.every(remade),
       JSON.stringify({ flying: th.map((r) => r.state.flying), speed: th[3].speed, fromLead: th[3].fromLead, edge: th.map((r) => r.edge), phases: th.map((r) => r.phases), coming: th[4].comingMost, homeAt: th[4].homeAt, open: th.map((r) => r.state.open), petal: [sit[1].petal, th[6].petal], model: th.map((r) => r.model.ok && r.model.gapP) }));
     const again = await roseRun([Object.assign({ secs: 1 }, hush), thump, Object.assign({ secs: 0.9 }, hush), thump, Object.assign({ secs: 0.4 }, hush)], calm3);

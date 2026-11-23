@@ -1309,22 +1309,33 @@ boids closely. It offers:
   ripple as it was: a petal `u` of the way to the rim leans out and flashes `WAVE_SPAN * u`
   steps later; a thorn and a leaf answer later the nearer the foot they are (`STEM_WAVE`).
 - **The thump.** `scatter(ro, n, strength, random)` throws every petal off the head, out
-  from its axis and along it; one already in the air is thrown off its way. Each then flies
-  alone for a while (`startle`), to its own part of the air. `gather(ro, n, random)` starts
-  them for home, from the heart outward over `HOME_OVER` seconds.
+  from its axis and along it; one already in the air is thrown off its way.
+  `gather(ro, n, random)` starts them for home, from the heart outward over `HOME_OVER`
+  seconds.
 - **Flying.** `leadAt(out, tau, flame)` is the lead, which wheels round the box. A loose petal
   flies at its cruising speed and steers by turning, as a bird does: toward its own place by
-  the lead (kept inside the air: `AIR`, `ROOM`), off any petal too close, the way the petals
-  near it fly, and back from the edge of its air. It heads the way it flies and tumbles about
-  that way; its face is carried along from step to step, so it never spins about itself.
+  the lead (`placeOf`: to one side of the lead or the other, above or below, and kept inside
+  the air: `AIR`, `ROOM`), off any petal too close, and the way the petals near it fly. Far
+  from its place it flies faster, at its place slower. A petal is light: thrown faster than it flies, it soon slows (`BRAKE`). It
+  heads the way it flies and tumbles about that way; its face is carried along from step to
+  step, so it never spins about itself.
 - **Staying in the picture.** `HARD` is all the air there is, an egg a little larger than
-  `AIR`: from `HARD_FROM` of the way out a loose petal loses its speed outward, and it does
-  not pass the edge. However often the petals are thrown, none leaves the frame.
+  `AIR`. From `HARD_FROM` of the way out a loose petal loses its speed outward by degrees;
+  what it had along the edge is made up toward the speed it had (by `KEEP` times at most),
+  so it turns along the edge and does not rebound. No petal, flying or coming home, passes
+  the edge. However often the petals are thrown, none leaves the frame.
 - **Coming home.** A petal makes for a point a little way along the way it will grow, then
   for its base, slowing as it comes. Near its place it turns to lie as it will sit, at
-  `LAND_TURN` radians a second (faster only if it must, to be there as it touches down), and
-  takes its shape on the head again. It lands within `LANDED`, flashes, stays out a moment
-  and then answers to the sound like any other.
+  `LAND_TURN` radians a second (`turnTo`). It lands (`perch`) when it is within `LANDED`
+  of its place and no faster than `CATCH`; one that passes its place faster flies on and
+  comes round. It lands as it is: what is left of its turn it makes on the head, at
+  `SEAT_TURN` radians a second, so it is never turned at a stroke. It flashes, stays out a
+  moment and then answers to the sound like any other.
+- **How loose a petal is drawn** (`ro.loose`) is one number that eases, whatever the petal
+  is doing: toward 1 in the air, toward how far it still has to come as it comes home, toward
+  0 on the head. Its size (`AWAY`), its flatter shape (`FLAT`) and where its middle is drawn
+  all go by it, so none of them changes at a stroke: not when a peak throws a petal that was
+  landing, and not when it touches down.
 - **What is drawn.** `bladeGrid()` is the one grid a petal, a leaflet and a sepal are drawn
   with. `dress(out, ro, n, look)` is what each is sent: the five sepals, the six leaflets,
   then the petals (its base, the way it grows, its inner face; its length, width, wrap, cup
@@ -1332,6 +1343,8 @@ boids closely. It offers:
   `AWAY` of its size, flatter, about its own middle, rocking as it tumbles.
   `stalk(out, ro, look)` is the stem with the heart on its top, the sixteen thorns and the
   two leaf stalks, as one mesh worked out again each frame; `stalkIndex()` is its triangles.
+  Each point says what it is: stem 0, the heart 1, a thorn 2. The heart is numbered next to
+  the stem it joins, so that what is drawn between them is between green and gold.
   `leafAt(ro, m, flame)` is a leaf; `thornLength(ro, j, long)` how long a thorn is drawn.
 - **Camera.** `orbitAt(t, drift)`, `swayFor(drift)`.
 - `definition()`: the scene, for `TimbreScene.factory()`.
@@ -1344,7 +1357,8 @@ Things worth knowing:
   before and the key is dropped.
 - The head sways a little even in silence, so the picture is not exactly still then; the
   petals, the thorns and the bloom do come to rest (a folded petal and a thorn drawn in are
-  exactly 0). With the mic and Idle animation both off no step is taken and nothing moves.
+  exactly 0). With the mic and Idle animation both off no step is taken and the rose does not
+  move; the camera's sway and the palette's Colour speed go on, as for every scene.
 - The voice is the mic's alone. With the mic off and Idle animation on, the bands swell in
   turn and a few petals open and fold; the kit's own idle swell is not heard as a voice, and
   no thorn grows.
@@ -1361,8 +1375,14 @@ Things worth knowing:
 - When a thump starts and when the petals start for home is `TimbreHelix.createShatter`'s
   machine; Scatter sensitivity and Regather seconds are its two settings under names that
   fit a rose. (The machine waits at least 0.3 s of calm, so Regather seconds 0 is that. It
-  calls the rose whole 1.5 s after the petals start for home; the last of them land a little
-  after that.)
+  calls the rose whole 1.5 s after the petals start for home. They set off over two seconds
+  and take a second or so to land, so the last of them land about two seconds after that; a
+  peak in that time is a new thump, and throws those that have landed too.)
+- The rose is stepped in fixed steps whatever the frame rate, a step coming due at its half,
+  and a loose petal is drawn as far on along its way as the rose is ahead of or behind its
+  steps. The sound is read once a frame and a thump is taken in the frame that hears it, so
+  after a thump the petals are not where they would be at another frame rate; with a steady
+  sound and no thump the rose is the same at any.
 - The scene is made to fill the frame at Scene Size 100. Enlarged past that it is cropped.
 
 ## Wire format (for driving Timbre from elsewhere)

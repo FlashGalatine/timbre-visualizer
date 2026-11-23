@@ -117,3 +117,100 @@ break nothing caught. Both suites, final stills, and the switch offered to the o
 Two checks of the render suite used the old Rose as "an older WebGL effect" whose renderer
 had made the canvas's context. No such effect is left, so the check now makes a renderer of
 its own on the canvas first, and the kit must still start cleanly after it.
+
+## What the review found
+
+One independent review of the branch at `2203e34`, by a reviewer that ran its own
+simulations (the real `definition()` under Node with a stand-in for three.js, and a copy of
+the blade's shader). Five findings, each confirmed here by running the reviewer's script
+before anything was changed:
+
+1. **A petal snapped and flipped in one step when it was told to come home near its place.**
+   How far it was "landing" went by its distance alone, so it jumped from 0 to 0.9 in a step;
+   the shape it was drawn with followed at once (its size by 30%), and it was told to finish
+   most of its turn in that step: up to 1.75 radians. 149 steps in 48 homecomings had the
+   shape snap. Now how loose a petal is drawn is one number that eases, whatever the petal is
+   doing; it turns at a steady rate as it comes in, lands as it is, and finishes turning on
+   the head. The reviewer's script: no step with a turn over 0.3 (0.20 at most), no snap.
+2. **A peak while petals were landing snapped every landing petal flat**: 7 to 14 petals each
+   shrank by a quarter and jumped 0.16 to 0.32 in one step. The same easing covers it: the
+   most a drawn middle now moves beyond its own motion is 0.045, and its size changes by 2%.
+3. **Petals rebounded off an unseen wall at the edge of all the air**: 360 of 1680 thrown
+   petals changed velocity by more than 2 a second in one step (5.6 at most). A petal was
+   thrown too hard for the room there is above the head, flew too fast for the size of its
+   air, and what it lost outward was given back to it at once. Now a thrown petal slows
+   quickly (it is light), the throw and the cruising speed are gentler, there is more air
+   above the head, the loss begins further in, and only its speed along the edge is made up.
+   The reviewer's script: none over 2, 0.94 at most.
+4. **A ring of the palette's colour at the foot of the golden heart.** The stem's top (kind
+   0) joined the heart (kind 2), so the strip between them passed through the thorn's kind
+   (1) and was coloured as a thorn's tip. The heart is now kind 1, next to the stem.
+5. **After a thump the petals are not where they would be at another frame rate** (up to 2
+   apart). The thump is taken in the frame that hears it, and the sound is read once a frame.
+   Left as it is, and said in `docs/EFFECTS.md`: nobody sees it, and the rose is the same at
+   any rate with a steady sound.
+
+What the review found in the checks, and what was done:
+
+- The check of the homecoming's turns passed by luck of its seed, and did not look at a
+  petal's size or shape. A new check runs eighteen thumps and homecomings (three loudnesses,
+  six seeds, a peak in half of them as the petals land) and bounds the turn, the drawn shift,
+  the change of size and the change of shape in every step.
+- Nothing watched the homecoming for the frame's edge. A petal coming home is now held
+  inside all the air as a flying one is (it was not: a peak could put it back at a stroke),
+  and the render block looks at the canvas's edges in every frame of the homecoming.
+- "The same rose at 30 and 60 frames a second" says what it checks: a steady sound.
+- Rose had none of the file checks Boids has. It has them now: the three pages load
+  `rose.js` once and in order, the factory is the kit's one line, no `Math.random`.
+
+And in the documents: a landing petal's turn, "nothing moves" with the mic and Idle
+animation off (the camera and the palette go on), and when the last petals land after the
+machine calls the rose whole (about two seconds, not "a little"). All corrected.
+
+Found on the way, by the new checks:
+
+- A petal called home as it flew through its own place stopped dead there at flight speed.
+  It lands only when it is slow (`CATCH`); faster, it flies on and comes round.
+- Turning to lie as it sits, a petal's face could turn twice as far in a step as the way it
+  grows. The two share one limit.
+- The heart read as cream once its shine was added. It is matt.
+- "Just thrown, each petal flies alone to its own part of the air" made no difference that
+  could be measured once places were kept inside the air. It is gone, with its three numbers.
+- The soft wall at the edge of a petal's air did nothing its place (which is inside the air)
+  and the edge of all the air did not already do. It is gone too.
+
+## Breaking it on purpose
+
+**The arithmetic, before the review.** 203 breaks of `overlay/rose.js`, one line at a time,
+against the Node section: 159 caught at first. Of the 43 that slipped past, three were lines
+that did nothing and were removed (a guard on which petals listen, a petal on the head
+"tightening" a shape it never has there, a petal coming home loosening a shape it already
+has), one was the rule at the edge of the air, which was rewritten (it gave a petal heading
+straight out its speed back), and the rest got checks: a direct test of `toward`; each
+petal's length, width, turn and nerve by its rank and its own share of chance; the stem's
+and a leaf's handedness; how full a bare head counts; the lead's swing; a throw in the air,
+each way; a folded petal growing as it flies; that loose petals keep clear of loose petals
+only; the turn in a step; the tumble; the aim on the way home; what the landing step does;
+a leaf's lift and its stalk. Run again: all caught.
+
+**The arithmetic, after the review.** 41 breaks of what the fixes added or changed: 32
+caught; the 8 that slipped past got checks (a petal lands at rest, hurries when far from its
+place and idles at it, has its own place to one side of the lead, lands only when slow, is
+nearly in its head shape and mostly turned as it touches down). Then the whole first list
+again on the fixed arithmetic, where the gentler flight let nine through that had been
+caught before: where a petal grows from, heart and rim; the mean throw, out and along; that
+the homecoming's times vary; a place kept inside the air (`placeOf` is now a function of
+its own so that it can be asked); and what a petal takes of its neighbours' way. Run again:
+every break that still applies is caught.
+
+**The scene.** 80 breaks of the scene and its shaders against the render block. The first
+run was stopped after 57, when the review came back: 54 caught, and two slipped past (the
+camera's field of view, which now has a check of how far away the camera stands; and a
+petal's cup, which a picture is not told apart by here and is pinned as text by the Node
+section). The other 23, the two again, and breaks of the stalk's rewritten shader are run on
+the fixed code; what they show is recorded below when they are done.
+
+**One failure in a full render run that is not the rose's.** A run made while two live
+WebGL pages were open in the app's browser pane failed the jelly's "muted in the middle of a
+wobble" stillness check by one stray pixel over what this GPU is allowed (9 against 8), as a
+Boids run did. With the pages closed the next full run was clean (877 of 877).

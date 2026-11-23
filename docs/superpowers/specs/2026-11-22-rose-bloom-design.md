@@ -52,7 +52,7 @@ throws them again. After a calm wait they come home from the heart outward, each
 place, and the head nods as they land. No petal leaves the picture.
 
 **Idle** (mic off, Idle animation on): the bands swell a little in turn, so a few outer
-petals open and fold; no thorns. With both off, nothing moves.
+petals open and fold; no thorns. With both off, the rose stops as it is.
 
 **Colour.** The petals take the palette's colour, a little deeper at the heart, and move
 with Colour speed and hue as every effect does. The stem, the leaves and the sepals are

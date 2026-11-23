@@ -71,27 +71,26 @@
   const SEPAL = [0.34, 0.14, 0.4, -0.08, 0.10], SEPAL_AT = [1.2566, 0.4, -0.015, 0.085], SEPAL_OUT = [0.90, -0.42];   // a sepal's length, width, wrap, cup and roll; how far round each is from the last, from where, how far below the head's top and how far out; the way it runs
 
   // The air.
-  const AIR = [1.8, 0.7, 0.6], AIR_C = [0, -0.2, 0];   // the air loose petals keep to: an egg this far each way, about here
-  const WALL = 8, WALL_FROM = 0.9;          // how hard a petal is turned back at the edge of its air, and from where
-  const HARD = [2.0, 0.85, 0.75], HARD_FROM = 0.8, KEEP = 3;   // all the air there is: from this share of the way out a petal loses its speed outward, and at its edge it has none
-  const CRUISE = [1.3, 1.5], LOOSE_FAST = 1.4, LOOSE_WIDE = 1.3;   // how fast the flock flies in silence and how much faster at the loudest; just thrown, petals fly this much faster, each to its own part of the air, this much wider
+  const AIR = [1.8, 0.7, 0.6], AIR_C = [0, -0.1, 0];   // the air loose petals keep to: an egg this far each way, about here
+  const HARD = [2.0, 0.85, 0.75], HARD_FROM = 0.7, KEEP = 1.5;   // all the air there is: from this share of the way out a petal loses its speed outward, and at its edge it has none
+  const CRUISE = [1.1, 0.9];                // how fast the flock flies in silence and how much faster at the loudest
   const LEAD_RATE = [0.45, 0.9], LEAD = [0.9, 0.3, 0.4], LEAD_WIDE = [0.7, 0.3], LEAD_UP = 0.05;   // how fast the lead goes round; how far it swings; the share of that in silence; how far above the middle of the air it keeps
   const PLACE = [1.1, 0.45, 0.45], ROOM = 0.85;   // how far from the lead a petal's own place may be, each way; and the share of its air a place is kept within
-  const TURN = [3.5, 2], SPEED_RATE = 3;    // how fast a loose petal turns, in radians a second, and how much faster at the loudest; and how fast its speed goes to the speed it wants
+  const TURN = [3.5, 2], SPEED_RATE = 3, BRAKE = 8;   // how fast a loose petal turns, in radians a second, and how much faster at the loudest; how fast its speed rises to the speed it wants, and how fast it falls to it (a petal is light: thrown, it soon slows)
   const ALIGN = 0.7, NEAR = 0.9, CLEAR = 0.5, PART = 2.5;   // how much it takes the way its neighbours fly; how far it looks for them; how far apart two keep, and how hard they steer off each other
-  const TOP = 5;                            // no petal flies faster than this
-  const THROW = [1.6, 2.6, 0.4, 2.2, 1.6];  // a thump throws a petal off the head: out from the axis this fast and up to this much more, along the axis this fast and up to this much more, and up to half this any way
-  const THROWN = [4, 3, 2.5, 0.3];          // one already in the air is thrown up to half this sideways, this much up or down (more up than down, by this share) and half this in depth
-  const STARTLE = [1.2, 1.6], JOSTLE = 0.6; // how long a thrown petal flies alone, at least, and how much longer it may; and how hard a peak throws them while they are loose, beside the thump's 1
+  const TOP = 3.2;                           // no petal flies faster than this
+  const THROW = [1.2, 1.6, 0.3, 1.2, 1.2];  // a thump throws a petal off the head: out from the axis this fast and up to this much more, along the axis this fast and up to this much more, and up to half this any way
+  const THROWN = [3, 2.2, 2, 0.3];          // one already in the air is thrown up to half this sideways, this much up or down (more up than down, by this share) and half this in depth
+  const JOSTLE = 0.6;                       // how hard a peak throws them while they are loose, beside the thump's 1
   const HOME_OVER = 2, HOME_VARY = 0.25;    // they start for home over this long, from the heart outward, give or take this
   const HOME_NEAR = 0.5, HOME_AHEAD = 0.45; // until it is this near its place a petal makes for a point this far along the way it will grow
   const HOME_FAST = 2.4, HOME_SLOW = [0.3, 2.5], HOME_SEEK = [5, 10];   // how fast it comes home at least; near its place, its least speed and its speed for each unit left; how hard it steers, coming and landing
-  const LANDED = 0.03;                      // it has landed when this near its place
+  const LANDED = 0.03, CATCH = 0.6;         // it has landed when this near its place, and no faster than this (faster, it flies on and comes round)
   const TURN_HEAD = 6, TUMBLE = [0.5, 0.5, 2];   // how fast a petal turns to head the way it flies; how much of its spin it has at rest in the air, how much more at cruising speed, and the most cruising speeds counted
-  const LAND_TURN = 6;                      // coming in to land it turns to lie as it will sit, at this many radians a second at least
+  const LAND_TURN = 6, SEAT_TURN = 12;      // coming in to land it turns to lie as it will sit at this many radians a second; on the head it finishes turning at this many
   const SPIN = [3, 4];                      // a petal's spin about the way it flies, in radians a second: the least, and how much more it may have
   const ROCK = 0.45, ROCK_RATE = 0.6;       // how far a loose petal rocks, in radians, and how fast for its tumbling
-  const LOOSEN = 8, TIGHTEN = 12;           // how fast a petal takes its shape in the air, and gives it up on the head
+  const LOOSEN = 6;                         // how fast the shape a petal is drawn with follows what it is doing: loose in the air, as it will sit by the time it lands, its own again on the head
   const AWAY = 0.74, FLAT = [1.3, 0.13, 0.10];   // a loose petal is drawn this much of its size, and is this wrapped, cupped and rolled
   const RISE = 20, FALL = 5;                // how fast a band is followed, up and down, a second
   const TRAIL = 8, PULSE = 5;               // how fast the loudness just past is forgotten, a second, and how much of a syllable a rise of 1 is
@@ -206,7 +205,7 @@
       p: new Float32Array(N * 3), v: new Float32Array(N * 3), fwd: new Float32Array(N * 3), nrm: new Float32Array(N * 3), off: new Float32Array(N * 3), state: new Int8Array(N),
       vary: new Float32Array(N * 4), stayFor: new Float32Array(N), spin: new Float32Array(N),
       len: new Float32Array(N), wid: new Float32Array(N), turn: new Float32Array(N), nerve: new Float32Array(N), band: new Int32Array(N),
-      grown: new Float32Array(N), heard: new Float32Array(N), loose: new Float32Array(N), land: new Float32Array(N), startle: new Float32Array(N), psi: new Float32Array(N), homeAt: new Float32Array(N), flash: new Float32Array(N),
+      grown: new Float32Array(N), heard: new Float32Array(N), loose: new Float32Array(N), psi: new Float32Array(N), homeAt: new Float32Array(N), flash: new Float32Array(N),
       // Where each belongs on the head just now: its base, the way it grows, its inner face, the way out from the axis; and its shape (wrap, cup, roll).
       base: new Float32Array(N * 3), grow: new Float32Array(N * 3), face: new Float32Array(N * 3), out: new Float32Array(N * 3), shape: new Float32Array(N * 3),
       c0: [0, 0, 0], c1: [0, 0, 0], c2: [0, 0, 0], c3: [0, 0, 0], top: [0, 0, 1], hx: [1, 0, 0], hy: [0, 1, 0],
@@ -225,11 +224,18 @@
     lay(ro, n);
     return ro;
   }
-  // Petal i is on the head, in its place.
+  // Petal i is on the head, in its place, lying as it sits there.
   function seat(ro, i) {
     const a = i * 3;
-    ro.state[i] = 0; ro.loose[i] = 0; ro.land[i] = 0;
+    ro.state[i] = 0; ro.loose[i] = 0;
     for (let k = 0; k < 3; k++) { ro.p[a + k] = ro.base[a + k]; ro.v[a + k] = 0; ro.fwd[a + k] = ro.grow[a + k]; ro.nrm[a + k] = ro.face[a + k]; }
+  }
+  // Petal i lands in its place. It keeps the way it is turned and the shape it has, and takes the way it sits
+  // and its own shape over the next steps (see stepRose).
+  function perch(ro, i) {
+    const a = i * 3;
+    ro.state[i] = 0;
+    for (let k = 0; k < 3; k++) { ro.p[a + k] = ro.base[a + k]; ro.v[a + k] = 0; }
   }
   // How many petals are on the head, flying and coming home, and how many on the head are out.
   function tally(ro) {
@@ -259,7 +265,7 @@
       ro.turn[i] = i * GOLDEN + TURN0 + TURN_VARY * (ro.vary[q + 2] - 0.5);
       ro.band[i] = i % BANDS;
       ro.nerve[i] = NERVE[0] + NERVE[1] * Math.pow(o, NERVE[2]) + NERVE[3] * ro.vary[q + 3];
-      ro.grown[i] = i < kept ? 1 : 0; ro.heard[i] = 0; ro.startle[i] = 0; ro.flash[i] = 0; ro.psi[i] = 0; ro.homeAt[i] = 0;
+      ro.grown[i] = i < kept ? 1 : 0; ro.heard[i] = 0; ro.flash[i] = 0; ro.psi[i] = 0; ro.homeAt[i] = 0;
     }
     pose(ro);
     for (let i = 0; i < n; i++) seat(ro, i);
@@ -304,8 +310,7 @@
       } else {
         ro.v[a] += strength * (random() - 0.5) * THROWN[0]; ro.v[a + 1] += strength * (random() - THROWN[3]) * THROWN[1]; ro.v[a + 2] += strength * (random() - 0.5) * THROWN[2];
       }
-      ro.state[i] = 1; ro.land[i] = 0;
-      ro.startle[i] = STARTLE[0] + STARTLE[1] * random();
+      ro.state[i] = 1;
     }
     ro.homing = false;
     ro.headV[1] -= NOD * strength;
@@ -317,7 +322,35 @@
     for (let i = 0; i < n; i++) ro.homeAt[i] = ro.time + HOME_OVER * (n > 1 ? i / (n - 1) : 0) + HOME_VARY * random();
   }
 
-  const T3 = [0, 0, 0];
+  // Petal i's own place in the air: by the lead, to one side of it or the other, above or below, nearer or
+  // further, and kept inside the air.
+  function placeOf(out, ro, i) {
+    const a = i * 3;
+    let qx = ro.lead[0] + PLACE[0] * ro.off[a] - AIR_C[0], qy = ro.lead[1] + PLACE[1] * ro.off[a + 1] - AIR_C[1], qz = ro.lead[2] + PLACE[2] * ro.off[a + 2] - AIR_C[2];
+    const room = Math.hypot(qx / AIR[0], qy / AIR[1], qz / AIR[2]);
+    if (room > ROOM) { qx *= ROOM / room; qy *= ROOM / room; qz *= ROOM / room; }
+    out[0] = AIR_C[0] + qx; out[1] = AIR_C[1] + qy; out[2] = AIR_C[2] + qz;
+  }
+  const T3 = [0, 0, 0], Q = [0, 0, 0];
+  // The petal whose numbers start at `a` is turned toward the way it sits, by at most `most` radians in all: the
+  // way it grows first, then, with what is left of that, its face about it (kept across the way it grows).
+  function turnTo(ro, a, most) {
+    const first = Math.min(most, Math.acos(clamp(ro.fwd[a] * ro.grow[a] + ro.fwd[a + 1] * ro.grow[a + 1] + ro.fwd[a + 2] * ro.grow[a + 2], -1, 1)));
+    toward(T3, ro.fwd[a], ro.fwd[a + 1], ro.fwd[a + 2], ro.grow[a], ro.grow[a + 1], ro.grow[a + 2], most, ro.nrm[a], ro.nrm[a + 1], ro.nrm[a + 2]);
+    const fx = T3[0], fy = T3[1], fz = T3[2];
+    let nx = ro.nrm[a], ny = ro.nrm[a + 1], nz = ro.nrm[a + 2];
+    const along = nx * fx + ny * fy + nz * fz;
+    nx -= fx * along; ny -= fy * along; nz -= fz * along;
+    let nl = Math.hypot(nx, ny, nz);
+    if (nl < 1e-4) { if (Math.abs(fy) < 0.9) { nx = -fz; ny = 0; nz = fx; } else { nx = 0; ny = fz; nz = -fy; } nl = Math.hypot(nx, ny, nz); }
+    nx /= nl; ny /= nl; nz /= nl;
+    let gx = ro.face[a], gy = ro.face[a + 1], gz = ro.face[a + 2];
+    const over = gx * fx + gy * fy + gz * fz;
+    gx -= fx * over; gy -= fy * over; gz -= fz * over;
+    const gl = Math.hypot(gx, gy, gz);
+    if (gl > 1e-4 && most - first > 1e-9) { toward(T3, nx, ny, nz, gx / gl, gy / gl, gz / gl, most - first, fy * nz - fz * ny, fz * nx - fx * nz, fx * ny - fy * nx); nx = T3[0]; ny = T3[1]; nz = T3[2]; }
+    ro.fwd[a] = fx; ro.fwd[a + 1] = fy; ro.fwd[a + 2] = fz; ro.nrm[a] = nx; ro.nrm[a + 1] = ny; ro.nrm[a + 2] = nz;
+  }
   // One step of the head, the thorns and each of the first n petals.
   // `how`: flame (the voice, 0 to 1), kick (a beat, 1 and dying away), bands (the eight bands'
   // loudness), pulse (the syllable), mic (whether the mic is on: thorns are the mic's alone).
@@ -342,19 +375,25 @@
     const cruise = CRUISE[0] + CRUISE[1] * flame;
     ro.tau += STEP * (LEAD_RATE[0] + LEAD_RATE[1] * flame);
     leadAt(ro.lead, ro.tau, flame);
-    const p = ro.p, v = ro.v, lead = ro.lead;
+    const p = ro.p, v = ro.v;
     for (let i = 0; i < n; i++) {
       const a = i * 3;
       // A petal beyond the ones always out sprouts when its band sounds, or when the voice is loud enough for it.
-      if (i >= ro.kept) { if (callOf(bands[ro.band[i]], flame) > ro.nerve[i]) ro.heard[i] = ro.stayFor[i]; ro.heard[i] = Math.max(0, ro.heard[i] - STEP); }
+      if (callOf(bands[ro.band[i]], flame) > ro.nerve[i]) ro.heard[i] = ro.stayFor[i];
+      ro.heard[i] = Math.max(0, ro.heard[i] - STEP);
       const wanted = i < ro.kept || ro.heard[i] > 0 ? 1 : 0;
       ro.flash[i] = settle(ro.flash[i] * Math.exp(-STEP / FLASH_S));
-      ro.startle[i] = Math.max(0, ro.startle[i] - STEP);
       if (ro.state[i] === 0) {
         ro.grown[i] = clamp(ro.grown[i] + (wanted - ro.grown[i]) * Math.min(1, (wanted ? GROW[0] : GROW[1]) * STEP), 0, 1);
         if (!wanted) ro.grown[i] = settle(ro.grown[i]);
-        ro.loose[i] = settle(ro.loose[i] * Math.exp(-TIGHTEN * STEP));
-        for (let k = 0; k < 3; k++) { p[a + k] = ro.base[a + k]; v[a + k] = 0; ro.fwd[a + k] = ro.grow[a + k]; ro.nrm[a + k] = ro.face[a + k]; }
+        ro.loose[i] = settle(ro.loose[i] - ro.loose[i] * Math.min(1, LOOSEN * STEP));
+        for (let k = 0; k < 3; k++) { p[a + k] = ro.base[a + k]; v[a + k] = 0; }
+        // It lies as it sits: at once, unless it has just landed turned some other way, when it turns to that
+        // at a limited rate (the way it grows, then its face about that).
+        const most = SEAT_TURN * STEP, near = Math.cos(most);
+        if (ro.fwd[a] * ro.grow[a] + ro.fwd[a + 1] * ro.grow[a + 1] + ro.fwd[a + 2] * ro.grow[a + 2] >= near && ro.nrm[a] * ro.face[a] + ro.nrm[a + 1] * ro.face[a + 1] + ro.nrm[a + 2] * ro.face[a + 2] >= near) {
+          for (let k = 0; k < 3; k++) { ro.fwd[a + k] = ro.grow[a + k]; ro.nrm[a + k] = ro.face[a + k]; }
+        } else turnTo(ro, a, most);
         continue;
       }
       ro.grown[i] += (1 - ro.grown[i]) * Math.min(1, REGROW * STEP);
@@ -362,13 +401,10 @@
       let ax = 0, ay = 0, az = 0, land = 0;
       if (ro.state[i] === 1) {
         // The flock. A petal flies at its cruising speed and steers by turning: toward its own
-        // place by the lead (or, just thrown, its own part of the air), off any petal too close and
-        // the way the petals near it fly, and back from the edge of its air.
-        const far = ro.startle[i] > 0, wd = far ? LOOSE_WIDE : 1;
-        let qx = (far ? AIR_C[0] : lead[0]) + wd * PLACE[0] * ro.off[a] - AIR_C[0], qy = (far ? AIR_C[1] + LEAD_UP : lead[1]) + PLACE[1] * ro.off[a + 1] - AIR_C[1], qz = (far ? AIR_C[2] : lead[2]) + PLACE[2] * ro.off[a + 2] - AIR_C[2];
-        const room = Math.hypot(qx / AIR[0], qy / AIR[1], qz / AIR[2]);
-        if (room > ROOM) { qx *= ROOM / room; qy *= ROOM / room; qz *= ROOM / room; }
-        const tx = AIR_C[0] + qx - p[a], ty = AIR_C[1] + qy - p[a + 1], tz = AIR_C[2] + qz - p[a + 2], tl = Math.hypot(tx, ty, tz) || 1e-6;
+        // place by the lead (which is inside its air), off any petal too close and
+        // the way the petals near it fly.
+        placeOf(Q, ro, i);
+        const tx = Q[0] - p[a], ty = Q[1] - p[a + 1], tz = Q[2] - p[a + 2], tl = Math.hypot(tx, ty, tz) || 1e-6;
         let was = Math.hypot(v[a], v[a + 1], v[a + 2]) || 1e-6;
         const hx = v[a] / was, hy = v[a + 1] / was, hz = v[a + 2] / was;
         let dx = tx / tl, dy = ty / tl, dz = tz / tl, m = 0, vx = 0, vy = 0, vz = 0;
@@ -381,32 +417,27 @@
           if (d2 < CLEAR * CLEAR) { const d = Math.sqrt(d2) || 1e-4, w = PART * (1 - d / CLEAR) / d; dx -= ex * w; dy -= ey * w; dz -= ez * w; }
         }
         if (m) { dx += ALIGN * (vx / m - hx); dy += ALIGN * (vy / m - hy); dz += ALIGN * (vz / m - hz); }
-        const ex = (p[a] - AIR_C[0]) / AIR[0], ey = (p[a + 1] - AIR_C[1]) / AIR[1], ez = (p[a + 2] - AIR_C[2]) / AIR[2], e = Math.hypot(ex, ey, ez);
-        if (e > WALL_FROM) {
-          let nx = ex / AIR[0], ny = ey / AIR[1], nz = ez / AIR[2];
-          const nl = Math.hypot(nx, ny, nz) || 1, push = WALL * (e - WALL_FROM);
-          dx -= push * nx / nl; dy -= push * ny / nl; dz -= push * nz / nl;
-        }
         const dl = Math.hypot(dx, dy, dz) || 1e-6, turn = Math.min(1, (TURN[0] + TURN[1] * flame) * STEP);
         let nx = hx + (dx / dl - hx) * turn, ny = hy + (dy / dl - hy) * turn, nz = hz + (dz / dl - hz) * turn;
         const nl = Math.hypot(nx, ny, nz) || 1e-6;
-        was += (cruise * (far ? LOOSE_FAST : 1) * clamp(0.7 + 0.5 * tl, 0.8, 1.3) - was) * Math.min(1, SPEED_RATE * STEP);
+        const wants = cruise * clamp(0.7 + 0.5 * tl, 0.8, 1.3);
+        was += (wants - was) * Math.min(1, (was > wants ? BRAKE : SPEED_RATE) * STEP);
         // (What it is given here is the speed it has after the step, so nothing is added below.)
         ax = ((nx / nl) * was - v[a]) / STEP; ay = ((ny / nl) * was - v[a + 1]) / STEP; az = ((nz / nl) * was - v[a + 2]) / STEP;
         ro.loose[i] += (1 - ro.loose[i]) * Math.min(1, LOOSEN * STEP);
       } else {
         // Home: to its own place on the head, by a point a little way along the way it will grow, slowing as it comes.
         const dx = ro.base[a] - p[a], dy = ro.base[a + 1] - p[a + 1], dz = ro.base[a + 2] - p[a + 2], d = Math.hypot(dx, dy, dz);
-        if (d < LANDED) { seat(ro, i); ro.flash[i] = 1; ro.heard[i] = LANDED_STAY; ro.headV[1] -= NOD_LAND; continue; }
+        if (d < LANDED && Math.hypot(v[a], v[a + 1], v[a + 2]) < CATCH) { perch(ro, i); ro.flash[i] = 1; ro.heard[i] = LANDED_STAY; ro.headV[1] -= NOD_LAND; continue; }
         const near = d < HOME_NEAR, ahead = near ? 0 : HOME_AHEAD;
         const tx = dx + ahead * ro.grow[a], ty = dy + ahead * ro.grow[a + 1], tz = dz + ahead * ro.grow[a + 2], tl = Math.hypot(tx, ty, tz) || 1;
         const sp = near ? Math.max(HOME_SLOW[0], HOME_SLOW[1] * d) : Math.max(HOME_FAST, cruise);
         const seek = HOME_SEEK[near ? 1 : 0];
         ax = ((tx / tl) * sp - v[a]) * seek; ay = ((ty / tl) * sp - v[a + 1]) * seek; az = ((tz / tl) * sp - v[a + 2]) * seek;
         land = clamp(1 - (d - LANDED) / (HOME_NEAR - LANDED), 0, 1);
-        ro.loose[i] += (1 - ro.loose[i]) * Math.min(1, LOOSEN * STEP);
+        // The nearer its place, the more it is drawn as it will sit; and that too is eased.
+        ro.loose[i] += (1 - land - ro.loose[i]) * Math.min(1, LOOSEN * STEP);
       }
-      ro.land[i] = land;
       v[a] += ax * STEP; v[a + 1] += ay * STEP; v[a + 2] += az * STEP;
       let sp = Math.hypot(v[a], v[a + 1], v[a + 2]) || 1e-4;
       if (sp > TOP) { v[a] *= TOP / sp; v[a + 1] *= TOP / sp; v[a + 2] *= TOP / sp; sp = TOP; }
@@ -418,33 +449,31 @@
           const nl = Math.hypot(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
           const outward = v[a] * nx + v[a + 1] * ny + v[a + 2] * nz;
           if (outward > 0) {
-            const k = outward * clamp((q - HARD_FROM) / (1 - HARD_FROM), 0, 1);
-            v[a] -= nx * k; v[a + 1] -= ny * k; v[a + 2] -= nz * k;
-            const kept = Math.hypot(v[a], v[a + 1], v[a + 2]);
-            if (kept > 1e-6) { const more = Math.min(sp / kept, KEEP); v[a] *= more; v[a + 1] *= more; v[a + 2] *= more; }
+            const lost = outward * clamp((q - HARD_FROM) / (1 - HARD_FROM), 0, 1), still = outward - lost;   // the speed outward it loses, and what it still has
+            // What is not outward is along the edge: that is made up to the speed it had (so it turns along the
+            // edge, and is not slowed to a stop), by KEEP times at most. One heading straight out has nothing
+            // along the edge: it slows, stops at the edge and is steered back in.
+            const tx = v[a] - nx * outward, ty = v[a + 1] - ny * outward, tz = v[a + 2] - nz * outward, along = Math.hypot(tx, ty, tz);
+            const more = along > 1e-6 ? Math.min(Math.sqrt(Math.max(sp * sp - still * still, 0)) / along, KEEP) : 0;
+            v[a] = nx * still + tx * more; v[a + 1] = ny * still + ty * more; v[a + 2] = nz * still + tz * more;
             sp = Math.hypot(v[a], v[a + 1], v[a + 2]) || 1e-4;
           }
         }
       }
       p[a] += v[a] * STEP; p[a + 1] += v[a + 1] * STEP; p[a + 2] += v[a + 2] * STEP;
-      if (ro.state[i] === 1) {
-        // And it does not pass that edge.
+      {
+        // And it does not pass that edge, flying or coming home.
         const gx = (p[a] - AIR_C[0]) / HARD[0], gy = (p[a + 1] - AIR_C[1]) / HARD[1], gz = (p[a + 2] - AIR_C[2]) / HARD[2], q = Math.sqrt(gx * gx + gy * gy + gz * gz);
         if (q > 1) { p[a] = AIR_C[0] + (p[a] - AIR_C[0]) / q; p[a + 1] = AIR_C[1] + (p[a + 1] - AIR_C[1]) / q; p[a + 2] = AIR_C[2] + (p[a + 2] - AIR_C[2]) / q; }
       }
       // It heads the way it flies, and tumbles about that way as a petal does. Coming in to land it turns
-      // instead to lie as it will sit: at a steady rate, or faster if it must to be there as it touches down
-      // (`gone` is the share of the way left that this step covers).
-      const gone = land > 0 ? clamp(sp * STEP / (Math.hypot(ro.base[a] - p[a], ro.base[a + 1] - p[a + 1], ro.base[a + 2] - p[a + 2]) - LANDED + sp * STEP), 0, 1) : 0;
+      // instead to lie as it will sit, at a steady rate; what is left of that turn when it touches down it
+      // makes on the head.
+      if (land > 0) { turnTo(ro, a, LAND_TURN * STEP); continue; }
       const rate = Math.min(1, TURN_HEAD * STEP);
       let fx = ro.fwd[a] + (v[a] / sp - ro.fwd[a]) * rate, fy = ro.fwd[a + 1] + (v[a + 1] / sp - ro.fwd[a + 1]) * rate, fz = ro.fwd[a + 2] + (v[a + 2] / sp - ro.fwd[a + 2]) * rate;
       const fl = Math.hypot(fx, fy, fz);
       if (fl > 1e-6) { fx /= fl; fy /= fl; fz /= fl; } else { fx = ro.fwd[a]; fy = ro.fwd[a + 1]; fz = ro.fwd[a + 2]; }
-      if (land > 0) {
-        const left = Math.acos(clamp(ro.fwd[a] * ro.grow[a] + ro.fwd[a + 1] * ro.grow[a + 1] + ro.fwd[a + 2] * ro.grow[a + 2], -1, 1));
-        toward(T3, ro.fwd[a], ro.fwd[a + 1], ro.fwd[a + 2], ro.grow[a], ro.grow[a + 1], ro.grow[a + 2], Math.max(LAND_TURN * STEP, left * gone), ro.nrm[a], ro.nrm[a + 1], ro.nrm[a + 2]);
-        fx = T3[0]; fy = T3[1]; fz = T3[2];
-      }
       // Its face is carried along: kept across the way it heads, then turned about it.
       let nx = ro.nrm[a], ny = ro.nrm[a + 1], nz = ro.nrm[a + 2];
       const along = nx * fx + ny * fy + nz * fz;
@@ -454,23 +483,9 @@
       nx /= nl; ny /= nl; nz /= nl;
       const bx = fy * nz - fz * ny, by = fz * nx - fx * nz, bz = fx * ny - fy * nx;
       ro.fwd[a] = fx; ro.fwd[a + 1] = fy; ro.fwd[a + 2] = fz;
-      if (land > 0) {
-        // Its face turns about the way it heads, toward the face it will sit with.
-        let gx = ro.face[a], gy = ro.face[a + 1], gz = ro.face[a + 2];
-        const over = gx * fx + gy * fy + gz * fz;
-        gx -= fx * over; gy -= fy * over; gz -= fz * over;
-        const gl = Math.hypot(gx, gy, gz);
-        if (gl > 1e-4) {
-          const left = Math.acos(clamp((nx * gx + ny * gy + nz * gz) / gl, -1, 1));
-          toward(T3, nx, ny, nz, gx / gl, gy / gl, gz / gl, Math.max(LAND_TURN * STEP, left * gone), bx, by, bz);
-          nx = T3[0]; ny = T3[1]; nz = T3[2];
-        }
-        ro.nrm[a] = nx; ro.nrm[a + 1] = ny; ro.nrm[a + 2] = nz;
-      } else {
-        const turned = STEP * ro.spin[i] * (TUMBLE[0] + TUMBLE[1] * Math.min(sp / cruise, TUMBLE[2])), ct = Math.cos(turned), st = Math.sin(turned);
-        ro.psi[i] += turned;
-        ro.nrm[a] = nx * ct + bx * st; ro.nrm[a + 1] = ny * ct + by * st; ro.nrm[a + 2] = nz * ct + bz * st;
-      }
+      const turned = STEP * ro.spin[i] * (TUMBLE[0] + TUMBLE[1] * Math.min(sp / cruise, TUMBLE[2])), ct = Math.cos(turned), st = Math.sin(turned);
+      ro.psi[i] += turned;
+      ro.nrm[a] = nx * ct + bx * st; ro.nrm[a + 1] = ny * ct + by * st; ro.nrm[a + 2] = nz * ct + bz * st;
     }
     ro.hist[ro.at] = how.pulse || 0; ro.at = (ro.at + 1) % HISTORY;
     ro.time += STEP;
@@ -520,7 +535,7 @@
   // Every blade: the five sepals, the two leaves' six leaflets, then the first n petals.
   // `look`: flame (the voice), kick (a beat), flash (a thump's), and lead: the seconds the rose
   // is behind its steps (ro.left). A petal in the air is drawn that much further on its way.
-  // A petal coming in to land takes its shape on the head again as it comes, and has it as it touches down.
+  // How loose a petal is (ro.loose) is how far it is drawn with the shape it has in the air: it eases, whatever the petal is doing.
   function dress(out, ro, n, look) {
     const top = ro.top, hx = ro.hx, hy = ro.hy, c3 = ro.c3, lead = look.lead || 0, at = [0, 0, 0], f = [0, 0, 0], g = [0, 0, 0];
     let j = 0;
@@ -539,7 +554,7 @@
       }
     }
     for (let i = 0; i < n; i++, j++) {
-      const a = i * 3, u = n > 1 ? i / (n - 1) : 0, st = ro.state[i], land = st === 2 ? ro.land[i] : 0, l = st === 0 ? ro.loose[i] : Math.min(ro.loose[i], 1 - land);
+      const a = i * 3, u = n > 1 ? i / (n - 1) : 0, st = ro.state[i], l = ro.loose[i];
       const fx = ro.fwd[a], fy = ro.fwd[a + 1], fz = ro.fwd[a + 2], nx = ro.nrm[a], ny = ro.nrm[a + 1], nz = ro.nrm[a + 2];
       // In the air a petal is smaller and flatter, and it rocks as it tumbles.
       const w = ROCK * l * Math.sin(ROCK_RATE * ro.psi[i] + i), cw = Math.cos(w), sw = Math.sin(w), size = 1 - (1 - AWAY) * l, ahead = st === 0 ? 0 : lead;
@@ -578,7 +593,8 @@
     return long * clamp(ro.thorn[j] * (1 + THORN_WAVE * rippleAt(ro, STEM_WAVE[0] + STEM_WAVE[1] * (1 - t))), 0, THORN_MOST);
   }
   // The stalk's points into `out` (pos, nrm, tone: three each for STALK_POINTS points). tone is
-  // what the point is (0 stem, 1 thorn, 2 the heart), how far along it, and its band.
+  // what the point is (0 stem, 1 the heart, 2 thorn), how far along it, and its band. (The heart is numbered
+  // next to the stem, which it joins: what lies between them is between green and gold.)
   // `look`: thorn (a thorn's full length), flame.
   function stalk(out, ro, look) {
     let v = 0;
@@ -599,7 +615,7 @@
     for (let j = 1; j <= DOME_RINGS; j++) {
       const g = (j / DOME_RINGS) * Math.PI / 2, up = (DOME[0] + DOME[1] * bare) * Math.sin(g);
       for (let k = 0; k < 3; k++) at[k] = ro.c3[k] + ro.top[k] * up;
-      ring(STEM_AROUND, at, ro.hx, ro.hy, stemRadius(1) * (DOME[2] + (1 - DOME[2]) * bare) * Math.cos(g) + 0.0005, ro.top, Math.tan(Math.min(g, 1.4)), 2, 1, 0);
+      ring(STEM_AROUND, at, ro.hx, ro.hy, stemRadius(1) * (DOME[2] + (1 - DOME[2]) * bare) * Math.cos(g) + 0.0005, ro.top, Math.tan(Math.min(g, 1.4)), 1, 1, 0);
     }
     for (let j = 0; j < THORNS; j++) {
       const t = THORN_SPAN[0] + THORN_SPAN[1] * (j + 0.5) / THORNS, s = stemAt(ro, t), az = j * THORN_TURN[0] + THORN_TURN[1], ca = Math.cos(az), sa = Math.sin(az);
@@ -609,7 +625,7 @@
         const g = q / (THORN_RINGS - 1);
         for (let k = 0; k < 3; k++) { d[k] = o[k] - s.run[k] * THORN_HOOK[0] * g; at[k] = s.at[k] + o[k] * (stemRadius(t) * 0.6 + L * g) - s.run[k] * THORN_HOOK[1] * L * g * g; }
         const du = unit(d), along = s.run[0] * du[0] + s.run[1] * du[1] + s.run[2] * du[2], u1 = unit([s.run[0] - du[0] * along, s.run[1] - du[1] * along, s.run[2] - du[2] * along]);
-        ring(THORN_AROUND, at, u1, cross(du, u1), r0 * Math.pow(1 - g, 1.1) + 0.0003, du, 0.3, 1, g, band);
+        ring(THORN_AROUND, at, u1, cross(du, u1), r0 * Math.pow(1 - g, 1.1) + 0.0003, du, 0.3, 2, g, band);
       }
     }
     for (let m = 0; m < LEAVES; m++) {
@@ -705,7 +721,7 @@
       gl_FragColor = vec4(col, 1.0);
     }`;
   const STALK_VERT = `
-    attribute vec3 tone;
+    attribute vec3 tone;   // stem, heart or thorn (0, 1, 2); how far along it; its band
     varying vec3 vN, vW, vTone;
     void main() {
       vec4 w = modelMatrix * vec4(position, 1.0);
@@ -721,9 +737,11 @@
       float d1 = max(dot(n, L1), 0.0), d2 = max(dot(n, L2), 0.0), spec = pow(max(dot(n, normalize(L1 + v)), 0.0), 36.0);
       // The stem is green, a little paler toward its top; a thorn's tip wears its band's colour; the heart is gold.
       vec3 c = uGreen * (0.72 + 0.28 * vTone.y);
-      if (vTone.x > 1.5) c = vec3(0.80, 0.42, 0.04) * (0.85 + 0.15 * sin(vW.x * 90.0) * sin(vW.y * 90.0));
-      else if (vTone.x > 0.5) c = mix(uGreen * 0.8, mix(pal(vTone.z / 8.0), vec3(1.0), 0.22), pow(vTone.y, 1.2));
-      gl_FragColor = vec4(c * (0.38 + 0.70 * d1 + 0.26 * d2) + vec3(1.0) * spec * 0.18, 1.0);
+      if (vTone.x > 1.5) c = mix(uGreen * 0.8, mix(pal(vTone.z / 8.0), vec3(1.0), 0.22), pow(vTone.y, 1.2));
+      float heart = vTone.x > 1.5 ? 0.0 : smoothstep(0.35, 0.65, vTone.x);
+      c = mix(c, vec3(0.80, 0.42, 0.04) * (0.85 + 0.15 * sin(vW.x * 90.0) * sin(vW.y * 90.0)), heart);
+      // (The heart is matt: a shine would wash its gold out.)
+      gl_FragColor = vec4(c * (0.38 + 0.70 * d1 + 0.26 * d2) + vec3(1.0) * spec * 0.18 * (1.0 - 0.85 * heart), 1.0);
     }`;
 
   // ── The scene ───────────────────────────────────────────────────────────────
@@ -914,11 +932,11 @@
     NERVE, STAY, CALL, GROW, REGROW, LANDED_STAY, WAVE_SPAN, WAVE_LEAN, WAVE_FLASH, KICK_FLASH, LOOSE_FLASH, FLASH_S,
     THORN_SPAN, THORN_TURN, THORN_CALL, THORN_RATE, THORN_LONG, THORN_WIDE, THORN_HOOK, THORN_WAVE, THORN_MOST, STEM_WAVE,
     LEAF_AT, LEAF_TURN, LEAF_OUT, LEAF_STALK, LEAF_SWAY, LEAF_WAVE, LEAF_DROOP, LEAFLET, LEAF_FAN, LEAF_SHAPE, SEPAL, SEPAL_AT, SEPAL_OUT,
-    AIR, AIR_C, WALL, WALL_FROM, HARD, HARD_FROM, KEEP, CRUISE, LOOSE_FAST, LOOSE_WIDE, LEAD_RATE, LEAD, LEAD_WIDE, LEAD_UP, PLACE, ROOM, TURN, SPEED_RATE, ALIGN, NEAR, CLEAR, PART, TOP,
-    THROW, THROWN, STARTLE, JOSTLE, HOME_OVER, HOME_VARY, HOME_NEAR, HOME_AHEAD, HOME_FAST, HOME_SLOW, HOME_SEEK, LANDED, TURN_HEAD, TUMBLE, LAND_TURN, SPIN, ROCK, ROCK_RATE, LOOSEN, TIGHTEN, AWAY, FLAT,
+    AIR, AIR_C, HARD, HARD_FROM, KEEP, CRUISE, LEAD_RATE, LEAD, LEAD_WIDE, LEAD_UP, PLACE, ROOM, TURN, SPEED_RATE, BRAKE, ALIGN, NEAR, CLEAR, PART, TOP,
+    THROW, THROWN, JOSTLE, HOME_OVER, HOME_VARY, HOME_NEAR, HOME_AHEAD, HOME_FAST, HOME_SLOW, HOME_SEEK, LANDED, CATCH, TURN_HEAD, TUMBLE, LAND_TURN, SEAT_TURN, SPIN, ROCK, ROCK_RATE, LOOSEN, AWAY, FLAT,
     RISE, FALL, TRAIL, PULSE, HISTORY, SWAY, ORBIT_RATE, LINGER, FOV, PITCH, FRAME, PETAL_HUES, GREEN, GREEN_PALETTE,
     BLADE_VERT, BLADE_FRAG, STALK_VERT, STALK_FRAG,
-    countFor, keptFor, thornFor, loudness, idle, settle, rng, toward, callOf, thornCall, pulseOf, stemAt, stemRadius, curve, rippleAt, createRose, seat, tally, fullOf, lay, pose, leadAt, scatter, gather, stepRose, advance,
+    countFor, keptFor, thornFor, loudness, idle, settle, rng, toward, callOf, thornCall, pulseOf, stemAt, stemRadius, curve, rippleAt, createRose, seat, perch, turnTo, tally, fullOf, lay, pose, leadAt, placeOf, scatter, gather, stepRose, advance,
     bladeGrid, blade, dress, leafAt, stalkIndex, thornLength, stalk, swayFor, orbitAt, definition,
   };
 })();

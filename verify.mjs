@@ -5732,6 +5732,7 @@ await import('./overlay/rose.js');
   const at = (a, i) => [a[i * 3], a[i * 3 + 1], a[i * 3 + 2]];
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2], len = (a) => Math.hypot(a[0], a[1], a[2]), sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
   const angle = (a, b) => Math.acos(Math.max(-1, Math.min(1, dot(a, b) / (len(a) * len(b) || 1))));
+  const unit3 = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
   const count = (ro, n, st) => { let c = 0; for (let i = 0; i < n; i++) if (ro.state[i] === st) c++; return c; };
   // How far petal i leans out from the head's axis, in radians, as it is posed.
   const leanOf = (ro, i) => Math.atan2(dot(at(ro.grow, i), at(ro.out, i)), dot(at(ro.grow, i), ro.top));
@@ -5762,13 +5763,12 @@ await import('./overlay/rose.js');
     && JSON.stringify(K.LEAF_SWAY) === '[0.1,1.7,0.3]' && K.LEAF_WAVE === 0.3 && K.LEAF_DROOP === 0.18 && JSON.stringify(K.LEAFLET) === '[[0.6,0.34],[0.44,0.26]]' && JSON.stringify(K.LEAF_FAN) === '[0.55,0.83]' 
     && JSON.stringify(K.LEAF_SHAPE) === '[0.5,-0.06,0.06]' && JSON.stringify(K.SEPAL) === '[0.34,0.14,0.4,-0.08,0.1]' && JSON.stringify(K.SEPAL_AT) === '[1.2566,0.4,-0.015,0.085]' && JSON.stringify(K.SEPAL_OUT) === '[0.9,-0.42]',
     'the thorns, the leaves and the sepals: where they grow, what a thorn hears, how long and how hooked it is, how a leaf lifts');
-  ok(JSON.stringify(K.AIR) === '[1.8,0.7,0.6]' && JSON.stringify(K.AIR_C) === '[0,-0.2,0]' && K.WALL === 8 && K.WALL_FROM === 0.9 && JSON.stringify(K.HARD) === '[2,0.85,0.75]' && K.HARD_FROM === 0.8 && K.KEEP === 3 
-    && JSON.stringify(K.CRUISE) === '[1.3,1.5]' && K.LOOSE_FAST === 1.4 && K.LOOSE_WIDE === 1.3 && JSON.stringify(K.LEAD_RATE) === '[0.45,0.9]' && JSON.stringify(K.LEAD) === '[0.9,0.3,0.4]' && JSON.stringify(K.LEAD_WIDE) === '[0.7,0.3]' 
-    && K.LEAD_UP === 0.05 && JSON.stringify(K.PLACE) === '[1.1,0.45,0.45]' && K.ROOM === 0.85 && JSON.stringify(K.TURN) === '[3.5,2]' && K.SPEED_RATE === 3 && K.ALIGN === 0.7 && K.NEAR === 0.9 && K.CLEAR === 0.5 
-    && K.PART === 2.5 && K.TOP === 5 && JSON.stringify(K.THROW) === '[1.6,2.6,0.4,2.2,1.6]' && JSON.stringify(K.THROWN) === '[4,3,2.5,0.3]' && JSON.stringify(K.STARTLE) === '[1.2,1.6]' && K.JOSTLE === 0.6 
-    && K.HOME_OVER === 2 && K.HOME_VARY === 0.25 && K.HOME_NEAR === 0.5 && K.HOME_AHEAD === 0.45 && K.HOME_FAST === 2.4 && JSON.stringify(K.HOME_SLOW) === '[0.3,2.5]' && JSON.stringify(K.HOME_SEEK) === '[5,10]' 
-    && K.LANDED === 0.03 && K.TURN_HEAD === 6 && JSON.stringify(K.TUMBLE) === '[0.5,0.5,2]' && K.LAND_TURN === 6 && JSON.stringify(K.SPIN) === '[3,4]' && K.ROCK === 0.45 && K.ROCK_RATE === 0.6 && K.LOOSEN === 8 
-    && K.TIGHTEN === 12 && K.AWAY === 0.74 && JSON.stringify(K.FLAT) === '[1.3,0.13,0.1]' && K.SWAY === 0.14 && K.ORBIT_RATE === 0.13 && K.PETAL_HUES === 0.03 && JSON.stringify(K.GREEN) === '[0.07,0.29,0.14]' 
+  ok(JSON.stringify(K.AIR) === '[1.8,0.7,0.6]' && JSON.stringify(K.AIR_C) === '[0,-0.1,0]' && JSON.stringify(K.HARD) === '[2,0.85,0.75]' && K.HARD_FROM === 0.7 && K.KEEP === 1.5 && JSON.stringify(K.CRUISE) === '[1.1,0.9]' 
+    && JSON.stringify(K.LEAD_RATE) === '[0.45,0.9]' && JSON.stringify(K.LEAD) === '[0.9,0.3,0.4]' && JSON.stringify(K.LEAD_WIDE) === '[0.7,0.3]' && K.LEAD_UP === 0.05 && JSON.stringify(K.PLACE) === '[1.1,0.45,0.45]' 
+    && K.ROOM === 0.85 && JSON.stringify(K.TURN) === '[3.5,2]' && K.SPEED_RATE === 3 && K.BRAKE === 8 && K.ALIGN === 0.7 && K.NEAR === 0.9 && K.CLEAR === 0.5 && K.PART === 2.5 && K.TOP === 3.2 && JSON.stringify(K.THROW) === '[1.2,1.6,0.3,1.2,1.2]' 
+    && JSON.stringify(K.THROWN) === '[3,2.2,2,0.3]' && K.JOSTLE === 0.6 && K.HOME_OVER === 2 && K.HOME_VARY === 0.25 && K.HOME_NEAR === 0.5 && K.HOME_AHEAD === 0.45 && K.HOME_FAST === 2.4 && JSON.stringify(K.HOME_SLOW) === '[0.3,2.5]' 
+    && JSON.stringify(K.HOME_SEEK) === '[5,10]' && K.LANDED === 0.03 && K.CATCH === 0.6 && K.TURN_HEAD === 6 && JSON.stringify(K.TUMBLE) === '[0.5,0.5,2]' && K.LAND_TURN === 6 && K.SEAT_TURN === 12 && JSON.stringify(K.SPIN) === '[3,4]' 
+    && K.ROCK === 0.45 && K.ROCK_RATE === 0.6 && K.LOOSEN === 6 && K.AWAY === 0.74 && JSON.stringify(K.FLAT) === '[1.3,0.13,0.1]' && K.SWAY === 0.14 && K.ORBIT_RATE === 0.13 && K.PETAL_HUES === 0.03 && JSON.stringify(K.GREEN) === '[0.07,0.29,0.14]' 
     && K.GREEN_PALETTE === 0.05,
     'the air: where loose petals keep, how the lead wheels, how a petal flies, is thrown, comes home and tumbles, how it is drawn loose, the colours and the camera');
 
@@ -5857,8 +5857,11 @@ await import('./overlay/rose.js');
       if (off < 0.015 - 1e-6 || off > 0.1 + 1e-6 || along < -0.011 || along > 0.071) rooted = false;
       if (i > 0) { let d = (ro.turn[i] - ro.turn[i - 1]) % (2 * Math.PI); if (Math.abs(d - K.GOLDEN) < 0.21) turned++; }
     }
-    ok(square && inward && rooted && turned === N - 1,
-      "each petal grows from near the head's axis, its inner face toward the axis and square to the way it grows; each is about 137.5 degrees further round than the last");
+    const rootOf = (r, i) => { const b = sub(at(r.base, i), r.c3), along = dot(b, r.top); return [len(sub(b, r.top.map((v) => v * along))), along]; };
+    const grownAll = K.createRose(K.SEED, N); for (let i = 0; i < N; i++) grownAll.grown[i] = 1; grownAll.full = 1; K.pose(grownAll);
+    const heartRoot = rootOf(grownAll, 0), rimRoot = rootOf(grownAll, N - 1);
+    ok(square && inward && rooted && turned === N - 1 && near(heartRoot[0], K.ROOT[0], 1e-6) && near(heartRoot[1], K.ROOT_UP[0] + K.ROOT_UP[1], 1e-6) && near(rimRoot[0], K.ROOT[0] + K.ROOT[1], 1e-6) && near(rimRoot[1], K.ROOT_UP[1], 1e-6),
+      "each petal grows from near the head's axis (0.015 from it and 0.06 up at the heart, 0.1 from it and a little below at the rim), its inner face toward the axis and square to the way it grows; each is about 137.5 degrees further round than the last");
     // How far a petal leans goes by its rank among the petals now out.
     const small = leanOf(ro, KEPT - 1), heart = leanOf(ro, 0);
     const full = K.createRose(K.SEED, N); for (let i = 0; i < N; i++) full.grown[i] = 1; full.full = 1; K.pose(full);
@@ -5972,22 +5975,21 @@ await import('./overlay/rose.js');
     const ro = K.createRose(K.SEED, N); run(ro, N, 1, how({ flame: 0.9 }));
     const twin = K.createRose(K.SEED, N); run(twin, N, 1, how({ flame: 0.9 }));
     K.scatter(ro, N, 1, K.rng(1001)); K.scatter(twin, N, 1, K.rng(1001));
-    let outward = true, fastest = 0, slowest = 9, alone = true;
+    let outward = true, fastest = 0, slowest = 9, meanOut = 0, meanAlong = 0;
     for (let i = 0; i < N; i++) {
       const v = at(ro.v, i), o = dot(v, at(ro.out, i)), u = dot(v, ro.top), s = len(v);
       if (o < K.THROW[0] - 1.4 || o > K.THROW[0] + K.THROW[1] + 1.4 || u < K.THROW[2] - 1.4 || u > K.THROW[2] + K.THROW[3] + 1.4) outward = false;
-      fastest = Math.max(fastest, s); slowest = Math.min(slowest, s);
-      if (!(ro.startle[i] >= 1.2 && ro.startle[i] <= 2.8)) alone = false;
+      fastest = Math.max(fastest, s); slowest = Math.min(slowest, s); meanOut += o / N; meanAlong += u / N;
     }
     const soft = K.createRose(K.SEED, N); run(soft, N, 1, how({ flame: 0.9 })); K.scatter(soft, N, 0.5, K.rng(1001));
     const halved = [0, 7, 30, 55].every((i) => [0, 1, 2].every((k) => near(soft.v[i * 3 + k], 0.5 * ro.v[i * 3 + k], 1e-6)));
-    ok(count(ro, N, 1) === N && ro.flying === N && ro.attached === 0 && outward && alone && slowest > 1.2 && fastest < 6.5 && ro.homing === false && snapshot(ro) === snapshot(twin) && halved && near(soft.headV[1] - ro.headV[1], 0.5 * K.NOD, 1e-6),
-      'a thump throws every petal off the head, out from its axis and along it, each to fly alone for 1.2 to 2.8 s; the same thump throws them the same way again, and a peak half as hard throws them half as fast — ' + [slowest.toFixed(2), fastest.toFixed(2)]);
+    ok(count(ro, N, 1) === N && ro.flying === N && ro.attached === 0 && outward && Math.abs(meanOut - (K.THROW[0] + K.THROW[1] / 2)) < 0.25 && Math.abs(meanAlong - (K.THROW[2] + K.THROW[3] / 2)) < 0.25 && slowest > 0.6 && fastest < 4.6 && ro.homing === false && snapshot(ro) === snapshot(twin) && halved && near(soft.headV[1] - ro.headV[1], 0.5 * K.NOD, 1e-6),
+      'a thump throws every petal off the head, out from its axis and along it; the same thump throws them the same way again, and a peak half as hard throws them half as fast — ' + [slowest.toFixed(2), fastest.toFixed(2)]);
     // Thrown again in the air.
     run(ro, N, 0.5, how({ flame: 0.5 }));
     const was = Array.from(ro.v); K.scatter(ro, N, K.JOSTLE, K.rng(4));
     let changed = 0, most = 0; for (let i = 0; i < N; i++) { const d = len(sub(at(ro.v, i), at(was, i))); if (d > 0.05) changed++; most = Math.max(most, d); }
-    ok(changed > N - 4 && most < 0.6 * Math.hypot(2, 2.1, 1.25) + 1e-6 && count(ro, N, 1) === N, 'a peak while they are loose throws each off its way, less hard — ' + [changed, most.toFixed(2)]);
+    ok(changed > N - 4 && most < K.JOSTLE * Math.hypot(K.THROWN[0] / 2, K.THROWN[1] * (1 - K.THROWN[3]), K.THROWN[2] / 2) + 1e-6 && count(ro, N, 1) === N, 'a peak while they are loose throws each off its way, less hard — ' + [changed, most.toFixed(2)]);
   }
 
   // The flock.
@@ -6002,9 +6004,10 @@ await import('./overlay/rose.js');
       if (!finite(ro.p) || !finite(ro.v) || !finite(ro.fwd) || !finite(ro.nrm)) ok1 = false;
     }
     // After their alarm they are a flock by the lead, each at its own place.
-    let apart = 0, pairs = 0, off = 0, tooNear = 0;
+    let apart = 0, pairs = 0, off = 0, tooNear = 0, width = 0;
     const mid = [0, 0, 0];
     for (let i = 0; i < N; i++) { for (let k = 0; k < 3; k++) mid[k] += ro.p[i * 3 + k] / N; }
+    for (let i = 0; i < N; i++) width += Math.abs(ro.p[i * 3] - mid[0]) / N;
     for (let i = 0; i < N; i++) {
       let nearest = 9;
       for (let j = 0; j < N; j++) if (j !== i) nearest = Math.min(nearest, len(sub(at(ro.p, i), at(ro.p, j))));
@@ -6012,22 +6015,17 @@ await import('./overlay/rose.js');
     }
     const lead = ro.lead.slice(); run(ro, N, 2, h);
     const moved = len(sub(ro.lead, lead));
-    let unitOk = true, squareOk = true;
-    for (let i = 0; i < N; i++) { const f = at(ro.fwd, i), nn = at(ro.nrm, i); if (!near(len(f), 1, 1e-4) || !near(len(nn), 1, 1e-4)) unitOk = false; if (Math.abs(dot(f, nn)) > 1e-3) squareOk = false; }
-    ok(ok1 && count(ro, N, 1) === N && top <= K.TOP + 1e-6 && len(sub(mid, lead)) < 0.6 && apart > 0.2 && tooNear <= 4 && moved > 0.3 && unitOk && squareOk && Array.from(ro.loose.subarray(0, N)).every((l) => l > 0.99) && Array.from(ro.grown.subarray(0, N)).every((g) => g > 0.99),
-      'loose, the petals are a flock: they gather by the lead, which wheels on, each keeps clear of the others, none flies faster than 5, every one is fully grown, and each heads one way with its face square to it — ' + [len(sub(mid, lead)).toFixed(2), apart.toFixed(2), closest.toFixed(2), tooNear, moved.toFixed(2)]);
-    // Just thrown, each makes for its own part of the air, wider than its place by the lead.
-    const a = K.createRose(K.SEED, N); K.scatter(a, N, 1, K.rng(1001)); run(a, N, 1.6, how({ flame: 0.5 }));
-    const b = K.createRose(K.SEED, N); K.scatter(b, N, 1, K.rng(1001)); for (let i = 0; i < N; i++) b.startle[i] = 0; run(b, N, 1.6, how({ flame: 0.5 }));
-    const spread = (r) => { let m = 0, s = 0; for (let i = 0; i < N; i++) m += r.p[i * 3] / N; for (let i = 0; i < N; i++) s += Math.abs(r.p[i * 3] - m) / N; return s; };
-    ok(spread(a) > spread(b) + 0.1, 'just thrown, the petals fly apart wider than they will keep by the lead — ' + [spread(a).toFixed(2), spread(b).toFixed(2)]);
+    let unitOk = true, squareOk = true, heading = 0;
+    for (let i = 0; i < N; i++) { const f = at(ro.fwd, i), nn = at(ro.nrm, i); heading += dot(f, at(ro.v, i)) / len(at(ro.v, i)) / N; if (!near(len(f), 1, 1e-4) || !near(len(nn), 1, 1e-4)) unitOk = false; if (Math.abs(dot(f, nn)) > 1e-3) squareOk = false; }
+    ok(ok1 && count(ro, N, 1) === N && top <= K.TOP + 1e-6 && len(sub(mid, lead)) < 0.6 && width > 0.35 && apart > 0.19 && tooNear <= 14 && moved > 0.3 && unitOk && squareOk && heading > 0.6 && Array.from(ro.loose.subarray(0, N)).every((l) => l > 0.99) && Array.from(ro.grown.subarray(0, N)).every((g) => g > 0.99),
+      'loose, the petals are a flock: they gather by the lead, which wheels on, each keeps clear of the others, none flies faster than 5, every one is fully grown, and each heads one way with its face square to it — ' + [len(sub(mid, lead)).toFixed(2), apart.toFixed(2), closest.toFixed(2), tooNear, moved.toFixed(2), heading.toFixed(3), width.toFixed(3)]);
   }
 
   // Nothing leaves the picture.
   {
     const view = { pitch: K.PITCH, fov: K.FOV, frame: K.FRAME };
     const inside = (c, r, orbit) => { const b = KIT.reach({ min: [c[0] - r, c[1] - r, c[2] - r], max: [c[0] + r, c[1] + r, c[2] + r] }, view, 0, 0, 0, 1, 0, 0, 0, orbit); return b[0] >= -K.FRAME.height / 2 && b[1] <= K.FRAME.height / 2 && b[2] >= -K.FRAME.width / 2 && b[3] <= K.FRAME.width / 2; };
-    let out = 0, checked = 0, edge = 0;
+    let out = 0, checked = 0, edge = 0, outward = 0, slowest = 9;
     for (const n of [40, 72]) {
       const ro = K.createRose(K.SEED, n), random = K.rng(77), h = how({ flame: 1, bands: loudBands(1) });
       for (let s = 0; s < 900; s++) {
@@ -6040,10 +6038,12 @@ await import('./overlay/rose.js');
           checked++; if (!inside(at(ro.p, i), r, orbit)) out++;
           const g = [(ro.p[i * 3] - K.AIR_C[0]) / K.HARD[0], (ro.p[i * 3 + 1] - K.AIR_C[1]) / K.HARD[1], (ro.p[i * 3 + 2] - K.AIR_C[2]) / K.HARD[2]];
           edge = Math.max(edge, len(g));
+          if (len(g) > 0.99) { const nn = [g[0] / K.HARD[0], g[1] / K.HARD[1], g[2] / K.HARD[2]], nl = len(nn); outward = Math.max(outward, dot(at(ro.v, i), nn) / nl); }
+          if (len(g) > 0.9 && s % 36 > 12) slowest = Math.min(slowest, len(at(ro.v, i)));
         }
       }
     }
-    ok(out === 0 && checked > 90000 && edge > 0.9 && edge <= 1 + 1e-6, 'thrown again and again at the loudest, with the camera swung as far as it goes, no petal leaves the picture: near the edge of all the air there is it loses its speed outward, and it does not pass it — ' + [out, checked, edge.toFixed(3)]);
+    ok(out === 0 && checked > 90000 && edge > 0.9 && edge <= 1 + 1e-6 && outward < 1.5 && slowest > 1.12, 'thrown again and again at the loudest, with the camera swung as far as it goes, no petal leaves the picture: near the edge of all the air there is it loses its speed outward, and it does not pass it; it is turned along the edge, not stopped — ' + [out, checked, edge.toFixed(3), outward.toFixed(3), slowest.toFixed(3)]);
     // The rose itself, at its fullest and loudest, with thorns at their longest.
     let outside = 0, reach = 0;
     for (const n of [40, 72]) {
@@ -6069,10 +6069,11 @@ await import('./overlay/rose.js');
     const ro = K.createRose(K.SEED, N); run(ro, N, 1, how({ flame: 0.9 }));
     K.scatter(ro, N, 1, K.rng(1001)); run(ro, N, 3, how({ flame: 0.4 }));
     const t0 = ro.time; K.gather(ro, N, K.rng(5));
-    let ordered = true, within = true;
-    for (let i = 0; i < N; i++) { const due = ro.homeAt[i] - t0, base = 2 * i / (N - 1); if (due < base - 1e-6 || due > base + 0.25 + 1e-6) within = false; }
+    let ordered = true, within = true, late = 0, soon = 9;
+    for (let i = 0; i < N; i++) { const due = ro.homeAt[i] - t0, base = 2 * i / (N - 1); if (due < base - 1e-6 || due > base + 0.25 + 1e-6) within = false; late = Math.max(late, due - base); soon = Math.min(soon, due - base); }
+    if (!(late > 0.2 && soon < 0.05)) within = false;
     const sent = blades(), look = { flame: 0.4, kick: 0, flash: 0, lead: 0 }, landedAt = new Float32Array(N).fill(-1), prevF = new Float32Array(N * 3), prevN = new Float32Array(N * 3), prevP = new Float32Array(N * 3);
-    let fastest = 0, slowest = 9, jump = 0, turn = 0, faceTurn = 0, shift = 0, early = 0, h = how({ flame: 0.4 }), nods = 0;
+    let fastest = 0, slowest = 9, jump = 0, turn = 0, faceTurn = 0, shift = 0, early = 0, h = how({ flame: 0.4 }), nods = 0, looseLanding = 0, leftLanding = 0, leftMean = 0;
     K.dress(sent, ro, N, look);
     for (let i = 0; i < N; i++) for (let k = 0; k < 3; k++) { prevF[i * 3 + k] = sent.fwd[(K.FIXED + i) * 3 + k]; prevN[i * 3 + k] = sent.nrm[(K.FIXED + i) * 3 + k]; prevP[i * 3 + k] = sent.pos[(K.FIXED + i) * 3 + k]; }
     for (let s = 0; s < 600; s++) {
@@ -6086,6 +6087,8 @@ await import('./overlay/rose.js');
           landedAt[i] = s; landedNow++;
           const sp = len(at(v0, i)); fastest = Math.max(fastest, sp); slowest = Math.min(slowest, sp);
           jump = Math.max(jump, len(sub(at(ro.p, i), at(p0, i))));
+          looseLanding = Math.max(looseLanding, ro.loose[i]); { const left = Math.max(angle(at(ro.fwd, i), at(ro.grow, i)), angle(at(ro.nrm, i), at(ro.face, i))); leftLanding = Math.max(leftLanding, left); leftMean += left / N; }
+          if (len(at(ro.v, i)) !== 0) jump = 9;
         }
         const f = at(sent.fwd, K.FIXED + i), nn = at(sent.nrm, K.FIXED + i), pp = at(sent.pos, K.FIXED + i);
         turn = Math.max(turn, angle(f, at(prevF, i))); faceTurn = Math.max(faceTurn, angle(nn, at(prevN, i))); shift = Math.max(shift, len(sub(pp, at(prevP, i))));
@@ -6095,8 +6098,8 @@ await import('./overlay/rose.js');
     }
     let inner = 0, outer = 0; for (let i = 0; i < N; i++) { if (i < N / 2) inner += landedAt[i] / (N / 2); else outer += landedAt[i] / (N / 2); }
     ok(ro.homing === true && within && early === 0 && Array.from(landedAt).every((v) => v >= 0) && ro.attached === N && ro.coming === 0 && inner < outer - 30 && nods === N
-      && fastest < 0.5 && slowest > 0.2 && jump <= K.LANDED + 1e-6 && Array.from(ro.loose.subarray(0, N)).every((l) => l === 0),
-      'after the calm wait the petals start for home over two seconds, from the heart outward, and every one lands in its own place, slowly (under half a unit a second), with no jump — ' + [inner.toFixed(0), outer.toFixed(0), slowest.toFixed(3), fastest.toFixed(3), jump.toFixed(4)]);
+      && fastest < 0.5 && slowest > 0.2 && jump <= K.LANDED + 1e-6 && looseLanding < 0.3 && leftLanding < 2.2 && leftMean < 0.4 && Array.from(ro.loose.subarray(0, N)).every((l) => l === 0),
+      'after the calm wait the petals start for home over two seconds, from the heart outward, and every one lands in its own place, slowly (under half a unit a second), with no jump, by then nearly in the shape it has on the head and, most of them, lying as they sit — ' + [inner.toFixed(0), outer.toFixed(0), slowest.toFixed(3), fastest.toFixed(3), jump.toFixed(4), looseLanding.toFixed(3), leftLanding.toFixed(3), leftMean.toFixed(3)]);
     ok(turn < 0.5 && faceTurn < 0.5 && shift < 0.12,
       'no petal is drawn turning about itself, or moved, by more than a little in one step: not flying, not coming home, and not as it lands — ' + [turn, faceTurn, shift].map((v) => v.toFixed(3)));
     // Once landed it stays out a while, then answers to the sound again.
@@ -6125,7 +6128,7 @@ await import('./overlay/rose.js');
     const tiny = K.createRose(K.SEED, N), none = K.advance(tiny, N, 0.008, h), one = K.advance(tiny, N, 0.001, h);
     const stopped = K.createRose(K.SEED, N), before = snapshot(stopped), zero = K.advance(stopped, N, 0, h);
     ok(sa === 240 && sb === 240 && snapshot(a) === snapshot(b) && Math.abs(sc - 240) <= 1 && far(a, c) < 0.2 && took === K.STEPS_MAX && left === 0 && none === 0 && one === 1 && near(tiny.left, 0.009 - K.STEP, 1e-12) && zero === 0 && snapshot(stopped) === before,
-      'the rose is stepped in sixtieths of a second whatever the frame rate: the same rose at 30 and 60 frames a second, a step taken when half of it is due, at most six in a frame, and none when no time passes — ' + [sa, sb, sc, far(a, c).toFixed(3)]);
+      'the rose is stepped in sixtieths of a second whatever the frame rate: with a steady sound, the same rose at 30 and 60 frames a second; a step taken when half of it is due, at most six in a frame, and none when no time passes — ' + [sa, sb, sc, far(a, c).toFixed(3)]);
     const realRandom = Math.random; let used = 0; Math.random = () => { used++; return realRandom(); };
     const r1 = K.createRose(K.SEED, N); run(r1, N, 1, h); K.scatter(r1, N, 1, K.rng(3)); run(r1, N, 2, h); K.gather(r1, N, K.rng(3)); run(r1, N, 5, h);
     const sent = blades(), st = stalks(); K.dress(sent, r1, N, { flame: 0.6, kick: 0.3, flash: 0.2, lead: 0.004 }); K.stalk(st, r1, { thorn: 0.26, flame: 0.6 });
@@ -6134,7 +6137,7 @@ await import('./overlay/rose.js');
     ok(used === 0 && snapshot(r1) === snapshot(r2) && finite(sent.pos) && finite(sent.fwd) && finite(sent.nrm) && finite(sent.A) && finite(sent.B) && finite(sent.C) && finite(st.pos) && finite(st.nrm) && finite(st.tone),
       'nothing in the rose is left to chance: the same sounds and thumps make the same rose, and every number drawn is a number');
     // Density changed, with petals in the air.
-    const d = K.createRose(K.SEED, N); K.scatter(d, N, 1, K.rng(3)); run(d, N, 1, h); K.lay(d, 72);
+    const d = K.createRose(K.SEED, N); K.scatter(d, N, 1, K.rng(3)); run(d, N, 1, h); K.gather(d, N, K.rng(4)); K.lay(d, 72);
     ok(d.n === 72 && d.kept === 31 && d.attached === 72 && d.flying === 0 && d.homing === false && d.open === 31 && near(d.full, 31 / 72, 1e-7) && Array.from(d.loose.subarray(0, 72)).every((l) => l === 0)
       && Array.from(d.grown.subarray(0, 72)).every((g, i) => g === (i < 31 ? 1 : 0)) && [0, 40, 71].every((i) => at(d.p, i).join() === at(d.base, i).join()),
       'when Density changes the head is laid again: every petal back on it, the right number out');
@@ -6143,19 +6146,22 @@ await import('./overlay/rose.js');
   // What is drawn: the blades.
   {
     const ro = K.createRose(K.SEED, N); run(ro, N, 1, how({ flame: 0.9 }));
+    for (let s = 0; s < 4; s++) K.stepRose(ro, N, how({ flame: 0.9, pulse: 1 }));
     const sent = blades(); K.dress(sent, ro, N, { flame: 0.9, kick: 0.5, flash: 0.8, lead: 0.005 });
-    let leaves = true, petals = true;
+    let leaves = true, petals = true, rippling = 0;
     for (let j = 0; j < K.FIXED; j++) if (sent.B[j * 4 + 2] !== 1 || sent.C[j * 4] !== 1 || sent.B[j * 4 + 3] !== 0 || sent.C[j * 4 + 2] !== 0 || !near(len(at(sent.fwd, j)), 1, 1e-6) || !near(len(at(sent.nrm, j)), 1, 1e-6) || Math.abs(dot(at(sent.fwd, j), at(sent.nrm, j))) > 0.2) leaves = false;
     for (let i = 0; i < N; i++) {
       const j = K.FIXED + i, q = j * 4, a = i * 3;
       if (sent.B[q + 2] !== 0 || !near(sent.B[q + 1], i / (N - 1), 1e-6) || sent.C[q + 1] !== i % 8 || sent.C[q + 2] !== 0 || !near(sent.A[q], ro.len[i], 1e-7) || !near(sent.A[q + 1], ro.wid[i], 1e-7)
         || !near(sent.A[q + 2], ro.shape[a], 1e-7) || !near(sent.A[q + 3], ro.shape[a + 1], 1e-7) || !near(sent.B[q], ro.shape[a + 2], 1e-7) || at(sent.pos, j).join() !== at(ro.base, i).join() || at(sent.fwd, j).join() !== at(ro.grow, i).join() || at(sent.nrm, j).join() !== at(ro.face, i).join()
         || !near(sent.B[q + 3], Math.max(ro.flash[i], 0.6 * K.rippleAt(ro, 16 * i / (N - 1)) + 0.35 * 0.5), 1e-6) || !near(sent.C[q], ro.grown[i] * ro.grown[i] * (3 - 2 * ro.grown[i]), 1e-6)) petals = false;
+      if (K.rippleAt(ro, 16 * i / (N - 1)) === 1) rippling++;
     }
     let sepals = true;
     for (let j = 0; j < K.SEPALS; j++) { const f = at(sent.fwd, j), b = sub(at(sent.pos, j), ro.c3); if (dot(f, ro.top) >= 0 || !near(sent.A[j * 4], 0.34, 1e-7) || !near(sent.A[j * 4 + 1], 0.14, 1e-7) || len(b) > 0.1 || dot(f, sub(b, ro.top.map((v) => v * dot(b, ro.top)))) <= 0) sepals = false; }
     const leaf = K.leafAt(ro, 0, 0.9), end = K.SEPALS, side = K.SEPALS + 1;
-    ok(leaves && petals && sepals && at(sent.pos, end).every((v, k) => near(v, leaf.tip[k], 1e-6)) && near(sent.A[end * 4], 0.60, 1e-7) && near(sent.A[side * 4], 0.44, 1e-7)
+    const droop = [leaf.run[0], leaf.run[1] - K.LEAF_DROOP, leaf.run[2]], dl = len(droop);
+    ok(leaves && petals && rippling > 5 && rippling < 20 && sepals && at(sent.pos, end).every((v, k) => near(v, leaf.tip[k], 1e-6)) && at(sent.fwd, end).every((v, k) => near(v, droop[k] / dl, 1e-6)) && near(sent.A[end * 4], 0.60, 1e-7) && near(sent.A[side * 4], 0.44, 1e-7)
       && at(sent.pos, side).every((v, k) => near(v, leaf.root[k] + 0.15 * leaf.run[k], 1e-6)) && dot(at(sent.fwd, side), leaf.side) > 0.5 && dot(at(sent.fwd, side + 1), leaf.side) < -0.5 && near(len(sub(leaf.tip, leaf.root)), 0.24, 1e-6),
       'what is drawn first is five sepals (out from under the head and down) and two leaves of three leaflets on their stalks, then each petal: on the head, at its base, growing its own way, with its own length, width, wrap, cup and roll, its rank, its band, and how grown it is; it flashes with the ripple and the beat');
     // In the air.
@@ -6165,8 +6171,8 @@ await import('./overlay/rose.js');
     let flying = true, ahead = true;
     for (let i = 0; i < N; i++) {
       const j = K.FIXED + i, q = j * 4, a = i * 3, l = ro.loose[i];
-      if (!near(sent.C[q + 2], l, 1e-6) || l < 0.99 || !near(sent.A[q], ro.len[i] * (1 - 0.26 * l), 1e-6) || !near(sent.A[q + 2], ro.shape[a] + (1.3 - ro.shape[a]) * l, 1e-6) || !near(sent.A[q + 3], ro.shape[a + 1] + (0.13 - ro.shape[a + 1]) * l, 1e-6)
-        || !near(sent.B[q], ro.shape[a + 2] + (0.10 - ro.shape[a + 2]) * l, 1e-6) || !near(sent.B[q + 3], Math.max(ro.flash[i], 0.5 * 0.8), 1e-6) || angle(at(sent.fwd, j), at(ro.fwd, i)) > 0.45 * l + 1e-4 || Math.abs(dot(at(sent.fwd, j), at(sent.nrm, j))) > 1e-3) flying = false;
+      if (!near(sent.C[q + 2], l, 1e-6) || l < 0.99 || !near(sent.A[q], ro.len[i] * (1 - 0.26 * l), 1e-6) || !near(sent.A[q + 1], ro.wid[i] * (1 - 0.26 * l), 1e-6) || !near(sent.A[q + 2], ro.shape[a] + (1.3 - ro.shape[a]) * l, 1e-6) || !near(sent.A[q + 3], ro.shape[a + 1] + (0.13 - ro.shape[a + 1]) * l, 1e-6)
+        || !near(sent.B[q], ro.shape[a + 2] + (0.10 - ro.shape[a + 2]) * l, 1e-6) || !near(sent.B[q + 3], Math.max(ro.flash[i], 0.5 * 0.8), 1e-6) || !near(angle(at(sent.fwd, j), at(ro.fwd, i)), Math.abs(0.45 * l * Math.sin(0.6 * ro.psi[i] + i)), 2e-3) || Math.abs(dot(at(sent.fwd, j), at(sent.nrm, j))) > 1e-3) flying = false;
       // Its middle is where the petal is.
       const mid = [0, 1, 2].map((k) => zero.pos[j * 3 + k] + 0.5 * zero.A[q] * l * zero.fwd[j * 3 + k]);
       if (len(sub(mid, at(ro.p, i))) > 1e-5 || !at(sent.pos, j).every((v, k) => near(v - zero.pos[j * 3 + k], 0.005 * ro.v[a + k], 1e-6))) ahead = false;
@@ -6181,11 +6187,14 @@ await import('./overlay/rose.js');
     const stemPoints = K.STEM_RINGS * K.STEM_AROUND, domePoints = K.DOME_RINGS * K.STEM_AROUND, thornPoints = K.THORNS * K.THORN_RINGS * K.THORN_AROUND;
     let kinds = true, normals = true, most = 0;
     for (let q = 0; q < K.STALK_POINTS; q++) {
-      const kind = st.tone[q * 3], want = q < stemPoints ? 0 : q < stemPoints + domePoints ? 2 : q < stemPoints + domePoints + thornPoints ? 1 : 0;
+      const kind = st.tone[q * 3], want = q < stemPoints ? 0 : q < stemPoints + domePoints ? 1 : q < stemPoints + domePoints + thornPoints ? 2 : 0;
       if (kind !== want) kinds = false;
       if (!near(len(at(st.nrm, q)), 1, 1e-5)) normals = false;
     }
     for (let q = 0; q < index.length; q++) most = Math.max(most, index[q]);
+    // No triangle joins a thorn to anything that is not a thorn, so nothing between two kinds is ever coloured as a thorn's tip.
+    let straddled = 0;
+    for (let q = 0; q < index.length; q += 3) { const ks = [st.tone[index[q] * 3], st.tone[index[q + 1] * 3], st.tone[index[q + 2] * 3]]; if (Math.min(...ks) < 2 && Math.max(...ks) >= 2) straddled++; if (Math.min(...ks) < 1 && Math.max(...ks) > 1) straddled++; }
     const foot = [0, 0, 0]; for (let a = 0; a < K.STEM_AROUND; a++) for (let k = 0; k < 3; k++) foot[k] += st.pos[a * 3 + k] / K.STEM_AROUND;
     let round = true; for (let a = 0; a < K.STEM_AROUND; a++) if (!near(len(sub(at(st.pos, a), foot)), 0.052, 1e-5)) round = false;
     // Each thorn: its tip stands off the stem by about its length, hooked toward the foot, and wears its band.
@@ -6196,8 +6205,8 @@ await import('./overlay/rose.js');
       if (!near(away, K.stemRadius(t) * 0.6 + L, 2e-3) || !near(down, -0.38 * L, 2e-3) || st.tone[tipAt * 3 + 2] !== Math.floor(j / 2) || !near(st.tone[tipAt * 3 + 1], 1, 1e-6) || st.tone[first * 3 + 1] !== 0 || L < 0.2) thorns = false;
       if (down < 0) hooked++;
     }
-    ok(K.STALK_POINTS === 914 && index.length === 4788 && most === K.STALK_POINTS - 1 && kinds && normals && round && near(len(sub(foot, K.FOOT)), 0, 1e-6) && thorns && hooked === K.THORNS,
-      'the stalk is one mesh of 914 points: the stem (round, 0.052 at its foot), the heart on its top, sixteen thorns (each as long as it is out, hooked toward the foot, its tip in its band) and the two leaf stalks');
+    ok(K.STALK_POINTS === 914 && index.length === 4788 && most === K.STALK_POINTS - 1 && kinds && straddled === 0 && normals && round && near(len(sub(foot, K.FOOT)), 0, 1e-6) && thorns && hooked === K.THORNS,
+      'the stalk is one mesh of 914 points: the stem (round, 0.052 at its foot), the heart on its top and numbered next to it, sixteen thorns (each as long as it is out, hooked toward the foot, its tip in its band, joined to nothing else) and the two leaf stalks');
     // No thorns at Thorns 0, and in silence; and the heart stands up when the head is bare.
     const none = stalks(); K.stalk(none, ro, { thorn: 0, flame: 1 });
     let hidden = true;
@@ -6215,6 +6224,251 @@ await import('./overlay/rose.js');
     ok(near(len(l0.run), 1, 1e-9) && near(len(l0.up), 1, 1e-9) && Math.abs(dot(l0.run, l0.up)) < 1e-9 && Math.abs(dot(l0.side, l0.run)) < 1e-9 && dot(l0.up, s0.run) > 0.5 && near(len(sub(l0.root, s0.at)), K.stemRadius(K.LEAF_AT[0]) * 0.8, 1e-9)
       && dot(lifted.run, s0.run) > dot(l0.run, s0.run) + 0.1 && dot(l0.run, l1.run) < 0.5 && l1.root[1] > l0.root[1],
       'a leaf grows out from the stem and a little up it, its upper face up the stem; the two grow at different heights and sides, and a leaf lifts as a syllable passes it');
+  }
+
+  // What breaking it on purpose slipped past.
+  {
+    const cr = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const out = [0, 0, 0];
+    K.toward(out, 1, 0, 0, 0, 1, 0, 0.3, 0, 0, 1); const part = out.slice();
+    K.toward(out, 1, 0, 0, Math.cos(0.2), Math.sin(0.2), 0, 0.3, 0, 0, 1); const all = out.slice();
+    K.toward(out, 1, 0, 0, -1, 0, 0, 0.3, 0, 0, 2); const opposite = out.slice();
+    K.toward(out, 0, 0, 1, 0.6, 0, 0.8, 0.1, 1, 0, 0); const slant = out.slice();
+    ok(near(part[0], Math.cos(0.3)) && near(part[1], Math.sin(0.3)) && part[2] === 0 && near(all[0], Math.cos(0.2)) && near(all[1], Math.sin(0.2)) && near(opposite[0], Math.cos(0.3)) && opposite[1] === 0 && near(opposite[2], Math.sin(0.3))
+      && near(len(slant), 1) && near(angle(slant, [0, 0, 1]), 0.1, 1e-9) && slant[0] > 0 && slant[1] === 0,
+      'one way is turned toward another by so much at most, all the way when it is nearer than that, and by way of a given side when the two are opposite; it stays a unit long');
+
+    const ro = K.createRose(K.SEED, N), s = K.stemAt(ro, 0.4), leaf = K.leafAt(ro, 0, 0);
+    let exact = true, ranged = true;
+    const signs = [0, 0];
+    for (let i = 0; i < N; i++) {
+      const u = i / (N - 1), o = Math.max(0, i - KEPT) / (N - KEPT), q = i * 4, L = (K.LONG[0] + K.LONG[1] * Math.pow(u, K.LONG[2])) * (1 - K.VARY / 2 + K.VARY * ro.vary[q]);
+      if (!near(ro.len[i], L, 1e-6) || !near(ro.wid[i], L * (K.WIDE[0] + K.WIDE[1] * u) * (1 - K.VARY / 2 + K.VARY * ro.vary[q + 1]), 1e-6) || !near(ro.turn[i], i * K.GOLDEN + K.TURN0 + K.TURN_VARY * (ro.vary[q + 2] - 0.5), 1e-4)
+        || !near(ro.nerve[i], K.NERVE[0] + K.NERVE[1] * Math.pow(o, K.NERVE[2]) + K.NERVE[3] * ro.vary[q + 3], 1e-6)) exact = false;
+      signs[ro.spin[i] > 0 ? 0 : 1]++;
+      if (Math.abs(ro.spin[i]) < K.SPIN[0] || Math.abs(ro.spin[i]) > K.SPIN[0] + K.SPIN[1] || ro.stayFor[i] < K.STAY[0] || ro.stayFor[i] > K.STAY[0] + K.STAY[1]) ranged = false;
+    }
+    ok(near(dot(cr(s.run, s.e1), s.e2), 1, 1e-9) && near(dot(cr(leaf.run, leaf.up), leaf.side), 1, 1e-9) && exact && ranged && signs[0] > 15 && signs[1] > 15 && new Set(Array.from(ro.stayFor.subarray(0, N))).size > 40,
+      "the stem's two directions across, and a leaf's, are right-handed with the way they run; each petal's length, width, place round the head and nerve are what its rank and its own share of chance make them; petals tumble either way, 3 to 7 radians a second, and stay out 0.7 to 1.6 s — " + signs);
+
+    const f = K.createRose(K.SEED, N); for (let i = 0; i < N; i++) f.state[i] = 1; const none = K.fullOf(f);
+    for (let i = 0; i < 28; i++) f.state[i] = 2; const half = K.fullOf(f);
+    for (let i = 0; i < N; i++) f.state[i] = 2; const whole = K.fullOf(f);
+    const l = [0, 0, 0]; K.leadAt(l, Math.PI / 2 / 0.62, 0); const quietX = l[0]; K.leadAt(l, Math.PI / 2 / 0.62, 1); const loudX = l[0]; K.leadAt(l, 0, 0);
+    ok(none === K.FULL_MIN && near(half, 0.5) && whole === 1 && near(quietX, K.AIR_C[0] + K.LEAD[0] * 0.7, 1e-9) && near(loudX, K.AIR_C[0] + K.LEAD[0], 1e-9) && near(l[0], K.AIR_C[0]) && near(l[1], K.AIR_C[1] + K.LEAD_UP + K.LEAD[1] * Math.sin(1)) && near(l[2], K.AIR_C[2] + K.LEAD[2] * 0.7 * Math.sin(0.4)),
+      'a bare head counts as three-tenths full and petals on their way home as there already; the lead swings wider the louder it is, seven-tenths as far in silence');
+
+    // Thrown in the air, each way; and a thump as they start for home calls that off.
+    const sc = K.createRose(K.SEED, N); K.scatter(sc, N, 1, K.rng(1)); run(sc, N, 0.5, how());
+    K.gather(sc, N, K.rng(2)); const was = Array.from(sc.v), homingWas = sc.homing; K.scatter(sc, N, 1, K.rng(4));
+    let dx = 0, dy = 0, dz = 0, inBounds = true;
+    for (let i = 0; i < N; i++) { const d = sub(at(sc.v, i), at(was, i)); dx += Math.abs(d[0]) / N; dy += Math.abs(d[1]) / N; dz += Math.abs(d[2]) / N; if (Math.abs(d[0]) > K.THROWN[0] / 2 + 1e-5 || d[1] < -K.THROWN[3] * K.THROWN[1] - 1e-5 || d[1] > (1 - K.THROWN[3]) * K.THROWN[1] + 1e-5 || Math.abs(d[2]) > K.THROWN[2] / 2 + 1e-5) inBounds = false; }
+    const g2 = K.createRose(K.SEED, N); K.gather(g2, N, K.rng(2)); const g2was = g2.homing; K.lay(g2, N);
+    const b2 = K.createRose(K.SEED, N); run(b2, N, 2, how({ flame: 1, kick: 1 }));
+    ok(homingWas === true && sc.homing === false && dx > 0.6 && dy > 0.45 && dz > 0.35 && inBounds && g2was === true && g2.homing === false && b2.bloom <= 1 && b2.bloom > 0.99,
+      'a petal in the air is thrown each way (up to 1.5 sideways, from 0.66 down to 1.54 up, up to 1 in depth); a thump, or the head laid again, calls off a homecoming; the bloom is never more than wide open — ' + [dx, dy, dz].map((v) => v.toFixed(2)));
+
+    // A folded petal thrown off the head grows as it flies.
+    const fresh = K.createRose(K.SEED, N); K.scatter(fresh, N, 1, K.rng(3)); const folded = fresh.grown[N - 1]; run(fresh, N, 1, how());
+    ok(folded === 0 && Array.from(fresh.grown.subarray(0, N)).every((g) => g > 0.99), 'a petal that was folded away when the thump came is out within a second of leaving the head');
+
+    // One petal in the air by the head, the rest on it: it steers by nothing but its own place.
+    const A1 = K.createRose(K.SEED, N), B1 = K.createRose(K.SEED, N); K.lay(B1, 1);
+    for (const r of [A1, B1]) { r.state[0] = 1; r.p[0] = 0.3; r.p[1] = 0.1; r.p[2] = 0.2; r.v[0] = 1; r.v[1] = 0.2; r.v[2] = 0; }
+    const before = unit3([1, 0.2, 0]);
+    K.stepRose(A1, N, how()); K.stepRose(B1, 1, how());
+    const turned = angle(at(A1.v, 0), before);
+    ok([0, 1, 2].every((k) => near(A1.v[k], B1.v[k], 1e-6) && near(A1.p[k], B1.p[k], 1e-6)) && turned > 0.01 && turned <= Math.asin((K.TURN[0] / 60) / (1 - K.TURN[0] / 60)) + 1e-6,
+      'a loose petal keeps clear of loose petals only, not of those on the head; and it steers by turning, 3.5 radians a second at most in silence — ' + turned.toFixed(4));
+
+    // At the edge of all the air: a petal heading out and along loses its speed outward by degrees, and keeps its speed along the edge.
+    const edgeRun = (share, vx, vy) => { const r = K.createRose(K.SEED, N); K.lay(r, 1); r.state[0] = 1; r.p[0] = K.AIR_C[0] + share * K.HARD[0]; r.p[1] = K.AIR_C[1]; r.p[2] = K.AIR_C[2]; r.v[0] = vx; r.v[1] = vy; r.v[2] = 0; K.stepRose(r, 1, how()); return at(r.v, 0); };
+    const inside = edgeRun(0.3, 2, 1), halfway = edgeRun(0.9, 2, 1), atEdge = edgeRun(0.999, 2, 1), straight = edgeRun(0.9, 2, 0), inward = edgeRun(0.95, -2, 1);
+    ok(inside[0] > 1.6 && halfway[0] > 0.6 && halfway[0] < 1.3 && len(halfway) > 0.75 * len(inside) && halfway[1] > 1.3 * inside[1] && halfway[1] < 1.6 * inside[1] && atEdge[0] < 0.1 && atEdge[0] >= 0 && len(atEdge) > 0.6 * len(inside) && atEdge[1] < 1.6 * inside[1] && straight[0] > 0.6 && straight[0] < 1.3 && len(straight) < 1.4 && inward[0] < -1.5,
+      'nine-tenths of the way to the edge of all the air a petal has lost half its speed outward, and at the edge all of it; what it had along the edge is made up toward the speed it had, by half as much again at most, so it turns along the edge; one heading straight out has nothing to make up; one heading in is left alone — ' + [inside, halfway, atEdge, straight].map((v) => v.map((x) => x.toFixed(2)).join(' ')).join(' | '));
+
+    // Its tumbling: by its own spin, more the faster it flies, twice the cruising speed counted at most.
+    const tm = K.createRose(K.SEED, N); K.lay(tm, 1);
+    tm.state[0] = 1; tm.p[0] = 0; tm.p[1] = -0.2; tm.p[2] = 0; tm.v[0] = 1.3; tm.v[1] = 0; tm.v[2] = 0; tm.fwd[0] = 1; tm.fwd[1] = 0; tm.fwd[2] = 0; tm.nrm[0] = 0; tm.nrm[1] = 1; tm.nrm[2] = 0;
+    K.stepRose(tm, 1, how()); const slow = [tm.psi[0], len(at(tm.v, 0)), angle(at(tm.nrm, 0), [0, 1, 0])];
+    const tf = K.createRose(K.SEED, N); K.lay(tf, 1);
+    tf.state[0] = 1; tf.p[0] = 0; tf.p[1] = -0.2; tf.p[2] = 0; tf.v[0] = 4.5; tf.v[1] = 0; tf.v[2] = 0; tf.fwd[0] = 1; tf.fwd[1] = 0; tf.fwd[2] = 0; tf.nrm[0] = 0; tf.nrm[1] = 1; tf.nrm[2] = 0;
+    K.stepRose(tf, 1, how()); const fast = tf.psi[0];
+    ok(near(slow[0], K.STEP * tm.spin[0] * (K.TUMBLE[0] + K.TUMBLE[1] * Math.min(slow[1] / K.CRUISE[0], K.TUMBLE[2])), 1e-6) && Math.abs(slow[0]) > 0.04 && near(slow[2], Math.abs(slow[0]), 0.02) && near(fast, K.STEP * tf.spin[0] * (K.TUMBLE[0] + K.TUMBLE[1] * K.TUMBLE[2]), 1e-6),
+      'a loose petal tumbles about the way it flies by its own spin, half of it at rest and more the faster it goes, counting no more than twice its cruising speed — ' + [slow[0], fast].map((v) => v.toFixed(4)));
+
+    // Coming home: from far off it makes for a point a little way along the way it will grow.
+    const hm = K.createRose(K.SEED, N); hm.state[30] = 2; hm.homing = true; hm.loose[30] = 1; hm.p[90] = -1.5; hm.p[91] = -0.8; hm.p[92] = 0.2;
+    K.stepRose(hm, N, how());
+    const aim = sub([0, 1, 2].map((k) => hm.base[90 + k] + K.HOME_AHEAD * hm.grow[90 + k]), [-1.5, -0.8, 0.2]);
+    ok(hm.state[30] === 2 && angle(at(hm.v, 30), aim) < 1e-3 && near(len(at(hm.v, 30)), K.HOME_FAST * K.HOME_SEEK[0] * K.STEP, 1e-6),
+      'a petal coming home from far off makes for a point 0.45 along the way it will grow, at 2.4 a second at least');
+
+    // Landing: what the step it lands in does; and its flash dies away to nothing.
+    const one = K.createRose(K.SEED, N), calm = K.createRose(K.SEED, N); run(one, N, 0.5, how()); run(calm, N, 0.5, how());
+    one.state[40] = 2; one.homing = true; one.grown[40] = 1; one.loose[40] = 1; one.p[120] = one.base[120] + 0.01; one.p[121] = one.base[121]; one.p[122] = one.base[122];
+    K.stepRose(one, N, how()); K.stepRose(calm, N, how());
+    const sent = blades(); K.dress(sent, one, N, { flame: 0, kick: 0, flash: 0, lead: 0 });
+    const landed = [one.state[40], one.flash[40], one.heard[40], one.headV[1] - calm.headV[1], one.loose[40], sent.B[(K.FIXED + 40) * 4 + 3]];
+    run(one, N, 0.25, how()); const dying = one.flash[40]; run(one, N, 3, how());
+    ok(landed[0] === 0 && landed[1] === 1 && near(landed[2], K.LANDED_STAY, 1e-6) && near(landed[3], -K.NOD_LAND, 1e-9) && landed[4] === 1 && landed[5] === 1 && near(dying, Math.exp(-1), 0.03) && one.flash[40] === 0 && one.loose[40] === 0,
+      'a petal that lands flashes, is counted out for 1.2 s more and nods the head a little; it lands with the shape it had and loses that on the head; its flash is gone in under a second, exactly');
+
+    // One that starts to land almost on its place, turned right round or lying face out: it is never turned at a
+    // stroke. It turns as it comes, lands as it is, and finishes turning on the head.
+    const lateTurn = (faceOnly) => {
+      const r = K.createRose(K.SEED, N); run(r, N, 0.2, how());
+      r.state[50] = 2; r.homing = true; r.grown[50] = 1; r.loose[50] = 1;
+      for (let k = 0; k < 3; k++) { r.p[150 + k] = r.base[150 + k] + 0.08 * r.grow[150 + k]; r.v[150 + k] = -0.3 * r.grow[150 + k]; r.fwd[150 + k] = (faceOnly ? 1 : -1) * r.grow[150 + k]; r.nrm[150 + k] = -r.face[150 + k]; }
+      let most = 0, landedAt = -1, leftAtLanding = 0, doneAt = -1;
+      for (let s = 0; s < 120; s++) {
+        const f0 = at(r.fwd, 50), n0 = at(r.nrm, 50), was = r.state[50];
+        K.stepRose(r, N, how());
+        most = Math.max(most, angle(at(r.fwd, 50), f0), angle(at(r.nrm, 50), n0));
+        if (was === 2 && r.state[50] === 0) { landedAt = s; leftAtLanding = Math.max(angle(at(r.fwd, 50), at(r.grow, 50)), angle(at(r.nrm, 50), at(r.face, 50))); }
+        if (doneAt < 0 && r.state[50] === 0 && at(r.fwd, 50).join() === at(r.grow, 50).join() && at(r.nrm, 50).join() === at(r.face, 50).join()) doneAt = s;
+      }
+      return { most, landedAt, leftAtLanding, doneAt, loose: r.loose[50] };
+    };
+    const round = lateTurn(false), faceOut = lateTurn(true);
+    ok([round, faceOut].every((r) => r.landedAt > 3 && r.landedAt < 60 && r.most <= K.SEAT_TURN * K.STEP + 0.02 && r.leftAtLanding > 0.5 && r.doneAt > r.landedAt && r.doneAt < r.landedAt + 40 && r.loose === 0),
+      'a petal that starts to land almost on its place, turned right round or lying face out, is never turned by more than a fifth of a radian in a step: it lands as it is and finishes turning on the head, where it then lies exactly as it sits — ' + [round, faceOut].map((r) => [r.most.toFixed(3), r.landedAt, r.leftAtLanding.toFixed(2), r.doneAt].join(' ')).join(' | '));
+
+    // A leaf lifts more for a loud voice; and its stalk runs from the stem to where its end leaflet grows.
+    const lf = K.createRose(K.SEED, N); run(lf, N, 0.5, how());
+    const s0 = K.stemAt(lf, K.LEAF_AT[0]), quiet0 = K.leafAt(lf, 0, 0), loud0 = K.leafAt(lf, 0, 1), st = stalks(); K.stalk(st, lf, { thorn: 0.26, flame: 0 });
+    const lastRing = (K.STEM_RINGS + K.DOME_RINGS) * K.STEM_AROUND + K.THORNS * K.THORN_RINGS * K.THORN_AROUND + (K.STALK_RINGS - 1) * K.STALK_AROUND, c = [0, 0, 0];
+    for (let a = 0; a < K.STALK_AROUND; a++) for (let k = 0; k < 3; k++) c[k] += st.pos[(lastRing + a) * 3 + k] / K.STALK_AROUND;
+    ok(Math.abs(dot(loud0.run, s0.run) - dot(quiet0.run, s0.run)) > 0.02 && len(sub(c, quiet0.tip)) < 1e-6 && len(sub(quiet0.tip, quiet0.root)) > 0.2,
+      "a leaf lifts and falls further for a loud voice, and its stalk is drawn from the stem to where its end leaflet grows");
+  }
+
+  // What the review found.
+  {
+    // What a petal is drawn with, step to step, through a thump, the flight, the homecoming and the landing, for
+    // many thumps and homecomings: how far it turns, how far it moves beyond its own motion, and how much its
+    // size and its shape change. A peak at any moment of the homecoming must not change them at a stroke either.
+    const sent = blades(), prev = blades(), look = { flame: 0, kick: 0, flash: 0, lead: 0 };
+    const worst = { turn: 0, face: 0, shift: 0, loose: 0, size: 0, landed: 0 };
+    const watch = (r, n, steps, h, peakAt = -1, strength = 1, random = null) => {
+      K.dress(prev, r, n, look);
+      for (let s = 0; s < steps; s++) {
+        if (s === peakAt) K.scatter(r, n, strength, random);
+        K.stepRose(r, n, h); K.dress(sent, r, n, look);
+        for (let i = 0; i < n; i++) {
+          const j = K.FIXED + i, q = j * 4, moved = len(at(r.v, i)) * K.STEP;
+          worst.turn = Math.max(worst.turn, angle(at(sent.fwd, j), at(prev.fwd, j))); worst.face = Math.max(worst.face, angle(at(sent.nrm, j), at(prev.nrm, j)));
+          // Its middle, as it is drawn (its base, and half its length on along the way it grows).
+          const mid = [0, 1, 2].map((k) => sent.pos[j * 3 + k] + 0.5 * sent.A[q] * sent.fwd[j * 3 + k]), was = [0, 1, 2].map((k) => prev.pos[j * 3 + k] + 0.5 * prev.A[q] * prev.fwd[j * 3 + k]);
+          worst.shift = Math.max(worst.shift, len(sub(mid, was)) - moved);
+          worst.loose = Math.max(worst.loose, Math.abs(sent.C[q + 2] - prev.C[q + 2]));
+          worst.size = Math.max(worst.size, Math.abs(sent.A[q] - prev.A[q]) / r.len[i]);
+        }
+        const tmp = Object.assign({}, prev); Object.assign(prev, sent); Object.assign(sent, tmp);
+      }
+    };
+    for (const flame of [0, 0.4, 0.9]) for (let seed = 1; seed <= 6; seed++) {
+      const r = K.createRose(K.SEED, N), h = how({ flame }), random = K.rng(1000 + seed);
+      run(r, N, 0.5, h);
+      watch(r, N, 100 + 17 * seed, h, 0, 1, random);     // the thump, and the flight
+      K.gather(r, N, K.rng(seed));
+      // On every other run a peak comes at some moment of the homecoming, and they come home again after it.
+      if (seed % 2) { watch(r, N, 40 + 22 * seed, h); watch(r, N, 60, h, 0, seed % 3 ? K.JOSTLE : 1, random); K.gather(r, N, K.rng(50 + seed)); }
+      watch(r, N, 420, h);
+      if (r.attached === N && Array.from(r.loose.subarray(0, N)).every((l) => l === 0)) worst.landed++;
+    }
+    ok(worst.landed === 18 && worst.turn < 0.3 && worst.face < 0.3 && worst.shift < 0.1 && worst.loose < 0.11 && worst.size < 0.04,
+      'through eighteen thumps and homecomings, some with a peak as the petals land, no petal is drawn turned by more than 0.3 of a radian in a step, moved by more than a tenth beyond its own motion, or changed in size by more than a twenty-fifth: its shape eases, whatever it is doing; and every one lands — ' + [worst.landed, worst.turn, worst.face, worst.shift, worst.loose, worst.size].map((v) => (typeof v === 'number' && v % 1 ? v.toFixed(3) : v)));
+
+    // At the edge of the air no petal's velocity changes by much in a step: it is turned, it does not rebound.
+    let corner = 0, cornerInside = 0, fastest = 0;
+    for (const n of [40, 72]) {
+      const r = K.createRose(K.SEED, n), random = K.rng(77), h = how({ flame: 1, bands: loudBands(1) });
+      for (let s = 0; s < 900; s++) {
+        if (s % 36 === 0) K.scatter(r, n, 1, random);
+        const v0 = Array.from(r.v), p0 = Array.from(r.p);
+        K.stepRose(r, n, h);
+        for (let i = 0; i < n; i++) {
+          const q = Math.hypot((p0[i * 3] - K.AIR_C[0]) / K.HARD[0], (p0[i * 3 + 1] - K.AIR_C[1]) / K.HARD[1], (p0[i * 3 + 2] - K.AIR_C[2]) / K.HARD[2]), dv = len(sub(at(r.v, i), at(v0, i)));
+          if (s % 36 === 0) continue;   // the step it was thrown in: the throw is a blow, and is tamed at once
+          if (q > K.HARD_FROM) corner = Math.max(corner, dv); else cornerInside = Math.max(cornerInside, dv);
+          fastest = Math.max(fastest, len(at(r.v, i)));
+        }
+      }
+    }
+    ok(corner < 1.5 && cornerInside < 0.6 && fastest <= K.TOP + 1e-6, 'thrown again and again at the loudest, no petal changes its velocity by more than 1.5 in a step once it has been thrown (0.6 away from the edge of the air): it is slowed and turned along the edge, and does not rebound — ' + [corner.toFixed(2), cornerInside.toFixed(2), fastest.toFixed(2)]);
+
+    // A petal that is beyond the edge of all the air, flying or coming home, is put back on it.
+    const beyond = (state) => { const r = K.createRose(K.SEED, N); r.state[20] = state; r.homing = state === 2; r.loose[20] = 1; r.p[60] = K.AIR_C[0] - 1.3 * K.HARD[0]; r.p[61] = K.AIR_C[1]; r.p[62] = K.AIR_C[2]; r.v[60] = -0.5; K.stepRose(r, N, how()); return Math.hypot((r.p[60] - K.AIR_C[0]) / K.HARD[0], (r.p[61] - K.AIR_C[1]) / K.HARD[1], (r.p[62] - K.AIR_C[2]) / K.HARD[2]); };
+    ok(near(beyond(1), 1, 1e-6) && near(beyond(2), 1, 1e-6), 'a petal beyond the edge of all the air, flying or coming home, is put back on the edge');
+
+    // A thrown petal is light: it slows to its cruising speed in a fraction of a second.
+    const fastOne = K.createRose(K.SEED, N); K.lay(fastOne, 1);
+    fastOne.state[0] = 1; fastOne.p[0] = -0.5; fastOne.p[1] = -0.1; fastOne.p[2] = 0; fastOne.v[0] = 3; fastOne.v[1] = 0; fastOne.v[2] = 0;
+    K.stepRose(fastOne, 1, how()); const first = len(at(fastOne.v, 0)); run(fastOne, 1, 0.4, how()); const later = len(at(fastOne.v, 0));
+    const slowOne = K.createRose(K.SEED, N); K.lay(slowOne, 1);
+    slowOne.state[0] = 1; slowOne.p[0] = -0.5; slowOne.p[1] = -0.1; slowOne.p[2] = 0; slowOne.v[0] = 0.2; slowOne.v[1] = 0; slowOne.v[2] = 0;
+    K.stepRose(slowOne, 1, how()); const picked = len(at(slowOne.v, 0));
+    ok(first < 3 - 0.15 && first > 3 - 0.3 && later < 1.7 && picked > 0.2 && picked < 0.2 + 0.09, 'a petal thrown faster than it flies slows to its cruising speed quickly (8 a second), and one slower than it flies picks up more gently (3 a second) — ' + [first, later, picked].map((v) => v.toFixed(3)));
+
+    // A petal far from its place hurries, and one at its place idles.
+    const paced = (dx) => { const r = K.createRose(K.SEED, N); K.lay(r, 1); r.off[0] = r.off[1] = r.off[2] = 0; const l = [0, 0, 0]; K.leadAt(l, K.STEP * K.LEAD_RATE[0], 0); r.state[0] = 1; r.p[0] = l[0] + dx; r.p[1] = l[1]; r.p[2] = l[2]; r.v[0] = K.CRUISE[0]; r.v[1] = 0; r.v[2] = 0; K.stepRose(r, 1, how()); return len(at(r.v, 0)); };
+    const hurried = paced(-1.1), idled = paced(0);
+    ok(near(hurried, K.CRUISE[0] + (K.CRUISE[0] * 1.25 - K.CRUISE[0]) * K.SPEED_RATE * K.STEP, 1e-4) && near(idled, K.CRUISE[0] + (K.CRUISE[0] * 0.8 - K.CRUISE[0]) * K.BRAKE * K.STEP, 1e-4),
+      'a loose petal far from its own place flies up to three-tenths faster than its cruising speed, and one at its place a fifth slower — ' + [hurried, idled].map((v) => v.toFixed(4)));
+
+    // Each has its own place by the lead: one whose place is to the right turns right, one whose place is to the left turns left.
+    const sided = (ox) => { const r = K.createRose(K.SEED, N); K.lay(r, 1); r.off[0] = ox; r.off[1] = r.off[2] = 0; const l = [0, 0, 0]; K.leadAt(l, K.STEP * K.LEAD_RATE[0], 0); r.state[0] = 1; r.p[0] = l[0]; r.p[1] = l[1]; r.p[2] = l[2]; r.v[0] = 0; r.v[1] = K.CRUISE[0]; r.v[2] = 0; K.stepRose(r, 1, how()); return r.v[0]; };
+    ok(sided(1) > 0.03 && sided(-1) < -0.03 && near(sided(1), -sided(-1), 1e-4), 'each petal has its own place by the lead, to one side of it or the other, and turns toward it — ' + sided(1).toFixed(4));
+
+    // A petal that passes its place too fast to land flies on, and lands when it comes back slowly.
+    const pass = K.createRose(K.SEED, N); run(pass, N, 0.2, how());
+    pass.state[45] = 2; pass.homing = true; pass.grown[45] = 1; pass.loose[45] = 1;
+    for (let k = 0; k < 3; k++) { pass.p[135 + k] = pass.base[135 + k] + 0.02 * pass.out[135 + k]; pass.v[135 + k] = -2 * pass.out[135 + k]; }
+    K.stepRose(pass, N, how()); const flewOn = pass.state[45];
+    let landedAt = -1, landedSpeed = 9;
+    for (let s = 0; s < 240 && landedAt < 0; s++) { const sp = len(at(pass.v, 45)); K.stepRose(pass, N, how()); if (pass.state[45] === 0) { landedAt = s; landedSpeed = sp; } }
+    ok(flewOn === 2 && landedAt > 3 && landedSpeed < K.CATCH, 'a petal that passes its place faster than 0.6 a second does not stop dead there: it flies on, comes round and lands when it is slow — ' + [landedAt, landedSpeed.toFixed(3)]);
+
+    // Lines of the shaders whose effect a picture is not told apart by in the render checks: a petal's cup, and the heart's matt gold where it joins the stem.
+    ok(K.BLADE_VERT.includes('p.z -= iA.w * iA.x * sin(3.14159 * pow(t, 0.8));') && K.STALK_FRAG.includes('float heart = vTone.x > 1.5 ? 0.0 : smoothstep(0.35, 0.65, vTone.x);') && K.STALK_FRAG.includes('spec * 0.18 * (1.0 - 0.85 * heart)')
+      && K.STALK_FRAG.includes('if (vTone.x > 1.5) c = mix(uGreen * 0.8, mix(pal(vTone.z / 8.0), vec3(1.0), 0.22), pow(vTone.y, 1.2));'),
+      'a petal is cupped along its length; the heart is gold where the stalk is numbered 1 and green toward the stem, with next to no shine; a thorn (numbered 2) wears its band at its tip');
+
+    // A petal's own place: to either side of the lead, above or below it, and inside the air however far that is.
+    const pl = K.createRose(K.SEED, N), spot = [0, 0, 0];
+    let sidesSeen = [0, 0, 0, 0, 0, 0], placed = true;
+    for (let i = 0; i < K.PETALS_MAX; i++) for (let c = 0; c < 3; c++) { if (pl.off[i * 3 + c] < -0.5) sidesSeen[c * 2]++; if (pl.off[i * 3 + c] > 0.5) sidesSeen[c * 2 + 1]++; if (Math.abs(pl.off[i * 3 + c]) > 1) placed = false; }
+    pl.off[0] = 0.5; pl.off[1] = -0.5; pl.off[2] = 0.5; K.placeOf(spot, pl, 0);
+    const plain = [0, 1, 2].every((k) => near(spot[k], pl.lead[k] + K.PLACE[k] * pl.off[k], 1e-6));
+    K.leadAt(pl.lead, Math.PI / 2 / 0.62, 1); pl.off[0] = 1; pl.off[1] = 1; pl.off[2] = 1; K.placeOf(spot, pl, 0);
+    const raw = [0, 1, 2].map((k) => pl.lead[k] + K.PLACE[k] - K.AIR_C[k]), rawRoom = Math.hypot(raw[0] / K.AIR[0], raw[1] / K.AIR[1], raw[2] / K.AIR[2]);
+    const room = Math.hypot((spot[0] - K.AIR_C[0]) / K.AIR[0], (spot[1] - K.AIR_C[1]) / K.AIR[1], (spot[2] - K.AIR_C[2]) / K.AIR[2]);
+    ok(placed && sidesSeen.every((c) => c > 8) && plain && rawRoom > 1 && near(room, K.ROOM, 1e-6) && [0, 1, 2].every((k) => near((spot[k] - K.AIR_C[k]) * rawRoom, raw[k] * K.ROOM, 1e-6)),
+      "a petal's own place is by the lead, to either side of it, above or below, nearer or further; a place that would be outside the air is drawn in toward the middle of the air until it is inside — " + sidesSeen + ' ' + rawRoom.toFixed(2));
+
+    // It takes the way the petals near it fly: one flying straight for its place, with another beside it flying across, turns that way.
+    const withNeighbour = (there) => {
+      const r = K.createRose(K.SEED, N); K.lay(r, 2); r.off.fill(0, 0, 6);
+      const l = [0, 0, 0]; K.leadAt(l, K.STEP * K.LEAD_RATE[0], 0);
+      r.state[0] = 1; r.p[0] = l[0] - 0.6; r.p[1] = l[1]; r.p[2] = l[2]; r.v[0] = K.CRUISE[0]; r.v[1] = 0; r.v[2] = 0;
+      r.state[1] = there ? 1 : 0; r.p[3] = l[0] - 0.6; r.p[4] = l[1] - 0.7; r.p[5] = l[2]; r.v[3] = 0; r.v[4] = K.CRUISE[0]; r.v[5] = 0;
+      K.stepRose(r, 2, how()); return at(r.v, 0);
+    };
+    const led = withNeighbour(true), alone = withNeighbour(false);
+    ok(Math.abs(alone[1]) < 1e-4 && led[1] > 0.02 && near(Math.atan2(led[1], led[0]), Math.atan2(K.TURN[0] * K.STEP * K.ALIGN / Math.hypot(1 - K.ALIGN, K.ALIGN), 1 - K.TURN[0] * K.STEP * (1 - (1 - K.ALIGN) / Math.hypot(1 - K.ALIGN, K.ALIGN))), 1e-4),
+      'a loose petal takes the way the petals near it fly, seven-tenths of it: flying straight for its place with another beside it flying across, it turns that way — ' + [alone[1], led[1]].map((v) => v.toFixed(4)));
+
+    // The files.
+    const pages = [];
+    for (const p of ['300x220', '1440x1080', '1920x1080']) {
+      const html = await readFile(resolve(__dirname, 'overlay/mic-visualizers-' + p + '.html'), 'utf8');
+      const pos = html.indexOf('src="rose.js"');
+      pages.push(pos > html.indexOf('src="boids.js"') && pos > html.indexOf('src="scene-kit.js"') && html.includes('src="helix.js"') && pos < html.indexOf('src="factories/') && html.split('src="rose.js"').length === 2 && html.split('src="factories/rose.js"').length === 2);
+    }
+    const factory = await readFile(resolve(__dirname, 'overlay/factories/rose.js'), 'utf8'), source = await readFile(resolve(__dirname, 'overlay/rose.js'), 'utf8');
+    ok(pages.every(Boolean) && /VIZ_FACTORIES\['rose'\] = TimbreScene\.factory\(\(\) => TimbreRose\.definition\(\)\);/.test(factory) && !/WebGLRenderer|fetch\(|\.stl/.test(factory) && !/Math\.random/.test(source) && !/fetch\(|\.stl|cfgSTLObject/.test(source),
+      "all three overlay pages load rose.js once, after the scene kit and boids.js and before the factories, and the shatter machine it uses; the effect is the kit's factory around the rose's definition, with no renderer or model file of its own; and the rose takes no numbers from Math.random");
   }
 
   // The blade's grid, and the camera.
