@@ -1,6 +1,6 @@
 // Timbre — scene kit, shared by the 3D scene effects. First the pure arithmetic
-// (sound envelope, voice history, camera fit, afterglow decay, internal render
-// scale, placement), then the WebGL runtime a scene is written against: create(def).
+// (sound envelope, voice history, the pitch of a voice, camera fit, afterglow decay,
+// internal render scale, placement), then the WebGL runtime a scene is written against: create(def).
 //
 // Valid as BOTH a classic <script> and an ES module (it only assigns
 // `globalThis.TimbreScene`), like shared/viz-config.js, so verify.mjs can import
@@ -138,6 +138,108 @@
         return byAge[j] * (1 - f) + byAge[j + 1] * f;
       },
     };
+  }
+
+  // ── The pitch of a voice (a spike: ink and the metaball try it) ─────────────
+  // Where a voice's pitch sits, 0 (low) to 1 (high), for a scene that lets the pitch choose
+  // which of its parts leads. It is read from the 32 log bands (`frequencies`, 0 to 255).
+  const PITCH_BANDS = 12;                   // log bands the pitch is weighed over: the 12 lowest, 60 to 438 Hz
+  const PITCH_LOW = 4.85, PITCH_SPAN = 3.5; // the pitch is 0 with the sound's weight at band 4.85 and 1 at band 8.35
+  const PITCH_HEARD = 0.02;                 // the weight those bands must hold, times Gain squared, for there to be a pitch to tell
+  const PITCH_ONSET = 0.1;                  // seconds of the first voice heard whose pitch is weighed before it is followed
+  const PITCH_RATE = 2.5;                   // how fast the pitch is followed, a second
+  const VOICE_FROM = 15, VOICE_TO = 27;     // the log bands where a voice's vowels sound: 720 Hz to 5.2 kHz
+  const CLEAR_LOW = 0.27, CLEAR_HIGH = 0.35;   // the vowels' share of the weight at which a pitch begins to count, and counts in full
+  const EVEN_LOW = 0.1, EVEN_HIGH = 0.2;    // how uneven the 32 bands must be for a pitch to begin to count, and to count in full
+  const CLEAR_RATE = 3;                     // how fast a pitch comes to count and stops counting, a second
+  const PLACE_EDGE = 0.4;                   // how far past the edge of the place it holds the pitch must go before it holds another, in places
+  const GLIDE_RATE = 5;                     // how fast the lead goes to the place the pitch holds, a second
+
+  // A smooth step from 0 at `from` to 1 at `to`.
+  function ramp(v, from, to) {
+    const t = clamp01((v - from) / (to - from));
+    return t * t * (3 - 2 * t);
+  }
+
+  // The pitch, 0..1: where the sound's weight sits among the 12 lowest log bands, where a
+  // voice's pitch and the note an octave above it are. A band weighs as its square, as on
+  // the chladni plate. PITCH_LOW and PITCH_SPAN were fitted on recorded speech at eight
+  // pitches: a voice at 90 Hz sits near 0 and one at 300 Hz near 1. With too little sound
+  // in those bands to tell, -1: Gain says how loud the microphone is, so the sound is
+  // weighed times Gain for that test, and for nothing else. The pitch itself is the same at
+  // every Gain.
+  function pitchOf(bands, gain = 1) {
+    if (!bands || bands.length < PITCH_BANDS) return -1;
+    let sum = 0, moment = 0;
+    for (let b = 0; b < PITCH_BANDS; b++) { const w = (bands[b] / 255) * (bands[b] / 255); sum += w; moment += b * w; }
+    return sum * gain * gain > PITCH_HEARD ? clamp01((moment / sum - PITCH_LOW) / PITCH_SPAN) : -1;
+  }
+
+  // How clear a pitch the sound has, 0 (none that counts) to 1. Two things are asked of it,
+  // and both must hold. A voice sounds in its vowels as well as at its pitch: the vowel
+  // bands' share of the weight (theirs against theirs and the 12 lowest bands') must reach
+  // CLEAR_LOW, and counts in full at CLEAR_HIGH. A kick drum has almost none there and the
+  // recorded band a quarter; recorded speech has from a third to two thirds. And the sound
+  // must not lie evenly over all 32 bands, as a hiss or a fan does: the spread of the bands
+  // (their standard deviation over their mean) must reach EVEN_LOW, and counts in full at
+  // EVEN_HIGH. Gain does not come into it.
+  function clearOf(bands) {
+    if (!bands || bands.length < VOICE_TO) return 0;
+    let low = 0, voice = 0, sum = 0, squares = 0;
+    for (let b = 0; b < PITCH_BANDS; b++) low += bands[b] * bands[b];
+    for (let b = VOICE_FROM; b < VOICE_TO; b++) voice += bands[b] * bands[b];
+    for (let b = 0; b < bands.length; b++) { sum += bands[b]; squares += bands[b] * bands[b]; }
+    if (!(low + voice > 0) || !(sum > 0)) return 0;
+    const mean = sum / bands.length, spread = Math.sqrt(Math.max(0, squares / bands.length - mean * mean)) / mean;
+    return ramp(voice / (low + voice), CLEAR_LOW, CLEAR_HIGH) * ramp(spread, EVEN_LOW, EVEN_HIGH);
+  }
+
+  // The place a position (in places, 0 the first) asks for, given the place held (`was`):
+  // the same one, until the position is PLACE_EDGE of a place past its edge, either way. So
+  // a pitch that lies on the edge between two places does not go back and forth.
+  function heldPlace(at, was) {
+    return Math.abs(at - was) > 0.5 + PLACE_EDGE ? Math.round(at) : was;
+  }
+
+  // A voice's pitch, followed, for a scene with `places` parts in a row. step(bands, gain, dt)
+  // takes the 32 log bands (or null with the mic off) and returns the follower itself:
+  //   pitch  0..1, followed at PITCH_RATE, so it glides (it begins as the mean of what is heard
+  //          over the first PITCH_ONSET seconds, as on the chladni plate: a voice's first
+  //          instant tells its pitch poorly)
+  //   place  the part the pitch holds, a whole number from 0 to places - 1 (see heldPlace)
+  //   at     where the lead is, in places: it goes to `place` at GLIDE_RATE
+  //   clear  0..1: how much the pitch counts, clearOf() followed at CLEAR_RATE. At 0 a scene
+  //          must be exactly as it is without any of this.
+  // While there is too little sound to tell a pitch, everything is kept as it was (a pause
+  // between two words changes nothing). With the mic off the pitch stops counting.
+  function createPitch(places) {
+    const last = Math.max(1, Math.floor(places) || 1) - 1;
+    const p = {
+      pitch: 0, place: 0, at: 0, clear: 0, heard: false, heardFor: 0,
+      step(bands, gain, dt) {
+        dt = Number.isFinite(dt) && dt > 0 ? dt : 0;
+        const now = bands ? pitchOf(bands, gain) : -1;
+        if (now >= 0) {
+          if (p.heardFor < PITCH_ONSET - 1e-9) {
+            p.pitch = p.heardFor + dt > 0 ? (p.pitch * p.heardFor + now * dt) / (p.heardFor + dt) : now;
+            p.heardFor += dt; p.heard = true;
+            p.place = p.at = Math.round(p.pitch * last);
+          } else {
+            p.pitch = follow(p.pitch, now, PITCH_RATE, dt);
+            p.place = heldPlace(p.pitch * last, p.place);
+          }
+        }
+        p.at = follow(p.at, p.place, GLIDE_RATE, dt);
+        if (Math.abs(p.at - p.place) < 1e-4) p.at = p.place;
+        if (now >= 0 || !bands) {
+          const want = bands ? clearOf(bands) : 0;
+          p.clear = follow(p.clear, want, CLEAR_RATE, dt);
+          if (want === 0 && p.clear < 1e-3) p.clear = 0;   // all but none is none
+        }
+        return p;
+      },
+    };
+    return p;
   }
 
   // Camera distance at which a frameW x frameH rectangle fits a view of the
@@ -304,7 +406,9 @@
   // tone-maps to the canvas. Light is written with alpha 0 throughout.
 
   const api = {
-    createEnvelope, createHistory, follow, fall, phase, dissolve, createClock, fitDistance, turn, reach, sweep, poseFor, FILL, afterglowTime, decay, cooling, renderScale, viewOffset,
+    createEnvelope, createHistory, createPitch, pitchOf, clearOf, heldPlace,
+    PITCH: { BANDS: PITCH_BANDS, LOW: PITCH_LOW, SPAN: PITCH_SPAN, HEARD: PITCH_HEARD, ONSET: PITCH_ONSET, RATE: PITCH_RATE, VOICE_FROM, VOICE_TO, CLEAR_LOW, CLEAR_HIGH, EVEN_LOW, EVEN_HIGH, CLEAR_RATE, PLACE_EDGE, GLIDE_RATE },
+    follow, fall, phase, dissolve, createClock, fitDistance, turn, reach, sweep, poseFor, FILL, afterglowTime, decay, cooling, renderScale, viewOffset,
     testLevel: null,          // test hook: a number here replaces the mic level
     testClock: null,          // test hook: a number here is where the next createClock() starts, in seconds
     outputMode: 'added',      // or 'premultiplied' (an owner's decision, never automatic)

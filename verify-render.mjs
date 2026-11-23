@@ -31,6 +31,10 @@
 //           full cornucopia: falling leaves at 30/60 fps, Leaf density and Candle
 //           glow knobs, canvas coverage, embers with no mic and no idle animation,
 //           and the cost of one draw() (averaged over 120 frames, under 4 ms) •
+//           the pitch of the voice in the metaball and the ink: a clear low pitch and a clear high one
+//           lead the droplet and the pour at their places; a sound with no clear pitch, flat or all
+//           bass, leaves both scenes as they are without it; Gain does not move the lead; and the
+//           leading droplet, at full band on a beat, stays inside the picture •
 //           afterglow (bars and waves): ghosts appear, fade on the way out and are gone
 //           after the afterglow time, afterglow 0 leaves none, config pushes keep ghosts, a Bars change
 //           starts again, Peak Hold falls at the same speed at 30/60 fps, the control
@@ -2698,12 +2702,26 @@ async function main() {
 
     }
 
+    // A sound with a clear pitch, for the two scenes that let the pitch of the voice choose which of their parts
+    // leads (the metaball and the ink): the 32 log bands, 0 to 255. The weight of the low bands is centred where the
+    // kit reads the pitch of place `place` of `places`, and the vowel bands hold a share of the weight halfway between
+    // the one at which a pitch counts in full and all of it. bassOnly leaves the vowel bands out: the same pitch, and
+    // none that counts.
+    const PITCH = await wide.evaluate(() => TimbreScene.PITCH || {});
+    const pitched = (place, places, { bassOnly = false } = {}) => {
+      const LOUD = 200, at = PITCH.LOW + PITCH.SPAN * place / (places - 1), low = Math.floor(at), part = at - low, share = (PITCH.CLEAR_HIGH + 1) / 2, log = new Array(32).fill(0);
+      log[low] = Math.round(LOUD * Math.sqrt(1 - part)); log[low + 1] = Math.round(LOUD * Math.sqrt(part));
+      if (!bassOnly) for (let b = PITCH.VOICE_FROM; b < PITCH.VOICE_TO; b++) log[b] = Math.round(LOUD * Math.sqrt(share / (1 - share) / (PITCH.VOICE_TO - PITCH.VOICE_FROM)));
+      return log;
+    };
+
     // ── The metaball (a kit scene: a ball of liquid metal and its droplets) ────
     {   // its own block: the names below are the metaball's own
     // Build the scene afresh, drive the level and the 32 bins by hand, and read the canvas and
     // the scene after each step. A step gives level (null: whatever the kit hears), secs, and
     // either all (every bin, 0..1) or bins ([[bin, 0..1], ...]); idle: true has the mic off,
-    // off: true has the mic and Idle animation off.
+    // off: true has the mic and Idle animation off. log: the 32 log bands (0 to 255), where they are not the bins:
+    // the bins are then the slices alone.
     const BLOB = 'metaball';
     const blobRun = (steps, { fps = 60, knobs = null, hue = null, colorSpeed = null, gain = null } = {}) => wide.evaluate(({ id, steps, fps, knobs, hue, colorSpeed, gain }) => {
       window.frame = function () {};
@@ -2724,7 +2742,7 @@ async function main() {
           if (st.knobs) Object.assign(perViz[id], st.knobs);
           f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
           if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
-          frequencies = slices = f; micBands = TimbreHelix.wide(frequencies);
+          frequencies = slices = f; if (st.log) frequencies = Uint8Array.from(st.log); micBands = TimbreHelix.wide(frequencies);
           for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) { now += 1000 / fps; currentViz.draw(now, 1 / fps); }
           const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
           gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);   // row 0 is the bottom of the canvas
@@ -2807,7 +2825,12 @@ async function main() {
           if (last) for (let i = 0; i < px.length; i++) { const d = Math.abs(px[i] - last[i]); if (d) { diff.n++; if (d > diff.max) diff.max = d; } }
           last = px;
           const s = window.__timbre.scene, state = (s && s.state) || {};
-          out.push({ state, solid, soft, light, edge, shine, against, outline: { n: outline.n, soft: outline.n ? outline.sum / outline.n : 0 }, tint: tint.map((v) => (solid ? v / solid : 0)), mean: solid ? sum / solid : 0, empty: empty / (w * h), cornerAlpha: px[3], solidBox: size(solidBox), canvas: [w, h], hash, diff, kitCam: s ? s.camera : null,
+          // heard: what the kit makes of the log bands (how clear a pitch they have, and the pitch). unled: where each
+          // droplet is with no lead, from the scene's own bands, beat and clock.
+          const unled = new Float32Array(32);
+          if (state.balls) for (let b = 0; b < 8; b++) TimbreMetaball.dropAt(unled, b * 4, b, state.bands[b], state.kick, state.clock);
+          const heard = TimbreScene.clearOf ? { clear: TimbreScene.clearOf(frequencies), pitch: TimbreScene.pitchOf(frequencies, cfgGain) } : null;
+          out.push({ heard, unled: Array.from(unled), state, solid, soft, light, edge, shine, against, outline: { n: outline.n, soft: outline.n ? outline.sum / outline.n : 0 }, tint: tint.map((v) => (solid ? v / solid : 0)), mean: solid ? sum / solid : 0, empty: empty / (w * h), cornerAlpha: px[3], solidBox: size(solidBox), canvas: [w, h], hash, diff, kitCam: s ? s.camera : null,
             expect: state.balls ? [getColor(state.colorT), getColor(state.colorT + 1), getColor(state.colorT + 2)] : null,
             expectPixel: state.balls ? TimbreMetaball.pixelOf(TimbreScene.renderScale(gl.canvas.height) * gl.canvas.height, 1) : null });
         }
@@ -2883,6 +2906,35 @@ async function main() {
     const [plain] = await blobRun(quiet, { gain: 1 }), [boosted] = await blobRun(quiet, { gain: 2 });
     check('metaball: Gain scales how loud a band is, and so how far its droplet goes', Math.abs(plain.state.bands[2] - 0.4) < 0.005 && Math.abs(boosted.state.bands[2] - 0.8) < 0.005 && Math.abs(far(plain, 3) - 1.6 * smooth(plain.state.bands[2])) < 0.07 && far(boosted, 3) > far(plain, 3) + 0.5 && plain.state.out === 0 && boosted.state.out === 1,
       JSON.stringify({ bands: [plain.state.bands[2], boosted.state.bands[2]], far: [far(plain, 3), far(boosted, 3)] }));
+
+    // The pitch of the voice: the droplet at its place leads. (The slices pull the droplets out as before; the pitch is read from the log bands.)
+    const { LEAD_REACH, FURTHEST } = await wide.evaluate(() => ({ LEAD_REACH: TimbreMetaball.LEAD_REACH, FURTHEST: TimbreMetaball.FURTHEST }));
+    // The droplet furthest out (0 is the lowest band's); whether every droplet is exactly where it is with no lead; and how far out droplet i is with no lead.
+    const furthest = (r) => [1, 2, 3, 4, 5, 6, 7, 8].reduce((m, i) => (far(r, i) > far(r, m) ? i : m), 1) - 1;
+    const unled = (r) => gap(r.state.balls.slice(4), r.unled) === 0;
+    const unledFar = (r, i) => Math.hypot(r.unled[i * 4 - 4], r.unled[i * 4 - 3], r.unled[i * 4 - 2]);
+    const [lowVoice, highVoice] = await blobRun([{ level: 0.6, all: 0.5, log: pitched(0, 8), secs: 4 }, { level: 0.6, all: 0.5, log: pitched(7, 8), secs: 4 }], { gain: 1 });
+    check('metaball: a clear low pitch sends the lowest band\'s droplet furthest out, and a clear high pitch the highest band\'s', !!lowVoice.heard && lowVoice.heard.clear === 1 && highVoice.heard.clear === 1 && lowVoice.state.clear > 0.99 && highVoice.state.clear > 0.99
+      && lowVoice.state.lead === 0 && furthest(lowVoice) === 0 && far(lowVoice, 1) > (1 + 0.5 * LEAD_REACH) * far(lowVoice, 8) && Math.abs(highVoice.state.lead - 7) < 0.01 && furthest(highVoice) === 7 && far(highVoice, 8) > (1 + 0.5 * LEAD_REACH) * far(highVoice, 1)
+      && !unled(lowVoice) && !unled(highVoice),
+      JSON.stringify({ heard: [lowVoice.heard, highVoice.heard], clear: [lowVoice.state.clear, highVoice.state.clear], lead: [lowVoice.state.lead, highVoice.state.lead], far: [lowVoice, highVoice].map((r) => [1, 2, 3, 4, 5, 6, 7, 8].map((i) => +far(r, i).toFixed(3))) }));
+    // (All bass: the high pitch above without its vowel bands. The kit follows it to the highest place, and it counts for nothing.)
+    const [allBass] = await blobRun([{ level: 0.6, all: 0.5, log: pitched(7, 8, { bassOnly: true }), secs: 3 }], { gain: 1 });
+    check('metaball: a sound with no clear pitch, flat or all bass, leads no droplet: each is exactly where it is without the pitch', loud.state.clear === 0 && !!loud.heard && loud.heard.clear === 0 && unled(loud) && loud.state.out === 8
+      && allBass.state.clear === 0 && allBass.heard.clear === 0 && allBass.heard.pitch > 0.9 && allBass.state.lead === 7 && unled(allBass) && far(allBass, 8) > 0.5,
+      JSON.stringify({ heard: [loud.heard, allBass.heard], clear: [loud.state.clear, allBass.state.clear], lead: [loud.state.lead, allBass.state.lead], far: [1, 2, 3, 4, 5, 6, 7, 8].map((i) => +far(allBass, i).toFixed(3)), apart: [gap(loud.state.balls.slice(4), loud.unled), gap(allBass.state.balls.slice(4), allBass.unled)] }));
+    const midVoice = [{ level: 0.6, all: 0.4, log: pitched(3, 8), secs: 3 }];
+    const [mid1] = await blobRun(midVoice, { gain: 1 }), [mid2] = await blobRun(midVoice, { gain: 2 });
+    check('metaball: Gain does not move the pitch: the same sound at Gain 1 and at Gain 2 leads the same droplet', mid1.state.lead === 3 && mid2.state.lead === 3 && mid1.state.pitch === mid2.state.pitch && mid1.state.clear > 0.99 && mid2.state.clear === mid1.state.clear
+      && furthest(mid1) === 3 && furthest(mid2) === 3 && Math.abs(mid1.state.bands[3] - 0.4) < 0.005 && Math.abs(mid2.state.bands[3] - 0.8) < 0.005,
+      JSON.stringify({ lead: [mid1.state.lead, mid2.state.lead], pitch: [mid1.state.pitch, mid2.state.pitch], clear: [mid1.state.clear, mid2.state.clear], furthest: [furthest(mid1), furthest(mid2)], band: [mid1.state.bands[3], mid2.state.bands[3]] }));
+    // Every band full, the widest camera drift, and the pitch at each droplet in turn, with a beat at each.
+    const turns = [0, 1, 2, 3, 4, 5, 6, 7].flatMap((p) => [{ level: 0.05, all: 1, log: pitched(p, 8), secs: 2 }, { level: 0.9, all: 1, log: pitched(p, 8), secs: 0.05 }]);
+    const led = (await blobRun(turns, { gain: 1, knobs: { cameraDrift: 100 } })).filter((_, i) => i % 2 === 1);
+    check('metaball: with every band full, on a beat, whichever droplet the pitch leads goes as far as a droplet ever goes and no further, and the blob is whole inside the picture',
+      led.length === 8 && led.every((r, p) => r.state.kick > 0.6 && r.state.clear > 0.99 && Math.abs(r.state.lead - p) < 0.05 && r.state.bands.every((b) => b > 0.99)
+        && far(r, p + 1) > unledFar(r, p + 1) && Math.abs(far(r, p + 1) - FURTHEST) < 0.07 && r.edge === 0 && r.solidBox.h < 0.96 * r.canvas[1]),
+      JSON.stringify(led.map((r, p) => ({ kick: +r.state.kick.toFixed(3), clear: +(r.state.clear || 0).toFixed(4), lead: r.state.lead, furthest: furthest(r), far: +far(r, p + 1).toFixed(3), unled: +unledFar(r, p + 1).toFixed(3), edge: r.edge, h: r.solidBox.h }))));
 
     // Loudness and a beat.
     const [swollen] = await blobRun([{ level: 0.8, secs: 2 }]);
@@ -2982,6 +3034,7 @@ async function main() {
     // the scene after each step. A step gives level (null: whatever the kit hears), secs, and
     // either all (every bin, 0..1) or bins ([[bin, 0..1], ...]); idle: true has the mic off,
     // off: true has the mic and Idle animation off; hue sets the palette's hue from that step on.
+    // log: the 32 log bands (0 to 255), where they are not the bins: the bins are then the slices alone.
     // mark: true notes which pixels are bright, and every later step counts the bright pixels that were not (fresh).
     // keep: true keeps the step's picture, and versus: true counts the pixels of another step's where the ink is thick in both and this one is brighter.
     const INK = 'ink';
@@ -3005,7 +3058,7 @@ async function main() {
           if (st.hue !== undefined) cfgColorHue = st.hue;
           f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
           if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
-          frequencies = slices = f; micBands = TimbreHelix.wide(frequencies);
+          frequencies = slices = f; if (st.log) frequencies = Uint8Array.from(st.log); micBands = TimbreHelix.wide(frequencies);
           let beats = 0;
           for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) { now += 1000 / fps; const b0 = window.__timbre.scene ? window.__timbre.scene.state.beats : 0; currentViz.draw(now, 1 / fps); if (window.__timbre.scene.state.beats > b0) beats++; }
           const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
@@ -3043,7 +3096,11 @@ async function main() {
           let over = -1;
           if (st.versus && window.__inkKept && window.__inkKept.length === px.length) { over = 0; const kept = window.__inkKept; for (let i = 0; i < px.length; i += 4) if (px[i + 3] >= 100 && kept[i + 3] >= 100 && px[i] + px[i + 1] + px[i + 2] > kept[i] + kept[i + 1] + kept[i + 2] + 25) over++; }
           const s = window.__timbre.scene, state = (s && s.state) || {};
-          out.push({ state, inked, cover, light, lightSum, edge, beats, bright, over, fresh, upper: thirds[0][1] ? thirds[0][0] / thirds[0][1] : 0, lower: thirds[1][1] ? thirds[1][0] / thirds[1][1] : 0, color: inked ? color.map((v) => v / inked) : [0, 0, 0], centroidX: cover ? sx / (cover * 255) : 0, box: size(box), lightBox: size(lightBox), cornerAlpha: px[3], canvas: [w, h], hash, diff,
+          // heard: what the kit makes of the log bands (how clear a pitch they have, and the pitch). unled: what each
+          // pour pours a second with no lead, from the scene's own bands.
+          const heard = TimbreScene.clearOf ? { clear: TimbreScene.clearOf(frequencies), pitch: TimbreScene.pitchOf(frequencies, cfgGain) } : null;
+          const unled = state.bands ? state.bands.map((v) => Math.fround(TimbreInk.pourRate(v, state.share))) : null;
+          out.push({ heard, unled, state, inked, cover, light, lightSum, edge, beats, bright, over, fresh, upper: thirds[0][1] ? thirds[0][0] / thirds[0][1] : 0, lower: thirds[1][1] ? thirds[1][0] / thirds[1][1] : 0, color: inked ? color.map((v) => v / inked) : [0, 0, 0], centroidX: cover ? sx / (cover * 255) : 0, box: size(box), lightBox: size(lightBox), cornerAlpha: px[3], canvas: [w, h], hash, diff,
             kitCam: s ? s.camera : null, expect: state.bands ? state.bands.map((_, b) => getColor(state.colorT + b * 0.42)) : null });
         }
         return out;
@@ -3130,6 +3187,29 @@ async function main() {
       JSON.stringify({ band: [steady1.state.bands[2], strong1.state.bands[2]], poured: [steady0.state.poured, steady1.state.poured, strong1.state.poured], want: pourRate(128 / 255, 0.6) }));
     const quietBand = await inkRun([{ level: 0.3, bins: [[2, 0.07]], secs: 1.5 }], still).then((r) => r[0]);
     check('ink: a band that is all but silent pours nothing', quietBand.state.bands[2] > 0.06 && quietBand.state.poured === 0 && quietBand.inked === 0, JSON.stringify({ band: quietBand.state.bands[2], poured: quietBand.state.poured }));
+
+    // The pitch of the voice: the pour at its place leads. (The slices say how much is poured in all, as before; the pitch is read from the log bands.)
+    const LEAD_FLOOR = await wide.evaluate(() => TimbreInk.LEAD_FLOOR);
+    // What the pours pour a second, one for each band; the pour that pours the most (0 is the lowest band's); all of them together; and whether each pours exactly what it does with no lead.
+    const rates = (r) => r.state.rates || [];
+    const most = (r) => rates(r).indexOf(Math.max(...rates(r)));
+    const sumOf = (a) => a.reduce((x, y) => x + y, 0);
+    const unled = (r) => rates(r).length === 8 && gap(rates(r), r.unled) === 0;
+    const [lowVoice, highVoice] = await inkRun([{ level: 0.3, all: 0.5, log: pitched(0, 8), secs: 4 }, { level: 0.3, all: 0.5, log: pitched(7, 8), secs: 4 }], still);
+    check('ink: a clear low pitch makes the lowest band\'s pour pour the most, and a clear high pitch the highest band\'s, and together they pour what they did', !!lowVoice.heard && lowVoice.heard.clear === 1 && highVoice.heard.clear === 1 && lowVoice.state.clear > 0.99 && highVoice.state.clear > 0.99
+      && lowVoice.state.lead === 0 && most(lowVoice) === 0 && lowVoice.state.perBand[0] > 3 * lowVoice.state.perBand[7] && Math.abs(rates(lowVoice)[7] / rates(lowVoice)[0] - LEAD_FLOOR) < 0.05 * LEAD_FLOOR && Math.abs(highVoice.state.lead - 7) < 0.01 && most(highVoice) === 7 && Math.abs(rates(highVoice)[0] / rates(highVoice)[7] - LEAD_FLOOR) < 0.05 * LEAD_FLOOR
+      && !unled(lowVoice) && !unled(highVoice) && Math.abs(sumOf(rates(lowVoice)) - sumOf(lowVoice.unled)) < 1e-3 * sumOf(lowVoice.unled) && Math.abs(sumOf(rates(highVoice)) - sumOf(highVoice.unled)) < 1e-3 * sumOf(highVoice.unled),
+      JSON.stringify({ heard: [lowVoice.heard, highVoice.heard], clear: [lowVoice.state.clear, highVoice.state.clear], lead: [lowVoice.state.lead, highVoice.state.lead], rates: [rates(lowVoice), rates(highVoice)], unled: lowVoice.unled, perBand: [lowVoice.state.perBand, highVoice.state.perBand] }));
+    // (All bass: the high pitch above without its vowel bands. The kit follows it to the highest place, and it counts for nothing.)
+    const [allBass] = await inkRun([{ level: 0.3, all: 0.5, log: pitched(7, 8, { bassOnly: true }), secs: 3 }], still);
+    check('ink: a sound with no clear pitch, flat or all bass, leads no pour: each pours exactly what its own band says', inkLoud.state.clear === 0 && !!inkLoud.heard && inkLoud.heard.clear === 0 && unled(inkLoud) && rates(inkLoud).every((v) => v > 100)
+      && allBass.state.clear === 0 && allBass.heard.clear === 0 && allBass.heard.pitch > 0.9 && allBass.state.lead === 7 && unled(allBass) && rates(allBass).every((v) => v > 100),
+      JSON.stringify({ heard: [inkLoud.heard, allBass.heard], clear: [inkLoud.state.clear, allBass.state.clear], lead: [inkLoud.state.lead, allBass.state.lead], rates: [rates(inkLoud), rates(allBass)], unled: [inkLoud.unled, allBass.unled] }));
+    const midVoice = [{ level: 0.3, all: 0.4, log: pitched(3, 8), secs: 3 }];
+    const [mid1] = await inkRun(midVoice, still), [mid2] = await inkRun(midVoice, { ...still, gain: 2 });
+    check('ink: Gain does not move the pitch: the same sound at Gain 1 and at Gain 2 leads the same pour', mid1.state.lead === 3 && mid2.state.lead === 3 && mid1.state.pitch === mid2.state.pitch && mid1.state.clear > 0.99 && mid2.state.clear === mid1.state.clear
+      && most(mid1) === 3 && most(mid2) === 3 && Math.abs(mid1.state.bands[3] - 0.4) < 0.005 && Math.abs(mid2.state.bands[3] - 0.8) < 0.005,
+      JSON.stringify({ lead: [mid1.state.lead, mid2.state.lead], pitch: [mid1.state.pitch, mid2.state.pitch], clear: [mid1.state.clear, mid2.state.clear], most: [most(mid1), most(mid2)], band: [mid1.state.bands[3], mid2.state.bands[3]] }));
 
     // Ten seconds on, a band pours where its place has wandered to.
     const [, wandered] = await inkRun([{ level: 0.3, secs: 10 }, { level: 0.3, bins: [[7, 1]], secs: 0.25 }], { ...still, knobs: { cameraDrift: 0, swirl: 0 } });

@@ -10,6 +10,41 @@ traceability.
 
 ## [Unreleased]
 
+## [1.0.216] — 2026-11-23
+
+The pitch of your voice now leads in Ink and Metaball. Copy `overlay` and refresh every
+Timbre source (a shared file changed, not only the two scenes); nothing to re-paste.
+
+### Changed
+
+- **Metaball: the droplet that matches your voice's pitch stands clear of the ball.** A
+  low voice sends out one droplet, a high voice another, and a sliding voice walks the
+  lead from droplet to droplet. Under a voice the blob is more broken up than before,
+  with separate beads where droplets used to stay joined.
+- **Ink: the pours nearest your voice's pitch get more of the ink.** A low voice thickens
+  the streams at one side of the tank and a high voice at the other, and the lead walks
+  across as the pitch moves. The total ink poured is the same; a high voice thins the
+  lowest pours.
+- **Sound with no clear pitch leaves both scenes exactly as they were.** On the recorded
+  kick drum and band nothing changes at all. The test for a clear pitch looks for vowels
+  over an uneven spectrum, so singing, or music with a strong midrange, may bring the
+  lead out; that has not been measured on real music.
+- The lead holds still on a held note, and Gain does not move it.
+
+### Added
+
+- The scene kit can tell a scene the voice's pitch, the place it falls among a scene's
+  parts, and how clear it is (`TimbreScene.createPitch`). Chladni keeps its own.
+
+### Known limits
+
+- Metaball: a few more droplets are out than before for some higher voices (5.4% more at
+  260 Hz on the recordings). Above Gain 1 its lead changes more often, because every
+  droplet reaches its limit together on a beat. A very low voice (90 Hz) sits between two
+  droplets and can lead with either.
+- Both scenes still read the old view of the sound for everything else, by choice:
+  measured, moving them to the finer bands flattened them under music.
+
 ## [1.0.200] — 2026-11-23
 
 Phosphor hears the finer bands. Copy `overlay` and refresh the sources; nothing to
@@ -1006,7 +1041,8 @@ StreamService / ControlPanel toolkit. (`ee5c34a`)
 
 Verified offline: `verify` 28/28, `verify:render` 14/14.
 
-[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.200...main
+[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.216...main
+[1.0.216]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.200...v1.0.216
 [1.0.200]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.198...v1.0.200
 [1.0.198]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.196...v1.0.198
 [1.0.196]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.194...v1.0.196
