@@ -31,6 +31,7 @@
     'phosphor', 'ink', 'shards', 'jelly', 'boids', 'school-of-fish',
     'rose', 'winter-aurora', 'thanksgiving-harvest',
     'pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes',
+    'christmas-tree',
   ];
 
   // Effects built on the scene kit (overlay/scene-kit.js); all of them are 3D.
@@ -38,7 +39,7 @@
     'thanksgiving-harvest', 'winter-aurora',
     'pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes',
     'sunburst-3d', 'mountains-3d', 'phosphor', 'chladni', 'glass-prism', 'metaball', 'ink',
-    'shards', 'jelly', 'school-of-fish', 'boids', 'rose',
+    'shards', 'jelly', 'school-of-fish', 'boids', 'rose', 'christmas-tree',
   ];
 
   // The name the control panel shows, where the id no longer says what the effect
@@ -111,7 +112,7 @@
     'autumn-leaves':   { leafDensity: 50, vortexStrength: 30 },
     'winter-aurora':   { auroraGlow: 50, snowfall: 50, starDensity: 50, cameraDrift: 50 },
     'halloween-jack':     { faceExpression: 0, batCount: 50, spiderChance: 30 },
-    'christmas-tree':     { lightDensity: 60, snowSpeed: 50, starGlow: 50 },
+    'christmas-tree':     { lightDensity: 60, starGlow: 50, snowfall: 50, shakeSensitivity: 50, resettleSeconds: 3, cameraDrift: 50 },
     'new-year-fireworks': { burstChance: 60, particleCount: 50, gravity: 40, trailFade: 30 },
     'valentines-hearts':  { heartDensity: 50, pulseStrength: 50, cupidChance: 40 },
     'easter-eggs':              { eggCount: 50, patternStyle: 75, bunnyChance: 50 },
@@ -127,7 +128,7 @@
   };
 
   // Per-knob max overrides for numeric perViz values; default max is 100.
-  const PER_VIZ_MAX = { 'dna': { reconnectSeconds: 10 }, 'pulse-rings': { reconnectSeconds: 10 }, 'orbit': { planets: 9 }, 'chladni': { rotateX: 360, rotateY: 360, rotateZ: 360 }, 'glass-prism': { reconnectSeconds: 10 }, 'jelly': { reconnectSeconds: 10 }, 'school-of-fish': { regroupSeconds: 10 }, 'boids': { settleSeconds: 10 }, 'rose': { regatherSeconds: 10 },
+  const PER_VIZ_MAX = { 'dna': { reconnectSeconds: 10 }, 'pulse-rings': { reconnectSeconds: 10 }, 'orbit': { planets: 9 }, 'chladni': { rotateX: 360, rotateY: 360, rotateZ: 360 }, 'glass-prism': { reconnectSeconds: 10 }, 'jelly': { reconnectSeconds: 10 }, 'school-of-fish': { regroupSeconds: 10 }, 'boids': { settleSeconds: 10 }, 'rose': { regatherSeconds: 10 }, 'christmas-tree': { resettleSeconds: 10 },
     'mountains-3d': { rotateX: 360, rotateY: 360, rotateZ: 360 }, 'phosphor': { rotateX: 360, rotateY: 360, rotateZ: 360 } };
 
   // Top-level numeric knobs with their ranges…

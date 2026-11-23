@@ -113,7 +113,7 @@ console.log('\n[1] table consistency');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['thanksgiving-harvest']) === '{"candleGlow":50,"leafDensity":50,"cameraDrift":50}', 'thanksgiving knobs');
   ok(T.VIZ_SCENES.indexOf('winter-aurora') === 1 && T.VIZ_SCENES.indexOf('thanksgiving-harvest') === 0, 'winter-aurora is the second kit scene');
   const FLAG_IDS = ['pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes'];
-  ok(JSON.stringify(T.VIZ_SCENES) === JSON.stringify(['thanksgiving-harvest', 'winter-aurora', ...FLAG_IDS, 'sunburst-3d', 'mountains-3d', 'phosphor', 'chladni', 'glass-prism', 'metaball', 'ink', 'shards', 'jelly', 'school-of-fish', 'boids', 'rose']) && FLAG_IDS.every((n) => T.VIZ_USES_3D.includes(n)), 'the five flags are kit scenes, listed after winter-aurora');
+  ok(JSON.stringify(T.VIZ_SCENES) === JSON.stringify(['thanksgiving-harvest', 'winter-aurora', ...FLAG_IDS, 'sunburst-3d', 'mountains-3d', 'phosphor', 'chladni', 'glass-prism', 'metaball', 'ink', 'shards', 'jelly', 'school-of-fish', 'boids', 'rose', 'christmas-tree']) && FLAG_IDS.every((n) => T.VIZ_USES_3D.includes(n)), 'the five flags are kit scenes, listed after winter-aurora');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['pride-ribbon']) === '{"wind":50,"heartRate":50,"stripeStyle":0,"cameraDrift":50}'
     && ['bi', 'ace', 'trans'].every((p) => JSON.stringify(T.DEFAULT_PER_VIZ[p + '-pride-ribbon']) === '{"wind":50,"heartRate":50,"cameraDrift":50}'), 'pride flag knobs');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['july-fourth-stripes']) === '{"wind":50,"starTwinkle":50,"burstChance":50,"cameraDrift":50}', 'fourth of july flag knobs');
@@ -5776,10 +5776,10 @@ await import('./overlay/rose.js');
   {
     const clamped = T.sanitizeConfig({ perViz: { rose: { density: 400, thorns: -3, scatterSensitivity: 77, regatherSeconds: 99, cameraDrift: 12, clones: 4, bogus: 1 } } }).perViz.rose;
     ok(JSON.stringify(T.DEFAULT_PER_VIZ.rose) === '{"density":50,"thorns":50,"scatterSensitivity":50,"regatherSeconds":3,"cameraDrift":50}' && JSON.stringify(T.PER_VIZ_MAX.rose) === '{"regatherSeconds":10}'
-      && T.VIZ_SCENES[T.VIZ_SCENES.length - 1] === 'rose' && T.VIZ_SCENES.indexOf('rose') === T.VIZ_SCENES.indexOf('boids') + 1 && T.VIZ_USES_3D.includes('rose') && T.ACTIVE_VIZ_NAMES.length === 52
+      && T.VIZ_SCENES.indexOf('rose') === T.VIZ_SCENES.indexOf('boids') + 1 && T.VIZ_USES_3D.includes('rose') && T.ACTIVE_VIZ_NAMES.length === 52
       && T.ACTIVE_VIZ_NAMES.indexOf('rose') === T.ACTIVE_VIZ_NAMES.indexOf('school-of-fish') + 1 && !('rose' in T.VIZ_LABELS) && T.VIZ_USES_3D.every((n) => T.VIZ_SCENES.includes(n))
       && JSON.stringify(clamped) === '{"density":100,"thorns":0,"scatterSensitivity":77,"regatherSeconds":10,"cameraDrift":12}',
-      "Rose's settings: Density, Thorns, Scatter sensitivity, Regather seconds (up to 10) and Camera drift; it keeps its id, its name and its place in the list, and is a scene, the last listed, as every WebGL effect now is; a setting it does not have is dropped");
+      "Rose's settings: Density, Thorns, Scatter sensitivity, Regather seconds (up to 10) and Camera drift; it keeps its id, its name and its place in the list, and is a scene, listed after the birds, as every WebGL effect now is; a setting it does not have is dropped");
   }
   ok(K.countFor(0) === 40 && K.countFor(50) === 56 && K.countFor(100) === 72 && K.countFor(25) === 48 && K.countFor(1) === 40 && K.countFor(2) === 41 && K.countFor(-9) === 40 && K.countFor(900) === 72
     && K.countFor(undefined) === 56 && K.countFor(NaN) === 56 && K.countFor('7') === 56,
@@ -6485,6 +6485,432 @@ await import('./overlay/rose.js');
       'a blade is a grid of 9 by 15 points, across from -1 to 1 and along from its base to its tip, its rows closer together toward the tip, every triangle facing the same way');
     ok(K.swayFor(0) === 0 && near(K.swayFor(50), 0.14) && near(K.swayFor(100), 0.28) && near(K.swayFor(undefined), 0.14) && K.orbitAt(0, 50) === 0 && near(K.orbitAt(Math.PI / 2 / 0.13, 50), 0.14) && near(K.orbitAt(3, 100), 0.28 * Math.sin(0.39)),
       'the camera sways 0.14 radians each way at Camera drift 50, not at all at 0 and twice as far at 100, once in about 48 seconds');
+  }
+}
+
+console.log('\n[26] christmas tree');
+await import('./overlay/scene-kit.js');
+await import('./overlay/christmas-tree.js');
+{
+  const K = globalThis.TimbreTree, KIT = globalThis.TimbreScene;
+  const near = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol;
+  const T6 = K.TIERS.length, TAU = Math.PI * 2;
+  const quiet = new Float32Array(8);
+  const loudBands = (v) => new Float32Array(8).fill(v);
+  const oneBand = (b, v) => { const a = new Float32Array(8); a[b] = v; return a; };
+  const finite = (a) => { for (let i = 0; i < a.length; i++) if (!Number.isFinite(a[i])) return false; return true; };
+  const how = (over = {}) => Object.assign({ flame: 0, kick: 0, burst: 0, bands: quiet, snow: 1 }, over);
+  const mk = (n = 96) => K.createTree(K.SEED, n);
+  const run = (tr, secs, h, fps = 60) => { let steps = 0; for (let i = 0, m = Math.round(secs * fps); i < m; i++) steps += K.advance(tr, 1 / fps, h); return steps; };
+  const steps = (tr, n, h) => { for (let i = 0; i < n; i++) K.stepTree(tr, h); };
+  const sheet = () => ({ bright: new Float32Array(K.LIGHTS_MAX), bulb: new Float32Array(K.LIGHTS_MAX * 3), halo: new Float32Array(K.LIGHTS_MAX * 3), haloSize: new Float32Array(K.LIGHTS_MAX),
+    ball: new Float32Array(K.BAUBLES * 3), ballCol: new Float32Array(K.BAUBLES * 3), ballHow: new Float32Array(K.BAUBLES * 2), cap: new Float32Array(T6 * 2), flake: new Float32Array(K.FLAKES * 4),
+    star: new Float32Array(8), string: new Float32Array(4) });
+  // A palette for the checks: light k of the string's five is (k + 1) / 10 red and half that green; bauble k of seven is (k + 1) / 10 blue.
+  const look = (over = {}) => { const pal = new Float32Array(K.HUES[0] * 3), balls = new Float32Array(K.HUES[1] * 3); for (let k = 0; k < K.HUES[0]; k++) { pal[k * 3] = (k + 1) / 10; pal[k * 3 + 1] = (k + 1) / 20; } for (let k = 0; k < K.HUES[1]; k++) balls[k * 3 + 2] = (k + 1) / 10; return Object.assign({ pal, balls, kick: 0, glow: 1 }, over); };
+  const snapshot = (tr) => [tr.hist, tr.lean, tr.snow, tr.wait, tr.level, tr.swing, tr.swingV, tr.glow, tr.flake, tr.flakeV, tr.on, [tr.star, tr.time, tr.left, tr.flash, tr.lying, tr.histAt, tr.falling, tr.clumps]].map((a) => Array.from(a).join()).join('|');
+  const clumpsOn = (tr) => { let c = 0; for (let i = K.FALLING_MAX; i < K.FLAKES; i++) c += tr.on[i]; return c; };
+  const fallingOn = (tr) => { let c = 0; for (let i = 0; i < K.FALLING_MAX; i++) c += tr.on[i]; return c; };
+  const fl = Math.fround;
+
+  // CONSTANTS
+
+  // THE SHAPE
+  {
+    let rims = true, tips = true, tops = true, turned = true;
+    for (let i = 0; i < T6; i++) {
+      const [R, h, base] = K.TIERS[i], y = K.rimY(i);
+      if (!near(y, base - K.DROOP * h)) rims = false;
+      for (let a = 0; a < 64; a++) {
+        const phi = (a / 64) * TAU;
+        if (!near(K.tierR(i, y, phi), K.rimR(i, phi), 1e-9)) rims = false;
+        if (!near(K.rimR(i, phi), R * (1 + K.SCALLOP * Math.cos(K.LOBES * (phi + i * K.TURN))))) rims = false;
+        if (K.tierR(i, base + h, phi) !== 0 || K.tierR(i, base + h + 0.01, phi) !== 0 || K.tierR(i, y - 0.01, phi) !== 0) tops = false;
+        if (!(K.tierR(i, base + 0.5 * h, phi) > 0 && K.tierR(i, base + 0.5 * h, phi) < K.tierR(i, base, phi) && K.tierR(i, base, phi) < K.rimR(i, phi) * 1.0001)) tops = false;
+      }
+      // Seven tips, the first of them turned back by the tier's turn.
+      for (let j = 0; j < K.LOBES; j++) if (!near(K.rimR(i, (TAU * j) / K.LOBES - i * K.TURN), R * (1 + K.SCALLOP))) tips = false;
+      if (i && !(K.TIERS[i][0] < K.TIERS[i - 1][0] && K.TIERS[i][2] > K.TIERS[i - 1][2] && K.rimY(i) < K.TIERS[i - 1][2] + K.TIERS[i - 1][1])) turned = false;
+    }
+    ok(rims && tips && tops && turned, 'a tier is a skirt of boughs: nothing at its top, widening down to a rim of seven tips a fifth of its height below its base; each tier is narrower and higher than the one below, and hangs over it');
+
+    let covers = true, hangs = true, over = true;
+    for (let a = 0; a < 48; a++) {
+      const phi = (a / 48) * TAU;
+      for (let y = 0.34; y < 2.75; y += 0.013) {
+        const r = K.surfaceR(y, phi);
+        for (let i = 0; i < T6; i++) if (r < K.tierR(i, y, phi) - 1e-12) covers = false;
+        for (let i = 0; i < T6 - 1; i++) { const lo = K.rimY(i), hi = K.rimY(i + 1); if (y >= lo && y <= hi) { const f = (y - lo) / (hi - lo); if (r < K.LINE * (K.rimR(i, phi) * (1 - f) + K.rimR(i + 1, phi) * f) - 1e-12) hangs = false; } }
+        if (y > K.rimY(T6 - 1)) { let most = 0; for (let i = 0; i < T6; i++) most = Math.max(most, K.tierR(i, y, phi)); if (r !== most) over = false; }
+      }
+    }
+    ok(covers && hangs && over && K.surfaceR(3.2, 1) === 0 && K.surfaceR(0.1, 1) === 0,
+      'how far out the tree reaches: as far as its boughs, and between one rim and the next at least 0.92 of the line from rim to rim, where a string hangs; above the highest rim it is the boughs alone, and beyond the tree nothing');
+  }
+  {
+    const g = K.garland(96), g2 = K.garland(48), g3 = K.garland(128);
+    let onSurface = true, down = true, even = true, round = true, lastPhi = null, turns = 0, least = 9, most = 0;
+    for (let j = 0; j < 96; j++) {
+      const x = g.at[j * 3], y = g.at[j * 3 + 1], z = g.at[j * 3 + 2], phi = Math.atan2(z, x), r = Math.hypot(x, z);
+      if (!near(r, K.surfaceR(y, phi) + K.PROUD, 2e-3)) onSurface = false;
+      if (j && !(y < g.at[(j - 1) * 3 + 1] && g.u[j] > g.u[j - 1])) down = false;
+      if (j) { const d = Math.hypot(x - g.at[(j - 1) * 3], y - g.at[(j - 1) * 3 + 1], z - g.at[(j - 1) * 3 + 2]); if (d < least) least = d; if (d > most) most = d; let dp = phi - lastPhi; while (dp < -Math.PI) dp += TAU; while (dp > Math.PI) dp -= TAU; if (!(dp > 0)) round = false; turns += dp / TAU; }
+      lastPhi = phi;
+    }
+    if (!(most < 1.25 * g.length / 96 && least > 0.5 * g.length / 96)) even = false;
+    ok(g.n === 96 && g.at.length === 96 * 3 && g.u.length === 96 && onSurface && down && even && round && near(g.u[0], 0.5 / 96, 1e-3) && near(g.u[95], 95.5 / 96, 1e-3) && g.at[1] < K.STRING[0] && g.at[1] > K.STRING[0] - 0.08 && g.at[95 * 3 + 1] > K.STRING[1] && g.at[95 * 3 + 1] < K.STRING[1] + 0.05
+      && near(turns, (K.STRING[0] - K.STRING[1]) / K.DROP * (95 / 96), 0.12) && g.length > 15 && g.length < 26,
+      'the string of lights winds down the tree, 0.42 lower each turn, a little proud of its surface; its lights are evenly along it, the first under the star and the last at the lowest boughs');
+    ok(g2.n === 48 && g3.n === 128 && near(g2.length, g.length, 1e-9) && near(g3.length, g.length, 1e-9) && g2.at[1] < g.at[1] && g3.at[1] > g.at[1] && Array.from(g.wire).join() === Array.from(g2.wire).join() && g.wire.length % 3 === 0 && g.wire.length / 3 === Math.floor(K.STRING_STEPS / K.WIRE_EVERY) + 1
+      && near(g.wire[1], K.STRING[0], 1e-6) && near(g.wire[g.wire.length - 2], K.STRING[1], 1e-6) && finite(g.wire) && finite(g3.at),
+      'however many lights there are the string is the same string: the same length and the same wire, from top to bottom');
+
+    const sp = K.baubleSpots();
+    let under = true, smaller = true; const hues = new Set(), perTier = new Array(T6).fill(0);
+    for (let b = 0; b < K.BAUBLES; b++) {
+      const i = sp.tier[b]; perTier[i]++; hues.add(sp.hue[b]);
+      if (!near(K.rimR(i, sp.phi[b]), K.TIERS[i][0] * (1 + K.SCALLOP), 1e-6)) under = false;
+      if (!near(sp.r[b], K.BAUBLE_R[0] - K.BAUBLE_R[1] * i, 1e-7)) smaller = false;
+      if (!(sp.hue[b] >= 0 && sp.hue[b] < K.HUES[1])) under = false;
+    }
+    ok(K.BAUBLES === 42 && sp.tier.length === 42 && perTier.every((c) => c === 7) && under && smaller && hues.size === 7, 'there are 42 baubles, seven to a tier, one under the tip of every bough, smaller toward the top, in seven colours');
+  }
+  {
+    const b = K.tierGrid(false), s = K.tierGrid(true), [M, N] = K.TIER_GRID;
+    let apex = true, rim = true, lies = true, wound = b.index.length === M * N * 6;
+    for (let i = 0; i <= N; i++) {
+      const top = i * 3, edge = (M * (N + 1) + i) * 3, phi = (i / N) * TAU;
+      if (!(b.points[top] === 0 && near(b.points[top + 1], 1, 1e-7) && b.points[top + 2] === 0)) apex = false;
+      if (!(near(b.points[edge + 1], -K.DROOP, 1e-6) && near(Math.hypot(b.points[edge], b.points[edge + 2]), 1 + K.SCALLOP * Math.cos(K.LOBES * phi), 1e-6))) rim = false;
+      // The snow ends short of the rim, stands a little proud, and reaches an uneven way down.
+      const sy = s.points[edge + 1], sr = Math.hypot(s.points[edge], s.points[edge + 2]), down = K.SNOW_LIES[0] + K.SNOW_LIES[1] * Math.cos(K.LOBES * phi + 1.3) + K.SNOW_LIES[2] * Math.cos(3 * phi);
+      if (!(near(sy, 1 - down - K.DROOP * down * down + K.SNOW_PROUD[1], 1e-6) && near(sr, down * (1 + K.SCALLOP * down * Math.cos(K.LOBES * phi)) * K.SNOW_PROUD[0], 1e-6) && down < 0.9 && down > 0.55)) lies = false;
+    }
+    ok(b.points.length === (M + 1) * (N + 1) * 3 && s.points.length === b.points.length && s.index.length === b.index.length && apex && rim && lies && wound,
+      'a tier of boughs is a grid from its top to its drooping rim of seven tips; the snow on it is the same skirt, a little proud of the boughs, ending an uneven way short of the rim');
+
+    const d = K.driftGrid();
+    let inside = true;
+    for (let i = 0; i < d.points.length - 73 * 3; i += 3) if (!near(d.points[i + 1], K.driftHeight(d.points[i], d.points[i + 2]), 1e-4)) inside = false;
+    for (let i = d.points.length - 73 * 3; i < d.points.length; i += 3) if (!(d.points[i + 1] < 1e-6 && near(Math.hypot(d.points[i] / K.DRIFT[0], d.points[i + 2] / K.DRIFT[2]), 1, 1e-6))) inside = false;
+    ok(K.driftHeight(0, 0) > 0.19 && K.driftHeight(0, 0) < 0.25 && K.driftHeight(K.DRIFT[0], 0) === 0 && K.driftHeight(0, K.DRIFT[2] + 0.01) === 0 && K.driftHeight(9, 9) === 0 && K.driftHeight(1.2, 0.5) > 0 && K.driftHeight(1.2, 0.5) < K.driftHeight(0, 0)
+      && inside && d.points.length === 27 * 73 * 3 && d.index.length === 26 * 72 * 6 && near(K.FOOT, K.driftHeight(0, -K.DRIFT_Z) - K.SINK) && K.FOOT > 0.15 && K.FOOT < 0.22
+      && K.snowAt(0, K.DRIFT_Z) === K.driftHeight(0, 0) && K.snowAt(9, 9) === K.FLOOR && K.snowAt(K.DRIFT[0] - 0.01, K.DRIFT_Z) === K.FLOOR,
+      'the drift is a low uneven dome of snow, nothing beyond its rim; the tree stands in it, a little sunk; falling snow lands on it, or beyond it a little above the unseen ground');
+
+    const st = K.starPoints();
+    let out = true, tipsAt = 0, innerAt = 0;
+    for (let t = 0; t < st.length; t += 9) {
+      const A = [st[t], st[t + 1], st[t + 2]], B = [st[t + 3], st[t + 4], st[t + 5]], C = [st[t + 6], st[t + 7], st[t + 8]];
+      const nz = (B[0] - A[0]) * (C[1] - A[1]) - (B[1] - A[1]) * (C[0] - A[0]);
+      const mid = (A[2] + B[2] + C[2]) / 3;
+      if (!(nz * mid > 0)) out = false;
+    }
+    for (let v = 0; v < st.length; v += 3) { const r = Math.hypot(st[v], st[v + 1]); if (st[v + 2] === 0 && near(r, K.STAR[0], 1e-6)) tipsAt++; if (st[v + 2] === 0 && near(r, K.STAR[1], 1e-6)) innerAt++; }
+    let up = false;
+    for (let v = 0; v < st.length; v += 3) if (near(st[v], 0, 1e-6) && near(st[v + 1], K.STAR[0], 1e-6)) up = true;
+    ok(st.length === 20 * 9 && out && tipsAt === 20 && innerAt === 20 && up, 'the star has five points, one straight up, and a raised middle front and back: twenty faces, each facing outward');
+  }
+
+  // THE SETTINGS AND THE SOUND
+  ok(K.countFor(0) === 48 && K.countFor(60) === 96 && K.countFor(100) === 128 && K.countFor(50) === 88 && K.countFor(undefined) === 96 && K.countFor(NaN) === 96 && K.countFor(-5) === 48 && K.countFor(400) === 128,
+    'Light density is how many lights are on the string: 48 to 128, 96 at its default of 60');
+  ok(K.glowFor(0) === 0 && K.glowFor(50) === 1 && K.glowFor(100) === 2 && K.glowFor(undefined) === 1 && K.snowFor(0) === 0 && K.snowFor(50) === 1 && K.snowFor(100) === 2 && K.snowFor('x') === 1 && K.snowFor(250) === 2,
+    'Star glow and Snowfall are shares of their defaults: none at 0, twice at 100');
+  {
+    const bins = new Uint8Array(32); bins[3] = 128; bins[5] = 255;
+    let turns = true, mostIdle = 0;
+    for (let b = 0; b < 8; b++) { let zero = 0, some = 0; for (let t = 0; t < 40; t += 0.05) { const v = K.idle(b, t); if (v === 0) zero++; else some++; if (v > mostIdle) mostIdle = v; if (v < 0) turns = false; } if (!(zero > some && some > 100)) turns = false; }
+    // The swell climbs the tree: a band is at its most a little after the one below it.
+    const peakAt = (b) => { let best = -1, at = 0; for (let t = 0; t < 2 * Math.PI / 0.5; t += 0.01) { const v = K.idle(b, t); if (v > best) { best = v; at = t; } } return at; };
+    ok(near(K.loudness(bins, 3, 1), 128 / 255) && K.loudness(bins, 5, 2) === 1 && near(K.loudness(bins, 3, 0.5), 64 / 255) && K.loudness(bins, 40, 1) === 0 && K.loudness(null, 0, 1) === 0
+      && turns && near(mostIdle, 0.35, 1e-3) && near(peakAt(1) - peakAt(0), 0.9 / 0.5, 0.02),
+      'a band is as loud as its bin, times Gain, at most 1; with the mic off the bands swell in turn up the tree, each still for most of the time');
+    const lv = (bands) => Array.from({ length: T6 }, (v, i) => K.levelOf(bands, i));
+    const flat = lv(loudBands(0.4)), low = lv(oneBand(0, 1)), high = lv(oneBand(7, 1)), mid = lv(oneBand(3, 1));
+    ok(flat.every((v) => near(v, 0.4, 1e-7)) && near(low[0], 5 / 6, 1e-6) && low[1] === 0 && low.slice(2).every((v) => v === 0) && near(high[5], 5 / 6, 1e-6) && high.slice(0, 4).every((v) => v === 0)
+      && near(mid[2], 1 - Math.abs(2.5 * 8 / 6 - 0.5 - 3), 1e-6) && mid[3] === 0 && mid[1] === 0 && mid[0] === 0 && mid[5] === 0 && near(K.levelOf(oneBand(1, 1), 0), 1 / 6, 1e-6) && near(K.levelOf(oneBand(1, 1), 1), 0.5, 1e-6),
+      'each tier listens to its own part of the eight bands, the lowest at the foot and the highest under the star, sliding from one band to the next between tiers');
+  }
+
+  // THE TREE'S STATE
+  {
+    const tr = mk(), again = mk();
+    let spread = true, lowest = 9, highest = 0, inAir = true;
+    for (let i = 0; i < K.FALLING_MAX; i++) if (tr.on[i]) { const x = tr.flake[i * 4], y = tr.flake[i * 4 + 1], z = tr.flake[i * 4 + 2]; if (y < lowest) lowest = y; if (y > highest) highest = y; if (!(Math.abs(x) <= K.SKY[0] && z >= K.SKY[3] && z <= K.SKY[4] && tr.flake[i * 4 + 3] >= K.FLAKE[0] && tr.flake[i * 4 + 3] <= K.FLAKE[0] + K.FLAKE[1])) inAir = false; }
+    if (!(lowest < 1.2 && highest > 2.8)) spread = false;
+    let own = true;
+    for (let j = 0; j < K.LIGHTS_MAX; j++) if (!(tr.twinkle[j * 3] >= K.TWINKLE_RATE[0] && tr.twinkle[j * 3] <= K.TWINKLE_RATE[0] + K.TWINKLE_RATE[1] && tr.twinkle[j * 3 + 1] >= 0 && tr.twinkle[j * 3 + 1] < TAU && tr.twinkle[j * 3 + 2] >= 0 && tr.twinkle[j * 3 + 2] < 1)) own = false;
+    let signs = 0; for (let b = 0; b < K.BAUBLES; b++) { if (Math.abs(tr.sign[b]) !== 1) own = false; signs += tr.sign[b]; }
+    ok(tr.n === 96 && tr.string.n === 96 && Array.from(tr.snow).every((v) => v === 1) && tr.lying === 1 && Array.from(tr.lean).every((v) => v === 0) && tr.star === 0 && tr.flash === 0 && tr.time === 0 && tr.left === 0
+      && fallingOn(tr) === K.SNOWING[0] && tr.falling === K.SNOWING[0] && clumpsOn(tr) === 0 && spread && inAir && own && Math.abs(signs) < K.BAUBLES && Array.from(tr.hist).every((v) => v === 0) && snapshot(tr) === snapshot(again) && finite(tr.flake),
+      'a new tree stands still with the snow lying on every tier, 55 flakes already in the air at every height, and each light and bauble with its own ways; the same tree every time');
+
+    const t60 = mk(), t30 = mk(), h = how({ flame: 0.5, bands: loudBands(0.5) });
+    const s60 = run(t60, 2, h, 60), s30 = run(t30, 2, h, 30), slow = mk(), early = mk();
+    const big = K.advance(slow, 0.5, h), afterBig = slow.left, one = K.advance(early, 0.8 / 60, h), two = K.advance(early, 0.8 / 60, h);
+    ok(s60 === 120 && s30 === 120 && snapshot(t60) === snapshot(t30) && near(t60.time, 2, 1e-9) && big === K.STEPS_MAX && afterBig === 0 && one === 1 && two === 1 && near(early.left, 1.6 / 60 - 2 / 60, 1e-12),
+      'the tree is stepped 60 times a second whatever the frame rate, a step being taken once half of it is due: the same tree at 30 and at 60 frames a second; a frame of half a second is six steps and the rest is let go');
+  }
+  {
+    const tr = mk();
+    for (let i = 1; i <= 10; i++) K.stepTree(tr, how({ flame: i / 10 }));
+    const up = mk(); steps(up, 6, how({ flame: 1 })); const upTo = up.star; steps(up, 30, how());
+    ok(near(K.heard(tr, 0), fl(1.0), 1e-7) && near(K.heard(tr, 3), fl(0.7), 1e-7) && near(K.heard(tr, 2.5), (fl(0.7) + fl(0.8)) / 2, 1e-7) && K.heard(tr, 50) === 0 && K.heard(tr, -4) === K.heard(tr, 0) && K.heard(tr, 9999) === K.heard(tr, K.HISTORY - 2)
+      && near(upTo, 1 - Math.exp(-K.STAR_RATE[0] * 6 / 60), 1e-9) && near(up.star, upTo * Math.exp(-K.STAR_RATE[1] * 30 / 60), 1e-9) && near(tr.time, 10 / 60, 1e-12),
+      'the tree keeps what the star heard at each of its last steps, and can say what it heard any number of steps ago, between two steps too; the star itself rises to the voice quickly and falls slowly');
+    const still = mk(); steps(still, 600, how());
+    ok(still.star === 0 && K.heard(still, 0) === 0, 'in silence the star comes to rest');
+  }
+  {
+    // The baubles.
+    const tr = mk(), h = how({ bands: oneBand(0, 0.6) });
+    K.stepTree(tr, h);
+    const lv0 = K.levelOf(h.bands, 0);
+    let kicked = true, others = true;
+    for (let b = 0; b < K.BAUBLES; b++) {
+      const i = tr.spots.tier[b];
+      if (i === 0) { if (!(Math.sign(tr.swingV[b]) === tr.sign[b] && Math.abs(tr.swingV[b]) > 0.9 * K.SWING_BAND * lv0 && Math.abs(tr.swingV[b]) <= K.SWING_BAND * lv0 && near(tr.glow[b], lv0 * (1 - Math.exp(-K.GLOW_RATE[0] / 60)), 1e-6))) kicked = false; }
+      else if (i > 1 && (tr.swingV[b] !== 0 || tr.glow[b] !== 0 || tr.swing[b] !== 0)) others = false;
+    }
+    const v1 = Math.abs(tr.swingV[0]);
+    steps(tr, 600, h);   // a steady level kicks no more
+    const settledV = Math.abs(tr.swingV[0]), lit = tr.glow[0];
+    steps(tr, 12, how());
+    ok(kicked && others && settledV < 0.05 * v1 && near(lit, lv0, 1e-4) && near(tr.glow[0], lit * Math.exp(-K.GLOW_RATE[1] * 12 / 60), 1e-4),
+      'a tier\'s baubles light as far as its part of the sound is loud, quickly, and fade slowly; a rise in it sets them swinging, each its own way, and a steady sound does not');
+    // The swing is a spring: it crosses its rest about 4.4 times a second, dies away, and is never wild.
+    const sw = mk(); sw.swingV[5] = 6;
+    let crossings = 0, last = 0, most = 0;
+    for (let i = 0; i < 120; i++) { K.stepTree(sw, how()); if (last * sw.swing[5] < 0) crossings++; if (sw.swing[5] !== 0) last = sw.swing[5]; if (Math.abs(sw.swing[5]) > most) most = Math.abs(sw.swing[5]); }
+    const wild = mk(); wild.swingV[5] = 500; steps(wild, 3, how()); const held = Math.abs(wild.swing[5]);
+    steps(sw, 900, how());
+    ok(crossings >= 8 && crossings <= 9 && most > 0.3 && most < 6 / Math.sqrt(K.SWING[0]) && held <= K.SWING_MOST && sw.swing[5] === 0 && sw.swingV[5] === 0,
+      'a bauble swings on its string about 2.2 times a second, less each time, comes to rest, and is never thrown further than 1.2 radians');
+  }
+  {
+    // The thump.
+    const tr = mk(), before = Array.from(tr.snow);
+    K.shake(tr, 1, K.rng(1001));
+    let swinging = true, placed = true, moving = true;
+    for (let b = 0; b < K.BAUBLES; b++) if (!(Math.abs(tr.swingV[b]) >= K.SWING_THUMP[0] && Math.abs(tr.swingV[b]) <= K.SWING_THUMP[0] + K.SWING_THUMP[1])) swinging = false;
+    for (let c = K.FALLING_MAX; c < K.FLAKES; c++) {
+      const i = Math.floor((c - K.FALLING_MAX) / K.CLUMPS_EACH), [R, h, base] = K.TIERS[i], x = tr.flake[c * 4], y = tr.flake[c * 4 + 1] - K.FOOT, z = tr.flake[c * 4 + 2], r = Math.hypot(x, z);
+      if (!(tr.on[c] === 1 && r <= R * 1.0001 && r >= R * K.CLUMP_AT[0] * 0.999 && y <= base + h && y >= K.rimY(i) && tr.flake[c * 4 + 3] >= K.CLUMP[0] && tr.flake[c * 4 + 3] <= K.CLUMP[0] + K.CLUMP[1])) placed = false;
+      const out = (tr.flakeV[c * 3] * x + tr.flakeV[c * 3 + 2] * z) / r;
+      if (!(out >= K.CLUMP_OUT[0] * 0.999 && out <= (K.CLUMP_OUT[0] + K.CLUMP_OUT[1]) * 1.001 && tr.flakeV[c * 3 + 1] <= 0 && tr.flakeV[c * 3 + 1] >= -K.CLUMP_DOWN)) moving = false;
+    }
+    ok(Math.abs(tr.lean[1]) >= K.ROCK[0] && Math.abs(tr.lean[1]) <= K.ROCK[0] + K.ROCK[1] && Math.abs(tr.lean[3]) <= K.ROCK[2] / 2 && tr.lean[0] === 0 && swinging && tr.lying === 0 && tr.flash === 1 && clumpsOn(tr) === K.CLUMPS && K.CLUMPS === K.CLUMPS_EACH * T6
+      && placed && moving && Array.from(tr.snow).join() === before.join() && Array.from(tr.wait).every((w, i) => near(w, K.SNOW_WAIT * (T6 - 1 - i), 1e-7)),
+      'a thump gives the trunk a push, sets every bauble swinging, and throws eighteen clumps of snow off every tier, outward and down from where the snow lay; the snow itself starts to go a moment later, the top tiers first');
+
+    // The snow comes off, the top first.
+    steps(tr, 4, how());
+    const early = Array.from(tr.snow);
+    steps(tr, 41, how());
+    const gone = Array.from(tr.snow);
+    steps(tr, 600, how());
+    ok(early[5] < 0.6 && early[0] === 1 && early[5] < early[4] && early[4] <= early[3] && gone.every((v) => v < 0.03) && Array.from(tr.snow).every((v) => v === 0) && tr.lying === 0,
+      'the snow goes from the top tier first and from the lowest last, is all gone within three quarters of a second, and stays off until the tree is told the snow may settle');
+
+    // The trunk is a spring.
+    const rock = mk(); K.shake(rock, 1, K.rng(1001));
+    const push = Math.abs(rock.lean[1]);
+    let crossings = 0, last = 0, most = 0;
+    for (let i = 0; i < 60; i++) { K.stepTree(rock, how()); if (last * rock.lean[0] < 0) crossings++; if (rock.lean[0] !== 0) last = rock.lean[0]; if (Math.abs(rock.lean[0]) > most) most = Math.abs(rock.lean[0]); }
+    const after1 = Math.hypot(rock.lean[0], rock.lean[2]);
+    steps(rock, 600, how());
+    ok(crossings >= 5 && crossings <= 7 && most > 0.6 * push / Math.sqrt(K.SPRING[0]) && most < push / Math.sqrt(K.SPRING[0]) && after1 < 0.2 * most && Array.from(rock.lean).every((v) => v === 0) && rock.flash === 0,
+      'the tree rocks on its trunk about three times a second, a few degrees at most, less each time, and comes to rest; the flash of the thump is gone in a moment');
+
+    // The clumps fall and end at the snow, and keep over the drift.
+    const fall = mk(); K.shake(fall, 1, K.rng(1003));
+    let kept = true, above = true, firstGone = -1;
+    for (let i = 0; i < 180; i++) {
+      K.stepTree(fall, how());
+      for (let c = K.FALLING_MAX; c < K.FLAKES; c++) if (fall.on[c]) {
+        const x = fall.flake[c * 4], y = fall.flake[c * 4 + 1], z = fall.flake[c * 4 + 2];
+        if (Math.hypot(x / K.KEEP[0], (z - K.DRIFT_Z) / K.KEEP[1]) > 1 + 1e-6) kept = false;
+        if (y < K.driftHeight(x, z - K.DRIFT_Z)) above = false;
+      }
+      if (firstGone < 0 && clumpsOn(fall) < K.CLUMPS) firstGone = i;
+    }
+    const drop = mk(); K.shake(drop, 1, K.rng(1003)); const c0 = K.FLAKES - 1, y0 = drop.flake[c0 * 4 + 1], vy0 = drop.flakeV[c0 * 3 + 1]; steps(drop, 12, how());
+    ok(kept && above && clumpsOn(fall) === 0 && fall.clumps === 0 && firstGone > 3 && firstGone < 40 && near(drop.flakeV[c0 * 3 + 1], vy0 - K.GRAVITY * 12 / 60, 1e-5) && drop.flake[c0 * 4 + 1] < y0 - 0.5 * K.GRAVITY * 0.2 * 0.2 * 0.9,
+      'a clump falls faster and faster and ends where it meets the snow, the lowest tier\'s first; none is left after three seconds, and none falls beyond the drift');
+
+    // The snow settles again, slowly; a thump in the middle of it sends off what has settled.
+    K.resettle(tr);
+    steps(tr, 60, how());
+    const after1s = tr.snow[0];
+    const half = Array.from(tr.snow);
+    K.shake(tr, 1, K.rng(1002));
+    const thrown = clumpsOn(tr), same = Array.from(tr.snow).join() === half.join();
+    steps(tr, 60, how());
+    const offAgain = Array.from(tr.snow).every((v) => v < 0.01);
+    K.resettle(tr); steps(tr, 60 * 14, how());
+    ok(near(after1s, 1 - Math.exp(-K.SNOW_RATE[1]), 1e-4) && same && thrown === T6 * Math.round(K.CLUMPS_EACH * after1s) && thrown > 30 && thrown < 60 && offAgain && Array.from(tr.snow).every((v) => v === 1) && tr.lying === 1,
+      'told it may, the snow settles on the boughs again over a few seconds and comes to rest whole; a thump while it is settling throws off as many clumps as there is snow, and the snow goes again from where it was, with no jump');
+    const bare = mk(); K.shake(bare, 1, K.rng(1)); steps(bare, 200, how());
+    const leanV = bare.lean[1]; K.shake(bare, K.JOSTLE, K.rng(2));
+    let gentler = true; const sw2 = mk(); K.shake(sw2, K.JOSTLE, K.rng(1001));
+    for (let b = 0; b < K.BAUBLES; b++) if (!(Math.abs(sw2.swingV[b]) >= K.JOSTLE * K.SWING_THUMP[0] - 1e-6 && Math.abs(sw2.swingV[b]) <= K.JOSTLE * (K.SWING_THUMP[0] + K.SWING_THUMP[1]) + 1e-6)) gentler = false;
+    ok(clumpsOn(bare) === 0 && Math.abs(bare.lean[1] - leanV) >= K.JOSTLE * K.ROCK[0] - 1e-6 && Math.abs(bare.lean[1] - leanV) <= K.JOSTLE * (K.ROCK[0] + K.ROCK[1]) + 1e-6 && bare.flash === K.JOSTLE && gentler && near(Math.abs(sw2.lean[1]), K.JOSTLE * Math.abs(mkShake().lean[1]), 1e-6),
+      'a peak while the tree is bare rocks it again, 0.6 as hard, and throws no snow, for there is none');
+    function mkShake() { const t = mk(); K.shake(t, 1, K.rng(1001)); return t; }
+  }
+  {
+    // The falling snow.
+    const tr = mk(), speeds = [];
+    for (let i = 0; i < K.FALLING_MAX; i++) speeds.push(tr.flakeV[i * 3]);
+    const i0 = Array.from(tr.on).findIndex((v, i) => v && tr.flake[i * 4 + 1] > 2), y0 = tr.flake[i0 * 4 + 1], x0 = tr.flake[i0 * 4];
+    steps(tr, 30, how());
+    const fell = y0 - tr.flake[i0 * 4 + 1], swayed = Math.abs(tr.flake[i0 * 4] - x0);
+    const count = (h, secs) => { const t = mk(); steps(t, 60 * secs, h); return fallingOn(t); };
+    const silent = count(how(), 20), loud = count(how({ flame: 1 }), 20), beats = count(how({ flame: 1, burst: 1 }), 20), none = count(how({ snow: 0 }), 20), twice = count(how({ snow: 2 }), 20), most = count(how({ flame: 1, burst: 1, snow: 2 }), 20);
+    // A flake that lands starts again at the top, inside its air; at most two start in a step.
+    const fresh = mk(); let spawnedMost = 0, tops = true;
+    for (let s = 0; s < 240; s++) { const was = Array.from(fresh.on); K.stepTree(fresh, how({ flame: 1, burst: 1, snow: 2 })); let spawned = 0; for (let i = 0; i < K.FALLING_MAX; i++) if (!was[i] && fresh.on[i]) { spawned++; const x = fresh.flake[i * 4], y = fresh.flake[i * 4 + 1], z = fresh.flake[i * 4 + 2]; if (!(Math.abs(x) <= K.SKY[0] && y >= K.SKY[1] && y <= K.SKY[1] + K.SKY[2] && z >= K.SKY[3] && z <= K.SKY[4])) tops = false; } if (spawned > spawnedMost) spawnedMost = spawned; }
+    ok(speeds.every((v) => v >= K.FLAKE_FALL[0] && v <= K.FLAKE_FALL[0] + K.FLAKE_FALL[1]) && near(fell, 0.5 * speeds[i0], 1e-5) && swayed > 0 && swayed < 0.5 * K.FLAKE_SWAY[1] + 1e-6
+      && silent === K.SNOWING[0] && loud === K.SNOWING[0] + K.SNOWING[1] && beats === K.SNOWING[0] + K.SNOWING[1] + K.SNOWING[2] && none === 0 && twice === 2 * K.SNOWING[0] && most === K.FALLING_MAX && K.FALLING_MAX === 2 * (K.SNOWING[0] + K.SNOWING[1] + K.SNOWING[2])
+      && spawnedMost === K.SPAWN && tops,
+      'snow falls: each flake at its own speed, swaying; 55 flakes in silence, 110 at the loudest and 40 more after beats, none at Snowfall 0 and twice as many at 100; a flake that lands starts again at the top, two at most in a step');
+    const dry = mk(); steps(dry, 60 * 20, how({ snow: 0 })); K.shake(dry, 1, K.rng(5));
+    ok(fallingOn(dry) === 0 && clumpsOn(dry) === K.CLUMPS, 'with Snowfall at 0 a thump still knocks the snow off the boughs');
+  }
+  {
+    // The string laid again; everything laid again.
+    const tr = mk(); K.shake(tr, 1, K.rng(9)); steps(tr, 20, how({ flame: 0.7, bands: loudBands(0.5) }));
+    const before = snapshot(tr), tw = Array.from(tr.twinkle);
+    K.restring(tr, 128);
+    const kept = snapshot(tr) === before && Array.from(tr.twinkle).join() === tw.join();
+    K.lay(tr, 128);
+    ok(kept && tr.n === 128 && tr.string.n === 128 && snapshot(tr) === snapshot(K.createTree(K.SEED, 128)) && snapshot(tr).replace(/\|[^|]*$/, '') === snapshot(mk(96)).replace(/\|[^|]*$/, ''),
+      'when Light density changes the string is laid again and nothing else is touched; laid again whole, the tree is as it was made, whatever happened to it');
+    const long = mk(); let fine = true;
+    for (let i = 0; i < 1800; i++) { if (i % 90 === 0) K.shake(long, i % 180 ? K.JOSTLE : 1, K.rng(i)); if (i % 300 === 150) K.resettle(long); K.stepTree(long, how({ flame: (i % 7) / 6, kick: i % 30 ? 0 : 1, burst: 1, bands: loudBands((i % 5) / 4), snow: 2 })); if (!(finite(long.flake) && finite(long.lean) && finite(long.swing) && finite(long.snow) && Math.hypot(long.lean[0], long.lean[2]) < 0.4)) fine = false; }
+    ok(fine && fallingOn(long) <= K.FALLING_MAX, 'thumped again and again while it is loud, the tree never leans far and every number stays a number');
+  }
+
+  // WHAT IS DRAWN
+  {
+    const tr = mk(), o = sheet(), L = look();
+    K.dress(o, tr, L);
+    let silent = true, own = true;
+    for (let j = 0; j < 96; j++) {
+      const b = K.TWINKLE[0] + K.TWINKLE[1] * (0.5 + 0.5 * Math.sin(tr.twinkle[j * 3 + 1])), k = j % K.HUES[0], red = (k + 1) / 10;
+      if (!(near(o.bright[j], b, 1e-6) && near(o.bulb[j * 3], red * (K.CORE[0] + K.CORE[1] * b) + K.CORE[2] * b * b, 1e-5) && near(o.bulb[j * 3 + 1], 0.5 * red * (K.CORE[0] + K.CORE[1] * b) + K.CORE[2] * b * b, 1e-5) && near(o.bulb[j * 3 + 2], K.CORE[2] * b * b, 1e-6)
+        && near(o.halo[j * 3], red * (K.HALO[0] + K.HALO[1] * b), 1e-6) && o.halo[j * 3 + 2] === 0 && near(o.haloSize[j], K.HALO_SIZE[0] + K.HALO_SIZE[1] * b, 1e-6))) silent = false;
+      if (!(b >= K.TWINKLE[0] && b <= K.TWINKLE[0] + K.TWINKLE[1])) own = false;
+    }
+    steps(tr, 37, how()); K.dress(o, tr, L);
+    const later = K.TWINKLE[0] + K.TWINKLE[1] * (0.5 + 0.5 * Math.sin(tr.time * tr.twinkle[3] + tr.twinkle[4]));
+    ok(silent && own && near(o.bright[1], later, 1e-5) && o.bright[96] === 0, 'in silence every light of the string glows low and twinkles in its own time, in its own colour of five in turn, with a small glow round it');
+
+    // The voice runs down the string.
+    const v = mk(); steps(v, 6, how({ flame: 1 })); steps(v, 30, how()); K.dress(o, v, L);
+    let best = 0; for (let j = 1; j < 96; j++) if (o.bright[j] > o.bright[best]) best = j;
+    const want = (30 + 3) / K.RUN, at = v.string.u[best];
+    const v2 = mk(); steps(v2, 6, how({ flame: 1 })); steps(v2, 50, how()); K.dress(sheet(), v2, L); const o2 = sheet(); K.dress(o2, v2, L);
+    let best2 = 0; for (let j = 1; j < 96; j++) if (o2.bright[j] > o2.bright[best2]) best2 = j;
+    const loudAll = mk(); steps(loudAll, 120, how({ flame: 1 })); const o3 = sheet(); K.dress(o3, loudAll, L);
+    ok(K.RUN === Math.round(K.RUN_S / K.STEP) && Math.abs(at - want) < 0.06 && o.bright[best] > 1 && o.bright[0] < 0.45 && o.bright[95] < 0.4 && best2 > best + 20 && near(v2.string.u[best2], (50 + 3) / K.RUN, 0.06)
+      && near(o3.bright[40], K.TWINKLE[0] + K.TWINKLE[1] * (0.5 + 0.5 * Math.sin(loudAll.time * loudAll.twinkle[120] + loudAll.twinkle[121])) + K.VOICE[0], 1e-4) && near(o3.haloSize[40], K.HALO_SIZE[0] + K.HALO_SIZE[1] * Math.min(o3.bright[40], K.HALO_SIZE[2]), 1e-6) && near(Math.max(...o3.haloSize), K.HALO_SIZE[0] + K.HALO_SIZE[1] * K.HALO_SIZE[2], 1e-6),
+      'what the star heard runs down the string, from the star to the lowest boughs in 1.1 seconds: a syllable is a pulse of light that is halfway down after half that time; a light\'s glow grows with it, up to a size');
+
+    // A beat, and the flicker while the tree rocks.
+    const beat = mk(), ob = sheet(); K.dress(o, beat, L); K.dress(ob, beat, look({ kick: 1 }));
+    let shares = true; for (let j = 0; j < 96; j++) if (!near(ob.bright[j] - o.bright[j], K.BEAT * beat.twinkle[j * 3 + 2], 1e-6)) shares = false;
+    const rocking = mk(), of = sheet(); rocking.lean[0] = 0.05; K.dress(of, rocking, L);
+    let dimmer = true, some = 0; for (let j = 0; j < 96; j++) { const r = of.bright[j] / o.bright[j], wantR = 1 - K.FLICKER[0] * Math.min(1, K.FLICKER[1] * 0.05) * (0.5 + 0.5 * Math.sin(K.FLICKER[3] * rocking.twinkle[j * 3 + 1])); if (!near(r, wantR, 1e-5)) dimmer = false; if (r < 0.7) some++; }
+    ok(shares && dimmer && some > 20 && some < 80, 'a beat brightens each light by its own share; while the tree rocks its lights flicker, each in its own time, and at rest they do not');
+
+    // The light the string throws.
+    K.dress(o, mk(), L);
+    let mean = 0, mr = 0, mg = 0; for (let j = 0; j < 96; j++) { mean += o.bright[j] / 96; mr += ((j % 5) + 1) / 10 * o.bright[j]; mg += ((j % 5) + 1) / 20 * o.bright[j]; }
+    ok(near(o.string[3], K.STRING_LIGHT[0] + K.STRING_LIGHT[1] * mean, 1e-5) && near(o.string[0], 1, 1e-6) && near(o.string[1], K.STRING_LIGHT[2] + (1 - K.STRING_LIGHT[2]) * mg / mr, 1e-5) && near(o.string[2], K.STRING_LIGHT[2], 1e-6) && o3.string[3] > o.string[3] + 5,
+      'the string throws one light, in the mean colour of its lights (kept from being a pure colour) and as bright as they are');
+  }
+  {
+    // The baubles, the snow on the tiers, the flakes and the star.
+    const tr = mk(), o = sheet(), L = look();
+    tr.glow[3] = 0.5; tr.flash = 0.4; tr.swing[10] = 0.6;
+    K.dress(o, tr, L);
+    let hang = true;
+    for (let b = 0; b < K.BAUBLES; b++) {
+      const i = tr.spots.tier[b], phi = tr.spots.phi[b], r = tr.spots.r[b], len = K.HANG + r, a = tr.swing[b], tipR = K.rimR(i, phi) * K.TIP_IN, tip = [tipR * Math.cos(phi), K.rimY(i) + K.TIP_UP, tipR * Math.sin(phi)];
+      const p = [o.ball[b * 3], o.ball[b * 3 + 1], o.ball[b * 3 + 2]];
+      if (!near(Math.hypot(p[0] - tip[0], p[1] - tip[1], p[2] - tip[2]), len, 1e-5)) hang = false;
+      if (a === 0 && !(near(p[0], tip[0], 1e-6) && near(p[1], tip[1] - len, 1e-6) && near(p[2], tip[2], 1e-6))) hang = false;
+      if (!(o.ballCol[b * 3] === 0 && near(o.ballCol[b * 3 + 2], (tr.spots.hue[b] + 1) / 10, 1e-6) && near(o.ballHow[b * 2], r, 1e-7) && near(o.ballHow[b * 2 + 1], K.BALL_GLOW[0] + K.BALL_GLOW[1] * tr.glow[b] + K.BALL_GLOW[2] * 0.4, 1e-5))) hang = false;
+    }
+    const out10 = Math.hypot(o.ball[30], o.ball[32]) - K.rimR(tr.spots.tier[10], tr.spots.phi[10]) * K.TIP_IN;
+    ok(hang && near(out10, (K.HANG + tr.spots.r[10]) * Math.sin(0.6), 1e-5), 'a bauble hangs a string\'s length under the tip of its bough and swings out from the tree on it; it has its own colour of seven, and is lit inside by its tier and by a thump');
+
+    tr.snow[2] = 0.25; K.dress(o, tr, L);
+    ok(near(o.cap[0], K.TIERS[0][2], 1e-6) && o.cap[1] === 1 && near(o.cap[4], K.TIERS[2][2] + K.TIERS[2][1] * 0.75, 1e-6) && o.cap[5] === 0.25, 'the snow on a tier draws in toward the tier\'s top as it goes: its top stays where it is');
+
+    const f = mk(), of = sheet();
+    f.on.fill(0);
+    const put = (i, x, y, z, size) => { f.on[i] = 1; f.flake[i * 4] = x; f.flake[i * 4 + 1] = y; f.flake[i * 4 + 2] = z; f.flake[i * 4 + 3] = size; };
+    put(0, 1, 2, 0, 0.02); put(1, 2.725, 2, 0, 0.02); put(2, K.SIDE[1], 2, 0, 0.02); put(3, 1, K.ROOF[0], 0, 0.02); put(4, 1, (K.ROOF[0] + K.ROOF[1]) / 2, 0, 0.02); put(5, 0.5, K.driftHeight(0.5, -K.DRIFT_Z) + 0.125, 0, 0.02); put(6, 0.5, K.driftHeight(0.5, -K.DRIFT_Z), 0, 0.02);
+    put(K.FALLING_MAX, K.SIDE[1], K.ROOF[0], 0, 0.05); put(K.FALLING_MAX + 1, 0.5, K.driftHeight(0.5, -K.DRIFT_Z) + 0.125, 0, 0.05);
+    K.dress(of, f, L);
+    ok(near(of.flake[3], 0.02, 1e-7) && of.flake[0] === 1 && of.flake[1] === 2 && of.flake[4 + 3] > 0.008 && of.flake[4 + 3] < 0.012 && of.flake[8 + 3] === 0 && of.flake[12 + 3] === 0 && near(of.flake[16 + 3], 0.01, 1e-6) && near(of.flake[20 + 3], 0.01, 1e-6) && of.flake[24 + 3] < 1e-6 && of.flake[28 + 3] === 0
+      && near(of.flake[K.FALLING_MAX * 4 + 3], 0.05, 1e-7) && near(of.flake[(K.FALLING_MAX + 1) * 4 + 3], 0.025, 1e-6) && K.SIDE[1] < K.SKY[0] + 0.3 && K.ROOF[0] < K.SKY[1],
+      'a flake is drawn its own size in the open air, and smaller to nothing toward the sides and the top of its air and over its last quarter unit above the snow, so that none is cut by the picture\'s edge; a clump shrinks only as it lands');
+
+    const st = mk(), os = sheet();
+    K.dress(os, st, L);
+    const silent = Array.from(os.star);
+    st.star = 1; K.dress(os, st, L); const loud = Array.from(os.star);
+    K.dress(os, st, look({ glow: 0, kick: 1 })); const plain = Array.from(os.star);
+    K.dress(os, st, look({ glow: 2 })); const most = Array.from(os.star);
+    st.star = 0; st.flash = 0.5; K.dress(os, st, look({ kick: 0.5 })); const burst = Array.from(os.star);
+    st.flash = 0; st.time = 2; K.dress(os, st, L);
+    ok(near(silent[0], K.STAR_GOLD[0], 1e-6) && near(silent[1], K.STAR_GLOW[0], 1e-6) && near(silent[2], K.STAR_GLOW_A[0], 1e-6) && near(silent[3], K.STAR_RAYS[0], 1e-6) && near(silent[4], K.STAR_RAYS_A[0], 1e-6) && silent[5] === 0 && silent[6] === 0 && near(silent[7], K.STAR_LIGHT[0], 1e-6)
+      && near(loud[0], K.STAR_GOLD[0] + K.STAR_GOLD[1], 1e-5) && near(loud[1], K.STAR_GLOW[0] + K.STAR_GLOW[1], 1e-6) && near(loud[2], K.STAR_GLOW_A[0] + K.STAR_GLOW_A[1], 1e-6) && near(loud[3], K.STAR_RAYS[0] + K.STAR_RAYS[1], 1e-6) && near(loud[4], K.STAR_RAYS_A[0] + K.STAR_RAYS_A[1], 1e-6) && near(loud[7], K.STAR_LIGHT[0] + K.STAR_LIGHT[1], 1e-5)
+      && plain.join() === silent.join() && near(most[1], K.STAR_GLOW[0] + K.STAR_GLOW[1] * K.STAR_MOST, 1e-6) && near(most[7], K.STAR_LIGHT[0] + K.STAR_LIGHT[1] * K.STAR_MOST, 1e-5)
+      && near(burst[0], K.STAR_GOLD[0] + K.STAR_GOLD[2], 1e-6) && near(burst[3], K.STAR_RAYS[0] + K.STAR_RAYS[2], 1e-6) && near(burst[7], K.STAR_LIGHT[0] + K.STAR_LIGHT[2], 1e-6)
+      && near(os.star[5], K.STAR_TURN[0] * Math.sin(K.STAR_TURN[1] * 2), 1e-6) && near(os.star[6], K.STAR_TURN[2] * Math.sin(K.STAR_TURN[3] * 2), 1e-6),
+      'the star: in silence a gold star with a small glow, faint rays and a low light; with the voice its gold, its glow, its rays and the light it throws all grow, by Star glow (not at all at 0, at most half as far again as a full voice at 50); a beat or a thump flares it; it turns a little from side to side');
+  }
+  {
+    // Inside the picture: where a point falls on the canvas, as the kit places the camera (-1 to 1 each way).
+    const see = (p, aspect, orbit) => {
+      const d = KIT.fitDistance(K.FRAME.width, K.FRAME.height, K.FOV, aspect), tilt = K.TILT * Math.PI / 180, c = K.FRAME.center;
+      const cam = [c[0] + d * Math.sin(orbit) * Math.cos(tilt), c[1] + d * Math.sin(tilt), c[2] + d * Math.cos(orbit) * Math.cos(tilt)];
+      const f = [c[0] - cam[0], c[1] - cam[1], c[2] - cam[2]].map((v) => v / d), r = [-f[2], 0, f[0]], rl = Math.hypot(r[0], r[2]);
+      const right = [r[0] / rl, 0, r[2] / rl], up = [right[1] * f[2] - right[2] * f[1], right[2] * f[0] - right[0] * f[2], right[0] * f[1] - right[1] * f[0]];
+      const v = [p[0] - cam[0], p[1] - cam[1], p[2] - cam[2]], depth = v[0] * f[0] + v[1] * f[1] + v[2] * f[2], t = Math.tan(K.FOV * Math.PI / 360);
+      return [(v[0] * right[0] + v[2] * right[2]) / depth / (t * aspect), (v[0] * up[0] + v[1] * up[1] + v[2] * up[2]) / depth / t];
+    };
+    let worst = 0;
+    const look2 = (p) => { for (const aspect of [1728 / 624, 16 / 9, 4 / 3, 300 / 220]) for (const orbit of [-2 * K.SWAY, 0, 2 * K.SWAY]) { const [x, y] = see(p, aspect, orbit); worst = Math.max(worst, Math.abs(x), Math.abs(y)); } };
+    // The drift's rim, the presents, the star leaning as far as a thump leans it, the lowest tips, the air of the flakes where they are drawn, and where clumps may fall.
+    for (let a = 0; a < 64; a++) { const g = (a / 64) * TAU; look2([K.DRIFT[0] * Math.cos(g), 0, K.DRIFT_Z + K.DRIFT[2] * Math.sin(g)]); look2([K.KEEP[0] * Math.cos(g), 0, K.DRIFT_Z + K.KEEP[1] * Math.sin(g)]); look2([K.rimR(0, g) * Math.cos(g), K.FOOT + K.rimY(0) - 0.16, K.rimR(0, g) * Math.sin(g)]); }
+    for (const [x, z, w, h, dd] of K.PRESENTS) for (const sx of [-1, 1]) for (const sz of [-1, 1]) look2([x + sx * 0.75 * w, h + 0.3, z + sz * 0.75 * dd]);
+    for (const lx of [-0.12, 0.12]) for (const lz of [-0.12, 0.12]) look2([-(K.STAR_Y + K.STAR[0]) * Math.sin(lx), K.FOOT + (K.STAR_Y + K.STAR[0]) * Math.cos(lx) * Math.cos(lz), (K.STAR_Y + K.STAR[0]) * Math.sin(lz)]);
+    for (const x of [-K.SIDE[1], K.SIDE[1]]) for (const y of [K.FLOOR, K.ROOF[0]]) for (const z of [K.SKY[3], K.SKY[4]]) look2([x, y, z]);
+    ok(worst < 0.985 && worst > 0.8, 'everything solid keeps inside the picture on every page, with the camera swaying its furthest: the drift, the presents, the star as far as a thump leans it, the snow in the air where it is drawn, and the clumps (the furthest reaches ' + worst.toFixed(3) + ' of the way to an edge)');
+    ok(K.swayFor(0) === 0 && near(K.swayFor(50), K.SWAY) && near(K.swayFor(100), 2 * K.SWAY) && near(K.swayFor(undefined), K.SWAY) && K.orbitAt(0, 50) === 0 && near(K.orbitAt(Math.PI / 2 / K.ORBIT_RATE, 50), K.SWAY) && near(K.orbitAt(3, 100), 2 * K.SWAY * Math.sin(3 * K.ORBIT_RATE)),
+      'the camera sways 0.14 radians each way at Camera drift 50, not at all at 0 and twice as far at 100, once in about 48 seconds');
+  }
+  {
+    // The files and the settings.
+    const pages = [];
+    for (const name of ['mic-visualizers-1920x1080.html', 'mic-visualizers-1440x1080.html', 'mic-visualizers-300x220.html']) {
+      const html = await readFile(resolve(__dirname, 'overlay', name), 'utf8'), pos = html.indexOf('src="christmas-tree.js"');
+      pages.push(pos > html.indexOf('src="rose.js"') && pos > html.indexOf('src="scene-kit.js"') && html.includes('src="helix.js"') && pos < html.indexOf('src="factories/') && html.split('src="christmas-tree.js"').length === 2 && html.split('src="factories/christmas-tree.js"').length === 2);
+    }
+    const factory = await readFile(resolve(__dirname, 'overlay/factories/christmas-tree.js'), 'utf8'), source = await readFile(resolve(__dirname, 'overlay/christmas-tree.js'), 'utf8');
+    ok(pages.every(Boolean) && /VIZ_FACTORIES\['christmas-tree'\] = TimbreScene\.factory\(\(\) => TimbreTree\.definition\(\)\);/.test(factory) && !/WebGLRenderer|fetch\(|ctx\./.test(factory) && !/Math\.random/.test(source) && !/fetch\(|WebGLRenderer/.test(source),
+      "all three overlay pages load christmas-tree.js once, after the scene kit and rose.js and before the factories, and the shatter machine it uses; the effect is the kit's factory around the tree's definition, with no renderer of its own and nothing drawn on the 2D canvas; and the tree takes no numbers from Math.random");
+    const old = T.sanitizeConfig({ activeViz: 'christmas-tree', perViz: { 'christmas-tree': { lightDensity: 80, snowSpeed: 20, starGlow: 10, resettleSeconds: 99, shakeSensitivity: -4, bogus: 1 } } });
+    ok(JSON.stringify(T.DEFAULT_PER_VIZ['christmas-tree']) === '{"lightDensity":60,"starGlow":50,"snowfall":50,"shakeSensitivity":50,"resettleSeconds":3,"cameraDrift":50}' && JSON.stringify(T.PER_VIZ_MAX['christmas-tree']) === '{"resettleSeconds":10}'
+      && T.VIZ_SCENES[T.VIZ_SCENES.length - 1] === 'christmas-tree' && T.VIZ_USES_3D.includes('christmas-tree') && T.ACTIVE_VIZ_NAMES.indexOf('christmas-tree') === T.ACTIVE_VIZ_NAMES.indexOf('halloween-jack') + 1
+      && old.activeViz === 'christmas-tree' && JSON.stringify(old.perViz['christmas-tree']) === '{"lightDensity":80,"starGlow":10,"snowfall":50,"shakeSensitivity":0,"resettleSeconds":10,"cameraDrift":50}',
+      'the Christmas tree is a kit scene, the last listed, in its old place in the list of effects; its settings are Light density (60), Star glow, Snowfall, Shake sensitivity, Resettle seconds (3, at most 10) and Camera drift; a saved Light density and Star glow are kept, and the retired Snow speed is dropped');
   }
 }
 
