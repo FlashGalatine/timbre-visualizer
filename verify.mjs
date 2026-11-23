@@ -6534,6 +6534,12 @@ await import('./overlay/christmas-tree.js');
     }
     ok(rims && tips && tops && turned, 'a tier is a skirt of boughs: nothing at its top, widening down to a rim of seven tips a fifth of its height below its base; each tier is narrower and higher than the one below, and hangs over it');
 
+    {
+      const tMid = (-1 + Math.sqrt(1 + 4 * K.DROOP)) / (2 * K.DROOP), [R0, , base0] = K.TIERS[0];
+      const y = (K.rimY(0) + K.rimY(1)) / 2, phi = 0.3, boughs = Math.max(...K.TIERS.map((t, i) => K.tierR(i, y, phi))), line = (K.rimR(0, phi) + K.rimR(1, phi)) / 2;
+      ok(near(K.tierR(0, base0, 0), R0 * tMid * (1 + K.SCALLOP * tMid), 1e-12) && near(K.tierR(0, base0, Math.PI / K.LOBES), R0 * tMid * (1 - K.SCALLOP * tMid), 1e-12) && boughs < K.LINE * line && K.surfaceR(y, phi) === K.LINE * line,
+        'the tips of a tier stand out less the higher up the tier, in proportion; halfway between two rims, where the boughs are further in, the tree reaches exactly 0.92 of the line from rim to rim');
+    }
     let covers = true, hangs = true, over = true;
     for (let a = 0; a < 48; a++) {
       const phi = (a / 48) * TAU;
@@ -6613,7 +6619,7 @@ await import('./overlay/christmas-tree.js');
   }
 
   // THE SETTINGS AND THE SOUND
-  ok(K.countFor(0) === 48 && K.countFor(60) === 96 && K.countFor(100) === 128 && K.countFor(50) === 88 && K.countFor(undefined) === 96 && K.countFor(NaN) === 96 && K.countFor(-5) === 48 && K.countFor(400) === 128,
+  ok(K.countFor(0) === 48 && K.countFor(60) === 96 && K.countFor(100) === 128 && K.countFor(50) === 88 && K.countFor(undefined) === 96 && K.countFor(NaN) === 96 && K.countFor(-5) === 48 && K.countFor(400) === 128 && K.countFor(37) === 78,
     'Light density is how many lights are on the string: 48 to 128, 96 at its default of 60');
   ok(K.glowFor(0) === 0 && K.glowFor(50) === 1 && K.glowFor(100) === 2 && K.glowFor(undefined) === 1 && K.snowFor(0) === 0 && K.snowFor(50) === 1 && K.snowFor(100) === 2 && K.snowFor('x') === 1 && K.snowFor(250) === 2,
     'Star glow and Snowfall are shares of their defaults: none at 0, twice at 100');
@@ -6659,7 +6665,7 @@ await import('./overlay/christmas-tree.js');
     ok(near(K.heard(tr, 0), fl(1.0), 1e-7) && near(K.heard(tr, 3), fl(0.7), 1e-7) && near(K.heard(tr, 2.5), (fl(0.7) + fl(0.8)) / 2, 1e-7) && K.heard(tr, 50) === 0 && K.heard(tr, -4) === K.heard(tr, 0) && K.heard(tr, 9999) === K.heard(tr, K.HISTORY - 2)
       && near(upTo, 1 - Math.exp(-K.STAR_RATE[0] * 6 / 60), 1e-9) && near(up.star, upTo * Math.exp(-K.STAR_RATE[1] * 30 / 60), 1e-9) && near(tr.time, 10 / 60, 1e-12),
       'the tree keeps what the star heard at each of its last steps, and can say what it heard any number of steps ago, between two steps too; the star itself rises to the voice quickly and falls slowly');
-    const still = mk(); steps(still, 600, how());
+    const still = mk(); steps(still, 10, how({ flame: 1 })); steps(still, 600, how());
     ok(still.star === 0 && K.heard(still, 0) === 0, 'in silence the star comes to rest');
   }
   {
@@ -6677,8 +6683,8 @@ await import('./overlay/christmas-tree.js');
     steps(tr, 600, h);   // a steady level kicks no more
     const settledV = Math.abs(tr.swingV[0]), lit = tr.glow[0];
     steps(tr, 12, how());
-    ok(kicked && others && settledV < 0.05 * v1 && near(lit, lv0, 1e-4) && near(tr.glow[0], lit * Math.exp(-K.GLOW_RATE[1] * 12 / 60), 1e-4),
-      'a tier\'s baubles light as far as its part of the sound is loud, quickly, and fade slowly; a rise in it sets them swinging, each its own way, and a steady sound does not');
+    ok(kicked && others && settledV < 0.05 * v1 && near(lit, lv0, 1e-4) && near(tr.glow[0], lit * Math.exp(-K.GLOW_RATE[1] * 12 / 60), 1e-4) && Math.abs(tr.swingV[0]) < 0.05 * v1,
+      'a tier\'s baubles light as far as its part of the sound is loud, quickly, and fade slowly; a rise in it sets them swinging, each its own way, and a steady sound or a fall in it does not');
     // The swing is a spring: it crosses its rest about 4.4 times a second, dies away, and is never wild.
     const sw = mk(); sw.swingV[5] = 6;
     let crossings = 0, last = 0, most = 0;
@@ -6704,6 +6710,14 @@ await import('./overlay/christmas-tree.js');
       && placed && moving && Array.from(tr.snow).join() === before.join() && Array.from(tr.wait).every((w, i) => near(w, K.SNOW_WAIT * (T6 - 1 - i), 1e-7)),
       'a thump gives the trunk a push, sets every bauble swinging, and throws eighteen clumps of snow off every tier, outward and down from where the snow lay; the snow itself starts to go a moment later, the top tiers first');
 
+    {
+      const toward = [0, 0]; let inRange = true, oneWay = 0;
+      for (let seed = 1; seed <= 40; seed++) { const t = mk(); K.shake(t, 1, K.rng(seed)); toward[t.lean[3] > 0 ? 0 : 1]++; if (Math.abs(t.lean[3]) > K.ROCK[2] / 2) inRange = false; if (seed === 1) for (let b = 0; b < K.BAUBLES; b++) if (t.swingV[b] > 0) oneWay++; }
+      const thin = mk(); thin.snow.fill(0.1); thin.wait.fill(-1); K.shake(thin, 1, K.rng(3));
+      const twice = mk(); K.shake(twice, 1, K.rng(1)); K.shake(twice, K.JOSTLE, K.rng(2));
+      ok(toward[0] >= 8 && toward[1] >= 8 && inRange && oneWay >= 8 && oneWay <= 34 && clumpsOn(thin) === 0 && Array.from(thin.wait).every((w) => w === -1) && thin.lying === 0 && twice.flash === 1,
+        'a thump pushes the tree toward the viewer as often as away, and sets some baubles swinging one way and some the other; a tier with next to no snow on it throws no clumps; the flash of a second shake does not add to the first');
+    }
     // The snow comes off, the top first.
     steps(tr, 4, how());
     const early = Array.from(tr.snow);
@@ -6725,19 +6739,20 @@ await import('./overlay/christmas-tree.js');
 
     // The clumps fall and end at the snow, and keep over the drift.
     const fall = mk(); K.shake(fall, 1, K.rng(1003));
-    let kept = true, above = true, firstGone = -1;
+    let kept = true, above = true, firstGone = -1, held = 0, straight = true;
     for (let i = 0; i < 180; i++) {
       K.stepTree(fall, how());
       for (let c = K.FALLING_MAX; c < K.FLAKES; c++) if (fall.on[c]) {
         const x = fall.flake[c * 4], y = fall.flake[c * 4 + 1], z = fall.flake[c * 4 + 2];
         if (Math.hypot(x / K.KEEP[0], (z - K.DRIFT_Z) / K.KEEP[1]) > 1 + 1e-6) kept = false;
+        if (Math.hypot(x / K.KEEP[0], (z - K.DRIFT_Z) / K.KEEP[1]) > 1 - 1e-6) { held++; if (fall.flakeV[c * 3] !== 0 || fall.flakeV[c * 3 + 2] !== 0) straight = false; }
         if (y < K.driftHeight(x, z - K.DRIFT_Z)) above = false;
       }
       if (firstGone < 0 && clumpsOn(fall) < K.CLUMPS) firstGone = i;
     }
     const drop = mk(); K.shake(drop, 1, K.rng(1003)); const c0 = K.FLAKES - 1, y0 = drop.flake[c0 * 4 + 1], vy0 = drop.flakeV[c0 * 3 + 1]; steps(drop, 12, how());
-    ok(kept && above && clumpsOn(fall) === 0 && fall.clumps === 0 && firstGone > 3 && firstGone < 40 && near(drop.flakeV[c0 * 3 + 1], vy0 - K.GRAVITY * 12 / 60, 1e-5) && drop.flake[c0 * 4 + 1] < y0 - 0.5 * K.GRAVITY * 0.2 * 0.2 * 0.9,
-      'a clump falls faster and faster and ends where it meets the snow, the lowest tier\'s first; none is left after three seconds, and none falls beyond the drift');
+    ok(kept && above && held > 0 && straight && clumpsOn(fall) === 0 && fall.clumps === 0 && firstGone > 3 && firstGone < 40 && near(drop.flakeV[c0 * 3 + 1], vy0 - K.GRAVITY * 12 / 60, 1e-5) && drop.flake[c0 * 4 + 1] < y0 - 0.5 * K.GRAVITY * 0.2 * 0.2 * 0.9,
+      'a clump falls faster and faster and ends where it meets the snow, the lowest tier\'s first; none is left after three seconds, and none falls beyond the drift: one that would drops straight down at its edge');
 
     // The snow settles again, slowly; a thump in the middle of it sends off what has settled.
     K.resettle(tr);
@@ -6771,10 +6786,12 @@ await import('./overlay/christmas-tree.js');
     // A flake that lands starts again at the top, inside its air; at most two start in a step.
     const fresh = mk(); let spawnedMost = 0, tops = true;
     for (let s = 0; s < 240; s++) { const was = Array.from(fresh.on); K.stepTree(fresh, how({ flame: 1, burst: 1, snow: 2 })); let spawned = 0; for (let i = 0; i < K.FALLING_MAX; i++) if (!was[i] && fresh.on[i]) { spawned++; const x = fresh.flake[i * 4], y = fresh.flake[i * 4 + 1], z = fresh.flake[i * 4 + 2]; if (!(Math.abs(x) <= K.SKY[0] && y >= K.SKY[1] && y <= K.SKY[1] + K.SKY[2] && z >= K.SKY[3] && z <= K.SKY[4])) tops = false; } if (spawned > spawnedMost) spawnedMost = spawned; }
-    ok(speeds.every((v) => v >= K.FLAKE_FALL[0] && v <= K.FLAKE_FALL[0] + K.FLAKE_FALL[1]) && near(fell, 0.5 * speeds[i0], 1e-5) && swayed > 0 && swayed < 0.5 * K.FLAKE_SWAY[1] + 1e-6
+    const steady = mk(); let fewest = 999;
+    for (let s = 0; s < 1200; s++) { K.stepTree(steady, how()); fewest = Math.min(fewest, fallingOn(steady)); }
+    ok(speeds.every((v) => v >= K.FLAKE_FALL[0] && v <= K.FLAKE_FALL[0] + K.FLAKE_FALL[1]) && fewest === K.SNOWING[0] && near(fell, 0.5 * speeds[i0], 1e-5) && swayed > 0 && swayed < 0.5 * K.FLAKE_SWAY[1] + 1e-6
       && silent === K.SNOWING[0] && loud === K.SNOWING[0] + K.SNOWING[1] && beats === K.SNOWING[0] + K.SNOWING[1] + K.SNOWING[2] && none === 0 && twice === 2 * K.SNOWING[0] && most === K.FALLING_MAX && K.FALLING_MAX === 2 * (K.SNOWING[0] + K.SNOWING[1] + K.SNOWING[2])
       && spawnedMost === K.SPAWN && tops,
-      'snow falls: each flake at its own speed, swaying; 55 flakes in silence, 110 at the loudest and 40 more after beats, none at Snowfall 0 and twice as many at 100; a flake that lands starts again at the top, two at most in a step');
+      'snow falls: each flake at its own speed, swaying; 55 flakes in silence, 110 at the loudest and 40 more after beats, none at Snowfall 0 and twice as many at 100; a flake that lands starts again at the top in the same step, so there are never fewer; when there should be more, two at most start in a step');
     const dry = mk(); steps(dry, 60 * 20, how({ snow: 0 })); K.shake(dry, 1, K.rng(5));
     ok(fallingOn(dry) === 0 && clumpsOn(dry) === K.CLUMPS, 'with Snowfall at 0 a thump still knocks the snow off the boughs');
   }
@@ -6814,7 +6831,8 @@ await import('./overlay/christmas-tree.js');
     const v2 = mk(); steps(v2, 6, how({ flame: 1 })); steps(v2, 50, how()); K.dress(sheet(), v2, L); const o2 = sheet(); K.dress(o2, v2, L);
     let best2 = 0; for (let j = 1; j < 96; j++) if (o2.bright[j] > o2.bright[best2]) best2 = j;
     const loudAll = mk(); steps(loudAll, 120, how({ flame: 1 })); const o3 = sheet(); K.dress(o3, loudAll, L);
-    ok(K.RUN === Math.round(K.RUN_S / K.STEP) && Math.abs(at - want) < 0.06 && o.bright[best] > 1 && o.bright[0] < 0.45 && o.bright[95] < 0.4 && best2 > best + 20 && near(v2.string.u[best2], (50 + 3) / K.RUN, 0.06)
+    const halfAll = mk(); steps(halfAll, 120, how({ flame: 0.5 })); const o4 = sheet(); K.dress(o4, halfAll, L);
+    ok(K.RUN === Math.round(K.RUN_S / K.STEP) && near(o4.bright[40], K.TWINKLE[0] + K.TWINKLE[1] * (0.5 + 0.5 * Math.sin(halfAll.time * halfAll.twinkle[120] + halfAll.twinkle[121])) + K.VOICE[0] * Math.pow(0.5, K.VOICE[1]), 1e-4) && Math.abs(at - want) < 0.06 && o.bright[best] > 1 && o.bright[0] < 0.45 && o.bright[95] < 0.4 && best2 > best + 20 && near(v2.string.u[best2], (50 + 3) / K.RUN, 0.06)
       && near(o3.bright[40], K.TWINKLE[0] + K.TWINKLE[1] * (0.5 + 0.5 * Math.sin(loudAll.time * loudAll.twinkle[120] + loudAll.twinkle[121])) + K.VOICE[0], 1e-4) && near(o3.haloSize[40], K.HALO_SIZE[0] + K.HALO_SIZE[1] * Math.min(o3.bright[40], K.HALO_SIZE[2]), 1e-6) && near(Math.max(...o3.haloSize), K.HALO_SIZE[0] + K.HALO_SIZE[1] * K.HALO_SIZE[2], 1e-6),
       'what the star heard runs down the string, from the star to the lowest boughs in 1.1 seconds: a syllable is a pulse of light that is halfway down after half that time; a light\'s glow grows with it, up to a size');
 
@@ -6828,7 +6846,9 @@ await import('./overlay/christmas-tree.js');
     // The light the string throws.
     K.dress(o, mk(), L);
     let mean = 0, mr = 0, mg = 0; for (let j = 0; j < 96; j++) { mean += o.bright[j] / 96; mr += ((j % 5) + 1) / 10 * o.bright[j]; mg += ((j % 5) + 1) / 20 * o.bright[j]; }
-    ok(near(o.string[3], K.STRING_LIGHT[0] + K.STRING_LIGHT[1] * mean, 1e-5) && near(o.string[0], 1, 1e-6) && near(o.string[1], K.STRING_LIGHT[2] + (1 - K.STRING_LIGHT[2]) * mg / mr, 1e-5) && near(o.string[2], K.STRING_LIGHT[2], 1e-6) && o3.string[3] > o.string[3] + 5,
+    const blue = look(); for (let k = 0; k < K.HUES[0]; k++) { blue.pal[k * 3] = 0.1; blue.pal[k * 3 + 1] = 0.2; blue.pal[k * 3 + 2] = 0.4; }
+    const ob2 = sheet(); K.dress(ob2, mk(), blue);
+    ok(near(ob2.string[0], K.STRING_LIGHT[2] + (1 - K.STRING_LIGHT[2]) * 0.25, 1e-6) && near(ob2.string[1], K.STRING_LIGHT[2] + (1 - K.STRING_LIGHT[2]) * 0.5, 1e-6) && near(ob2.string[2], 1, 1e-6) && near(o.string[3], K.STRING_LIGHT[0] + K.STRING_LIGHT[1] * mean, 1e-5) && near(o.string[0], 1, 1e-6) && near(o.string[1], K.STRING_LIGHT[2] + (1 - K.STRING_LIGHT[2]) * mg / mr, 1e-5) && near(o.string[2], K.STRING_LIGHT[2], 1e-6) && o3.string[3] > o.string[3] + 5,
       'the string throws one light, in the mean colour of its lights (kept from being a pure colour) and as bright as they are');
   }
   {

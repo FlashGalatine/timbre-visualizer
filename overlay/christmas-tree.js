@@ -342,7 +342,7 @@
     // The snow on each tier: off after its wait, or settling.
     for (let i = 0; i < T; i++) {
       tr.wait[i] -= STEP;
-      if (tr.lying === 1 || tr.wait[i] <= 0) {
+      if (tr.wait[i] <= 0) {
         let a = tr.snow[i];
         a += (tr.lying - a) * (1 - Math.exp(-(tr.lying ? SNOW_RATE[1] : SNOW_RATE[0]) * STEP));
         tr.snow[i] = Math.abs(a - tr.lying) < 1e-3 ? tr.lying : a;
