@@ -99,11 +99,12 @@ on reads a little differently with it off: Gain is where the streamer evens that
   byte scale); fed the same recorded sound, the slices and the old values agree to within 1
   of 255 (`npm run verify:render` checks it against a real 64-point `AnalyserNode`).
 - **Which one to read.** A new effect, or one being rebuilt, reads `micBands` or the log
-  bands. `slices` exists for the effects tuned before this change: 11 scene modules
+  bands. `slices` exists for the effects tuned before this change: 10 scene modules
   (`loudness(slices, band, gain)`), the ten seasonal 2D effects (`bandAverage`), and the
   blob's outline. Each scene moves to the log bands in a change of its own; the chladni
   plate was the first (its tone is weighed over log bands 0 to 11, see its section) and the
-  phosphor the second (its ten bands are runs of log bands 4 to 30, see its section), and
+  phosphor the second (its ten bands are runs of log bands 4 to 30, see its section), the
+  rose the third (its eight bands are runs of log bands 4 to 31, see its section), and
   `npm run verify` lists exactly which files still read `slices`. Do not read `frequencies` by position (`frequencies[3]`): a position is a
   band a quarter of an octave wide, not 750 Hz. To lay bars over the spectrum use
   `TimbreHelix.spread(frequencies, i, count)`: bar `i` of `count` reads the mean of the
@@ -370,9 +371,9 @@ Sunburst need only the phase.
   its count of beats). A new scene that wants more reads `micBands.bass`, `mid` and
   `treble`, or the log bands in `frequencies`, through one small function of its own
   module. The scenes built before the log bands read `slices` that way, as
-  `loudness(bins, band, gain)` in `overlay/rose.js` does: wherever the notes on a scene
-  below say "bins" or "the eight lowest bins", they mean the slices. The chladni plate
-  and the phosphor read the log bands that way (`loudness(frequencies, band, gain)`). Do not paste the
+  `loudness(bins, band, gain)` in `overlay/boids.js` does: wherever the notes on a scene
+  below say "bins" or "the eight lowest bins", they mean the slices. The chladni plate,
+  the phosphor and the rose read the log bands that way (`loudness(frequencies, band, gain)`). Do not paste the
   `bandAverage` helper of the older 2D effects into a scene.
 
 ### Scene placement
@@ -1539,8 +1540,45 @@ thump of the mic. `factories/rose.js` is one line,
 `VIZ_FACTORIES['rose'] = TimbreScene.factory(() => TimbreRose.definition())`. It follows the
 boids closely. It offers:
 
-- **The sound and the settings.** `loudness`, `settle`, `pulseOf` and `idle` as the boids
-  have them. `countFor(density)` is how many petals there are: 40 at Density 0, 56 at 50, 72
+- **The sound.** `settle`, `pulseOf` and `idle` as the boids have them. The eight bands are
+  runs of the sampler's log bands (`frequencies`), one after another from log band 4
+  (`FIRST`); `RUNS` is how many each takes: five runs of one (116 to 266 Hz, where a
+  voice's pitch is), then log bands 9 to 15 (266 to 849 Hz), 16 to 23 (849 Hz to 3.2 kHz)
+  and 24 to 31 (3.2 to 12 kHz). `runOf(b)` is band `b`'s run, and
+  `loudness(bands, band, gain)` reads a band: the mean of its run, times 0.97
+  (`BAND_GAIN`), times Gain, at most 1. Log bands 0 to 3 (60 to 116 Hz) are in no band;
+  what sounds there is still in the voice and the beat, which the scene kit hears. Idle
+  animation has its own eight bands (`idle`) and is the same on every frame as it was.
+  Before, band `b` was slice `b`, 750 Hz wide. The runs and the 0.97 were fitted on the
+  recorded sounds of `tools/compare-input.mjs`, against the build that read the slices:
+  - The bands' total (the eight followed values, added) is within a tenth of what it was
+    under both voices: 8.7% more under the voice at 150 Hz, 9.2% less under the one at
+    220 Hz. No gain brings both nearer: 0.97 is where the two are about as far out.
+  - The petals out are the same (52.7 of 56 on average under each voice, before and
+    after: a voice that loud calls every petal out by itself). The thorns stand 2.6%
+    further out under the voice at 150 Hz and 2.1% less far under the one at 220 Hz.
+  - Every band already called its petals out for four-fifths of the time or more under
+    both voices, and still does.
+  - The two voices give different mixes, by a little: the fifth band (226 to 266 Hz) has
+    0.081 of the total under the voice at 150 Hz and 0.187 under the one at 220 Hz
+    (before, no band's share differed by more than 0.024). On the stem that is the two
+    lowest pairs of thorns about a fifth shorter under the higher voice and the fifth
+    pair about a fifth shorter under the lower one. Of 12,036 mappings measured (eight
+    runs, none shorter than the one before it, starting at log bands 0 to 8), none makes
+    that difference 0.12, the 27 that reach 0.10 all leave a voice's total 8.9% or more
+    from what it was, and with both totals within 5% the most is 0.095: there is no
+    more than this to be had from the log bands in this scene.
+  - Under the rising tone the loudest band goes from the first to the last, never back.
+  - A band moves 0.97 and 0.90 times as far in a second under the two voices as it did
+    (1.41 times under the kick, 0.77 under the band: a kick drum now reaches six bands
+    where it reached three, and its thorns stand 11% further out).
+  - A frame of each recorded sound differs from the old build's in 0.2 to 0.3% of its
+    pixels: the picture is all but the same.
+  To see what a change to any of this does, run
+  `node tools/compare-input.mjs --ref <git ref> --steps record,state --only rose --watch bands,flame,kick,pulse,open,thorns,thornOf --signals speech,speech220,kick,music,sweep --idle 60 --frames`:
+  `bands` is the eight bands as the scene follows them, `open` the petals out and
+  `thornOf` each thorn's length.
+- **The settings.** `countFor(density)` is how many petals there are: 40 at Density 0, 56 at 50, 72
   at 100. `keptFor(n)` is how many of them are always out (43%: 17, 24, 31).
   `thornFor(thorns)` is how long a thorn grows: nothing at Thorns 0, 0.26 at 50, 0.52 at 100.
   `callOf(band, flame)` is a folded petal's call: its band (and a quarter more) or 0.85 of
@@ -1658,7 +1696,7 @@ tree, whose baubles are a spectrum, and which a thump of the mic shakes the snow
 `VIZ_FACTORIES['christmas-tree'] = TimbreScene.factory(() => TimbreTree.definition())`. It
 follows the rose closely. It offers:
 
-- **The sound and the settings.** `loudness`, `settle` and `idle` as the rose has them
+- **The sound and the settings.** `loudness`, `settle` and `idle` as the boids have them
   (with the mic off the bands swell in turn, from the lowest up). `countFor(lightDensity)`
   is how many lights are on the string: 48 at 0, 96 at the default of 60, 128 at 100.
   `glowFor(starGlow)` and `snowFor(snowfall)` are shares of the usual: 0 at 0, 1 at 50, 2 at

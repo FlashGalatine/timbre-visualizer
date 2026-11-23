@@ -4736,9 +4736,9 @@ async function main() {
 
     // ── The rose: a kit scene of a rose that grows thorns and sprouts petals, and whose petals fly as a flock ──
     {   // its own block: the names below are the rose's own
-    // Build the scene afresh, drive the level, the 32 bins and the mic's peak by hand, and read the
-    // canvas and the scene after each step. A step gives level, secs, and either all (every bin,
-    // 0..1) or bins ([[bin, 0..1], ...]); peak is the raw peak the thump hears (0 unless given);
+    // Build the scene afresh, drive the level, the 32 log bands and the mic's peak by hand, and read the
+    // canvas and the scene after each step. A step gives level, secs, and either all (every log band,
+    // 0..1) or bins ([[log band, 0..1], ...]); peak is the raw peak the thump hears (0 unless given);
     // idle: true has the mic off, off: true has the mic and Idle animation off; knobs sets settings
     // from that step on (watchEdge: the canvas's four edges are looked at after every frame of the
     // step, not only its last); gap: milliseconds the page stops drawing for, before the step;
@@ -4748,6 +4748,10 @@ async function main() {
     // what each blade and the stalk are sent), and model says how far the scene's own is from it.
     // The palette is turned to the colour furthest from green, so that petals and leaves can be told apart.
     const ROSE = 'rose';
+    // The scene's eight bands are runs of log bands: band(b, v) is every log band of band b's run at v, which the
+    // scene hears as v times LIFT (BAND_GAIN in overlay/rose.js).
+    const RUN_STARTS = [4, 5, 6, 7, 8, 9, 16, 24, 32], LIFT = 0.97;
+    const band = (b, v) => Array.from({ length: RUN_STARTS[b + 1] - RUN_STARTS[b] }, (_, i) => [RUN_STARTS[b] + i, v]);
     const roseRun = (steps, { fps = 60, knobs = null, hue = null, colorSpeed = null, gain = null } = {}) => wide.evaluate(({ id, steps, fps, knobs, hue, colorSpeed, gain }) => {
       window.frame = function () {};
       const saved = { frequencies, micActive, cfgIdleAnim, cfgColorHue, cfgColorSpeed, cfgGain, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz[id]);
@@ -4927,20 +4931,28 @@ async function main() {
       JSON.stringify({ petal: sit[1].petalColor, pal: ss.pal[0], green: sit[1].greenColor, want: ss.green, hue: sit[1].hue }));
 
     // Thorns and petals.
-    const oneBand = await roseRun([Object.assign({ secs: 0.5 }, hush), { level: 0.05, bins: [[2, 0.6]], secs: 1.5 }], still);
+    const oneBand = await roseRun([Object.assign({ secs: 0.5 }, hush), { level: 0.05, bins: band(2, 0.6), secs: 1.5 }], still);
     const own = (r, b) => r.thornOf.filter((v, j) => Math.floor(j / 2) === b), others = (r, b) => r.thornOf.filter((v, j) => Math.floor(j / 2) !== b);
     const sprouted = (r) => r.grownOf.map((g, i) => (i >= r.state.kept && g > 0.9 ? i % 8 : -1)).filter((b) => b >= 0);
-    check('rose: a band brings out its own two thorns, each as far as the band is loud, wearing its colour, and unfurls folded petals of that band only', own(oneBand[1], 2).every((v) => Math.abs(v - Math.min(1, 1.3 * Math.round(0.6 * 255) / 255)) < 0.01) && others(oneBand[1], 2).every((v) => v === 0)
+    check('rose: a band brings out its own two thorns, each as far as the band is loud, wearing its colour, and unfurls folded petals of that band only', own(oneBand[1], 2).every((v) => Math.abs(v - Math.min(1, 1.3 * LIFT * Math.round(0.6 * 255) / 255)) < 0.01) && others(oneBand[1], 2).every((v) => v === 0)
       && sprouted(oneBand[1]).length >= 2 && sprouted(oneBand[1]).every((b) => b === 2) && oneBand[1].state.open === 24 + sprouted(oneBand[1]).length && [4, 5].some((j) => oneBand[1].thornAt[j][3] >= 250 && like(oneBand[1].thornAt[j], tint(oneBand[1], 2)) > like(oneBand[1].thornAt[j], oneBand[1].state.green))
       && oneBand[0].state.thorns === 0 && oneBand.every(remade),
       JSON.stringify({ own: own(oneBand[1], 2), others: others(oneBand[1], 2), sprouted: sprouted(oneBand[1]), open: oneBand[1].state.open, at: [oneBand[1].thornAt[4], oneBand[1].thornAt[5]], tint: tint(oneBand[1], 2), model: oneBand[1].model }));
+    // A band hears the mean of its run of log bands, times LIFT; the log bands in no run (0 to 3) are not heard.
+    const [oneOfSeven] = await roseRun([{ level: 0.05, bins: [[9, 1]], secs: 1.5 }], still), [oneOfEight] = await roseRun([{ level: 0.05, bins: [[31, 1]], secs: 1.5 }], still);
+    const [outside] = await roseRun([{ level: 0.05, bins: [[0, 1], [1, 1], [2, 1], [3, 1]], secs: 1.5 }], still), [filled] = await roseRun([{ level: 0.05, all: 1, secs: 1.5 }], still);
+    check('rose: each of its eight bands hears the mean of its run of log bands, a little under full, and the log bands in no run are not heard',
+      Math.abs(oneOfSeven.state.bands[5] - LIFT / 7) < 1e-4 && oneOfSeven.state.bands.every((v, b) => b === 5 || v === 0) && Math.abs(oneOfEight.state.bands[7] - LIFT / 8) < 1e-4 && oneOfEight.state.bands.every((v, b) => b === 7 || v === 0)
+      && outside.state.bands.every((v) => v === 0) && outside.state.thorns === 0 && outside.state.open === 24 && filled.state.bands.length === 8 && filled.state.bands.every((v) => Math.abs(v - LIFT) < 1e-4)
+      && [oneOfSeven, oneOfEight, outside, filled].every(remade),
+      JSON.stringify({ oneOfSeven: oneOfSeven.state.bands, oneOfEight: oneOfEight.state.bands, outside: outside.state.bands, filled: filled.state.bands }));
     const quietVoice = await roseRun([Object.assign({ secs: 0.5 }, hush), { level: 0.3, secs: 1.5 }], still), loudVoice = await roseRun([Object.assign({ secs: 0.5 }, hush), { level: 0.95, secs: 1.5 }], still);
     check('rose: a quiet voice opens a few petals; a loud one opens them all into a wide bloom and brings out every thorn', quietVoice[1].state.open > 26 && quietVoice[1].state.open < 44 && loudVoice[1].state.open === 56 && loudVoice[1].state.thorns > 0.85 && thornsDrawn(loudVoice[1]) >= thornsDrawn(sit[1]) + 6
       && loudVoice[1].petal > 2.2 * sit[1].petal && quietVoice[1].petal > 1.05 * sit[1].petal && quietVoice[1].petal < 0.8 * loudVoice[1].petal && loudVoice[1].petalBox.w > 1.4 * sit[1].petalBox.w && loudVoice[1].away < 0.1 * loudVoice[1].petal && loudVoice[1].edge === 0
       && loudVoice[1].state.bloom > 0.9 && quietVoice.every(remade) && loudVoice.every(remade),
       JSON.stringify({ open: [quietVoice[1].state.open, loudVoice[1].state.open], thorns: [loudVoice[1].state.thorns, thornsDrawn(loudVoice[1])], petal: [sit[1].petal, quietVoice[1].petal, loudVoice[1].petal], box: [sit[1].petalBox.w, loudVoice[1].petalBox.w], away: loudVoice[1].away, bloom: loudVoice[1].state.bloom, model: loudVoice[1].model }));
-    const [gained] = await roseRun([{ level: 0.02, bins: [[5, 0.2]], secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0, gain: 3 });
-    check('rose: Gain makes a band louder to its thorns and its petals', Math.abs(gained.state.bands[5] - 3 * Math.round(0.2 * 255) / 255) < 1e-4 && own(gained, 5).every((v) => Math.abs(v - 1.3 * 3 * Math.round(0.2 * 255) / 255) < 0.01) && sprouted(gained).length >= 2 && sprouted(gained).every((b) => b === 5) && remade(gained),
+    const [gained] = await roseRun([{ level: 0.02, bins: band(5, 0.2), secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0, gain: 3 });
+    check('rose: Gain makes a band louder to its thorns and its petals', Math.abs(gained.state.bands[5] - 3 * LIFT * Math.round(0.2 * 255) / 255) < 1e-4 && own(gained, 5).every((v) => Math.abs(v - 1.3 * 3 * LIFT * Math.round(0.2 * 255) / 255) < 0.01) && sprouted(gained).length >= 2 && sprouted(gained).every((b) => b === 5) && remade(gained),
       JSON.stringify({ level: gained.state.bands[5], own: own(gained, 5), sprouted: sprouted(gained) }));
     const pause = await roseRun([Object.assign({ secs: 0.5 }, hush), { level: 0.95, all: 0.6, secs: 2 }, Object.assign({ secs: 0.5 }, hush), Object.assign({ secs: 9 }, hush), Object.assign({ secs: 0.5 }, hush)], still);
     check('rose: in a pause the petals stay out a moment, then fold away and the thorns draw in, until it is the small rose again with a smooth stem', pause[1].state.open === 56 && pause[2].state.open > 40 && pause[3].state.open === 24 && pause[3].state.thorns === 0 && pause[3].state.bloom === 0

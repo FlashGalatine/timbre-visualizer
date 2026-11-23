@@ -4,8 +4,8 @@
 // leaves, five sepals under the head, and a head of petals set in a spiral. In silence it is a
 // small, neat rose with a smooth stem.
 //
-// The voice makes it grow. Thorns come out of the stem: each listens to one of the eight lowest
-// bands, low at the foot and high under the head. Petals sprout: beyond the ones that are
+// The voice makes it grow. Thorns come out of the stem: each listens to one of eight bands of
+// the sound, low at the foot and high under the head. Petals sprout: beyond the ones that are
 // always there, each unfurls when its band sounds or the voice is loud enough for its nerve,
 // and folds away in a pause. Each syllable is a ripple from the heart out through the petals
 // and up the stem. A thump of the mic throws every petal off the head, and they fly round the
@@ -18,7 +18,7 @@
 (function () {
   'use strict';
 
-  const BANDS = 8;                          // bands the rose listens to: the eight lowest bins
+  const BANDS = 8;                          // bands the rose listens to: each is a run of the sampler's log bands (see loudness)
   const PETALS_MIN = 40, PETALS_MAX = 72;   // petals at Density 0 and at 100
   const KEPT = 0.43;                        // the share of its petals that are always out
   const SEPALS = 5, LEAVES = 2, LEAFLETS = 3;
@@ -117,10 +117,32 @@
   function thornFor(thorns) {
     return THORN_LONG * numberOr50(thorns) / 50;
   }
-  // How loud a band is: its bin of 255, times Gain, at most 1.
-  function loudness(bins, band, gain) {
-    if (!bins || band >= bins.length) return 0;
-    return Math.min(1, (bins[band] / 255) * gain);
+  // The eight bands are runs of the sampler's 32 log bands (`frequencies`: a quarter of an octave
+  // each, log band k from 60 × 200^(k/32) Hz), one run after another from log band FIRST. RUNS
+  // is how many log bands each takes: five runs of one (116 to 266 Hz, where a voice's pitch is,
+  // so a low voice and a high one do not bring out the same thorns), then 266 to 849 Hz, 849 Hz
+  // to 3.2 kHz and 3.2 to 12 kHz. What is under 116 Hz is in no band: it is in the voice and
+  // the beat, which the scene kit hears.
+  const FIRST = 4, RUNS = [1, 1, 1, 1, 1, 7, 8, 8];
+  // What a band's mean is multiplied by. It was fitted on the two recorded voices of
+  // tools/compare-input.mjs, so that the eight bands together are within a tenth of what they
+  // were when the rose read 32 values 750 Hz apart.
+  const BAND_GAIN = 0.97;
+  const STARTS = new Uint8Array(BANDS + 1); // the first log band of each run, and the one after the last run
+  STARTS[0] = FIRST;
+  for (let b = 0; b < BANDS; b++) STARTS[b + 1] = STARTS[b] + RUNS[b];
+
+  // The run of log bands that band b hears: its first, and the one after its last. Null if b
+  // is not one of the eight.
+  function runOf(b) {
+    return Number.isInteger(b) && b >= 0 && b < BANDS ? [STARTS[b], STARTS[b + 1]] : null;
+  }
+  // How loud a band is: the mean of its run of log bands, of 255, times BAND_GAIN, times Gain, at most 1.
+  function loudness(bands, band, gain) {
+    if (!bands || !Number.isInteger(band) || band < 0 || band >= BANDS || bands.length < STARTS[band + 1]) return 0;
+    let sum = 0;
+    for (let i = STARTS[band]; i < STARTS[band + 1]; i++) sum += bands[i];
+    return Math.min(1, (sum / ((STARTS[band + 1] - STARTS[band]) * 255)) * BAND_GAIN * gain);
   }
   // With the mic off and Idle animation on, the bands swell a little in turn: each for about a
   // third of the time, and not enough for the petals nearest the rim.
@@ -821,10 +843,10 @@
       s.petals = n; s.kept = rose.kept;
       geo.instanceCount = FIXED + n;
 
-      // Each band is followed: quick up, slower down.
+      // Each band is followed: quick up, slower down. Idle animation has its own eight bands.
       for (let b = 0; b < BANDS; b++) {
         let v = 0;
-        if (micActive) v = loudness(slices, b, cfgGain);
+        if (micActive) v = loudness(frequencies, b, cfgGain);
         else if (cfgIdleAnim) v = idle(b, s.clock);
         bands[b] = follow(bands[b], v, v > bands[b] ? RISE : FALL, dt);
         if (v === 0) bands[b] = settle(bands[b]);
@@ -925,7 +947,7 @@
   }
 
   globalThis.TimbreRose = {
-    BANDS, PETALS_MIN, PETALS_MAX, KEPT, SEPALS, LEAVES, LEAFLETS, FIXED, BLADES_MAX, THORNS, SEED, STEP, STEPS_MAX, NS, NT, TIP,
+    BANDS, FIRST, RUNS, BAND_GAIN, PETALS_MIN, PETALS_MAX, KEPT, SEPALS, LEAVES, LEAFLETS, FIXED, BLADES_MAX, THORNS, SEED, STEP, STEPS_MAX, NS, NT, TIP,
     FOOT, BEND, HEAD, RUN, NECK, HEAD_TURN, BEND_SHARE, STEM_R, FLARE, STEM_RINGS, DOME_RINGS, STEM_AROUND, THORN_RINGS, THORN_AROUND, STALK_RINGS, STALK_AROUND, STALK_POINTS, DOME, BARE,
     HEAD_SWAY, HEAD_RATE, HEAD_QUIET, HEAD_LIFT, HEAD_SPRING, HEAD_DAMP, NOD, NOD_LAND,
     GOLDEN, TURN0, TURN_VARY, LONG, WIDE, VARY, ROOT, ROOT_UP, LEAN, LEAN_FROM, LEAN_TOP, OPEN, GROWING, WRAP, WRAP_MAX, WRAP_TOP, CUP, ROLL, ROLL_TOP, FULL_MIN, FULL_RATE, BLOOM_RATE, KICK_BLOOM,
@@ -936,7 +958,7 @@
     THROW, THROWN, JOSTLE, HOME_OVER, HOME_VARY, HOME_NEAR, HOME_AHEAD, HOME_FAST, HOME_SLOW, HOME_SEEK, LANDED, CATCH, TURN_HEAD, TUMBLE, LAND_TURN, SEAT_TURN, SPIN, ROCK, ROCK_RATE, LOOSEN, AWAY, FLAT,
     RISE, FALL, TRAIL, PULSE, HISTORY, SWAY, ORBIT_RATE, LINGER, FOV, PITCH, FRAME, PETAL_HUES, GREEN, GREEN_PALETTE,
     BLADE_VERT, BLADE_FRAG, STALK_VERT, STALK_FRAG,
-    countFor, keptFor, thornFor, loudness, idle, settle, rng, toward, callOf, thornCall, pulseOf, stemAt, stemRadius, curve, rippleAt, createRose, seat, perch, turnTo, tally, fullOf, lay, pose, leadAt, placeOf, scatter, gather, stepRose, advance,
+    countFor, keptFor, thornFor, runOf, loudness, idle, settle, rng, toward, callOf, thornCall, pulseOf, stemAt, stemRadius, curve, rippleAt, createRose, seat, perch, turnTo, tally, fullOf, lay, pose, leadAt, placeOf, scatter, gather, stepRose, advance,
     bladeGrid, blade, dress, leafAt, stalkIndex, thornLength, stalk, swayFor, orbitAt, definition,
   };
 })();
