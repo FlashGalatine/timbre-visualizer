@@ -70,7 +70,7 @@
 
   // Per-viz knobs are 0-100 sliders by default; each visualizer normalizes to
   // its own range. String-typed defaults (see 'matrix') pass through verbatim
-  // (capped at 4096 chars) instead of clamped.
+  // (capped at 4096 UTF-16 units, cut between whole characters) instead of clamped.
   const DEFAULT_PER_VIZ = {
     'television':    {},
     'peak-hold':     { fallSpeed: 50 },
@@ -160,6 +160,34 @@
 
   function clone(obj) { return JSON.parse(JSON.stringify(obj)); }
 
+  // Text by whole characters. A character here is what a reader sees as one: an
+  // emoji is two UTF-16 units, and a joined one (a flag, a family, a skin tone)
+  // is several code points. Where the browser cannot tell (no Intl.Segmenter),
+  // code points are used, which still never halves a surrogate pair.
+  const segmenter = (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function')
+    ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+  function splitChars(text) {
+    text = String(text == null ? '' : text);
+    if (!segmenter) return Array.from(text);
+    const out = [];
+    for (const part of segmenter.segment(text)) out.push(part.segment);
+    return out;
+  }
+
+  // At most `max` UTF-16 units of `text`, cut between two characters and never
+  // inside one. The result can be shorter than `max`, never longer.
+  function cutText(text, max) {
+    text = String(text == null ? '' : text);
+    if (text.length <= max) return text;
+    // A little past the limit is enough to see where the character at the limit ends.
+    let end = 0;
+    for (const ch of splitChars(text.slice(0, max + 64))) {
+      if (end + ch.length > max) break;
+      end += ch.length;
+    }
+    return text.slice(0, end);
+  }
+
   // A complete config object with every default.
   function defaultConfig() {
     const cfg = { activeViz: 'visualizer', mic: { deviceId: '', label: '' } };
@@ -211,7 +239,7 @@
           if (typeof target[k] === 'number' && typeof v === 'number') {
             target[k] = clamp(v, 0, (PER_VIZ_MAX[name] && PER_VIZ_MAX[name][k]) || 100);
           } else if (typeof target[k] === 'string' && typeof v === 'string') {
-            target[k] = v.slice(0, MAX_STRING);
+            target[k] = cutText(v, MAX_STRING);
           }
         }
       }
@@ -233,6 +261,8 @@
     TOP_BOOLS,
     MAX_STRING,
     clamp,
+    splitChars,
+    cutText,
     defaultConfig,
     sanitizeConfig,
   };

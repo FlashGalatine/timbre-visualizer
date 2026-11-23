@@ -123,7 +123,17 @@
 //           right canvas, draws pixels, throws nothing, and draw() averages under its budget •
 //           four fixes of the 10 November audit: every firework rocket bursts, inside the canvas,
 //           at 30 and 60 fps; the Easter eggs' Pattern knob reaches every kind; Ring Bars' bottom
-//           spoke follows the last bin; Matrix repaints a cell with the glyph that was there.
+//           spoke follows the last bin; Matrix repaints a cell with the glyph that was there •
+//           the dock, worked as a streamer works it (mouse, arrow keys, clicks, typing), against
+//           the mock's switches: an edit made while another is on its way, or just before a replay
+//           comes in, is kept and goes on air; a focused control is left alone and brought up to
+//           date when let go; edits made while Streamer.bot is away, or before the saved config
+//           has come in, are held and sent after, over the saved values and not over defaults;
+//           the status line tells apart offline, action missing, no answer, a timbre:error and
+//           connected, and notes the Default queue; a saved microphone that is not listed gets a
+//           placeholder; Matrix text typed and not applied is kept; the preview gets only sbport
+//           and sbdebug, opens the microphone, and is unloaded when closed; emoji in Matrix text
+//           are drawn whole.
 
 import { spawn } from 'node:child_process';
 import { connect } from 'node:net';
@@ -7385,6 +7395,350 @@ async function main() {
     });
     await ctlPage.screenshot({ path: resolve(__dirname, 'control-render.png'), fullPage: true });
     obs.close();
+
+    // ── The dock keeps the streamer's edits and names its failures (Sprint 3) ──
+    // The dock is worked the way a streamer works it: the mouse on a slider, the arrow keys on a
+    // focused one, a click on a toggle, typing in the Matrix box. The mock's switches stand in for
+    // what Streamer.bot does: /mock/delay is a slow round trip, /mock/drop with /mock/kick is
+    // Streamer.bot going away, /mock/reset an install with nothing saved, /mock/missing an action
+    // that was never made, /mock/silent one that never answers, /mock/throw one that throws, and
+    // /mock/bleed the Default queue. Every dock address here carries ?sbport= for the side port.
+    {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const mockGet = (path) => fetch(BASE + path).then((r) => r.json());
+    const stats = () => mockGet('/mock/stats');
+    const until = async (fn, ms = 5000, step = 20) => { const t0 = Date.now(); for (;;) { const v = await fn(); if (v) return v; if (Date.now() - t0 > ms) return null; await sleep(step); } };
+    const seen = []; // the data of every broadcast, oldest first
+    let watcher = null;
+    const watch = () => new Promise((res) => {
+      watcher = new WebSocket(`ws://127.0.0.1:${WS_PORT}/`);
+      watcher.on('open', () => watcher.send(JSON.stringify({ request: 'Subscribe', id: 'w', events: { general: ['Custom'] } })));
+      watcher.on('message', (raw) => { const m = JSON.parse(raw); if (m.id === 'w') res(); if (m.event) seen.push(m.data); });
+      watcher.on('error', () => {});
+    });
+    await watch();
+    const configsSince = (mark) => seen.slice(mark).filter((m) => m && m.type === 'timbre:config' && m.config).map((m) => m.config);
+    const lastCfg = () => configsSince(0).pop() || {};
+    const saved = async () => { try { return JSON.parse((await stats()).cachedConfig) || {}; } catch { return {}; } };
+    // Ask for the saved config again, as any overlay does when it connects: every page gets it.
+    const replay = () => watcher.send(JSON.stringify({ request: 'DoAction', id: 'r' + Date.now(), action: { name: 'Timbre Push' }, args: { reason: 'test-replay' } }));
+    const statusOf = (pg) => pg.evaluate(() => {
+      const s = document.getElementById('sbStatus'), n = document.getElementById('sbQueueNote');
+      return { text: document.getElementById('sbStatusText').textContent, on: s.classList.contains('on'), note: n && !n.hidden ? n.textContent : '' };
+    });
+    const statusSays = (pg, re, ms = 5000) => pg.waitForFunction((src) => new RegExp(src, 'i').test(document.getElementById('sbStatusText').textContent), re.source, { timeout: ms }).then(() => true).catch(() => false);
+    const openDock = async (url = controlUrl) => {
+      const pg = await ctxt.newPage();
+      await pg.setViewportSize({ width: 420, height: 900 });
+      const errors = [];
+      pg.on('pageerror', (e) => errors.push(String(e)));
+      await pg.goto(url, { waitUntil: 'load' });
+      return [pg, errors];
+    };
+    const arrow = async (pg, id, key = 'ArrowRight') => { await pg.focus('#' + id); await pg.keyboard.press(key); return Number(await pg.inputValue('#' + id)); };
+    const pushIsWithTheMock = () => until(async () => (await stats()).waitingRuns > 0, 3000, 4);
+
+    await mockGet('/mock/delay?ms=0');
+    await pushConfig((c) => { c.activeViz = 'dna'; c.gain = 150; });
+    const [dock, dockErrors] = await openDock();
+    await dock.waitForFunction(() => document.getElementById('g-gain').value === '150' && document.getElementById('activeViz').value === 'dna', { timeout: 5000 }).catch(() => {});
+    check('dock: it opens on the saved settings', (await dock.inputValue('#g-gain')) === '150' && (await dock.inputValue('#activeViz')) === 'dna' && (await statusOf(dock)).text === 'Streamer.bot connected' && (await statusOf(dock)).on);
+
+    // TIM-08, the plan's test. The mock answers 100 ms after it has the push; the toggle is
+    // clicked inside that time, so the slider's echo comes in while the toggle's push is not sent yet.
+    await mockGet('/mock/delay?ms=100');
+    {
+      const track = await dock.locator('#g-bars').boundingBox();
+      await dock.mouse.click(track.x + track.width * 0.8, track.y + track.height / 2);
+      const bars = Number(await dock.inputValue('#g-bars'));
+      const inAir = await pushIsWithTheMock();
+      await dock.click('#t-showLabels');
+      await sleep(900);
+      const last = lastCfg(), kept = await saved();
+      check('dock: a toggle clicked while a slider change is on its way is kept: the last broadcast, and what is saved, carry both',
+        !!inAir && bars !== 20 && last.bars === bars && last.showLabels === false && kept.bars === bars && kept.showLabels === false, JSON.stringify({ inAir: !!inAir, bars, last: [last.bars, last.showLabels], saved: [kept.bars, kept.showLabels] }));
+      check('dock: that toggle does not flip back, and the slider stays where the mouse put it',
+        (await dock.isChecked('#t-showLabels')) === false && Number(await dock.inputValue('#g-bars')) === bars, `checked ${await dock.isChecked('#t-showLabels')}, bars ${await dock.inputValue('#g-bars')}`);
+    }
+    // TIM-08, the keyboard: two arrow presses on a focused slider, the second while the first is on its way.
+    {
+      const start = Number(await dock.inputValue('#g-bounce'));
+      await arrow(dock, 'g-bounce');
+      const inAir = await pushIsWithTheMock();
+      await dock.keyboard.press('ArrowRight');
+      await sleep(900);
+      const last = lastCfg(), shown = Number(await dock.inputValue('#g-bounce'));
+      check('dock: arrow keys on a focused slider: what is on air ends on the value the slider shows',
+        !!inAir && shown === start + 2 && last.bounce === shown && (await saved()).bounce === shown, JSON.stringify({ inAir: !!inAir, start, shown, onAir: last.bounce }));
+    }
+    await mockGet('/mock/delay?ms=0');
+    // TIM-08, the effect picker: the saved effect has no settings of its own (blob). The streamer
+    // picks another, and before that push is sent a replay of the saved config comes in.
+    {
+      await pushConfig((c) => { c.activeViz = 'blob'; c.gain = 150; });
+      await dock.waitForFunction(() => document.getElementById('activeViz').value === 'blob', { timeout: 5000 }).catch(() => {});
+      const errorsBefore = dockErrors.length;
+      await dock.focus('#activeViz');
+      await dock.selectOption('#activeViz', 'dna');
+      replay();
+      await sleep(900);
+      const last = lastCfg();
+      const rows = await dock.evaluate(() => ({ picked: document.getElementById('activeViz').value, dnaRow: !!document.getElementById('pv-dna-helixFreq') }));
+      check('dock: an effect picked just before a replay of the saved config comes in stays picked, and goes on air',
+        last.activeViz === 'dna' && (await saved()).activeViz === 'dna' && rows.picked === 'dna' && rows.dnaRow, JSON.stringify({ onAir: last.activeViz, ...rows }));
+      check('dock: that replay throws nothing in the page (the saved effect, blob, has no settings of its own)', dockErrors.length === errorsBefore, dockErrors.slice(errorsBefore).join(' | '));
+    }
+    // TIM-08, the guard: a control that has the focus is the streamer's. A config from elsewhere
+    // does not move it, and when it is let go it shows what is on air.
+    {
+      const before = Number(await dock.inputValue('#g-bgOpacity'));
+      await dock.focus('#g-bgOpacity');
+      await dock.focus('#t-showBorder');
+      await dock.focus('#g-bgOpacity');
+      await pushConfig((c) => { c.activeViz = 'dna'; c.gain = 150; c.bgOpacity = 40; c.colorHue = 7; c.showBorder = false; });
+      await dock.waitForFunction(() => document.getElementById('g-colorHue').value === '7', { timeout: 5000 }).catch(() => {});
+      const held = Number(await dock.inputValue('#g-bgOpacity'));
+      await dock.focus('#t-showBorder');
+      const letGo = Number(await dock.inputValue('#g-bgOpacity'));
+      await pushConfig((c) => { c.activeViz = 'dna'; c.gain = 150; c.bgOpacity = 40; c.showBorder = true; });
+      await dock.waitForFunction(() => document.getElementById('g-colorHue').value === '0', { timeout: 5000 }).catch(() => {});
+      const boxHeld = await dock.isChecked('#t-showBorder');
+      await dock.focus('#g-bgOpacity');
+      const boxLetGo = await dock.isChecked('#t-showBorder');
+      check('dock: a slider that has the focus is not moved by a config from elsewhere, and shows what is on air once it is let go', before === 88 && held === 88 && letGo === 40, JSON.stringify({ before, held, letGo }));
+      check('dock: a toggle that has the focus gets the same guard', boxHeld === false && boxLetGo === true, JSON.stringify({ boxHeld, boxLetGo }));
+      check('dock: none of that pushed anything: what is saved is what came from elsewhere', (await saved()).bgOpacity === 40 && (await saved()).showBorder === true);
+    }
+
+    // TIM-28, the plan's test: Streamer.bot goes away, the streamer edits, it comes back.
+    {
+      await mockGet('/mock/drop?on=1');
+      await mockGet('/mock/kick');
+      const offline = await statusSays(dock, /offline/);
+      await dock.click('#t-showChevrons');
+      const gain = await arrow(dock, 'g-gain');
+      const helix = await arrow(dock, 'pv-dna-helixFreq');
+      await sleep(300);
+      const down = await statusOf(dock);
+      check('dock: with Streamer.bot gone the status line says it is offline and that the changes are kept',
+        offline && /Streamer\.bot offline/.test(down.text) && /kept/.test(down.text) && !down.on, down.text);
+      const mark = seen.length;
+      await mockGet('/mock/drop?on=0');
+      await watch();
+      const arrived = await until(() => configsSince(mark).some((c) => c.showChevrons === false && c.gain === gain && c.perViz.dna.helixFreq === helix), 12000);
+      await sleep(400);
+      const last = lastCfg(), kept = await saved();
+      check('dock: an edit made while Streamer.bot was away arrives when it is back, and the other saved values are left alone',
+        !!arrived && gain === 151 && kept.showChevrons === false && kept.gain === gain && kept.activeViz === 'dna' && kept.bgOpacity === 40 && last.showChevrons === false && last.activeViz === 'dna',
+        JSON.stringify({ arrived: !!arrived, gain, saved: [kept.showChevrons, kept.gain, kept.activeViz, kept.bgOpacity] }));
+      check('dock: so does a per-effect setting edited while it was away', helix === 51 && kept.perViz.dna.helixFreq === 51 && last.perViz.dna.helixFreq === 51, JSON.stringify({ helix, saved: kept.perViz.dna.helixFreq }));
+      check('dock: after that the status line says connected', (await statusSays(dock, /^Streamer\.bot connected$/, 3000)) && (await statusOf(dock)).on, (await statusOf(dock)).text);
+      // The overlay page was dropped too. Let it come back before going on.
+      await page.waitForFunction(() => !document.body.classList.contains('offline'), { timeout: 15000 }).catch(() => {});
+    }
+
+    // TIM-29, the plan's test: an edit made before the saved config has come in. The saved config
+    // has values that are not the defaults; the mock holds its answer for 700 ms.
+    {
+      await pushConfig((c) => { c.activeViz = 'matrix'; c.gain = 150; c.bars = 12; });
+      await mockGet('/mock/delay?ms=700');
+      const mark = seen.length;
+      const [early] = await openDock();
+      await early.click('#t-showBorder');
+      const arrived = await until(() => configsSince(mark).some((c) => c.showBorder === false), 6000);
+      await sleep(900);
+      const all = configsSince(mark), kept = await saved();
+      check('dock: an edit made before the saved config has come in is sent after it, and leaves the other saved values alone',
+        !!arrived && all.length > 0 && all.every((c) => c.gain === 150 && c.bars === 12 && c.activeViz === 'matrix') && kept.showBorder === false && kept.gain === 150 && kept.bars === 12 && kept.activeViz === 'matrix',
+        JSON.stringify({ arrived: !!arrived, broadcasts: all.map((c) => [c.gain, c.bars, c.activeViz, c.showBorder]), saved: [kept.gain, kept.bars, kept.activeViz, kept.showBorder] }));
+      check('dock: and it shows the saved values with that edit on top', await early.evaluate(() =>
+        document.getElementById('g-gain').value === '150' && document.getElementById('g-bars').value === '12' && document.getElementById('activeViz').value === 'matrix' && document.getElementById('t-showBorder').checked === false));
+      await mockGet('/mock/delay?ms=0');
+      await early.close();
+    }
+    // TIM-29 on an install with nothing saved: no replay ever comes, so the dock sends after
+    // about a second, and the sync that got no answer is not reported as a failure.
+    {
+      await mockGet('/mock/reset');
+      const runsBefore = (await stats()).totalRuns;
+      const [fresh] = await openDock();
+      const opened = Date.now();
+      await fresh.evaluate(() => { window.__said = []; const el = document.getElementById('sbStatusText'); new MutationObserver(() => window.__said.push(el.textContent)).observe(el, { childList: true, characterData: true, subtree: true }); });
+      await fresh.click('#t-idleAnim');
+      await sleep(500);
+      const soon = await stats();
+      const nothingYet = soon.cachedConfig === null && soon.totalRuns > runsBefore; // the sync has run; no push has stored anything
+      const arrived = await until(async () => (await saved()).idleAnim === false, 5000);
+      const took = Date.now() - opened;
+      await sleep(1800);
+      const said = await fresh.evaluate(() => window.__said), now = await statusOf(fresh);
+      check('dock: with nothing saved, an edit made at once is held (nothing is pushed in the first half second) and is sent about a second after connecting',
+        nothingYet && !!arrived && took >= 900 && took < 4000, JSON.stringify({ nothingYet, arrived: !!arrived, took }));
+      check('dock: with nothing saved, the sync that gets no answer is not called a failure', now.text === 'Streamer.bot connected' && now.on && !said.some((t) => /did not answer|missing|failed/i.test(t)), JSON.stringify({ now: now.text, said }));
+      await fresh.close();
+    }
+
+    // TIM-11: the status line tells the failures apart.
+    {
+      await pushConfig((c) => { c.activeViz = 'dna'; c.gain = 150; });
+      await dock.waitForFunction(() => document.getElementById('g-bars').value === '20', { timeout: 5000 }).catch(() => {});
+      // The action is not there.
+      await mockGet('/mock/missing?on=1');
+      const hue = await arrow(dock, 'g-colorHue');
+      const missing = await statusSays(dock, /action missing/, 4000);
+      const said = await statusOf(dock);
+      check('dock: an action that does not exist shows "action missing", not "connected"', missing && /Timbre Push/.test(said.text) && !said.on && (await saved()).colorHue !== hue, said.text);
+      const [late] = await openDock();
+      check('dock: a dock opened while the action is missing says so without an edit being made', await statusSays(late, /action missing/, 4000), (await statusOf(late)).text);
+      await mockGet('/mock/missing?on=0');
+      const healed = await statusSays(late, /^Streamer\.bot connected$/, 9000);
+      const sent = await until(async () => (await saved()).colorHue === hue, 9000);
+      check('dock: once the action is there, both docks say connected again and the edit that was kept is sent, with no new edit made',
+        healed && !!sent && (await statusSays(dock, /^Streamer\.bot connected$/, 3000)), JSON.stringify({ healed, sent: !!sent, dock: (await statusOf(dock)).text }));
+      await late.close();
+
+      // The action is queued and never answers.
+      await mockGet('/mock/silent?on=1');
+      const t0 = Date.now();
+      const speed = await arrow(dock, 'g-colorSpeed');
+      const silent = await statusSays(dock, /connected, but Timbre Push did not answer/, 5000);
+      const after = Date.now() - t0;
+      check('dock: a push that gets no echo shows "connected, but Timbre Push did not answer", about a second and a half later', silent && after > 1200 && after < 3500 && !(await statusOf(dock)).on, `${(await statusOf(dock)).text} after ${after} ms`);
+      await mockGet('/mock/silent?on=0');
+      const answered = await until(async () => (await saved()).colorSpeed === speed, 9000);
+      check('dock: once the action answers, the edit that was kept is sent and the status line says connected', !!answered && (await statusSays(dock, /^Streamer\.bot connected$/, 3000)), (await statusOf(dock)).text);
+
+      // The action throws: its timbre:error is shown, as text.
+      const nasty = '<img src=x onerror="window.__pwned=1"> boom';
+      await mockGet('/mock/throw?on=1&message=' + encodeURIComponent(nasty));
+      await arrow(dock, 'g-colorSpeed');
+      const threw = await statusSays(dock, /boom/, 4000);
+      const shown = await dock.evaluate(() => ({ text: document.getElementById('sbStatusText').textContent, tags: document.querySelectorAll('#sbStatus img').length, pwned: window.__pwned === 1 }));
+      check('dock: a timbre:error broadcast is shown with its message, put in as text and never as HTML', threw && shown.text.includes(nasty) && shown.tags === 0 && !shown.pwned && !(await statusOf(dock)).on, JSON.stringify(shown));
+      await mockGet('/mock/throw?on=0');
+      const speed2 = await arrow(dock, 'g-colorSpeed');
+      check('dock: the next edit that goes through clears the error and carries the edit that failed', !!(await until(async () => (await saved()).colorSpeed === speed2, 5000)) && speed2 === speed + 2 && (await statusSays(dock, /^Streamer\.bot connected$/, 3000)), (await statusOf(dock)).text);
+
+      // The Default queue.
+      await mockGet('/mock/bleed?on=1');
+      await arrow(dock, 'g-colorSpeed');
+      const noted = await dock.waitForFunction(() => { const n = document.getElementById('sbQueueNote'); return !!n && !n.hidden && n.textContent !== ''; }, { timeout: 4000 }).then(() => true).catch(() => false);
+      const withNote = await statusOf(dock);
+      check('dock: when the reply names the Default queue, the dock says to use a blocking action queue and points at docs/SETUP.md step 2',
+        noted && /Default queue/.test(withNote.note) && /blocking action queue/.test(withNote.note) && /docs\/SETUP\.md, step 2/.test(withNote.note), withNote.note);
+      await mockGet('/mock/bleed?on=0');
+      await arrow(dock, 'g-colorSpeed');
+      check('dock: that note goes once a reply names another queue', await dock.waitForFunction(() => document.getElementById('sbQueueNote').hidden, { timeout: 4000 }).then(() => true).catch(() => false));
+    }
+
+    // TIM-18 (1): a saved microphone this browser does not list.
+    {
+      await pushConfig((c) => { c.activeViz = 'dna'; c.mic = { deviceId: 'a-device-that-is-not-here', label: 'Old USB Mic' }; });
+      await dock.waitForFunction(() => document.getElementById('g-gain').value === '100', { timeout: 5000 }).catch(() => {});
+      await sleep(200);
+      const mic = () => dock.evaluate(() => { const s = document.getElementById('micSelect'), o = s.options[s.selectedIndex]; return { index: s.selectedIndex, value: s.value, text: o ? o.textContent : null, options: s.options.length }; });
+      const m1 = await mic();
+      check('dock: a saved microphone that is not in the list gets a named placeholder instead of a blank', m1.index > 0 && m1.value === 'a-device-that-is-not-here' && /Old USB Mic/.test(m1.text || '') && /not listed/.test(m1.text || ''), JSON.stringify(m1));
+      await dock.click('#btnMicRefresh');
+      await sleep(600);
+      const m2 = await mic(), kept = await saved();
+      check('dock: Refresh keeps that placeholder and pushes nothing', m2.index > 0 && m2.value === 'a-device-that-is-not-here' && m2.options >= 2 && kept.mic.deviceId === 'a-device-that-is-not-here' && kept.mic.label === 'Old USB Mic', JSON.stringify({ m2, mic: kept.mic }));
+      await dock.selectOption('#micSelect', '');
+      const cleared = await until(async () => (await saved()).mic.deviceId === '', 4000);
+      const m3 = await mic();
+      check('dock: choosing System default pushes it, and the placeholder goes', !!cleared && m3.value === '' && m3.index === 0 && m3.options === m2.options - 1, JSON.stringify(m3));
+    }
+
+    // TIM-18 (2): Matrix text typed and not applied.
+    {
+      await dock.selectOption('#activeViz', 'matrix');
+      await until(async () => (await saved()).activeViz === 'matrix', 4000);
+      const type = async (text) => { await dock.click('#matrixText'); await dock.keyboard.press('Control+A'); await dock.keyboard.type(text); };
+      const box = () => dock.evaluate(() => { const h = document.getElementById('matrixHint'); return { text: document.getElementById('matrixText').value, mode: document.getElementById('matrixMode').value, hint: !!h && !h.hidden ? h.textContent : '' }; });
+      await type('NEWPOOL');
+      await dock.click('#t-showDecorations'); // another control: the box loses the focus, and this push's echo comes back
+      await until(async () => (await saved()).showDecorations === false, 4000);
+      await sleep(400);
+      const b1 = await box();
+      check('dock: Matrix text typed and not applied survives an edit elsewhere and its echo, with an "unsaved" hint', b1.text === 'NEWPOOL' && /unsaved/i.test(b1.hint) && (await saved()).perViz.matrix.pool !== 'NEWPOOL', JSON.stringify(b1));
+      await dock.selectOption('#matrixMode', 'messages');
+      const b2 = await box();
+      await dock.selectOption('#matrixMode', 'pool');
+      const b3 = await box();
+      check('dock: switching the Matrix source and back keeps the typed text', b2.text === 'HELLO\nGG WP\nGL HF' && b3.text === 'NEWPOOL', JSON.stringify([b2, b3]));
+      await dock.click('#btnMatrixApply');
+      const applied = await until(async () => (await saved()).perViz.matrix.pool === 'NEWPOOL', 4000);
+      const b4 = await box();
+      check('dock: Apply sends the text and the hint goes', !!applied && b4.hint === '' && b4.text === 'NEWPOOL' && (await saved()).perViz.matrix.mode === 'pool', JSON.stringify(b4));
+      // A broadcast in the middle of an edit must not turn the source back.
+      await dock.selectOption('#matrixMode', 'messages');
+      await type('HI THERE');
+      replay();
+      await sleep(400);
+      await dock.click('#btnMatrixApply');
+      const sent = await until(async () => (await saved()).perViz.matrix.messages === 'HI THERE', 4000);
+      const m = (await saved()).perViz.matrix;
+      check('dock: a broadcast in the middle of typing does not turn the source back: Apply writes the messages, not the character pool', !!sent && m.mode === 'messages' && m.messages === 'HI THERE' && m.pool === 'NEWPOOL', JSON.stringify(m));
+    }
+    await dock.close();
+
+    // TIM-09 and TIM-18 (3): the preview gets only sbport and sbdebug, opens the microphone, and is unloaded when closed.
+    {
+      const [withQuery] = await openDock(controlUrl + '&sbdebug=1&extra=%3Cb%3E1&__SB_WS_URL=ws%3A%2F%2Fexample.invalid');
+      await statusSays(withQuery, /^Streamer\.bot connected$/, 5000);
+      const before = (await stats()).clients;
+      await withQuery.click('details summary');
+      const src = await withQuery.waitForFunction(() => { const f = document.getElementById('previewFrame'); return /mic-visualizers-300x220/.test(f.src) ? f.src : null; }, { timeout: 4000 }).then((h) => h.jsonValue()).catch(() => '');
+      const params = [...new URL(src || 'http://x/').searchParams.keys()].sort();
+      check('dock: the preview is given sbport and sbdebug from the dock address and nothing else', params.join() === 'sbdebug,sbport' && new URL(src).searchParams.get('sbport') === String(WS_PORT), src);
+      const frame = await until(() => withQuery.frames().find((f) => /mic-visualizers-300x220/.test(f.url())), 4000);
+      const live = frame ? await frame.waitForFunction(() => window.__timbre && window.__timbre.micActive === true && document.getElementById('vizStatus').textContent === 'LISTENING', { timeout: 8000 }).then(() => true).catch(() => false) : false;
+      const drew = frame ? await frame.waitForFunction(canvas2dHasPixels, null, { timeout: 6000 }).then(() => true).catch(() => false) : false;
+      const sandbox = await withQuery.evaluate(() => document.getElementById('previewFrame').getAttribute('sandbox'));
+      const opened = (await stats()).clients;
+      check(`dock: the preview opens the microphone and draws with it (sandbox: ${sandbox === null ? 'none' : JSON.stringify(sandbox)}), on its own Streamer.bot connection`, live && drew && opened === before + 1, JSON.stringify({ live, drew, before, opened }));
+      await withQuery.click('details summary');
+      const unloaded = await until(async () => (await stats()).clients === before && withQuery.frames().every((f) => !/mic-visualizers/.test(f.url())), 4000);
+      check('dock: closing the preview unloads it: its page and its Streamer.bot connection are gone', !!unloaded, JSON.stringify({ clients: (await stats()).clients, frames: withQuery.frames().map((f) => f.url()) }));
+      await withQuery.click('details summary');
+      check('dock: opening the preview again loads it again', !!(await until(async () => (await stats()).clients === before + 1, 5000)));
+      await withQuery.close();
+    }
+
+    // TIM-18 (4): Matrix text is drawn by whole characters.
+    {
+      const drawn = await page.evaluate(() => {
+        const m = perViz['matrix'], savedState = { frequencies, waveform, micActive, mode: m.mode, pool: m.pool, messages: m.messages, name: window.__timbre.currentVizName }, text = ctx.fillText;
+        try {
+          frequencies = new Uint8Array(32).fill(200); waveform = null; micActive = true;
+          const run = (mode, pool, messages, allowed) => {
+            m.mode = mode; m.pool = pool; m.messages = messages;
+            setActiveViz('visualizer'); setActiveViz('matrix');
+            const glyphs = new Set();
+            ctx.fillText = function (s, x, y) { glyphs.add(s); return text.call(this, s, x, y); };
+            let t = performance.now() + 5000;
+            for (let i = 0; i < 600; i++) { t += 1000 / 60; currentViz.draw(t, 1 / 60); }
+            ctx.fillText = text;
+            return { kinds: glyphs.size, broken: [...glyphs].filter((g) => !allowed.includes(g)).length, all: allowed.every((g) => glyphs.has(g)) };
+          };
+          return {
+            pool: run('pool', '\u{1F600}\u{1F680}', '', ['\u{1F600}', '\u{1F680}']),
+            messages: run('messages', 'x', 'A\u{1F600}B\n\u{1F469}‍\u{1F680}Z', ['A', '\u{1F600}', 'B', '\u{1F469}‍\u{1F680}', 'Z']),
+          };
+        } finally {
+          ctx.fillText = text; frequencies = savedState.frequencies; waveform = savedState.waveform; micActive = savedState.micActive;
+          m.mode = savedState.mode; m.pool = savedState.pool; m.messages = savedState.messages; setActiveViz(savedState.name);
+        }
+      });
+      check('matrix: emoji in the character pool are drawn whole, never as half a character', drawn.pool.broken === 0 && drawn.pool.all, JSON.stringify(drawn.pool));
+      check('matrix: emoji in a message are drawn whole, a joined one (a woman astronaut) included', drawn.messages.broken === 0 && drawn.messages.all, JSON.stringify(drawn.messages));
+    }
+
+    // Leave the mock as the sections after this one expect it: no switch on, a 2D effect saved.
+    for (const off of ['/mock/delay?ms=0', '/mock/drop?on=0', '/mock/missing?on=0', '/mock/silent?on=0', '/mock/throw?on=0', '/mock/bleed?on=0']) await mockGet(off);
+    await pushConfig((c) => { c.activeViz = 'waveform'; });
+    watcher.close();
+    }
 
     // ── Mic-denied path (no fake-media flags, no permission grant) ─────────
     deniedBrowser = await launch();

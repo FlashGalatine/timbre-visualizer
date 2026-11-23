@@ -5,13 +5,18 @@ VIZ_FACTORIES['matrix'] = function () {
   let COLS = Math.floor(W / CELL_W);
   let ROWS = Math.ceil(H / CELL_H);
   let columns = null;
+  // The text is indexed by whole characters (TIMBRE.splitChars), so an emoji is
+  // one glyph and never half of one. A column's message is an array of them; the
+  // pool is split once and again only when its text changes.
+  let poolText = null, poolChars = [];
   function pickChar(message, idx) {
     const cfg = perViz['matrix'];
     if (cfg.mode === 'messages' && message && message.length > 0) {
       return message[idx % message.length];
     }
-    if (cfg.pool && cfg.pool.length > 0) {
-      return cfg.pool[(Math.random() * cfg.pool.length) | 0];
+    if (cfg.pool !== poolText) { poolText = cfg.pool; poolChars = TIMBRE.splitChars(cfg.pool); }
+    if (poolChars.length > 0) {
+      return poolChars[(Math.random() * poolChars.length) | 0];
     }
     return ' ';
   }
@@ -31,7 +36,7 @@ VIZ_FACTORIES['matrix'] = function () {
     col.bright = !!bright;
     if (cfg.mode === 'messages') {
       const msgs = cfg.messages.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-      col.message = msgs.length ? msgs[(Math.random() * msgs.length) | 0] : '';
+      col.message = msgs.length ? TIMBRE.splitChars(msgs[(Math.random() * msgs.length) | 0]) : null;
       col.msgIdx = 0;
     } else {
       col.message = null;

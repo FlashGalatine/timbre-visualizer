@@ -22,6 +22,13 @@
 //                         SB's Default queue as measured: runs of one action that land
 //                         together all see ONE request's arguments. Also MOCK_ARG_BLEED=1.
 //   /mock/throw?on=1|0    Timbre Push throws: it broadcasts timbre:error, stores nothing.
+//                         With &message=<text> the error carries that text.
+//   /mock/silent?on=1|0   Timbre Push is queued (the reply is "ok") and its run does
+//                         nothing: no store, no broadcast. An action that never answers.
+//   /mock/delay?ms=<n>    every run waits n ms (0 to 5000) between the reply and the
+//                         run: the round trip of a slow Streamer.bot. Order is kept.
+//   /mock/reset           forgets the stored config: an install with nothing saved.
+//   /mock/kick            closes every WebSocket connection that is open now.
 //   /mock/missing?on=1|0  Timbre Push is "not found", as when it was never imported.
 //   /mock/drop?on=1|0     every NEW WebSocket connection is accepted and then closed at
 //                         once (a server that is up but will not keep a client). Turning
@@ -123,6 +130,11 @@ const ACTION = 'Timbre Push';
 const BLEED_WINDOW_MS = 10;        // requests for the action this close together overlap
 let argBleed = process.env.MOCK_ARG_BLEED === '1';
 let throwPush = false;             // the action throws: timbre:error, nothing stored
+const THROW_MESSAGE = 'mock: Timbre Push was made to throw';
+let throwMessage = THROW_MESSAGE;
+let silentPush = false;            // the action is queued and its run does nothing
+let runDelayMs = 0;                // every run waits this long after its reply
+let waitingRuns = 0;               // runs inside that wait now
 let actionMissing = false;         // the action is "not found"
 let dropConnections = false;       // accept a new WebSocket connection, then close it
 let dropTimes = [];                // when each dropped connection arrived (ms), newest last
@@ -151,8 +163,25 @@ const http = createServer(async (req, res) => {
       return json(res, { argBleed });
     }
     if (path === '/mock/throw') {
-      if (query.has('on')) throwPush = query.get('on') === '1';
+      if (query.has('on')) { throwPush = query.get('on') === '1'; throwMessage = query.get('message') || THROW_MESSAGE; }
       return json(res, { throwPush });
+    }
+    if (path === '/mock/silent') {
+      if (query.has('on')) silentPush = query.get('on') === '1';
+      return json(res, { silentPush });
+    }
+    if (path === '/mock/delay') {
+      if (query.has('ms')) { const n = Number(query.get('ms')); runDelayMs = Number.isFinite(n) ? Math.max(0, Math.min(5000, Math.round(n))) : 0; }
+      return json(res, { runDelayMs });
+    }
+    if (path === '/mock/reset') {
+      cachedConfig = null;
+      return json(res, { cachedConfig });
+    }
+    if (path === '/mock/kick') {
+      const open = [...clients];
+      for (const ws of open) { try { ws.close(); } catch {} }
+      return json(res, { kicked: open.length });
     }
     if (path === '/mock/missing') {
       if (query.has('on')) actionMissing = query.get('on') === '1';
@@ -163,7 +192,7 @@ const http = createServer(async (req, res) => {
       return json(res, { dropConnections });
     }
     if (path === '/mock/stats') {
-      return json(res, { argBleed, throwPush, actionMissing, dropConnections, dropTimes: dropTimes.slice(-50), totalRuns, totalBroadcasts, cachedConfig, runs: runLog.slice(-50) });
+      return json(res, { argBleed, throwPush, silentPush, runDelayMs, waitingRuns, actionMissing, dropConnections, dropTimes: dropTimes.slice(-50), clients: clients.size, totalRuns, totalBroadcasts, cachedConfig, runs: runLog.slice(-50) });
     }
     if (path === '/' || path === '/index.html') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -276,7 +305,18 @@ function handleRequest(ws, m) {
 // window with the LAST one's args.
 const ACTION_ID = randomUUID();
 
+// With a delay set, a run starts that long after its reply. Every run waits the same
+// time, so the order of arrival is kept.
 function queueAction(args) {
+  if (runDelayMs > 0) {
+    waitingRuns++;
+    setTimeout(() => { waitingRuns--; startAction(args); }, runDelayMs);
+    return;
+  }
+  startAction(args);
+}
+
+function startAction(args) {
   if (!argBleed) { runTimbrePush(args, false); return; }
   if (!pending) {
     const batch = pending = [];
@@ -296,15 +336,20 @@ function sendToSubscribers(dataJson) {
 }
 
 // Mirror of Execute() in actions/timbre-push.cs, line for line. `did` is what the
-// run came to: push | sync | sync-empty | rejected | threw.
+// run came to: push | sync | sync-empty | rejected | threw | silent.
 function runTimbrePush(args, bled) {
   totalRuns++;
   const note = (did) => { runLog.push({ action: ACTION, did, bled }); if (runLog.length > 500) runLog.splice(0, runLog.length - 500); };
+  if (silentPush) {
+    note('silent');
+    console.log('[mock] Timbre Push did nothing (the silent switch is on)');
+    return;
+  }
   if (throwPush) {
     // The C#'s catch: log, broadcast { type:"timbre:error", message }, return false.
     note('threw');
     console.log('[mock] Timbre Push ERROR (the throw switch is on)');
-    sendToSubscribers('{"type":"timbre:error","message":' + JSON.stringify('mock: Timbre Push was made to throw') + '}');
+    sendToSubscribers('{"type":"timbre:error","message":' + JSON.stringify(throwMessage) + '}');
     return;
   }
   // CPH.TryGetArg("config", out string) && !string.IsNullOrEmpty(cfg). The pages only

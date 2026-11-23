@@ -14,6 +14,8 @@
   .status { font-size: 11px; color: #8890b0; margin-bottom: 8px; }
   .status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #d33; margin-right: 4px; }
   .status.on .dot { background: #2d5; }
+  .status.warn .dot { background: #e5a50a; }
+  .status-note { font-size: 11px; color: #e5a50a; margin: -4px 0 8px; }
   section { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin-bottom: 10px; }
   .row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
   .row label { flex: 0 0 110px; color: #aab; font-size: 12px; }
@@ -37,6 +39,7 @@
 <body>
   <h1>TIMBRE</h1>
   <div class="status" id="sbStatus"><span class="dot"></span><span id="sbStatusText">connecting to Streamer.bot…</span></div>
+  <div class="status-note" id="sbQueueNote" hidden></div>
 
   <section>
     <h2 style="margin-top:0">Visualizer</h2>
@@ -55,6 +58,7 @@
       </div>
       <textarea id="matrixText" spellcheck="false"></textarea>
       <div class="row"><button id="btnMatrixApply">Apply text</button></div>
+      <p class="hint" id="matrixHint" hidden></p>
     </div>
     <div id="scenePlacement" hidden><h2>Scene placement</h2><div id="scenePlacementRows"></div></div>
     <div id="afterglowGroup" hidden><h2>Afterglow</h2><div id="afterglowRows"></div></div>
@@ -78,7 +82,7 @@
 
   <details>
     <summary>Preview (300×220 — captures this machine's mic too)</summary>
-    <iframe id="previewFrame" width="300" height="220" data-src="/timbre-overlay/mic-visualizers-300x220.html" allow="microphone"></iframe>
+    <iframe id="previewFrame" width="300" height="220" data-src="/timbre-overlay/mic-visualizers-300x220.html" allow="microphone" sandbox="allow-scripts allow-same-origin"></iframe>
   </details>
 
 <script>
@@ -98,32 +102,206 @@
   };
   const nice = (k) => k.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
 
+  // ── The parts that need no page ────────────────────────────────────────
+  // verify.mjs runs everything between the two DOCK-PURE marks under Node, so
+  // nothing in between may touch the document, the window or the state below.
+  // DOCK-PURE-BEGIN
+  const isBranch = (v) => !!v && typeof v === 'object';
+  const hasKeys = (obj) => Object.keys(obj).length > 0;
+
+  // Write one value into a nested object, making the branches on the way:
+  // setAt(o, ['perViz', 'dna', 'helixFreq'], 60).
+  function setAt(obj, path, value) {
+    let o = obj;
+    for (let i = 0; i < path.length - 1; i++) {
+      if (!isBranch(o[path[i]])) o[path[i]] = {};
+      o = o[path[i]];
+    }
+    o[path[path.length - 1]] = value;
+  }
+
+  // The config the dock works on: what came in, with the streamer's own edits on top.
+  function mergeEdits(T, edits, inbound) {
+    return T.sanitizeConfig(edits, T.sanitizeConfig(inbound));
+  }
+
+  // The edits that `inbound` does not carry yet. An edit is done with when a
+  // broadcast holds its value (as sanitizeConfig stores it), and not before.
+  function unsettledEdits(T, edits, inbound) {
+    const base = T.sanitizeConfig(inbound);
+    const merged = T.sanitizeConfig(edits, base);
+    const at = (o, k) => (isBranch(o) ? o[k] : undefined);
+    const walk = (e, m, b) => {
+      const out = {};
+      for (const k of Object.keys(e)) {
+        if (isBranch(e[k])) {
+          const sub = walk(e[k], at(m, k), at(b, k));
+          if (hasKeys(sub)) out[k] = sub;
+        } else if (at(m, k) !== at(b, k)) {
+          out[k] = e[k];
+        }
+      }
+      return out;
+    };
+    return walk(edits, merged, base);
+  }
+
+  // What the preview gets from the dock's own address: the Streamer.bot port and
+  // the debug switch, checked, and nothing else.
+  function previewQuery(search) {
+    let q;
+    try { q = new URLSearchParams(search || ''); } catch (e) { return ''; }
+    const out = [];
+    const port = q.get('sbport') || '';
+    if (/^\d{1,5}$/.test(port) && Number(port) >= 1 && Number(port) <= 65535) out.push('sbport=' + Number(port));
+    if (q.get('sbdebug') === '1') out.push('sbdebug=1');
+    return out.length ? '?' + out.join('&') : '';
+  }
+
+  // Text from outside (Streamer.bot's error, the action's message) as one short line.
+  function oneLine(v) {
+    return Array.from(String(v == null ? '' : v).replace(/\s+/g, ' ').trim()).slice(0, 200).join('');
+  }
+
+  // The status line, from what is known of the connection and the action.
+  //   connected     the socket is open
+  //   held          the streamer has edits that no broadcast has carried back
+  //   actionMissing Streamer.bot said it has no action named Timbre Push
+  //   replyError    Streamer.bot refused the request for another reason (its text), or null
+  //   runError      the action broadcast timbre:error (its message or code), or null
+  //   noAnswer      a push was sent and its values did not come back
+  //   defaultQueue  the last reply that named a queue named "Default"
+  // Returns { level, text, note }: level is 'off' (red), 'warn' (amber) or 'on' (green);
+  // note is a second line, or ''.
+  const QUEUE_NOTE = 'Timbre Push is in Streamer.bot\'s Default queue, where a change can be lost. Put it in a blocking action queue: docs/SETUP.md, step 2.';
+  function statusFor(s) {
+    const note = s.connected && s.defaultQueue ? QUEUE_NOTE : '';
+    if (!s.connected) {
+      return { level: 'off', note, text: 'Streamer.bot offline — retrying…' + (s.held ? ' Your changes are kept and will be sent when it is back.' : '') };
+    }
+    const kept = s.held ? ' Your changes are kept.' : '';
+    if (s.actionMissing) {
+      return { level: 'warn', note, text: 'Action missing: Streamer.bot has no action named "Timbre Push". Create it (docs/SETUP.md, step 2).' + kept };
+    }
+    if (s.replyError != null) {
+      const why = oneLine(s.replyError);
+      return { level: 'warn', note, text: 'Streamer.bot refused Timbre Push' + (why ? ': ' + why : '.') + kept };
+    }
+    if (s.runError != null) {
+      const why = oneLine(s.runError);
+      return { level: 'warn', note, text: 'Timbre Push failed' + (why ? ': ' + why : '') + ' — see the Streamer.bot log.' + kept };
+    }
+    if (s.noAnswer) {
+      return { level: 'warn', note, text: 'Connected, but Timbre Push did not answer. Check that its C# compiled (docs/SETUP.md, step 2).' + kept };
+    }
+    return { level: 'on', note, text: 'Streamer.bot connected' };
+  }
+  // DOCK-PURE-END
+
   // ── State ──────────────────────────────────────────────────────────────
+  const ACTION = 'Timbre Push';
+  const PUSH_DEBOUNCE_MS = 120;
+  const FIRST_CONFIG_WAIT_MS = 1000; // how long to wait for the saved config after connecting
+  const ECHO_WAIT_MS = 1500;         // how long a push may take to come back
+  const RETRY_MS = 5000;             // how often to try again while the action is failing
+
   let cfg = T.defaultConfig();
+  // The streamer's own edits that no broadcast has carried back yet, as a sparse
+  // config: { bars: 24, perViz: { dna: { helixFreq: 60 } } }. A config that comes in
+  // is merged UNDER these, so it cannot undo them. A key leaves only when a
+  // broadcast holds its value; a send that fails, or is lost, keeps it.
+  let edits = {};
+  let unsent = false;   // an edit was made (or a send was lost) since the last send
+  // Nothing is pushed until the saved config has come in on this connection, or
+  // FIRST_CONFIG_WAIT_MS have passed with none (an install with nothing saved):
+  // a push before then would save the defaults over the streamer's settings.
+  let ready = false;
+  let readyTimer = null;
   let pushTimer = null;
+  let awaiting = null;  // the config text of the last send, until a broadcast carries it
+  let echoTimer = null;
+  const link = { connected: false, actionMissing: false, replyError: null, runError: null, noAnswer: false, defaultQueue: false };
   const interacting = new Set(); // input ids the user is actively dragging/focused
 
+  // Every control writes through here: the value goes into the config and into
+  // the record of edits, and a push is asked for.
+  function edit(path, value) {
+    setAt(cfg, path, value);
+    setAt(edits, path, value);
+    unsent = true;
+    push();
+  }
+
   function push() {
-    // Debounced full-config push: sanitize (clamps everything) then DoAction.
+    // Debounced full-config push.
     clearTimeout(pushTimer);
-    pushTimer = setTimeout(() => {
-      cfg = T.sanitizeConfig(cfg);
-      if (!window.sbDoAction || !window.sbDoAction('Timbre Push', { config: JSON.stringify(cfg) })) {
-        setStatus(false, 'Streamer.bot offline — change not sent');
-      }
-    }, 120);
+    pushTimer = setTimeout(send, PUSH_DEBOUNCE_MS);
+    showStatus();
   }
 
-  function setStatus(connected, text) {
-    $('sbStatus').classList.toggle('on', connected);
-    $('sbStatusText').textContent = text;
+  function send() {
+    clearTimeout(pushTimer);
+    pushTimer = null;
+    if (!ready || !hasKeys(edits)) return; // held until the saved config is in; or nothing to send
+    cfg = T.sanitizeConfig(cfg); // clamps everything
+    const text = JSON.stringify(cfg);
+    // false: offline. The edits stay, and go out after the reconnect.
+    if (!window.sbDoAction || !window.sbDoAction(ACTION, { config: text })) return;
+    unsent = false;
+    awaiting = text;
+    clearTimeout(echoTimer);
+    echoTimer = setTimeout(() => {
+      // Sent (or waiting its turn in the transport), and the values did not come
+      // back. They are kept: retry() sends them again.
+      echoTimer = null;
+      awaiting = null;
+      link.noAnswer = true;
+      showStatus();
+    }, ECHO_WAIT_MS);
   }
 
-  function track(input) {
+  function stopWaitingForEcho() {
+    clearTimeout(echoTimer);
+    echoTimer = null;
+    awaiting = null;
+  }
+
+  function becomeReady() {
+    clearTimeout(readyTimer);
+    readyTimer = null;
+    ready = true;
+    if (hasKeys(edits) && !pushTimer) push(); // edits made while waiting
+  }
+
+  // While the action is failing, try again now and then, so the status line
+  // turns good by itself once the streamer has fixed the action.
+  function retry() {
+    if (!link.connected || !ready || pushTimer || awaiting !== null) return;
+    if (!link.actionMissing && link.replyError == null && link.runError == null && !link.noAnswer) return;
+    if (hasKeys(edits)) send();
+    else if (window.sbDoAction) window.sbDoAction(ACTION, { reason: 'dock-retry' });
+  }
+  setInterval(retry, RETRY_MS);
+
+  function showStatus() {
+    const s = statusFor({ ...link, held: hasKeys(edits) });
+    $('sbStatus').classList.toggle('on', s.level === 'on');
+    $('sbStatus').classList.toggle('warn', s.level === 'warn');
+    $('sbStatusText').textContent = s.text;
+    $('sbQueueNote').textContent = s.note;
+    $('sbQueueNote').hidden = !s.note;
+  }
+
+  // A control the streamer is using is left alone by a config that comes in:
+  // from the mouse going down, and for as long as it has the focus (a slider
+  // moved with the arrow keys, a list that is open). When it is let go, it is
+  // brought up to date.
+  function track(input, refresh) {
+    const letGo = () => { interacting.delete(input.id); if (refresh) refresh(); };
     input.addEventListener('pointerdown', () => interacting.add(input.id));
-    input.addEventListener('pointerup', () => interacting.delete(input.id));
+    input.addEventListener('pointerup', () => { if (document.activeElement !== input) letGo(); });
     input.addEventListener('focus', () => interacting.add(input.id));
-    input.addEventListener('blur', () => interacting.delete(input.id));
+    input.addEventListener('blur', letGo);
   }
 
   // ── Row builders ───────────────────────────────────────────────────────
@@ -142,14 +320,13 @@
       const v = parseFloat(input.value);
       setVal(v);
       val.textContent = f(v);
-      push();
     });
-    track(input);
     row.refresh = () => {
       if (interacting.has(id)) return;
       input.value = getVal();
       val.textContent = f(getVal());
     };
+    track(input, row.refresh);
     return row;
   }
 
@@ -157,7 +334,7 @@
 
   // ── Global sliders + toggles ───────────────────────────────────────────
   for (const [k, r] of Object.entries(T.TOP_RANGES)) {
-    const row = sliderRow('g-' + k, GLOBAL_LABELS[k] || nice(k), r, () => cfg[k], (v) => { cfg[k] = v; });
+    const row = sliderRow('g-' + k, GLOBAL_LABELS[k] || nice(k), r, () => cfg[k], (v) => edit([k], v));
     $('globalKnobs').appendChild(row);
     refreshers.push(row.refresh);
   }
@@ -166,13 +343,16 @@
     label.innerHTML = `<input type="checkbox" id="t-${k}"> ${TOGGLE_LABELS[k] || nice(k)}`;
     const input = label.querySelector('input');
     input.checked = cfg[k];
-    input.addEventListener('change', () => { cfg[k] = input.checked; push(); });
+    input.addEventListener('change', () => edit([k], input.checked));
     $('globalToggles').appendChild(label);
-    refreshers.push(() => { input.checked = cfg[k]; });
+    const refresh = () => { if (!interacting.has(input.id)) input.checked = cfg[k]; };
+    track(input, refresh);
+    refreshers.push(refresh);
   }
 
   // ── Active viz picker ──────────────────────────────────────────────────
   const vizSel = $('activeViz');
+  let shownViz = null; // the effect whose rows are on the page
   for (const name of T.ACTIVE_VIZ_NAMES) {
     const opt = document.createElement('option');
     opt.value = name;
@@ -180,33 +360,45 @@
     vizSel.appendChild(opt);
   }
   vizSel.value = cfg.activeViz;
-  track(vizSel);
-  vizSel.addEventListener('change', () => { cfg.activeViz = vizSel.value; renderVizKnobs(); push(); });
+  // Bring the picker, and the rows under it, to the effect the config names.
+  function showViz() {
+    if (interacting.has('activeViz')) return;
+    if (vizSel.value !== cfg.activeViz) vizSel.value = cfg.activeViz;
+    if (shownViz !== cfg.activeViz) renderVizKnobs();
+  }
+  track(vizSel, showViz);
+  vizSel.addEventListener('change', () => { edit(['activeViz'], vizSel.value); renderVizKnobs(); });
 
   // ── Per-viz knobs (rebuilt when the active viz changes) ────────────────
   function renderVizKnobs() {
     const holder = $('perVizKnobs');
+    for (const old of holder.querySelectorAll('input')) interacting.delete(old.id); // a removed slider gets no blur
     holder.innerHTML = '';
-    const knobs = cfg.perViz[cfg.activeViz] || {};
+    // The rows belong to this effect from now on, whatever the config names
+    // later: four effects have no settings of their own (visualizer, waveform,
+    // blob, owl), and a row must never read another effect's.
+    const name = cfg.activeViz;
+    shownViz = name;
+    const knobs = cfg.perViz[name] || {};
     for (const [k, v] of Object.entries(knobs)) {
       if (typeof v !== 'number') continue; // matrix strings have their own editor
-      const max = (T.PER_VIZ_MAX[cfg.activeViz] && T.PER_VIZ_MAX[cfg.activeViz][k]) || 100;
-      const row = sliderRow(`pv-${cfg.activeViz}-${k}`, nice(k), { min: 0, max, step: 1 },
-        () => cfg.perViz[cfg.activeViz][k],
-        (nv) => { cfg.perViz[cfg.activeViz][k] = Math.round(nv); });
+      const max = (T.PER_VIZ_MAX[name] && T.PER_VIZ_MAX[name][k]) || 100;
+      const row = sliderRow(`pv-${name}-${k}`, nice(k), { min: 0, max, step: 1 },
+        () => (cfg.perViz[name] || {})[k],
+        (nv) => edit(['perViz', name, k], Math.round(nv)));
       holder.appendChild(row);
     }
-    $('matrixExtras').hidden = cfg.activeViz !== 'matrix';
-    if (cfg.activeViz === 'matrix') refreshMatrixUI();
-    $('scenePlacement').hidden = !T.VIZ_SCENES.includes(cfg.activeViz);
-    $('afterglowGroup').hidden = !T.VIZ_AFTERGLOW.includes(cfg.activeViz);
+    $('matrixExtras').hidden = name !== 'matrix';
+    if (name === 'matrix') refreshMatrixUI();
+    $('scenePlacement').hidden = !T.VIZ_SCENES.includes(name);
+    $('afterglowGroup').hidden = !T.VIZ_AFTERGLOW.includes(name);
   }
 
   // ── Scene placement knobs (built once; shown for scene effects) ────────
   const PLACEMENT_LABELS = { x: 'Left-right', y: 'Up-down', size: 'Size %' };
   for (const [k, r] of Object.entries(T.PLACEMENT_RANGES)) {
     const row = sliderRow('place-' + k, PLACEMENT_LABELS[k] || nice(k), r,
-      () => cfg.placement[k], (v) => { cfg.placement[k] = v; });
+      () => cfg.placement[k], (v) => edit(['placement', k], v));
     $('scenePlacementRows').appendChild(row);
     refreshers.push(row.refresh);
   }
@@ -214,33 +406,78 @@
   // ── Afterglow (one slider; shown for the six afterglow effects) ────────
   {
     const row = sliderRow('afterglow', 'Afterglow (seconds)', T.AFTERGLOW_RANGE,
-      () => cfg.afterglow, (v) => { cfg.afterglow = v; }, (v) => Number(v).toFixed(1));
+      () => cfg.afterglow, (v) => edit(['afterglow'], v), (v) => Number(v).toFixed(1));
     $('afterglowRows').appendChild(row);
     refreshers.push(row.refresh);
   }
 
   // ── Matrix text editor ─────────────────────────────────────────────────
+  // The text goes out on Apply, not as it is typed. Until then it is a draft,
+  // one for the character pool and one for the messages, and so is the source
+  // picked in the list. A config that comes in, or a change of source, leaves
+  // a draft alone; the hint says there is one.
+  const matrixDrafts = {};      // 'pool' | 'messages' → text typed and not applied
+  let matrixSourcePicked = false; // the source list was changed and not applied
+  const matrixSource = () => ($('matrixMode').value === 'messages' ? 'messages' : 'pool');
   function refreshMatrixUI() {
     const m = cfg.perViz.matrix;
-    if ($('matrixMode').value !== m.mode) $('matrixMode').value = m.mode;
-    if (document.activeElement !== $('matrixText')) {
-      $('matrixText').value = $('matrixMode').value === 'messages' ? m.messages : m.pool;
+    if ($('matrixMode').value === m.mode) matrixSourcePicked = false;
+    else if (!matrixSourcePicked) $('matrixMode').value = m.mode;
+    const source = matrixSource();
+    if (source in matrixDrafts) {
+      if ($('matrixText').value !== matrixDrafts[source]) $('matrixText').value = matrixDrafts[source];
+    } else if (document.activeElement !== $('matrixText')) {
+      $('matrixText').value = m[source];
     }
+    const unsaved = matrixSourcePicked || hasKeys(matrixDrafts);
+    $('matrixHint').textContent = unsaved ? 'Unsaved Matrix text — click Apply text to send it.' : '';
+    $('matrixHint').hidden = !unsaved;
   }
+  $('matrixText').addEventListener('input', () => {
+    const source = matrixSource();
+    if ($('matrixText').value === cfg.perViz.matrix[source]) delete matrixDrafts[source];
+    else matrixDrafts[source] = $('matrixText').value;
+    refreshMatrixUI();
+  });
+  $('matrixText').addEventListener('blur', refreshMatrixUI);
   $('matrixMode').addEventListener('change', () => {
-    const m = cfg.perViz.matrix;
-    $('matrixText').value = $('matrixMode').value === 'messages' ? m.messages : m.pool;
+    matrixSourcePicked = $('matrixMode').value !== cfg.perViz.matrix.mode;
+    refreshMatrixUI();
   });
   $('btnMatrixApply').addEventListener('click', () => {
-    const mode = $('matrixMode').value === 'messages' ? 'messages' : 'pool';
-    cfg.perViz.matrix.mode = mode;
-    cfg.perViz.matrix[mode] = $('matrixText').value;
-    push();
+    const source = matrixSource();
+    matrixDrafts[source] = $('matrixText').value;
+    for (const k of Object.keys(matrixDrafts)) edit(['perViz', 'matrix', k], matrixDrafts[k]);
+    edit(['perViz', 'matrix', 'mode'], source);
+    for (const k of Object.keys(matrixDrafts)) delete matrixDrafts[k];
+    matrixSourcePicked = false;
+    refreshMatrixUI();
   });
 
   // ── Mic device picker ──────────────────────────────────────────────────
   const micSel = $('micSelect');
-  track(micSel);
+  // Show the configured device. When this browser does not list it (unplugged,
+  // renamed, another browser profile), it gets a placeholder option with its
+  // saved name instead of a blank list; the overlay still finds it by label.
+  function showMic(evenInUse) {
+    if (!evenInUse && interacting.has('micSelect')) return;
+    const id = cfg.mic.deviceId;
+    let missing = micSel.querySelector('option[data-missing]');
+    const listed = Array.from(micSel.options).some((o) => o !== missing && o.value === id);
+    if (listed) {
+      if (missing) missing.remove();
+    } else {
+      if (!missing) {
+        missing = document.createElement('option');
+        missing.dataset.missing = '1';
+        micSel.appendChild(missing);
+      }
+      missing.value = id;
+      missing.textContent = (cfg.mic.label || 'Saved microphone') + ' (not listed here)';
+    }
+    micSel.value = id;
+  }
+  track(micSel, () => showMic());
   async function listMics(requestGrant) {
     try {
       if (requestGrant) {
@@ -250,53 +487,133 @@
       }
       const devices = await navigator.mediaDevices.enumerateDevices();
       const inputs = devices.filter((d) => d.kind === 'audioinput');
-      micSel.innerHTML = '<option value="">System default</option>';
+      const options = [document.createElement('option')];
+      options[0].value = '';
+      options[0].textContent = 'System default';
       for (const d of inputs) {
         const opt = document.createElement('option');
         opt.value = d.deviceId;
         opt.textContent = d.label || `Mic ${d.deviceId.slice(0, 8)}…`;
-        micSel.appendChild(opt);
+        options.push(opt);
       }
-      micSel.value = cfg.mic.deviceId;
-      if (micSel.value !== cfg.mic.deviceId) micSel.value = ''; // configured device not present here
+      micSel.replaceChildren(...options);
+      showMic(true); // the list was rebuilt: put the configured device back in it
     } catch (e) {
       console.warn('mic enumeration failed:', e);
     }
   }
   micSel.addEventListener('change', () => {
-    cfg.mic.deviceId = micSel.value;
-    cfg.mic.label = micSel.value ? micSel.options[micSel.selectedIndex].textContent : '';
-    push();
+    const opt = micSel.options[micSel.selectedIndex];
+    if (!opt || opt.dataset.missing) return; // the placeholder is the saved device: nothing changed
+    edit(['mic', 'deviceId'], micSel.value);
+    edit(['mic', 'label'], micSel.value ? opt.textContent : '');
+    showMic(true); // the placeholder, if there was one, goes
   });
   $('btnMicRefresh').addEventListener('click', () => listMics(true));
   listMics(false);
 
   // ── Inbound: config broadcasts (incl. our own echo + sync-on-connect) ──
+  function takeConfig(raw) {
+    const inbound = T.sanitizeConfig(raw);
+    // An edit that has not been sent is not looked for in this broadcast: an
+    // older config may hold the same value by chance.
+    if (!unsent) edits = unsettledEdits(T, edits, inbound);
+    cfg = mergeEdits(T, edits, inbound);
+
+    // Timbre Push ran and broadcast, so it exists and works.
+    link.actionMissing = false;
+    link.replyError = null;
+    link.runError = null;
+    link.noAnswer = false;
+    if (awaiting !== null && (JSON.stringify(inbound) === awaiting || !hasKeys(edits))) stopWaitingForEcho();
+
+    for (const r of refreshers) r();
+    showViz();
+    // refresh in place (values may have changed under the same viz)
+    for (const row of $('perVizKnobs').querySelectorAll('.row')) if (row.refresh) row.refresh();
+    if (shownViz === 'matrix') refreshMatrixUI();
+    showMic();
+
+    if (!ready) becomeReady();
+    // Edits this broadcast did not carry, and nothing on its way: send them.
+    if (ready && hasKeys(edits) && !pushTimer && awaiting === null) push();
+    showStatus();
+  }
+
   window.addEventListener('svc:message', (evt) => {
     const msg = evt.detail;
-    if (!msg || msg.type !== 'timbre:config' || !msg.config) return;
-    cfg = T.sanitizeConfig(msg.config);
-    for (const r of refreshers) r();
-    if (!interacting.has('activeViz') && vizSel.value !== cfg.activeViz) {
-      vizSel.value = cfg.activeViz;
-      renderVizKnobs();
-    } else {
-      // refresh in place (values may have changed under the same viz)
-      for (const row of $('perVizKnobs').querySelectorAll('.row')) if (row.refresh) row.refresh();
-      if (cfg.activeViz === 'matrix') refreshMatrixUI();
+    if (!msg) return;
+    if (msg.type === 'timbre:error') {
+      // The action ran and threw. It answered, so this is not "did not answer".
+      link.runError = msg.message != null ? msg.message : (msg.code != null ? msg.code : '');
+      stopWaitingForEcho();
+      if (hasKeys(edits)) unsent = true;
+      showStatus();
+      return;
     }
-    if (!interacting.has('micSelect')) micSel.value = cfg.mic.deviceId;
+    if (msg.type !== 'timbre:config' || !msg.config) return;
+    takeConfig(msg.config);
   });
 
   window.addEventListener('sb:connection', (evt) => {
-    const ok = evt.detail && evt.detail.connected;
-    setStatus(ok, ok ? 'Streamer.bot connected' : 'Streamer.bot offline — retrying…');
+    link.connected = !!(evt.detail && evt.detail.connected);
+    clearTimeout(readyTimer);
+    readyTimer = null;
+    stopWaitingForEcho();
+    ready = false;
+    if (link.connected) {
+      // The transport asks for the saved config now. Wait for it before sending.
+      readyTimer = setTimeout(becomeReady, FIRST_CONFIG_WAIT_MS);
+    } else {
+      // What was said of the action belonged to the connection that is gone, and
+      // a send that was waiting or on its way may not have arrived.
+      link.actionMissing = false;
+      link.replyError = null;
+      link.runError = null;
+      link.noAnswer = false;
+      if (hasKeys(edits)) unsent = true;
+    }
+    showStatus();
   });
 
-  // Lazy-load the preview iframe only when opened (it grabs the mic).
+  // Streamer.bot's own answer to a request (shared/panel-client-sb.js).
+  window.addEventListener('sb:action-queued', (evt) => {
+    const d = evt.detail || {};
+    if (d.action !== ACTION) return;
+    link.actionMissing = false;
+    link.replyError = null;
+    if (d.defaultQueue) link.defaultQueue = true;
+    else if (d.queueName) link.defaultQueue = false;
+    showStatus();
+  });
+  window.addEventListener('sb:action-error', (evt) => {
+    const d = evt.detail || {};
+    if (d.action !== ACTION) return;
+    if (d.code === 'action-missing') link.actionMissing = true;
+    else link.replyError = d.error || '';
+    if (d.push) {
+      // Refused: nothing ran, so nothing will come back.
+      stopWaitingForEcho();
+      if (hasKeys(edits)) unsent = true;
+    }
+    showStatus();
+  });
+  window.addEventListener('sb:action-timeout', (evt) => {
+    const d = evt.detail || {};
+    if (d.action !== ACTION || d.push || !d.replied) return;
+    // A sync that was queued and broadcast nothing: nothing is saved yet. That
+    // is no failure, and it shows the action no longer throws.
+    if (link.runError != null) { link.runError = null; showStatus(); }
+  });
+
+  // The preview is loaded only while its section is open: it grabs the mic and
+  // opens its own Streamer.bot connection, and both go when it is closed.
+  let previewOpen = false;
   document.querySelector('details').addEventListener('toggle', function () {
+    if (this.open === previewOpen) return;
+    previewOpen = this.open;
     const f = $('previewFrame');
-    if (this.open && !f.src) f.src = f.dataset.src + (location.search || '');
+    f.src = previewOpen ? f.dataset.src + previewQuery(location.search) : 'about:blank';
   });
 
   renderVizKnobs();
