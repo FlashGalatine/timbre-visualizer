@@ -169,11 +169,37 @@
   //   actionMissing Streamer.bot said it has no action named Timbre Push
   //   replyError    Streamer.bot refused the request for another reason (its text), or null
   //   runError      the action broadcast timbre:error (its message or code), or null
+  //   runCode       the code of that timbre:error, or null when it had none
   //   noAnswer      a push was sent and its values did not come back
   //   defaultQueue  the last reply that named a queue named "Default"
   // Returns { level, text, note }: level is 'off' (red), 'warn' (amber) or 'on' (green);
   // note is a second line, or ''.
   const QUEUE_NOTE = 'Timbre Push is in Streamer.bot\'s Default queue, where a change can be lost. Put it in a blocking action queue: docs/SETUP.md, step 2.';
+  // The dock's own words for each code Timbre Push gives a timbre:error. An error with no
+  // code (an action pasted before the codes), or with a code not listed here, is shown
+  // with its message instead.
+  const RUN_ERROR_TEXT = {
+    'partial-config': 'Timbre Push refused the settings: not a full config. Reload this dock; if it still happens, re-paste the Timbre Push action (docs/SETUP.md, step 2).',
+    'too-large': 'Timbre Push refused the settings: over 64 KB.',
+    'bad-config': 'Timbre Push refused the settings: not valid JSON.',
+    'bad-cache': 'The settings saved in Streamer.bot are damaged. Change any setting here to replace them.',
+    'exception': 'Timbre Push failed inside Streamer.bot — see the Streamer.bot log.',
+  };
+  // The codes after which trying again by itself cannot help: the same settings would be
+  // refused again, and a damaged saved value stays damaged until a setting is changed.
+  const NO_RETRY_CODES = ['partial-config', 'too-large', 'bad-config', 'bad-cache'];
+  function haltsRetry(code) {
+    return typeof code === 'string' && NO_RETRY_CODES.indexOf(code) >= 0;
+  }
+  // Whether the dock should try again by itself (every RETRY_MS), from the same fields
+  // statusFor takes plus:
+  //   halted        a timbre:error with one of NO_RETRY_CODES came in, and since then the
+  //                 streamer has made no edit, no config has come in and the connection
+  //                 has not been made again
+  function shouldRetry(s) {
+    if (s.halted) return false;
+    return !!(s.actionMissing || s.replyError != null || s.runError != null || s.noAnswer);
+  }
   function statusFor(s) {
     const note = s.connected && s.defaultQueue ? QUEUE_NOTE : '';
     if (!s.connected) {
@@ -188,6 +214,9 @@
       return { level: 'warn', note, text: 'Streamer.bot refused Timbre Push' + (why ? ': ' + why : '.') + kept };
     }
     if (s.runError != null) {
+      if (typeof s.runCode === 'string' && Object.prototype.hasOwnProperty.call(RUN_ERROR_TEXT, s.runCode)) {
+        return { level: 'warn', note, text: RUN_ERROR_TEXT[s.runCode] + kept };
+      }
       const why = oneLine(s.runError);
       return { level: 'warn', note, text: 'Timbre Push failed' + (why ? ': ' + why : '') + ' — see the Streamer.bot log.' + kept };
     }
@@ -220,7 +249,7 @@
   let pushTimer = null;
   let awaiting = null;  // the config text of the last send, until a broadcast carries it
   let echoTimer = null;
-  const link = { connected: false, actionMissing: false, replyError: null, runError: null, noAnswer: false, defaultQueue: false };
+  const link = { connected: false, actionMissing: false, replyError: null, runError: null, runCode: null, halted: false, noAnswer: false, defaultQueue: false };
   const interacting = new Set(); // input ids the user is actively dragging/focused
 
   // Every control writes through here: the value goes into the config and into
@@ -229,6 +258,7 @@
     setAt(cfg, path, value);
     setAt(edits, path, value);
     unsent = true;
+    link.halted = false; // a new edit is worth sending, whatever was refused before
     push();
   }
 
@@ -277,11 +307,18 @@
   // turns good by itself once the streamer has fixed the action.
   function retry() {
     if (!link.connected || !ready || pushTimer || awaiting !== null) return;
-    if (!link.actionMissing && link.replyError == null && link.runError == null && !link.noAnswer) return;
+    if (!shouldRetry(link)) return;
     if (hasKeys(edits)) send();
     else if (window.sbDoAction) window.sbDoAction(ACTION, { reason: 'dock-retry' });
   }
   setInterval(retry, RETRY_MS);
+
+  // The action's error is over: a config came in, the connection went, or a sync ran clean.
+  function clearRunError() {
+    link.runError = null;
+    link.runCode = null;
+    link.halted = false;
+  }
 
   function showStatus() {
     const s = statusFor({ ...link, held: hasKeys(edits) });
@@ -523,7 +560,7 @@
     // Timbre Push ran and broadcast, so it exists and works.
     link.actionMissing = false;
     link.replyError = null;
-    link.runError = null;
+    clearRunError();
     link.noAnswer = false;
     if (awaiting !== null && (JSON.stringify(inbound) === awaiting || !hasKeys(edits))) stopWaitingForEcho();
 
@@ -544,10 +581,17 @@
     const msg = evt.detail;
     if (!msg) return;
     if (msg.type === 'timbre:error') {
-      // The action ran and threw. It answered, so this is not "did not answer".
+      // The action ran and threw, or refused what it was given. It answered, so this is
+      // not "did not answer". After a refusal the retry stops (haltsRetry) until the
+      // streamer makes an edit, a config comes in, or the connection is made again.
       link.runError = msg.message != null ? msg.message : (msg.code != null ? msg.code : '');
+      link.runCode = typeof msg.code === 'string' ? msg.code : null;
+      link.halted = haltsRetry(link.runCode);
       stopWaitingForEcho();
       if (hasKeys(edits)) unsent = true;
+      // A damaged saved config is the answer to the sync: no saved config will come, so
+      // an edit is not held for one. The next edit is pushed at once and replaces it.
+      if (link.runCode === 'bad-cache' && link.connected && !ready) becomeReady();
       showStatus();
       return;
     }
@@ -575,7 +619,7 @@
       // a send that was waiting or on its way may not have arrived.
       link.actionMissing = false;
       link.replyError = null;
-      link.runError = null;
+      clearRunError();
       link.noAnswer = false;
       if (hasKeys(edits)) unsent = true;
     }
@@ -609,7 +653,7 @@
     if (d.action !== ACTION || d.push || !d.replied) return;
     // A sync that was queued and broadcast nothing: nothing is saved yet. That
     // is no failure, and it shows the action no longer throws.
-    if (link.runError != null) { link.runError = null; showStatus(); }
+    if (link.runError != null) { clearRunError(); showStatus(); }
   });
 
   // The preview is loaded only while its section is open: it grabs the mic and

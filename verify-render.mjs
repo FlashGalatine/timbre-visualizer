@@ -124,6 +124,10 @@
 //           four fixes of the 10 November audit: every firework rocket bursts, inside the canvas,
 //           at 30 and 60 fps; the Easter eggs' Pattern knob reaches every kind; Ring Bars' bottom
 //           spoke follows the last bin; Matrix repaints a cell with the glyph that was there •
+//           beside today's Timbre Push the dock says in its own words why a config was refused and
+//           that a saved one is damaged, and then does not retry until a setting is changed; an
+//           error with no code and an exception are still retried; a partial config an older
+//           action saved leaves overlay and dock alike •
 //           the dock, worked as a streamer works it (mouse, arrow keys, clicks, typing), against
 //           the mock's switches: an edit made while another is on its way, or just before a replay
 //           comes in, is kept and goes on air; a focused control is left alone and brought up to
@@ -217,7 +221,9 @@ async function launch(extraArgs) {
   return await chromium.launch(opts);
 }
 
-// Push a config text through the mock, as it is. The mock stores and broadcasts it as sent.
+// Push a config text through the mock, as it is. The mock stores and broadcasts it as sent,
+// when it is one JSON object with every top-level key of a full config (as Timbre Push does
+// since Sprint 9); anything else it refuses, with a timbre:error.
 function pushRaw(text) {
   return new Promise((res) => {
     const ws = new WebSocket(`ws://127.0.0.1:${WS_PORT}/`);
@@ -7141,7 +7147,7 @@ async function main() {
     // ── The page clamps what it is sent ───────────────────────────────────
     // The mock stores a config as sent, as Streamer.bot does, so nothing between the sender and
     // the page puts a value back in range: the page has to.
-    await pushRaw('{"activeViz":"visualizer","bars":999,"gain":-5,"afterglow":99,"placement":{"size":5},"perViz":{"dna":{"reconnectSeconds":99}},"notAKnob":1}');
+    await pushRaw(JSON.stringify({ ...T.defaultConfig(), activeViz: 'visualizer', bars: 999, gain: -5, afterglow: 99, placement: { size: 5 }, perViz: { dna: { reconnectSeconds: 99 } }, notAKnob: 1 }));
     const clamped = await page.waitForFunction(() => window.__timbre.config.bars !== 20, { timeout: 5000 })
       .then(() => page.evaluate(() => { const c = window.__timbre.config; return { bars: c.bars, gain: c.gain, afterglow: c.afterglow, size: c.placement.size, reconnect: c.perViz.dna.reconnectSeconds, extra: 'notAKnob' in c }; }), () => null);
     check('a config with values out of range reaches the page as sent, and the page clamps it',
@@ -7419,7 +7425,10 @@ async function main() {
       !!thrown && restoredItself && thrown.cfgGain === 1.1 && pgErrors.length === errorsBefore && pgWarnings.length === warningsBefore + 1 && /Timbre: a config that came in could not be applied/.test(pgWarnings[pgWarnings.length - 1] || ''),
       JSON.stringify({ thrown, errors: pgErrors.slice(errorsBefore), warnings: pgWarnings.slice(warningsBefore) }));
     // The crafted config of the audit, through the mock, which stores and sends it as it came.
-    const CRAFTED = '{"activeViz":"winter-aurora","gain":120,"perViz":{"constructor":{"name":"x"},"toString":{"length":3},"dna":{"helixFreq":70}},"placement":{"constructor":5,"x":10},"__proto__":{"bars":5}}';
+    // It has every top-level key (Timbre Push takes nothing less); the crafted ones are inside.
+    const craftedRest = { ...T.defaultConfig(), activeViz: 'winter-aurora', gain: 120 };
+    delete craftedRest.perViz; delete craftedRest.placement;
+    const CRAFTED = JSON.stringify(craftedRest).slice(0, -1) + ',"perViz":{"constructor":{"name":"x"},"toString":{"length":3},"dna":{"helixFreq":70}},"placement":{"constructor":5,"x":10},"__proto__":{"bars":5}}';
     const crafted = await pushed(null, CRAFTED);
     const craftedCfg = await pg.evaluate(() => { const c = window.__timbre.config; return { gain: c.gain, helix: c.perViz.dna.helixFreq, place: Object.getOwnPropertyNames(c.placement).join(), x: c.placement.x, viz: Object.getOwnPropertyNames(c.perViz).filter((n) => !TIMBRE.DEFAULT_PER_VIZ.hasOwnProperty(n)).join(), text: JSON.stringify(c), objectName: Object.name }; });
     check('TIM-06: a config naming `constructor`, `toString` and `__proto__` as an effect and as a placement is taken without a throw: its real settings land, nothing else is added, no NaN',
@@ -8318,6 +8327,117 @@ async function main() {
       });
       check('matrix: emoji in the character pool are drawn whole, never as half a character', drawn.pool.broken === 0 && drawn.pool.all, JSON.stringify(drawn.pool));
       check('matrix: emoji in a message are drawn whole, a joined one (a woman astronaut) included', drawn.messages.broken === 0 && drawn.messages.all, JSON.stringify(drawn.messages));
+    }
+
+    // ── Sprint 9: the dock and the overlay beside today's Timbre Push, and beside an older one ──
+    // Today's action says why it refused (timbre:error with a code and a fixed message), and
+    // the dock has its own words for each code. After a refusal, or a damaged saved config, the
+    // dock does not try again by itself: the same answer would come back. The action pasted
+    // before said nothing when it refused, sent an error with no code when it threw (that is
+    // still retried), and could store and send a partial config.
+    {
+      const store = (text) => fetch(BASE + '/mock/store', { method: 'POST', body: text }).then((r) => r.text(), () => '');
+      const runs = async () => (await stats()).totalRuns;
+      const lineOf = async (pg) => (await statusOf(pg)).text;
+      const PARTIAL = 'Timbre Push refused the settings: not a full config. Reload this dock; if it still happens, re-paste the Timbre Push action (docs/SETUP.md, step 2).';
+      const DAMAGED = 'The settings saved in Streamer.bot are damaged. Change any setting here to replace them.';
+      await pushConfig((c) => { c.activeViz = 'dna'; c.gain = 140; c.bars = 28; c.showLabels = false; });
+      const [d9] = await openDock();
+      await d9.waitForFunction(() => document.getElementById('g-gain').value === '140', { timeout: 5000 }).catch(() => {});
+      await page.waitForFunction(() => window.__timbre.config.gain === 140 && window.__timbre.config.bars === 28, { timeout: 5000 }).catch(() => {});
+      await statusSays(d9, /^Streamer\.bot connected$/, 4000);
+      const before9 = (await stats()).cachedConfig;
+
+      // Today's action: a partial config from another client is refused, and the pages are told why.
+      const mark9 = seen.length;
+      await pushRaw('{"activeViz":"matrix","gain":30}');
+      const told = await until(async () => (await lineOf(d9)) === PARTIAL, 4000);
+      const errors9 = seen.slice(mark9).filter((m) => m && m.type === 'timbre:error');
+      check('dock, beside today\'s action: a partial config pushed by another client is refused with one timbre:error (partial-config), nothing is saved, the overlay keeps its settings, and the dock says in its own words that the settings were refused as not a full config',
+        !!told && errors9.length === 1 && JSON.stringify(errors9[0]) === '{"type":"timbre:error","code":"partial-config","message":"the config is not a full config"}' && (await stats()).cachedConfig === before9
+        && (await d9.inputValue('#g-gain')) === '140' && (await page.evaluate(() => window.__timbre.config.gain)) === 140 && (await page.evaluate(() => window.__timbre.currentVizName)) === 'dna',
+        JSON.stringify({ status: await statusOf(d9), errors9 }));
+      const runs9 = await runs();
+      await sleep(6000);
+      const quiet9 = await runs(), still9 = await lineOf(d9);
+      check('dock: after a partial-config refusal it does not try again by itself: the mock sees no further run of Timbre Push in the next six seconds, and the line stays (before: a retry every five seconds)',
+        quiet9 === runs9 && still9 === PARTIAL, `${quiet9 - runs9} runs in six seconds; the line: ${still9}`);
+      const speed9 = await arrow(d9, 'g-colorSpeed');
+      const sent9 = await until(async () => { const c = await saved(); return c.colorSpeed === speed9 && c.gain === 140 && c.bars === 28; }, 5000);
+      const back9 = await statusSays(d9, /^Streamer\.bot connected$/, 3000);
+      await sleep(400);
+      check('dock: a new edit then sends one push, a full config saved over the saved values, and the status line says connected again',
+        !!sent9 && back9 && (await runs()) === quiet9 + 1, `${(await runs()) - quiet9} runs; the line: ${await lineOf(d9)}`);
+
+      // An older action could store a partial config, and replays it. The overlay and the dock
+      // end in the same state: its values over the defaults (TIM-26).
+      await store('{"activeViz":"matrix","gain":30}');
+      replay();
+      await page.waitForFunction(() => window.__timbre.config.gain === 30, { timeout: 5000 }).catch(() => {});
+      await d9.waitForFunction(() => document.getElementById('g-gain').value === '30', { timeout: 5000 }).catch(() => {});
+      const onAir = await page.evaluate(() => ({ text: JSON.stringify(window.__timbre.config), viz: window.__timbre.currentVizName, bars: cfgBars, labels: cfgShowLabels }));
+      const dockShows = await d9.evaluate(() => ({ gain: document.getElementById('g-gain').value, bars: document.getElementById('g-bars').value, viz: document.getElementById('activeViz').value, labels: document.getElementById('t-showLabels').checked }));
+      check('TIM-26: a partial config that an older action saved is replayed, and the overlay and the dock end in the same state: its values over the defaults (before: the overlay kept its own bars 28 and hidden labels while the dock showed 20 and shown)',
+        onAir.text === JSON.stringify(T.sanitizeConfig({ activeViz: 'matrix', gain: 30 })) && onAir.viz === 'matrix' && onAir.bars === 20 && onAir.labels === true
+        && dockShows.gain === '30' && dockShows.bars === '20' && dockShows.viz === 'matrix' && dockShows.labels === true, JSON.stringify({ onAir: { ...onAir, text: onAir.text.slice(0, 120) }, dockShows }));
+      await d9.close();
+
+      // A saved value that is not one JSON object: not sent to the pages, and the dock says so.
+      await store('{not json}');
+      const [d10] = await openDock();
+      const damaged = await until(async () => (await lineOf(d10)) === DAMAGED, 5000);
+      const runs10 = await runs();
+      await sleep(6000);
+      const quiet10 = await runs();
+      check('dock, beside today\'s action: a saved config that is not one JSON object is not sent to any page and is left where it is; the dock says the saved settings are damaged and to change any setting, and it does not ask again by itself (no further run in six seconds; before: a sync every five)',
+        !!damaged && quiet10 === runs10 && (await stats()).cachedConfig === '{not json}' && (await lineOf(d10)) === DAMAGED, JSON.stringify({ runs: quiet10 - runs10, saved: (await stats()).cachedConfig, status: await statusOf(d10) }));
+      const speed10 = await arrow(d10, 'g-colorSpeed');
+      const replaced = await until(async () => (await saved()).colorSpeed === speed10, 3000);
+      const back10 = await statusSays(d10, /^Streamer\.bot connected$/, 3000);
+      await sleep(400);
+      check('dock: changing a setting then sends one push, a full config that replaces the damaged value, and the line says connected when it comes back',
+        !!replaced && back10 && Object.keys(await saved()).join() === Object.keys(T.defaultConfig()).join() && (await runs()) === quiet10 + 1, JSON.stringify({ runs: (await runs()) - quiet10, status: await statusOf(d10) }));
+      await d10.close();
+      // The same, with the setting changed the moment the line shows: the push is not held for
+      // the saved config (there is none that can come), so it is out well inside a second.
+      await store('{not json}');
+      const [d11] = await openDock();
+      await until(async () => (await lineOf(d11)) === DAMAGED, 5000);
+      const t11 = Date.now();
+      const speed11 = await arrow(d11, 'g-colorSpeed');
+      const replaced11 = await until(async () => (await saved()).colorSpeed === speed11, 3000, 10);
+      const took11 = Date.now() - t11;
+      check('dock: with a damaged saved config, a setting changed at once is pushed straight away, not held for a saved config that cannot come (before: held for up to a second)',
+        !!replaced11 && took11 < 700 && (await statusSays(d11, /^Streamer\.bot connected$/, 3000)), `${took11} ms; ${await lineOf(d11)}`);
+      await d11.close();
+
+      // An error with no code, as the action pasted before Sprint 9 sends it, is still retried;
+      // so is today's "exception".
+      await pushConfig((c) => { c.activeViz = 'dna'; c.gain = 140; });
+      const [d12] = await openDock();
+      await d12.waitForFunction(() => document.getElementById('g-gain').value === '140', { timeout: 5000 }).catch(() => {});
+      await statusSays(d12, /^Streamer\.bot connected$/, 4000);
+      await mockGet('/mock/throw?on=1&message=' + encodeURIComponent('old boom'));
+      const speed12 = await arrow(d12, 'g-colorSpeed');
+      const old12 = await until(async () => (await lineOf(d12)) === 'Timbre Push failed: old boom — see the Streamer.bot log. Your changes are kept.', 4000);
+      const runs12 = await runs();
+      await sleep(6000);
+      const retried12 = (await runs()) - runs12;
+      await mockGet('/mock/throw?on=0');
+      const healed12 = await until(async () => (await saved()).colorSpeed === speed12, 7000);
+      check('dock, beside an action pasted before Sprint 9: an error with no code is shown with its message, as before, and is still retried (a run within six seconds); when the action works again the kept edit goes out by itself',
+        !!old12 && retried12 >= 1 && !!healed12 && (await statusSays(d12, /^Streamer\.bot connected$/, 3000)), `${retried12} runs in six seconds; ${await lineOf(d12)}`);
+      await mockGet('/mock/throw?on=1');
+      const speed13 = await arrow(d12, 'g-colorSpeed');
+      const threw13 = await until(async () => (await lineOf(d12)) === 'Timbre Push failed inside Streamer.bot — see the Streamer.bot log. Your changes are kept.', 4000);
+      const runs13 = await runs();
+      await sleep(6000);
+      const retried13 = (await runs()) - runs13;
+      await mockGet('/mock/throw?on=0');
+      const healed13 = await until(async () => (await saved()).colorSpeed === speed13, 7000);
+      check('dock, beside today\'s action: an exception (the code "exception") is shown in the dock\'s own words and is still retried; when the action works again the kept edit goes out by itself',
+        !!threw13 && retried13 >= 1 && !!healed13 && (await statusSays(d12, /^Streamer\.bot connected$/, 3000)), `${retried13} runs in six seconds; ${await lineOf(d12)}`);
+      await d12.close();
     }
 
     // Leave the mock as the sections after this one expect it: no switch on, a 2D effect saved.

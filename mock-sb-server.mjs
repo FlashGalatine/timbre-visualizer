@@ -12,17 +12,22 @@
 //   • WebSocket Server on :8080 — speaks SB's envelope. On `Subscribe` it acks. On
 //     `DoAction` it replies the way SB does (see the DoAction handler): at once, when
 //     the action is QUEUED, and with an error when no action has that name. It then
-//     runs a mirror of actions/timbre-push.cs: the same two-character check, the
-//     config stored as sent (never sanitized here), and a broadcast to EVERY
-//     subscriber, for a push and for a sync request alike.
+//     runs a mirror of actions/timbre-push.cs, line for line: the same checks (size,
+//     one balanced JSON object, every top-level key), the same timbre:error codes for
+//     what it refuses, the config stored as sent (never sanitized here), and a
+//     broadcast to EVERY subscriber, for a push and for a sync request alike.
 //
 // Test controls, on the HTTP port (each answers with JSON):
 //   /mock/bleed?on=1|0    overlap mode. Off (the default) is an action in a blocking
 //                         queue: one run at a time, each with its own arguments. On is
 //                         SB's Default queue as measured: runs of one action that land
 //                         together all see ONE request's arguments. Also MOCK_ARG_BLEED=1.
-//   /mock/throw?on=1|0    Timbre Push throws: it broadcasts timbre:error, stores nothing.
-//                         With &message=<text> the error carries that text.
+//   /mock/throw?on=1|0    Timbre Push throws: it broadcasts timbre:error with the code
+//                         "exception" and that code's fixed message, and stores nothing.
+//                         With &message=<text> it sends what the action from before
+//                         Sprint 9 sent: that text as the message, and no code.
+//   /mock/store           POST: the body becomes the stored config, as it is and
+//                         unchecked (a value an older action, or anything else, saved).
 //   /mock/silent?on=1|0   Timbre Push is queued (the reply is "ok") and its run does
 //                         nothing: no store, no broadcast. An action that never answers.
 //   /mock/delay?ms=<n>    every run waits n ms (0 to 5000) between the reply and the
@@ -40,8 +45,8 @@
 // tool on a developer's machine. SB with authentication off does neither.
 //
 // Not measured, so not claimed: what SB does with a broadcast whose text is not JSON
-// (the C# lets `{not json}` through). The mock sends the frame as built; no page can
-// parse it.
+// (the C#'s structure check still lets some through, such as a misspelt `tru`: see
+// its header). The mock sends the frame as built; no page can parse it.
 //
 // This is a REFERENCE/TEST harness. The real thing uses Streamer.bot itself (see
 // docs/SETUP.md) with the same wire shapes.
@@ -130,8 +135,7 @@ const ACTION = 'Timbre Push';
 const BLEED_WINDOW_MS = 10;        // requests for the action this close together overlap
 let argBleed = process.env.MOCK_ARG_BLEED === '1';
 let throwPush = false;             // the action throws: timbre:error, nothing stored
-const THROW_MESSAGE = 'mock: Timbre Push was made to throw';
-let throwMessage = THROW_MESSAGE;
+let throwMessage = null;           // null: what today's action sends; a text: what the older one sent
 let silentPush = false;            // the action is queued and its run does nothing
 let runDelayMs = 0;                // every run waits this long after its reply
 let waitingRuns = 0;               // runs inside that wait now
@@ -163,8 +167,18 @@ const http = createServer(async (req, res) => {
       return json(res, { argBleed });
     }
     if (path === '/mock/throw') {
-      if (query.has('on')) { throwPush = query.get('on') === '1'; throwMessage = query.get('message') || THROW_MESSAGE; }
+      if (query.has('on')) { throwPush = query.get('on') === '1'; throwMessage = query.get('message') || null; }
       return json(res, { throwPush });
+    }
+    if (path === '/mock/store') {
+      // The body is put where the action keeps the config, as it is and unchecked: a
+      // value an older action stored, or one something else wrote into the global.
+      if (req.method !== 'POST') { res.writeHead(405, { 'content-type': 'text/plain' }); res.end('POST the text to store'); return; }
+      const chunks = [];
+      let size = 0;
+      for await (const chunk of req) { size += chunk.length; if (size > MAX_PAYLOAD) { res.writeHead(413, { 'content-type': 'text/plain' }); res.end('too large'); return; } chunks.push(chunk); }
+      cachedConfig = Buffer.concat(chunks).toString('utf8');
+      return json(res, { stored: cachedConfig.length });
     }
     if (path === '/mock/silent') {
       if (query.has('on')) silentPush = query.get('on') === '1';
@@ -192,7 +206,7 @@ const http = createServer(async (req, res) => {
       return json(res, { dropConnections });
     }
     if (path === '/mock/stats') {
-      return json(res, { argBleed, throwPush, silentPush, runDelayMs, waitingRuns, actionMissing, dropConnections, dropTimes: dropTimes.slice(-50), clients: clients.size, totalRuns, totalBroadcasts, cachedConfig, runs: runLog.slice(-50) });
+      return json(res, { argBleed, throwPush, silentPush, runDelayMs, waitingRuns, actionMissing, dropConnections, dropTimes: dropTimes.slice(-50), clients: clients.size, totalRuns, totalBroadcasts, cachedConfig, runs: runLog.slice(-50), requiredKeys: REQUIRED_KEYS, maxConfigChars: MAX_CONFIG_CHARS, errorMessages: ERROR_MESSAGES });
     }
     if (path === '/' || path === '/index.html') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -335,48 +349,161 @@ function sendToSubscribers(dataJson) {
   for (const ws of clients) { if (ws.subscribedCustom) { try { ws.send(msg); } catch {} } }
 }
 
-// Mirror of Execute() in actions/timbre-push.cs, line for line. `did` is what the
-// run came to: push | sync | sync-empty | rejected | threw | silent.
+// ── Mirror of actions/timbre-push.cs ─────────────────────────────────────────
+// Everything from here to the end of runTimbrePush follows the C# line for line: the
+// same constants, the same helpers under the same names, the same order of checks.
+// Change the two together. tools/cs/push-cases.json is the table both are run against
+// (verify-cs.mjs for the C#, verify.mjs for this), and verify.mjs fails when they differ.
+const MAX_CONFIG_CHARS = 64 * 1024;
+const REQUIRED_KEYS = [
+  'activeViz', 'mic', 'bars', 'bounce', 'gain', 'colorSpeed', 'colorHue', 'bgOpacity',
+  'effectBgOpacity', 'idleAnim', 'showLabels', 'showChevrons', 'showDecorations',
+  'showBorder', 'placement', 'afterglow', 'perViz',
+];
+// The fixed text the C# gives each code.
+const ERROR_MESSAGES = {
+  'too-large': 'the config is over 64 KB',
+  'bad-config': 'the config is not one JSON object',
+  'partial-config': 'the config is not a full config',
+  'bad-cache': 'the saved config is damaged; change a setting to replace it',
+  exception: 'the action threw an exception',
+};
+
+function errorJson(code, message) {
+  return '{"type":"timbre:error","code":' + JSON.stringify(code) + ',"message":' + JSON.stringify(message) + '}';
+}
+
+function isJsonSpace(c) {
+  return c === ' ' || c === '\t' || c === '\n' || c === '\r';
+}
+
+function trimJsonSpace(s) {
+  let a = 0, b = s.length;
+  while (a < b && isJsonSpace(s[a])) a++;
+  while (b > a && isJsonSpace(s[b - 1])) b--;
+  return s.substring(a, b);
+}
+
+function isJsonPlain(c) {
+  return isJsonSpace(c) || c === ':' || c === ',' || (c >= '0' && c <= '9')
+    || c === '-' || c === '+' || c === '.' || 'eEaflnrstu'.indexOf(c) >= 0;
+}
+
+// IsOneJsonObject in the C#. s[i] is one UTF-16 unit here as it is there.
+function isOneJsonObject(s, seen) {
+  const n = s.length;
+  if (n < 2 || s[0] !== '{') return false;
+  const open = new Array(n);
+  let depth = 0;
+  let i = 0;
+  while (i < n) {
+    const c = s[i];
+    if (c === '"') {
+      const start = i + 1;
+      let closed = false;
+      i++;
+      while (i < n) {
+        const d = s[i];
+        if (d === '\\') {
+          if (i + 1 >= n || s[i + 1] < ' ') return false;
+          i += 2;
+          continue;
+        }
+        if (d === '"') { closed = true; break; }
+        if (d < ' ') return false;
+        i++;
+      }
+      if (!closed) return false;
+      if (depth === 1 && seen !== null) {
+        let j = i + 1;
+        while (j < n && isJsonSpace(s[j])) j++;
+        if (j < n && s[j] === ':') {
+          const at = REQUIRED_KEYS.indexOf(s.substring(start, i));
+          if (at >= 0) seen[at] = true;
+        }
+      }
+    } else if (c === '{' || c === '[') {
+      open[depth] = c;
+      depth++;
+    } else if (c === '}' || c === ']') {
+      if (depth === 0) return false;
+      depth--;
+      if ((c === '}') !== (open[depth] === '{')) return false;
+      if (depth === 0) return i === n - 1;
+    } else if (!isJsonPlain(c)) {
+      return false;
+    }
+    i++;
+  }
+  return false;
+}
+
+function missingKeys(seen) {
+  const out = [];
+  for (let k = 0; k < REQUIRED_KEYS.length; k++) {
+    if (seen[k]) continue;
+    out.push(REQUIRED_KEYS[k]);
+  }
+  return out.join(', ');
+}
+
+// Mirror of Execute(). `did` is what the run came to: push | sync | sync-empty |
+// refused | threw | silent; a refused run also has the `code` it was refused with.
 function runTimbrePush(args, bled) {
   totalRuns++;
-  const note = (did) => { runLog.push({ action: ACTION, did, bled }); if (runLog.length > 500) runLog.splice(0, runLog.length - 500); };
+  const note = (did, code) => { runLog.push(code ? { action: ACTION, did, bled, code } : { action: ACTION, did, bled }); if (runLog.length > 500) runLog.splice(0, runLog.length - 500); };
+  // Refuse() in the C#: one log line, one timbre:error, and the run is over.
+  const refuse = (code, message, log) => {
+    note('refused', code);
+    console.log(`[mock] Timbre Push refused (${code}): ${log}`);
+    sendToSubscribers(errorJson(code, message));
+  };
   if (silentPush) {
     note('silent');
     console.log('[mock] Timbre Push did nothing (the silent switch is on)');
     return;
   }
   if (throwPush) {
-    // The C#'s catch: log, broadcast { type:"timbre:error", message }, return false.
+    // The C#'s catch: the exception goes to the log, and the pages get the code
+    // "exception" with its fixed text. With a message given to the switch, the mock
+    // sends what the action from BEFORE Sprint 9 sent, which a streamer may still have
+    // pasted: { type:"timbre:error", message:<the exception's own message> }, no code.
     note('threw');
     console.log('[mock] Timbre Push ERROR (the throw switch is on)');
-    sendToSubscribers('{"type":"timbre:error","message":' + JSON.stringify(throwMessage) + '}');
+    sendToSubscribers(throwMessage === null ? errorJson('exception', ERROR_MESSAGES.exception) : '{"type":"timbre:error","message":' + JSON.stringify(throwMessage) + '}');
     return;
   }
   // CPH.TryGetArg("config", out string) && !string.IsNullOrEmpty(cfg). The pages only
   // ever send a string; what SB makes of another type is not measured, so the mock
   // treats it as no config.
-  const cfg = typeof args.config === 'string' ? args.config : '';
+  let cfg = typeof args.config === 'string' ? args.config : '';
   let did = 'sync';
   if (cfg !== '') {
-    // The C#'s whole check: trimmed, it must start with { and end with }. Nothing
-    // else is looked at, and nothing is clamped: the pages sanitize what they get.
-    const trimmed = cfg.trim();
-    if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
-      note('rejected');
-      console.log(`[mock] Timbre Push rejected non-object config arg (${cfg.length} chars)`);
+    // Nothing is clamped or dropped here: the pages sanitize what they get.
+    const trimmed = trimJsonSpace(cfg);
+    if (trimmed.length > MAX_CONFIG_CHARS) return refuse('too-large', ERROR_MESSAGES['too-large'], `a config of ${trimmed.length} chars is over the limit of ${MAX_CONFIG_CHARS}`);
+    const seen = new Array(REQUIRED_KEYS.length).fill(false);
+    if (!isOneJsonObject(trimmed, seen)) return refuse('bad-config', ERROR_MESSAGES['bad-config'], `the config arg is not one balanced JSON object (${cfg.length} chars)`);
+    const missing = missingKeys(seen);
+    if (missing.length > 0) return refuse('partial-config', ERROR_MESSAGES['partial-config'], `a push must carry every top-level key of a full config; missing: ${missing} (${cfg.length} chars)`);
+    cachedConfig = trimmed;
+    cfg = trimmed;
+    did = 'push';
+  } else {
+    cfg = cachedConfig;
+    if (cfg === null || cfg === '') {
+      note('sync-empty');
+      console.log('[mock] Timbre Push sync requested but no cached config yet — skipping');
       return;
     }
-    cachedConfig = trimmed;
-    did = 'push';
-  } else if (!cachedConfig) {
-    note('sync-empty');
-    console.log('[mock] Timbre Push sync requested but no cached config yet — skipping');
-    return;
+    const saved = trimJsonSpace(cfg);
+    if (!isOneJsonObject(saved, null)) return refuse('bad-cache', ERROR_MESSAGES['bad-cache'], `the saved timbre.config is not one balanced JSON object (${cfg.length} chars); it was not broadcast and was left as it is`);
+    cfg = saved;
   }
   note(did);
   // CPH.WebsocketBroadcastJson: every subscriber gets it, whoever asked.
-  sendToSubscribers('{"type":"timbre:config","config":' + cachedConfig + '}');
-  console.log(`[mock] broadcast timbre:config (${cachedConfig.length} chars)`);
+  sendToSubscribers('{"type":"timbre:config","config":' + cfg + '}');
+  console.log(`[mock] broadcast timbre:config (${cfg.length} chars)`);
 }
 
 // A verify suite starts the mock with a pipe on stdin and MOCK_EXIT_WITH_PARENT=1.
