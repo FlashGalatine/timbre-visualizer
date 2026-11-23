@@ -267,8 +267,9 @@ function frame() {
 
 /* ── Config application ──
    Every broadcast carries the COMPLETE config (control.html sends full
-   snapshots), but we still sanitize against the shared tables so a
-   hand-crafted or stale payload can't wedge the overlay. */
+   snapshots, and Timbre Push refuses a partial one), but we still sanitize
+   against the shared tables so a hand-crafted or stale payload can't wedge
+   the overlay. The receiver below merges a broadcast over the defaults first. */
 let configApplied = false;   // the first config is always applied: the page has shown none yet
 
 /* Whether cfg (complete, from sanitizeConfig) is what the page is already showing: equal to
@@ -330,8 +331,12 @@ window.addEventListener('svc:message', (evt) => {
   if (!msg || msg.type !== 'timbre:config' || !msg.config) return;
   // Streamer.bot stores a config as it was sent and sends it again on every connect. One
   // that makes this throw must not stop the page: it keeps drawing with the settings it has.
+  // A broadcast is the whole config, so it is merged over the DEFAULTS, as the dock merges
+  // it (sanitizeConfig with no base), and not over what this page has: whatever a broadcast
+  // lacks (one saved before a setting existed, or sent by something other than the dock)
+  // is the default on every page. applyConfig itself still merges over the config in force.
   try {
-    applyConfig(msg.config);
+    applyConfig(TIMBRE.sanitizeConfig(msg.config));
   } catch (e) {
     console.warn('Timbre: a config that came in could not be applied; the overlay keeps the settings it has.', e);
   }

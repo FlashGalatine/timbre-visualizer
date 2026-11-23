@@ -1553,3 +1553,37 @@ The broadcast every page receives is
 envelope. The full config shape is exactly `TIMBRE.defaultConfig()` in
 `shared/viz-config.js` — that file is the schema. `afterglow` (seconds, 0 to 4, default
 1.6) is the top-level key for the bar and wave effects' afterglow.
+
+**A push must be a full config.** `config` is the text of ONE JSON object, at most 64 KB
+(65536 UTF-16 units; a full config is about 3.4 KB), that has every top-level key of
+`TIMBRE.defaultConfig()`:
+
+`activeViz`, `mic`, `bars`, `bounce`, `gain`, `colorSpeed`, `colorHue`, `bgOpacity`, `effectBgOpacity`, `idleAnim`, `showLabels`, `showChevrons`, `showDecorations`, `showBorder`, `placement`, `afterglow`, `perViz`
+
+A partial config (`{ "gain": 150 }`) is not merged into the saved one. It is refused:
+nothing is saved, no `timbre:config` is sent, the saved config stays as it was, and the
+action broadcasts a `timbre:error` saying why. To change one setting, take the config of
+the last `timbre:config` broadcast, change the value and send the whole object back.
+
+The action checks the structure and the top-level keys only. It does not check values:
+each page puts a value back in its range and drops a key it does not know. Each page
+also merges a broadcast over the defaults, so a setting missing inside `mic`,
+`placement` or `perViz` (and, in a config an older version saved, a missing top-level
+key) is its default on the overlay and on the dock alike. The structure check is not a
+JSON parser: send JSON that a parser accepts.
+
+What the action cannot take or replay, it logs in Streamer.bot and broadcasts as
+`{ "type": "timbre:error", "code": "…", "message": "…" }`:
+
+| `code` | When | `message` |
+|---|---|---|
+| `too-large` | the config text is over 64 KB | `the config is over 64 KB` |
+| `bad-config` | the text is not one balanced JSON object | `the config is not one JSON object` |
+| `partial-config` | a top-level key is missing | `the config is not a full config` |
+| `bad-cache` | a sync was asked for and the saved config is not one JSON object; it is not sent, and not deleted | `the saved config is damaged; change a setting to replace it` |
+| `exception` | the action threw; the exception itself is in Streamer.bot's log only | `the action threw an exception` |
+
+The reply to the `DoAction` request says only that the action was queued: it is `ok` for
+a refused config too. The `timbre:error` broadcast is the answer. An action pasted before
+these checks existed sends `{ "type": "timbre:error", "message": "<the exception's text>" }`
+with no `code`, and broadcasts nothing when it refuses a config.

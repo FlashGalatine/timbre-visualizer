@@ -76,8 +76,12 @@
 //      mock itself, against what Streamer.bot 1.0.7 was measured to do: the
 //      DoAction reply (sent on queueing, with the queue's name), the error
 //      reply for a missing action, a sync replay reaching every subscriber, a
-//      config stored as sent after the C#'s two-character check, the
-//      timbre:error switch, the silent, delay, reset and kick switches, the
+//      config stored as sent, the table of what Timbre Push accepts and refuses
+//      (tools/cs/push-cases.json, the same rows verify-cs.mjs runs against the
+//      compiled C#: the mock must answer each as the table says), the lists the
+//      C#, the mock and the table each hold (the required top-level keys, which
+//      must be those of defaultConfig(); the error codes and their messages),
+//      the timbre:error switch, the silent, delay, reset and kick switches, the
 //      overlap mode (runs that land together share
 //      one request's arguments), and that bad paths, bad frames, oversized
 //      frames and foreign origins do not bring it down. Then the transport
@@ -103,7 +107,7 @@
 //      made of stand-ins: the canvas height worked out from the four toggles
 //      and set once, or not at all when it does not change; a config equal to
 //      the one in force not applied; a config that throws caught where it comes
-//      in; getColor against what it gave before, the palette table and its
+//      in; a broadcast merged over the defaults, as the dock merges it; getColor against what it gave before, the palette table and its
 //      rebuild; and ema, decay, chance and fadeOrClear against the scene kit's
 //      formulas and at 30, 60 and 165 frames a second. (Runs before section 4.)
 //  30. The microphone capture — the REAL overlay/audio-capture.js run under
@@ -139,6 +143,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { resolve, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import './shared/viz-config.js';
+import { loadPushCases } from './tools/cs/push-cases.mjs';
 
 const T = globalThis.TIMBRE;
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -7703,8 +7708,46 @@ console.log('\n[29] overlay core: one canvas height, equal configs, a config tha
     ok(threw === null && c.log.warns.length === 1 && /sanitize failed/.test(c.log.warns[0]) && /Timbre/.test(c.log.warns[0]) && c.see('cfgGain') === 1.5 && c.see('timbreConfig').gain === 150,
       `a config that makes the overlay throw is caught where it comes in: a console warning, and the overlay keeps the settings it has — ${threw || c.log.warns.join(' | ')}`);
     c.send(cfgWith({ gain: 30 }));
+    const afterNext = c.see('cfgGain') === 0.3 && JSON.stringify(c.see('timbreConfig')) === JSON.stringify(cfgWith({ gain: 30 }));
     c.send(JSON.parse('{"perViz":{"constructor":{"name":"x"}},"placement":{"constructor":5}}'));
-    ok(c.see('cfgGain') === 0.3 && c.log.warns.length === 1 && JSON.stringify(c.see('timbreConfig')) === JSON.stringify(cfgWith({ gain: 30 })), 'the next config is applied as usual, and the crafted config of TIM-06 changes nothing and warns of nothing');
+    ok(afterNext && c.see('cfgGain') === 1 && c.log.warns.length === 1 && JSON.stringify(c.see('timbreConfig')) === JSON.stringify(T.defaultConfig()),
+      'the next config is applied as usual, and the crafted config of TIM-06 warns of nothing: it holds no setting, so it leaves the overlay on the defaults, where it leaves the dock');
+  }
+
+  // ── TIM-26: a broadcast is merged over the defaults, as the dock merges it ──
+  {
+    const html = await readFile(resolve(__dirname, 'control/control.html'), 'utf8');
+    const from = html.indexOf('// DOCK-PURE-BEGIN'), to = html.indexOf('// DOCK-PURE-END');
+    const dock = new Function(html.slice(from, to) + '\nreturn { mergeEdits };')();
+    const dockEndsWith = (inbound) => JSON.stringify(dock.mergeEdits(T, {}, inbound));   // the dock with no edit of its own
+    const c = loadCore();
+    const first = cfgWith({ activeViz: 'matrix', gain: 150, bars: 28, showLabels: false, placement: { x: 30, y: -20, size: 150 } });
+    first.perViz.dna.helixFreq = 80;
+    c.send(first);
+    const partial = { activeViz: 'visualizer', bounce: 70, perViz: { dna: { reconnectSeconds: 3 } } };
+    c.send(partial);
+    const cfg = c.see('timbreConfig');
+    ok(from > 0 && to > from && JSON.stringify(cfg) === dockEndsWith(partial) && JSON.stringify(cfg) === JSON.stringify(T.sanitizeConfig(partial))
+      && cfg.gain === 100 && cfg.bars === 20 && cfg.showLabels === true && cfg.placement.x === 0 && cfg.perViz.dna.helixFreq === T.DEFAULT_PER_VIZ.dna.helixFreq && cfg.perViz.dna.reconnectSeconds === 3
+      && c.see('cfgGain') === 1 && c.see('cfgBars') === 20 && c.see('cfgBounce') === 70 && c.see('perViz').dna.helixFreq === T.DEFAULT_PER_VIZ.dna.helixFreq && c.see('currentVizName') === 'visualizer' && c.shown().label === '',
+      'TIM-26: a broadcast that holds only some settings (an action pasted before Sprint 9 can still send one) leaves the overlay where it leaves the dock: its values over the DEFAULTS, not over what the overlay had (before: gain stayed 150, bars 28, the labels hidden)');
+    // A saved config from before some settings existed, replayed: the missing ones are the defaults on both pages.
+    const old = JSON.parse(JSON.stringify(first));
+    delete old.placement; delete old.afterglow; delete old.perViz.dna.helixFreq; delete old.perViz.television;
+    c.send(cfgWith({ afterglow: 3, placement: { x: 50, y: 50, size: 60 } }));
+    c.send(old);
+    const got = c.see('timbreConfig');
+    ok(JSON.stringify(got) === dockEndsWith(old) && got.activeViz === 'matrix' && got.gain === 150 && got.bars === 28 && got.afterglow === T.AFTERGLOW_RANGE.default && got.placement.x === 0 && got.placement.size === 100 && got.perViz.dna.helixFreq === T.DEFAULT_PER_VIZ.dna.helixFreq,
+      'a saved config from before placement, afterglow and some per-effect settings existed is taken whole, and what it lacks is the default on the overlay as on the dock');
+    // The same full config twice is still applied once, and applyConfig called by hand
+    // (the render suite, DevTools) still changes only what it is given.
+    const before = c.log.configs;
+    c.send(JSON.parse(JSON.stringify(old)));
+    c.see('applyConfig({ gain: 30 })');
+    ok(c.log.configs === before + 1 && c.see('timbreConfig').gain === 30 && c.see('timbreConfig').activeViz === 'matrix' && c.see('timbreConfig').bars === 28,
+      'a broadcast equal to the one in force is still not applied again, and applyConfig called by hand with one setting still changes that setting only');
+    const coreSrc = await readFile(resolve(__dirname, 'overlay/core.js'), 'utf8');
+    ok(/applyConfig\(TIMBRE\.sanitizeConfig\(msg\.config\)\)/.test(coreSrc), 'the overlay\'s receiver hands applyConfig the broadcast already merged over the defaults: sanitizeConfig(msg.config), with no base');
   }
 
   // ── O-06: the palette table ──
@@ -8116,7 +8159,7 @@ console.log('\n[28] dock: edits kept, status line, preview address, whole charac
   const from = html.indexOf('// DOCK-PURE-BEGIN'), to = html.indexOf('// DOCK-PURE-END');
   ok(from > 0 && to > from, 'control.html marks the part of its script that needs no page');
   // That part of the page's own script, run here as it is.
-  const D = new Function(html.slice(from, to) + '\nreturn { setAt, hasKeys, mergeEdits, unsettledEdits, previewQuery, oneLine, statusFor };')();
+  const D = new Function(html.slice(from, to) + '\nreturn { setAt, hasKeys, mergeEdits, unsettledEdits, previewQuery, oneLine, statusFor, shouldRetry: typeof shouldRetry === "function" ? shouldRetry : null, haltsRetry: typeof haltsRetry === "function" ? haltsRetry : null };')();
   const J = JSON.stringify;
 
   // The record of edits (TIM-08, TIM-28, TIM-29).
@@ -8163,6 +8206,49 @@ console.log('\n[28] dock: edits kept, status line, preview address, whole charac
   ok(say({ noAnswer: true }).text === 'Connected, but Timbre Push did not answer. Check that its C# compiled (docs/SETUP.md, step 2).' && say({ noAnswer: true }).level === 'warn', 'status: connected, but Timbre Push did not answer');
   ok(say({ runError: 'bad-config' }).text === 'Timbre Push failed: bad-config — see the Streamer.bot log.' && say({ runError: '' }).text === 'Timbre Push failed — see the Streamer.bot log.' && say({ runError: 'x' }).level === 'warn',
     'status: a timbre:error broadcast, with its message or code');
+  {
+    // Sprint 9: what the action broadcasts for each code, and what the dock prints for it. The
+    // dock has its own words for each code; an error with no code (an action pasted before
+    // Sprint 9) or with a code it does not know is shown with its message, as before.
+    const table = loadPushCases(T);
+    const shown = (payload, over = {}) => { const m = JSON.parse(payload); return say({ runError: m.message != null ? m.message : (m.code != null ? m.code : ''), runCode: typeof m.code === 'string' ? m.code : null, ...over }); };
+    const want = {
+      'too-large': 'Timbre Push refused the settings: over 64 KB.',
+      'bad-config': 'Timbre Push refused the settings: not valid JSON.',
+      'partial-config': 'Timbre Push refused the settings: not a full config. Reload this dock; if it still happens, re-paste the Timbre Push action (docs/SETUP.md, step 2).',
+      'bad-cache': 'The settings saved in Streamer.bot are damaged. Change any setting here to replace them.',
+      exception: 'Timbre Push failed inside Streamer.bot — see the Streamer.bot log.',
+    };
+    const codes = Object.keys(table.errors);
+    ok(codes.slice().sort().join() === Object.keys(want).sort().join()
+      && codes.every((c) => shown(table.errorWire(c)).text === want[c] && shown(table.errorWire(c), { held: true }).text === want[c] + ' Your changes are kept.' && shown(table.errorWire(c)).level === 'warn'),
+      'status: for each of the five codes of a timbre:error the dock has its own words, with " Your changes are kept." after them when edits are held — ' + codes.map((c) => c + ': ' + shown(table.errorWire(c)).text).join(' | '));
+    ok(shown('{"type":"timbre:error","message":"boom"}').text === 'Timbre Push failed: boom — see the Streamer.bot log.'
+      && shown('{"type":"timbre:error","code":"something-new","message":"boom"}').text === 'Timbre Push failed: boom — see the Streamer.bot log.'
+      && shown('{"type":"timbre:error","code":"something-new"}').text === 'Timbre Push failed: something-new — see the Streamer.bot log.'
+      && shown('{"type":"timbre:error","code":"constructor","message":"m"}').text === 'Timbre Push failed: m — see the Streamer.bot log.'
+      && shown('{"type":"timbre:error","message":"boom"}', { held: true }).text === 'Timbre Push failed: boom — see the Streamer.bot log. Your changes are kept.'
+      && /link\.runError = msg\.message != null \? msg\.message : \(msg\.code != null \? msg\.code : ''\);/.test(html) && /link\.runCode = typeof msg\.code === 'string' \? msg\.code : null;/.test(html),
+      'status: an error with no code (the action pasted before Sprint 9), or with a code the dock does not know (a name every object has included), is shown as before: "Timbre Push failed: <message, or the code> — see the Streamer.bot log."');
+
+    // Whether the dock tries again by itself, every five seconds.
+    const R = D.shouldRetry, H = D.haltsRetry;
+    const quiet = { connected: true, actionMissing: false, replyError: null, runError: null, runCode: null, halted: false, noAnswer: false };
+    const halting = ['partial-config', 'too-large', 'bad-config', 'bad-cache'];
+    ok(typeof H === 'function' && halting.every((c) => H(c) === true) && ['exception', 'something-new', 'constructor', 'toString', '', null, undefined, 5].every((c) => H(c) === false),
+      'retry: a timbre:error with the code partial-config, too-large, bad-config or bad-cache halts the retry (trying again would get the same answer); exception, no code, and any other code do not');
+    ok(typeof R === 'function' && R(quiet) === false
+      && R({ ...quiet, runError: 'boom' }) === true && R({ ...quiet, runError: 'x', runCode: 'exception' }) === true
+      && R({ ...quiet, actionMissing: true }) === true && R({ ...quiet, replyError: '' }) === true && R({ ...quiet, noAnswer: true }) === true,
+      'retry: with nothing failing there is nothing to retry; a missing action, an error reply, no answer, an exception and an error with no code are retried, as before');
+    ok(typeof R === 'function' && typeof H === 'function' && halting.every((c) => R({ ...quiet, runError: 'x', runCode: c, halted: H(c) }) === false)
+      && R({ ...quiet, runError: 'x', runCode: 'exception', halted: H('exception') }) === true && R({ ...quiet, runError: 'boom', runCode: null, halted: H(null) }) === true
+      && R({ ...quiet, runError: 'x', runCode: 'partial-config', halted: false, noAnswer: true }) === true,
+      'retry: after a refusal (partial-config, too-large, bad-config) or a damaged saved config (bad-cache) the dock does not try again by itself; once the halt is lifted (a new edit), a push that gets no answer is retried again');
+    ok(/if \(!shouldRetry\(link\)\) return;/.test(html) && /link\.halted = haltsRetry\(link\.runCode\);/.test(html)
+      && /function edit\(path, value\) \{[^}]*link\.halted = false;[^}]*push\(\);\s*\}/.test(html),
+      'retry: the dock asks shouldRetry before each retry, halts on the code of a timbre:error, and an edit lifts the halt before it is pushed');
+  }
   ok(say({ replyError: 'Queue is paused' }).text === 'Streamer.bot refused Timbre Push: Queue is paused' && say({ replyError: '' }).text === 'Streamer.bot refused Timbre Push.', 'status: any other refusal from Streamer.bot, in its own words');
   ok(say({ connected: false, actionMissing: true, noAnswer: true, runError: 'x' }).level === 'off' && /^Action missing/.test(say({ actionMissing: true, noAnswer: true, runError: 'x' }).text)
     && /^Timbre Push failed/.test(say({ noAnswer: true, runError: 'x' }).text), 'status: offline comes first, then a missing action, then an error, then no answer');
@@ -8306,6 +8392,8 @@ console.log('\n[4] transport seam vs mock');
   const a = await client(), b = await client();
   const clear = () => { for (const c of [a, b]) { c.frames.length = 0; c.events.length = 0; } };
   const vizOf = (c) => c.events.map((e) => (e.type === 'timbre:config' ? e.config.activeViz : e.type)).join();
+  // A full config with one effect chosen: Timbre Push takes nothing less (Sprint 9).
+  const viz = (name) => JSON.stringify({ ...T.defaultConfig(), activeViz: name });
 
   // The reply, and who gets a sync replay.
   const queued = await doAction(a, 'Timbre Push', { reason: 'overlay-connect', tag: 't1' });
@@ -8318,42 +8406,118 @@ console.log('\n[4] transport seam vs mock');
   const unknown = await doAction(a, 'No Such Action', { tag: 't2' });
   ok(!!unknown && unknown.status === 'error' && unknown.error === "The action 'No Such Action' was not found" && !('args' in unknown), 'an action that does not exist gets the error reply');
 
-  // What the action stores: the text as sent, after the same two-character check the C# makes.
+  // What the action stores: the text as sent, after the checks the C# makes.
   clear();
-  const asSent = '  {"activeViz":"matrix","bars":999,"gain":150,"notAKnob":true}\n';
+  const asSentObject = { ...T.defaultConfig(), activeViz: 'matrix', bars: 999, gain: 150, notAKnob: true };
+  const asSent = '  ' + JSON.stringify(asSentObject) + '\n';
   await doAction(a, 'Timbre Push', { config: asSent });
   await until(() => b.events.length > 0, 600);
-  ok(b.events.length === 1 && JSON.stringify(b.events[0]) === '{"type":"timbre:config","config":{"activeViz":"matrix","bars":999,"gain":150,"notAKnob":true}}' && (await stats()).cachedConfig === asSent.trim(),
+  ok(b.events.length === 1 && JSON.stringify(b.events[0]) === JSON.stringify({ type: 'timbre:config', config: asSentObject }) && b.events[0].config.bars === 999 && b.events[0].config.notAKnob === true && (await stats()).cachedConfig === asSent.trim(),
     'a pushed config is stored and broadcast as it was sent (trimmed, not sanitized): out-of-range values and unknown keys reach the pages, as they do from Streamer.bot');
-  {
-    const outcomes = [];
-    for (const text of ['[1,2]', '{"a":1', '"a":1}', '   ', 'null', '{} x']) {
-      clear();
-      const r = await doAction(a, 'Timbre Push', { config: text });
-      await wait(60);
-      outcomes.push(!!r && r.status === 'ok' && a.events.length === 0 && b.frames.length === 0 && (await stats()).cachedConfig === asSent.trim());
-    }
-    ok(outcomes.every(Boolean), 'a config that does not start with { and end with } is refused by the action: the reply is still ok (it was queued), nothing is broadcast and the stored config stays — ' + outcomes.join());
-  }
   clear();
   await doAction(a, 'Timbre Push', { config: '' });
   await until(() => b.events.length > 0, 600);
   ok(b.events.length === 1 && b.events[0].type === 'timbre:config' && b.events[0].config.bars === 999, 'an empty config argument is a sync request, as in the C#');
-  clear();
-  await doAction(a, 'Timbre Push', { config: '{not json}' });
-  await wait(80);
-  ok(a.events.length === 0 && b.events.length === 0 && (await stats()).cachedConfig === '{not json}', 'text in braces that is not JSON passes the two-character check and is stored (TIM-05); no page gets a config it can read');
-  const good = JSON.stringify({ activeViz: 'matrix', gain: 150 });
+
+  // ── Sprint 9: the mock's mirror of Timbre Push against the table the C# is run against ──
+  // tools/cs/push-cases.json. verify-cs.mjs runs the same rows through the compiled action;
+  // here they go through the mock over its WebSocket. One answer per row, the same in both.
+  {
+    const table = loadPushCases(T);
+    const csText = (await readFile(resolve(__dirname, 'actions/timbre-push.cs'), 'utf8')).replace(/\r\n/g, '\n');
+    const st = await stats();
+    // The three lists of required keys: the C#'s, the mock's, and the schema's own.
+    const listed = /static readonly string\[\] RequiredKeys =\s*\{([^}]*)\}/.exec(csText);
+    const csKeys = listed ? (listed[1].match(/"[^"]*"/g) || []).map((q) => JSON.parse(q)) : [];
+    const schemaKeys = Object.keys(T.defaultConfig());
+    ok(schemaKeys.length > 0 && csKeys.join() === schemaKeys.join() && (st.requiredKeys || []).join() === schemaKeys.join() && table.requiredKeys.join() === schemaKeys.join(),
+      `the top-level keys a push must carry are the keys of TIMBRE.defaultConfig(), in its order, in the C# (RequiredKeys) and in the mock (REQUIRED_KEYS): ${schemaKeys.join(', ')} — the C# has ${csKeys.join()}; the mock has ${(st.requiredKeys || []).join()}`);
+    // The codes and their fixed messages: the C#'s, the mock's, and the table's.
+    const csErrors = {};
+    for (const m of csText.matchAll(/(?:Refuse|ErrorJson)\("([a-z-]+)", "([^"\\]*)"/g)) csErrors[m[1]] = m[2];
+    const sameMap = (x, y) => !!x && !!y && JSON.stringify(Object.keys(x).sort().map((k) => [k, x[k]])) === JSON.stringify(Object.keys(y).sort().map((k) => [k, y[k]]));
+    const cap = /const int MaxConfigChars = (\d+) \* (\d+);/.exec(csText);
+    ok(Object.keys(table.errors).length === 5 && sameMap(csErrors, table.errors) && sameMap(st.errorMessages, table.errors) && !!cap && Number(cap[1]) * Number(cap[2]) === table.maxChars && st.maxConfigChars === table.maxChars,
+      `the five timbre:error codes and the fixed message of each, and the 64 KB cap, are the same in the C#, the mock and the table — ${JSON.stringify(csErrors)}`);
+    ok(!/JsonStr\(ex\b|ex\.Message/.test(csText) && /CPH\.LogWarn\("\[Timbre Push\] ERROR: " \+ ex\);/.test(csText), 'TIM-31: the C# puts an exception in the log and never in a broadcast');
+    ok(!/1\.0\.4/.test(csText) && /BLOCKING action queue \(docs\/SETUP\.md, step 2\)/.test(csText) && /WHAT IS CHECKED/.test(csText) && /WHAT IS NOT CHECKED/.test(csText),
+      'the header of timbre-push.cs says what is checked and what is not, names no Streamer.bot version, and sends the reader to the blocking queue');
+    const wireDoc = (await readFile(resolve(__dirname, 'docs/EFFECTS.md'), 'utf8')).replace(/\r\n/g, '\n').split('\n## Wire format')[1] || '';
+    const docKeys = ((/every top-level key of\n`TIMBRE\.defaultConfig\(\)`:\n\n(.+)\n/.exec(wireDoc) || [])[1] || '').split(', ').map((k) => k.replace(/`/g, ''));
+    const docRows = {};
+    for (const m of wireDoc.matchAll(/^\| `([a-z-]+)` \|.*\| `([^`]*)` \|$/gm)) docRows[m[1]] = m[2];
+    delete docRows.code;   // the table's own heading row
+    ok(docKeys.join() === schemaKeys.join() && sameMap(docRows, table.errors) && /\*\*A push must be a full config\.\*\*/.test(wireDoc) && /A partial config \(.*\) is not merged into the saved one\. It is refused/.test(wireDoc),
+      `docs/EFFECTS.md, "Wire format", says a push must be a full config and what happens to a partial one, with the same list of top-level keys and the same five codes and messages — keys: ${docKeys.join()}; rows: ${JSON.stringify(docRows)}`);
+
+    const store = (text) => fetch(`http://127.0.0.1:${HTTP_PORT}/mock/store`, { method: 'POST', body: text }).then((r) => r.text(), () => '');
+    const parsed = (text) => { try { return JSON.parse(text); } catch { return undefined; } };
+    const base = viz('dna');
+    const wrong = [];
+    let ran = 0;
+    for (const c of table.cases) {
+      const kept = table.trim(c.text);
+      await store(c.where === 'cache' ? c.text : base);
+      clear();
+      const reply = await doAction(a, 'Timbre Push', c.where === 'cache' ? { reason: 'overlay-connect' } : { config: c.text });
+      await until(() => a.frames.length >= 2 && b.frames.length >= 1, 1500);   // a: its reply and the broadcast; b: the broadcast
+      await wait(5);
+      const after = await stats(), run = (after.runs || [])[after.runs.length - 1] || {};
+      const event = b.frames.length === 1 ? (parsed(b.frames[0]) || {}) : {};
+      const sent = b.frames.length === 1 && a.frames.length === 2 && b.frames[0] === a.frames.find((f) => f === b.frames[0]) ? b.frames[0] : null;
+      const data = sent === null ? null : sent.slice(sent.indexOf(',"data":') + 8, -1);   // the text the action handed to the broadcast
+      let good = !!reply && reply.status === 'ok' && data !== null;
+      if (c.expect === 'accept') good = good && data === table.wire(kept) && after.cachedConfig === kept && run.did === 'push' && (c.gap ? parsed(sent) === undefined : JSON.stringify(event.data) === JSON.stringify({ type: 'timbre:config', config: JSON.parse(kept) }));
+      else if (c.expect === 'replay') good = good && c.where === 'cache' && data === table.wire(kept) && after.cachedConfig === c.text && run.did === 'sync';
+      else if (c.expect === 'bad-cache') good = good && c.where === 'cache' && data === table.errorWire('bad-cache') && after.cachedConfig === c.text && run.did === 'refused' && run.code === 'bad-cache';
+      else good = good && c.where === 'push' && typeof table.errors[c.expect] === 'string' && data === table.errorWire(c.expect) && after.cachedConfig === base && run.did === 'refused' && run.code === c.expect;
+      ran++;
+      if (!good) wrong.push(`${c.name}: wanted ${c.expect}, the run was ${run.did}${run.code ? ' (' + run.code + ')' : ''}, broadcast ${data === null ? 'none or not one' : data.slice(0, 120)}`);
+    }
+    const kinds = (want) => table.cases.filter((c) => c.expect === want).length;
+    ok(ran === table.cases.length && ran >= 60 && wrong.length === 0,
+      `the mock's mirror of Timbre Push answers every row of tools/cs/push-cases.json as the table says, and so as the compiled C# does in verify:cs (${ran} rows: ${kinds('accept')} accepted, ${kinds('too-large')} too-large, ${kinds('bad-config')} bad-config, ${kinds('partial-config')} partial-config, ${kinds('replay')} saved and replayed, ${kinds('bad-cache')} bad-cache)`
+      + (wrong.length ? ' — ' + wrong.slice(0, 6).join(' || ') : ''));
+    ok(table.cases.filter((c) => c.gap).length === 3 && table.cases.filter((c) => c.gap).every((c) => c.expect === 'accept' && parsed(table.trim(c.text)) === undefined),
+      'the table names what the structure check does not catch: three rows of text that is not JSON and is accepted (a misspelt literal, a missing comma, an escape JSON does not have)');
+
+    // TIM-26 and TIM-31, as a client sees them: a refused push is answered "ok" (it was
+    // queued), the stored config stays, and every subscriber is told why.
+    await store(base);
+    clear();
+    const refusedReply = await doAction(a, 'Timbre Push', { config: JSON.stringify({ activeViz: 'waveform' }) });
+    await until(() => a.events.length > 0 && b.events.length > 0, 600);
+    ok(!!refusedReply && refusedReply.status === 'ok' && JSON.stringify(a.events) === '[{"type":"timbre:error","code":"partial-config","message":"the config is not a full config"}]' && JSON.stringify(b.events) === JSON.stringify(a.events) && (await stats()).cachedConfig === base,
+      'a partial config is refused: the reply is still ok (it was queued), the stored config stays, and every subscriber gets ONE timbre:error with the code partial-config and its message (before: it was stored and broadcast as the config)');
+    clear();
+    await doAction(a, 'Timbre Push', { config: '{not json}' });
+    await until(() => b.events.length > 0, 600);
+    ok(JSON.stringify(b.events) === '[{"type":"timbre:error","code":"bad-config","message":"the config is not one JSON object"}]' && (await stats()).cachedConfig === base,
+      'text in braces that is not JSON is refused as bad-config and is not stored (TIM-05; before: it was stored, and no page got a config it could read)');
+    await store('{not json}');
+    clear();
+    await doAction(a, 'Timbre Push', { reason: 'overlay-connect' });
+    await until(() => b.events.length > 0, 600);
+    const badCache = JSON.stringify(b.events);
+    clear();
+    await doAction(a, 'Timbre Push', { config: base });
+    await until(() => b.events.length > 0, 600);
+    ok(badCache === '[{"type":"timbre:error","code":"bad-cache","message":"the saved config is damaged; change a setting to replace it"}]' && vizOf(b) === 'dna' && (await stats()).cachedConfig === base,
+      'a saved value that is not one JSON object is not replayed: a sync gets a timbre:error with the code bad-cache, and the next full config replaces it');
+    const stored405 = await get('/mock/store');
+    ok(stored405.status === 405 && (await stats()).cachedConfig === base, 'the store switch takes a POST only');
+  }
+  const good = JSON.stringify({ ...T.defaultConfig(), activeViz: 'matrix', gain: 150 });
   await doAction(a, 'Timbre Push', { config: good });
   await until(() => b.events.length > 0, 600);
 
   // The switches: the action throws; the action is not there.
   await get('/mock/throw?on=1');
   clear();
-  const thrown = await doAction(a, 'Timbre Push', { config: JSON.stringify({ activeViz: 'waveform' }) });
+  const thrown = await doAction(a, 'Timbre Push', { config: viz('waveform') });
   await until(() => a.events.length > 0 && b.events.length > 0, 600);
-  ok(!!thrown && thrown.status === 'ok' && a.events.length === 1 && b.events.length === 1 && b.events[0].type === 'timbre:error' && typeof b.events[0].message === 'string' && b.events[0].message !== ''
-    && (await stats()).cachedConfig === good, 'with the throw switch on, a run broadcasts timbre:error with a message, and no config is stored or sent');
+  ok(!!thrown && thrown.status === 'ok' && a.events.length === 1 && b.events.length === 1 && JSON.stringify(b.events[0]) === '{"type":"timbre:error","code":"exception","message":"the action threw an exception"}'
+    && (await stats()).cachedConfig === good, 'with the throw switch on, a run broadcasts timbre:error with the code "exception" and its fixed message, as the C#\'s catch does, and no config is stored or sent');
   await get('/mock/throw?on=0');
   await get('/mock/missing?on=1');
   const gone = await doAction(a, 'Timbre Push', { reason: 'overlay-connect' });
@@ -8365,7 +8529,7 @@ console.log('\n[4] transport seam vs mock');
   // trip, a named error, and an install with nothing saved.
   await get('/mock/silent?on=1');
   clear();
-  const hushed = await doAction(a, 'Timbre Push', { config: JSON.stringify({ activeViz: 'waveform' }) });
+  const hushed = await doAction(a, 'Timbre Push', { config: viz('waveform') });
   await wait(120);
   const hushedStats = await stats();
   ok(!!hushed && hushed.status === 'ok' && a.events.length === 0 && b.events.length === 0 && hushedStats.cachedConfig === good && hushedStats.silentPush === true && hushedStats.runs[hushedStats.runs.length - 1].did === 'silent',
@@ -8374,7 +8538,7 @@ console.log('\n[4] transport seam vs mock');
   await get('/mock/delay?ms=150');
   clear();
   const sentAt = Date.now();
-  const slow = await doAction(a, 'Timbre Push', { config: JSON.stringify({ activeViz: 'dna' }) });
+  const slow = await doAction(a, 'Timbre Push', { config: viz('dna') });
   const repliedIn = Date.now() - sentAt, waiting = (await stats()).waitingRuns;
   request(a, 'Timbre Push', { config: good });
   await until(() => b.events.length >= 2, 1500);
@@ -8392,7 +8556,8 @@ console.log('\n[4] transport seam vs mock');
   clear();
   await doAction(a, 'Timbre Push', { reason: 'overlay-connect' });
   await until(() => b.events.length > 0, 600);
-  ok(!!named && named.type === 'timbre:error' && named.message === '<b>named</b>' && b.events.length === 1 && b.events[0].message === 'mock: Timbre Push was made to throw', 'the throw switch can be given the message to broadcast, and goes back to its own');
+  ok(!!named && JSON.stringify(named) === '{"type":"timbre:error","message":"<b>named</b>"}' && b.events.length === 1 && JSON.stringify(b.events[0]) === '{"type":"timbre:error","code":"exception","message":"the action threw an exception"}',
+    'the throw switch can be given a message: it then sends what the action from before Sprint 9 sent (that message, and no code), and goes back to its own');
   await get('/mock/throw?on=0');
   await get('/mock/reset');
   clear();
@@ -8406,7 +8571,7 @@ console.log('\n[4] transport seam vs mock');
 
   // Overlap mode: the Default queue as measured. Runs of one action that land together all
   // see one request's arguments (the later one's).
-  const cfgA = JSON.stringify({ activeViz: 'waveform' }), cfgB = JSON.stringify({ activeViz: 'dna' });
+  const cfgA = viz('waveform'), cfgB = viz('dna');
   await wait(100);
   await get('/mock/bleed?on=1');
   clear();
@@ -8450,7 +8615,6 @@ console.log('\n[4] transport seam vs mock');
     t.viz = () => t.of('svc:message').map((e) => (e.type === 'timbre:config' ? e.config.activeViz : e.type));
     return t;
   };
-  const viz = (name) => JSON.stringify({ activeViz: name });
   const lastOf = (list) => list[list.length - 1];
   const lastViz = (c) => { const e = lastOf(c.events); return e && e.type === 'timbre:config' ? e.config.activeViz : null; };
   {

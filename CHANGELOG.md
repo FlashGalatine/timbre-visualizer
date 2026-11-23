@@ -10,6 +10,42 @@ traceability.
 
 ## [Unreleased]
 
+## [1.0.189] — 2026-11-23
+
+**Re-paste `actions/timbre-push.cs` into the `Timbre Push` action and Compile.** Do it in
+this order: copy the `overlay` and `control` folders, reload the dock and refresh the
+overlay sources, and only then re-paste. A dock page from before 11 November 2026 does
+not send every setting the new action asks for. Your saved settings are kept.
+
+### Changed
+
+- **`Timbre Push` checks what it is given.** A config must be one JSON object, no larger
+  than 64 KB, carrying every top-level setting. Anything else is refused and nothing is
+  saved. Before, any text that began with `{` and ended with `}` was saved and sent to
+  every page, where it could not be read, and it came back after every restart.
+- **A settings change that carries only some settings is refused.** It used to be saved
+  as sent, and the dock and the overlay then filled in the rest differently. Anything
+  that drives Timbre from outside the dock must send a full config
+  (`docs/EFFECTS.md`, "Wire format").
+- **The saved settings are checked before they are sent to a page.** Damaged ones are
+  not sent (and not deleted): the dock says so and tells you to change any setting to
+  replace them.
+- **Errors carry a short code and a fixed message**: `bad-config`, `partial-config`,
+  `too-large`, `bad-cache`, `exception`. An exception's own text now goes to
+  Streamer.bot's log only, not to every connected page.
+- **The overlay reads a broadcast the way the dock does**, over the defaults, so both end
+  with the same settings from the same message.
+- **The dock says why a change was refused**, in its own words for each code, and stops
+  re-sending a change that was refused until you change something or it reconnects.
+
+### Not checked by the action
+
+- It checks structure, not full JSON: a misspelt `true`, a missing comma or a malformed
+  number still gets through, and no page can then read the broadcast. The pages check
+  values and ranges, as before.
+- If a later release removes a top-level setting, the action must be re-pasted with it,
+  or every dock change is refused as "not a full config". The dock shows that message.
+
 ## [1.0.187] — 2026-11-23
 
 Copy the `overlay` folder and refresh the overlay sources. Nothing to re-paste. This
@@ -802,7 +838,8 @@ StreamService / ControlPanel toolkit. (`ee5c34a`)
 
 Verified offline: `verify` 28/28, `verify:render` 14/14.
 
-[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.187...main
+[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.189...main
+[1.0.189]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.187...v1.0.189
 [1.0.187]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.185...v1.0.187
 [1.0.185]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.183...v1.0.185
 [1.0.183]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.181...v1.0.183
