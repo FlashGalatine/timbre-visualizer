@@ -160,7 +160,12 @@
 //           peaks-mirror set no shadowBlur and their glow is the glow the blur gave; tunnel sets
 //           a rail's colour once, from the palette table, and paints no whole-canvas gradient;
 //           galaxy-ripple retires a ripple that has left the plane and fills a row's points
-//           together.
+//           together •
+//           pinned sources: a page whose address names a look keeps it over every config the dock
+//           sends (effect, gain, a toggle) while the other settings follow the dock, and one
+//           without keeps following; the dock's Copy source address gives an address whose page
+//           shows the look the dock showed at the click and keeps it after later pushes; the rose
+//           in the address is the WebGL canvas before any config arrives.
 
 import { spawn } from 'node:child_process';
 import { connect, createServer as createNetServer } from 'node:net';
@@ -8125,6 +8130,103 @@ async function main() {
     });
     await ctlPage.screenshot({ path: resolve(__dirname, 'control-render.png'), fullPage: true });
     obs.close();
+
+    // ── Pinned sources: an address that names a look keeps it ─────────────
+    {
+      const waitOn = (pg, fn) => pg.waitForFunction(fn, null, { timeout: 8000 }).then(() => true).catch(() => false);
+      const errorsOf = (pg) => { const e = []; pg.on('pageerror', (x) => e.push(String(x))); return e; };
+      const cfgOf = (pg) => pg.evaluate(() => JSON.parse(JSON.stringify(window.__timbre.config)));
+      // The look of a config: what an address can name of it, as the dock and a pinned page read it.
+      const lookOf = (cfg) => JSON.stringify(T.lookFromQuery('?' + T.lookToQuery(cfg)));
+      const dockConfig = (c) => { c.activeViz = 'comet'; c.gain = 140; c.showBorder = false; c.placement.x = 40; c.perViz.comet.trail = 77; };
+
+      // The address says matrix, no border, gain 150; the dock then sends something else.
+      const pinned = await ctxt.newPage();
+      const pinnedErrors = errorsOf(pinned);
+      await pinned.goto(overlayUrl + '&visualizer=matrix&showBorder=0&gain=150', { waitUntil: 'load' });
+      check('a page whose address names matrix starts on matrix', await waitOn(pinned, () => window.__timbre.currentVizName === 'matrix'));
+      await pushConfig((c) => { c.activeViz = 'visualizer'; c.showBorder = true; c.gain = 100; c.bounce = 77; });
+      check('the pinned page takes the part of the config the address does not name (bounce)', await waitOn(pinned, () => window.__timbre.config.bounce === 77));
+      const pn = await pinned.evaluate(() => ({ viz: window.__timbre.currentVizName, gain: window.__timbre.cfgGain, border: window.__timbre.config.showBorder }));
+      check('a pushed config does not move a pinned page off the effect in its address', pn.viz === 'matrix', pn.viz);
+      check('a pushed gain does not move a pinned page off the gain in its address', pn.gain === 1.5, String(pn.gain));
+      check('a pushed toggle does not move a pinned page off the toggle in its address', pn.border === false, String(pn.border));
+      check('the pinned page draws pixels on its 2D canvas', await waitOn(pinned, canvas2dHasPixels));
+      check('the pinned page throws nothing', pinnedErrors.length === 0, pinnedErrors.join(' | '));
+
+      // The same push, on a page whose address names nothing, is followed in full.
+      const plain = await ctxt.newPage();
+      const plainErrors = errorsOf(plain);
+      await plain.goto(overlayUrl, { waitUntil: 'load' });
+      check('a page with no look in its address follows the dock in every part', await waitOn(plain, () => window.__timbre.config.bounce === 77
+        && window.__timbre.currentVizName === 'visualizer' && window.__timbre.cfgGain === 1 && window.__timbre.config.showBorder === true));
+      check('the unpinned page throws nothing', plainErrors.length === 0, plainErrors.join(' | '));
+      await plain.close();
+      await pinned.close();
+
+      // The dock's Copy source address: the page it names shows the look the dock showed.
+      await pushConfig((c) => { dockConfig(c); c.micProcessing = false; });
+      const dock = await ctxt.newPage();
+      await dock.goto(controlUrl, { waitUntil: 'load' });
+      check('the dock shows the pushed config before the address is made', await waitOn(dock, () => document.getElementById('activeViz').value === 'comet'
+        && document.getElementById('g-gain').value === '140' && document.getElementById('t-showBorder').checked === false
+        && document.getElementById('place-x').value === '40' && !!document.getElementById('pv-comet-trail') && document.getElementById('pv-comet-trail').value === '77'));
+      await dock.selectOption('#selSourcePage', 'mic-visualizers-300x220.html');
+      await dock.click('#btnCopySource');
+      const field = await dock.inputValue('#txtSourceAddress');
+      const note = await dock.textContent('#sourceCopyNote');
+      check('Copy source address puts the chosen page and the look in the field',
+        field.startsWith(BASE + '/timbre-overlay/mic-visualizers-300x220.html?visualizer=comet'), field);
+      check('the address carries the dock\'s Streamer.bot port', field.endsWith('&sbport=' + WS_PORT), field);
+      check('the note says Copied or tells the streamer to copy it by hand', note === 'Copied.' || note === 'Select the address and copy it.', note);
+      const atClick = JSON.stringify(T.lookFromQuery(new URL(field).search));
+      const expected = T.defaultConfig(); dockConfig(expected);
+      check('the look in the address is the look the dock showed at the click', atClick === lookOf(expected), atClick);
+      await dock.close();
+
+      const page2 = await ctxt.newPage();
+      const page2Errors = errorsOf(page2);
+      await page2.goto(field, { waitUntil: 'load' });
+      check('the page at the copied address has had the dock\'s config of the click', await waitOn(page2, () => window.__timbre.config.micProcessing === false));
+      check('the page at the copied address shows the look the dock showed at the click', lookOf(await cfgOf(page2)) === atClick);
+      // The dock then moves on: another effect, another gain, the microphone setting back.
+      await pushConfig((c) => { c.activeViz = 'orbit'; c.gain = 33; c.showBorder = true; c.micProcessing = true; });
+      check('a later push reaches the page at the copied address (the microphone setting)', await waitOn(page2, () => window.__timbre.config.micProcessing === true));
+      const after = await page2.evaluate(() => ({ viz: window.__timbre.currentVizName, gain: window.__timbre.cfgGain }));
+      check('the page at the copied address keeps the look after a later push', lookOf(await cfgOf(page2)) === atClick && after.viz === 'comet' && after.gain === 1.4, JSON.stringify(after));
+      check('the page at the copied address throws nothing', page2Errors.length === 0, page2Errors.join(' | '));
+      // The same assertion on a page with no look in its address gives the opposite.
+      const page3 = await ctxt.newPage();
+      await page3.goto(overlayUrl, { waitUntil: 'load' });
+      await waitOn(page3, () => window.__timbre.config.micProcessing === true && window.__timbre.config.activeViz === 'orbit');
+      check('an unpinned page follows that push, so it does not show the look of the click', lookOf(await cfgOf(page3)) !== atClick);
+      await page3.close();
+      await page2.close();
+
+      // A WebGL effect in the address: its canvas is the visible one before any config arrives.
+      const rosePage = await ctxt.newPage();
+      const roseErrors = errorsOf(rosePage);
+      await rosePage.addInitScript(() => {
+        window.addEventListener('svc:message', (e) => {
+          if (window.__vizBeforeConfig === undefined && e.detail && e.detail.type === 'timbre:config') {
+            const c3 = document.getElementById('vizCanvas3D'), c2 = document.getElementById('vizCanvas2D');
+            window.__vizBeforeConfig = { viz: window.__timbre.currentVizName, gl: c3.style.display !== 'none', flat: c2.style.display === 'none' };
+          }
+        });
+      });
+      await rosePage.goto(overlayUrl + '&visualizer=rose', { waitUntil: 'load' });
+      check('a config arrives at the rose page', await waitOn(rosePage, () => window.__vizBeforeConfig !== undefined));
+      const before = await rosePage.evaluate(() => window.__vizBeforeConfig);
+      check('the rose in the address is the active effect before any config has arrived', !!before && before.viz === 'rose', JSON.stringify(before));
+      check('the WebGL canvas is the visible one before any config has arrived', !!before && before.gl === true && before.flat === true, JSON.stringify(before));
+      check('the rose page keeps the rose and the WebGL canvas after the config came in', await rosePage.evaluate(() => window.__timbre.currentVizName === 'rose'
+        && document.getElementById('vizCanvas3D').style.display !== 'none'));
+      check('the rose page throws nothing', roseErrors.length === 0, roseErrors.join(' | '));
+      await rosePage.close();
+
+      // Leave the mock as the dock block above left it: a 2D effect, defaults otherwise.
+      await pushConfig((c) => { c.activeViz = 'waveform'; });
+    }
 
     // ── The dock keeps the streamer's edits and names its failures (Sprint 3) ──
     // The dock is worked the way a streamer works it: the mouse on a slider, the arrow keys on a
