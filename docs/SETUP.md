@@ -100,7 +100,7 @@ The overlay starts capturing immediately (status `LISTENING`; `MIC DENIED` in ma
 capture failed; `WAITING` while acquiring). With Streamer.bot down the overlay still runs
 on its last/default settings and reconnects with backoff.
 
-## Several visualizers in one scene
+### Several visualizers in one scene
 
 By default every overlay page shows what the dock shows. To put two or more visualizers in
 one OBS scene, each with its own look, give each Browser Source an address that carries its
@@ -131,13 +131,14 @@ The parameters, all optional:
 
 | Parameter | Value | Example |
 |---|---|---|
-| `visualizer` | the effect's id, as in the dock's effect picker | `visualizer=rose` |
+| `visualizer` | the effect's id: its name in lowercase with hyphens, which is not always the name the dock's picker shows (see below) | `visualizer=rose` |
 | a top-level number: `bars`, `bounce`, `gain`, `colorSpeed`, `colorHue`, `bgOpacity`, `effectBgOpacity` | a number | `gain=150` |
 | a top-level toggle: `idleAnim`, `showLabels`, `showChevrons`, `showDecorations`, `showBorder` | `1` (on) or `0` (off) | `showBorder=0` |
 | `afterglow` | a number | `afterglow=0.8` |
 | `placement.x`, `placement.y`, `placement.size` | a number | `placement.size=140` |
-| `<visualizer id>.<knob>` | a number, or text for a text knob such as Matrix's text | `rose.cameraDrift=20` |
+| `<visualizer id>.<knob>` | a number, or text for a text knob such as Matrix's text (see below) | `rose.cameraDrift=20` |
 
+- The ids and knob names are not shown in the dock: the picker shows names, and for some effects the id differs from the name (the "Pride flag" is `pride-ribbon`, the "Fourth of July flag" is `july-fourth-stripes`). Typing `visualizer=pride-flag` or `visualizer=Rose` would be ignored. The easy way to get them right is to copy an address with the button and read the ids and knob names from it.
 - A number outside a setting's range is held to the nearest end of the range.
 - A parameter with an unknown name, a value of the wrong kind (such as `showBorder=yes`) or
   a visualizer or knob that does not exist is ignored; the page carries on and the rest of

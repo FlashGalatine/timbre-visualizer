@@ -11,8 +11,8 @@ traceability.
 ## [Unreleased]
 
 A Browser Source can now carry its own visualizer and look in its address. Copy `overlay`,
-`shared` and `control` to refresh every Timbre source and the dock; there is nothing to
-re-paste into Streamer.bot.
+`shared` and `control`, then refresh every Timbre source and the dock; nothing to re-paste
+into Streamer.bot.
 
 ### Added
 
