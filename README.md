@@ -59,8 +59,8 @@ OBS Browser Source and
 
 33 canvas-2D + 19 WebGL (three.js, vendored — works offline). Includes spectrum bars,
 waveforms, matrix rain with custom text, seasonal/holiday scenes, Pride flags, and
-spinning 3D STL models with a shared knob group (rotation, position, clones, spark
-particles). Add your own: drop a factory file in `overlay/factories/`, register it in
+floating 3D scenes that answer the voice (a rose that blooms, birds on a wire, a school
+of fish). Add your own: drop a factory file in `overlay/factories/`, register it in
 `shared/viz-config.js`, add a `<script>` tag — see [docs/EFFECTS.md](docs/EFFECTS.md).
 
 ## Verification
@@ -83,6 +83,5 @@ Built by **Ashe "Flash" Galatine**.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Third-party: three.js (MIT), Audiowide font
-(SIL OFL 1.1), and the bundled rose STL model (CC-BY-4.0, same author, generated
-with Meshy.ai) — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+MIT — see [LICENSE](LICENSE). Third-party: three.js (MIT) and the Audiowide font
+(SIL OFL 1.1) — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

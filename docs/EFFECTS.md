@@ -41,7 +41,6 @@ Script-scope globals available to factories (from core.js):
 | `micActive` | mic currently captured |
 | `micPeak` | loudest input sample over at least the last two looks (4096 samples at 48 kHz), 0 to 1, before Gain, or `null` when no mic |
 | `cfgGain`, `cfgBars`, `cfgBounce`, `cfgColorSpeed`, `cfgColorHue`, `cfgIdleAnim`, `cfgEffectBgOpacity` | normalized global knobs |
-| `cfgSTLObject` | the shared 3D-model knob group (STL effects) |
 | `perViz['my-effect']` | your effect's own knobs |
 | `getColor(t)` | palette lookup → `[r,g,b]` |
 | `THREE` | three.js r160 (vendored) |
@@ -61,14 +60,6 @@ let horizontal layouts (bars, columns, scrolling scenes) fill `W` naturally.
 3. Add the `<script src="factories/my-effect.js">` tag to all three overlay HTML pages.
 
 `npm run verify` fails if a name/factory-file/defaults entry is missing — run it.
-
-## 3D STL effects
-
-The STL effect (`rose`) shares the
-`stlObject` knob group and a hand-rolled **binary STL** parser (see
-`overlay/factories/rose.js`). ASCII STL files are not supported — export binary. To swap
-in your own model, replace the file in `overlay/assets/` and update the `*_STL_URL`
-constant in the factory.
 
 ## Kit scenes (floating 3D)
 
@@ -1275,6 +1266,104 @@ Things worth knowing:
 - A folded wing is drawn as nothing: a sitting bird is its body, its tail and its beak.
 - A bird's nerve starts at 0.10, so a band that sits at about 0.08 with nobody talking (hum,
   or a noisy room at a high Gain) keeps the boldest birds of its stretch in the air.
+
+## The rose (`TimbreRose`)
+
+`overlay/rose.js` is the Rose effect, as `globalThis.TimbreRose`: one rose, made in code,
+that grows thorns and sprouts petals with the voice, and whose petals fly as a flock on a
+thump of the mic. `factories/rose.js` is one line,
+`VIZ_FACTORIES['rose'] = TimbreScene.factory(() => TimbreRose.definition())`. It follows the
+boids closely. It offers:
+
+- **The sound and the settings.** `loudness`, `settle`, `pulseOf` and `idle` as the boids
+  have them. `countFor(density)` is how many petals there are: 40 at Density 0, 56 at 50, 72
+  at 100. `keptFor(n)` is how many of them are always out (43%: 17, 24, 31).
+  `thornFor(thorns)` is how long a thorn grows: nothing at Thorns 0, 0.26 at 50, 0.52 at 100.
+  `callOf(band, flame)` is a folded petal's call: its band (and a quarter more) or 0.85 of
+  the voice, whichever is louder. `thornCall(band, flame, j)` is how far out thorn `j` wants
+  to be: its band, or a loud voice.
+- **The stem.** One curve from its foot (`FOOT`) by a bend (`BEND`) to the head (`HEAD`),
+  which it runs into the way the head faces. `curve(ro)` sets it from where the head has
+  swayed to; `stemAt(ro, t)` is where it is a share `t` of the way up, the way it runs there
+  and two directions across it; `stemRadius(t)` is how thick it is.
+- **The head.** `createRose(seed, n)` is every petal there can be (`PETALS_MAX`, 72) with
+  what is its own. `state` is 0 on the head, 1 flying, 2 coming home. `lay(ro, n)` lays the
+  head for `n` petals: petal `i` is the `i`-th from the heart, about 137.5 degrees further
+  round than the last, a little longer and wider, and listens to band `i % 8`. The first
+  `kept` are out; each of the rest is folded away and has a nerve, greater the nearer the rim.
+  `pose(ro)` says where each petal belongs just now: its base, the way it grows, its inner
+  face, and how far it wraps round, how deep its cup is and how far its tip rolls back.
+- **How far a petal leans out** goes by its rank among the petals now out: its rank over how
+  full the head is (`ro.full`, which `fullOf` measures and a step follows). So the outermost
+  petals of a small rose open as the outermost of a full one do, and as more unfurl the ones
+  inside them stand closer. The inner ranks stand close and only the outer ones open
+  (`LEAN`, `LEAN_FROM`): leaning out evenly from heart to rim, it read as a cabbage.
+- **A step.** `stepRose(ro, n, how)` is one step of `STEP` (1/60 s). The head sways on its
+  stem as a spring, more for a loud voice, and nods when it is knocked. The bloom opens with
+  the voice and a little further on a beat. A folded petal whose call is louder than its
+  nerve unfurls, stays out for its own time after its last call, and folds away to exactly
+  nothing. A thorn follows its call, quickly out and slowly in; with the mic off
+  (`how.mic` false) no thorn grows. `advance(ro, n, dt, how)` takes a step once half of it
+  has come due, six at most in a frame; `ro.left` is how far the rose is behind its steps.
+- **The ripple.** Each step remembers the syllable (`how.pulse`). `rippleAt(ro, ago)` is the
+  ripple as it was: a petal `u` of the way to the rim leans out and flashes `WAVE_SPAN * u`
+  steps later; a thorn and a leaf answer later the nearer the foot they are (`STEM_WAVE`).
+- **The thump.** `scatter(ro, n, strength, random)` throws every petal off the head, out
+  from its axis and along it; one already in the air is thrown off its way. Each then flies
+  alone for a while (`startle`), to its own part of the air. `gather(ro, n, random)` starts
+  them for home, from the heart outward over `HOME_OVER` seconds.
+- **Flying.** `leadAt(out, tau, flame)` is the lead, which wheels round the box. A loose petal
+  flies at its cruising speed and steers by turning, as a bird does: toward its own place by
+  the lead (kept inside the air: `AIR`, `ROOM`), off any petal too close, the way the petals
+  near it fly, and back from the edge of its air. It heads the way it flies and tumbles about
+  that way; its face is carried along from step to step, so it never spins about itself.
+- **Staying in the picture.** `HARD` is all the air there is, an egg a little larger than
+  `AIR`: from `HARD_FROM` of the way out a loose petal loses its speed outward, and it does
+  not pass the edge. However often the petals are thrown, none leaves the frame.
+- **Coming home.** A petal makes for a point a little way along the way it will grow, then
+  for its base, slowing as it comes. Near its place it turns to lie as it will sit, at
+  `LAND_TURN` radians a second (faster only if it must, to be there as it touches down), and
+  takes its shape on the head again. It lands within `LANDED`, flashes, stays out a moment
+  and then answers to the sound like any other.
+- **What is drawn.** `bladeGrid()` is the one grid a petal, a leaflet and a sepal are drawn
+  with. `dress(out, ro, n, look)` is what each is sent: the five sepals, the six leaflets,
+  then the petals (its base, the way it grows, its inner face; its length, width, wrap, cup
+  and roll; its rank, its flash, how grown and how loose it is). A loose petal is drawn
+  `AWAY` of its size, flatter, about its own middle, rocking as it tumbles.
+  `stalk(out, ro, look)` is the stem with the heart on its top, the sixteen thorns and the
+  two leaf stalks, as one mesh worked out again each frame; `stalkIndex()` is its triangles.
+  `leafAt(ro, m, flame)` is a leaf; `thornLength(ro, j, long)` how long a thorn is drawn.
+- **Camera.** `orbitAt(t, drift)`, `swayFor(drift)`.
+- `definition()`: the scene, for `TimbreScene.factory()`.
+
+Things worth knowing:
+
+- There is no model file. The rose that was here before was the wireframe of
+  `overlay/assets/rose.stl`, with a group of "3D model" settings of its own
+  (`config.stlObject`). Both are gone; a saved config that still has `stlObject` is read as
+  before and the key is dropped.
+- The head sways a little even in silence, so the picture is not exactly still then; the
+  petals, the thorns and the bloom do come to rest (a folded petal and a thorn drawn in are
+  exactly 0). With the mic and Idle animation both off no step is taken and nothing moves.
+- The voice is the mic's alone. With the mic off and Idle animation on, the bands swell in
+  turn and a few petals open and fold; the kit's own idle swell is not heard as a voice, and
+  no thorn grows.
+- The petals take the palette's colour (`uPal[0]`, a little further round toward the rim:
+  `PETAL_HUES`), and a thorn's tip its band's. The stem, the leaves and the sepals are green
+  whatever the palette is, with a little of the palette in it (`GREEN`, `GREEN_PALETTE`), so
+  when the palette's colour is green the petals are green too. The heart is gold; it lies low
+  under the petals and stands up when the head is bare.
+- A blade is shaped in the vertex shader (`blade()` in `BLADE_VERT`): bent across round a
+  cylinder, cupped along, its tip rolled back. Its face at a point is worked out there from
+  the points beside it. Everything is solid and drawn with the depth buffer, both sides.
+- When Density changes the head is laid again: every petal is back on it at once.
+- Nothing comes from `Math.random`. A thump throws the petals by the number of the thump.
+- When a thump starts and when the petals start for home is `TimbreHelix.createShatter`'s
+  machine; Scatter sensitivity and Regather seconds are its two settings under names that
+  fit a rose. (The machine waits at least 0.3 s of calm, so Regather seconds 0 is that. It
+  calls the rose whole 1.5 s after the petals start for home; the last of them land a little
+  after that.)
+- The scene is made to fill the frame at Scene Size 100. Enlarged past that it is cropped.
 
 ## Wire format (for driving Timbre from elsewhere)
 

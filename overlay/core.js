@@ -91,9 +91,8 @@ let cfgShowDecorations = true;
 let cfgShowBorder = true;
 
 /* Full current config (complete + clamped, from TIMBRE.sanitizeConfig). The
-   factories read the two nested blocks through these aliases. */
+   factories read its per-effect block through this alias. */
 let timbreConfig = TIMBRE.defaultConfig();
-let cfgSTLObject = timbreConfig.stlObject;
 const perViz = timbreConfig.perViz;
 
 /* ── Decoration helpers — apply to BOTH canvases so 2D + 3D stay aligned ── */
@@ -223,7 +222,6 @@ function applyConfig(raw) {
   applyBgOpacity(cfg.bgOpacity);
 
   // Mutate the shared objects in place — factories hold references to them.
-  Object.assign(cfgSTLObject, cfg.stlObject);
   for (const [name, knobs] of Object.entries(cfg.perViz)) {
     if (perViz[name]) Object.assign(perViz[name], knobs);
     else perViz[name] = knobs;

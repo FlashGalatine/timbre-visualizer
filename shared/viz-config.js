@@ -38,7 +38,7 @@
     'thanksgiving-harvest', 'winter-aurora',
     'pride-ribbon', 'bi-pride-ribbon', 'ace-pride-ribbon', 'trans-pride-ribbon', 'july-fourth-stripes',
     'sunburst-3d', 'mountains-3d', 'phosphor', 'chladni', 'glass-prism', 'metaball', 'ink',
-    'shards', 'jelly', 'school-of-fish', 'boids',
+    'shards', 'jelly', 'school-of-fish', 'boids', 'rose',
   ];
 
   // The name the control panel shows, where the id no longer says what the effect
@@ -105,7 +105,7 @@
     'jelly':         { stiffness: 50, shatterSensitivity: 50, reconnectSeconds: 3, cameraDrift: 50 },
     'boids':         { cohesion: 50, density: 50, frightSensitivity: 50, settleSeconds: 3, cameraDrift: 50 },
     'school-of-fish': { density: 50, frightSensitivity: 50, regroupSeconds: 3, cameraDrift: 50 },
-    'rose':          {},
+    'rose':          { density: 50, thorns: 50, scatterSensitivity: 50, regatherSeconds: 3, cameraDrift: 50 },
     'spring-blossoms': { petalDensity: 50, windStrength: 50 },
     'summer-tide':     { waveAmplitude: 50, sunSize: 50, sparkleRate: 50 },
     'autumn-leaves':   { leafDensity: 50, vortexStrength: 30 },
@@ -127,50 +127,8 @@
   };
 
   // Per-knob max overrides for numeric perViz values; default max is 100.
-  const PER_VIZ_MAX = { 'dna': { reconnectSeconds: 10 }, 'pulse-rings': { reconnectSeconds: 10 }, 'orbit': { planets: 9 }, 'chladni': { rotateX: 360, rotateY: 360, rotateZ: 360 }, 'glass-prism': { reconnectSeconds: 10 }, 'jelly': { reconnectSeconds: 10 }, 'school-of-fish': { regroupSeconds: 10 }, 'boids': { settleSeconds: 10 },
+  const PER_VIZ_MAX = { 'dna': { reconnectSeconds: 10 }, 'pulse-rings': { reconnectSeconds: 10 }, 'orbit': { planets: 9 }, 'chladni': { rotateX: 360, rotateY: 360, rotateZ: 360 }, 'glass-prism': { reconnectSeconds: 10 }, 'jelly': { reconnectSeconds: 10 }, 'school-of-fish': { regroupSeconds: 10 }, 'boids': { settleSeconds: 10 }, 'rose': { regatherSeconds: 10 },
     'mountains-3d': { rotateX: 360, rotateY: 360, rotateZ: 360 }, 'phosphor': { rotateX: 360, rotateY: 360, rotateZ: 360 } };
-
-  // Shared knob group for any visualizer that loads a 3D STL model. Whichever
-  // STL viz is active reads from `config.stlObject`; adding a new STL viz means
-  // just consuming it in the factory — no new knob plumbing.
-  const STL_OBJECT_DEFAULTS = {
-    intensity: 50,
-    zoom: 50,
-    sparkThickness: 0,
-    sparkDistance: 50,
-    sensitivity: 100,
-    jitter: 35,
-    smoothing: 70,
-    rotX: 0, rotY: 0, rotZ: 0,
-    posX: 0, posY: 0, posZ: 0,
-    // Additional copies of the STL alongside the original (total = 1 + clones).
-    clones: 0,
-    // Bucket: <25=rows, <50=cols, <75=grid, ≥75=scattered.
-    arrangement: 0,
-    // World units between copies (and scatter cube half-extent).
-    spacing: 0.5,
-    // Bucket: <33=X, <67=Y, ≥67=Z. Default 50 keeps the original Y-axis spin.
-    spinAxis: 50,
-  };
-  const STL_OBJECT_RANGES = {
-    intensity:      { min: 0,    max: 200, step: 1 },
-    zoom:           { min: 0,    max: 100, step: 1 },
-    sparkThickness: { min: 0,    max: 100, step: 1 },
-    sparkDistance:  { min: 0,    max: 100, step: 1 },
-    sensitivity:    { min: 0,    max: 200, step: 1 },
-    jitter:         { min: 0,    max: 100, step: 1 },
-    smoothing:      { min: 0,    max: 100, step: 1 },
-    rotX:           { min: -180, max: 180, step: 1 },
-    rotY:           { min: -180, max: 180, step: 1 },
-    rotZ:           { min: -180, max: 180, step: 1 },
-    posX:           { min: -2,   max: 2,   step: 0.05 },
-    posY:           { min: -2,   max: 2,   step: 0.05 },
-    posZ:           { min: -2,   max: 2,   step: 0.05 },
-    clones:         { min: 0,    max: 8,   step: 1 },
-    arrangement:    { min: 0,    max: 100, step: 1 },
-    spacing:        { min: 0,    max: 2,   step: 0.05 },
-    spinAxis:       { min: 0,    max: 100, step: 1 },
-  };
 
   // Top-level numeric knobs with their ranges…
   const TOP_RANGES = {
@@ -206,7 +164,6 @@
     const cfg = { activeViz: 'visualizer', mic: { deviceId: '', label: '' } };
     for (const [k, r] of Object.entries(TOP_RANGES)) cfg[k] = r.default;
     for (const [k, v] of Object.entries(TOP_BOOLS)) cfg[k] = v;
-    cfg.stlObject = clone(STL_OBJECT_DEFAULTS);
     cfg.placement = {};
     for (const [k, r] of Object.entries(PLACEMENT_RANGES)) cfg.placement[k] = r.default;
     cfg.afterglow = AFTERGLOW_RANGE.default;
@@ -234,12 +191,6 @@
     if (partial.mic && typeof partial.mic === 'object') {
       if (typeof partial.mic.deviceId === 'string') cfg.mic.deviceId = partial.mic.deviceId.slice(0, 256);
       if (typeof partial.mic.label === 'string') cfg.mic.label = partial.mic.label.slice(0, 256);
-    }
-    if (partial.stlObject && typeof partial.stlObject === 'object') {
-      for (const [k, v] of Object.entries(partial.stlObject)) {
-        const r = STL_OBJECT_RANGES[k];
-        if (r && typeof v === 'number') cfg.stlObject[k] = clamp(v, r.min, r.max);
-      }
     }
     if (partial.placement && typeof partial.placement === 'object') {
       for (const [k, v] of Object.entries(partial.placement)) {
@@ -277,8 +228,6 @@
     AFTERGLOW_RANGE,
     DEFAULT_PER_VIZ,
     PER_VIZ_MAX,
-    STL_OBJECT_DEFAULTS,
-    STL_OBJECT_RANGES,
     TOP_RANGES,
     TOP_BOOLS,
     MAX_STRING,

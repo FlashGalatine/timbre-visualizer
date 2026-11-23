@@ -89,3 +89,31 @@ and Thorns; Idle; nothing live holds still; the colours.
 One independent review of the branch; its findings fixed check-first. Then the arithmetic
 and the scene are broken on purpose, one line at a time, and a check is written for every
 break nothing caught. Both suites, final stills, and the switch offered to the owner.
+
+## What changed while it was built
+
+- **The loose petals hovered.** As in the spike, a loose petal was pulled toward its place,
+  and slowed to a tumble there (0.64 a second in silence). It now flies as a bird does: at a
+  cruising speed, steering by turning, so the flock keeps moving round its lead.
+- **The flock came to the frame's side and top.** Its air is flatter and narrower than the
+  spike's, a petal's place is kept inside it (`ROOM`), and a loose petal cannot pass the edge
+  of all the air there is (`HARD`): it loses its speed outward near the edge, and is held to
+  it. Thrown every 0.6 s at the loudest with the camera swung as far as it goes, the furthest
+  any petal comes is 95% of the way to the frame's edge.
+- **A landing petal was turned by a blend** between how it flew and how it would sit, as it
+  was drawn. When the two were nearly opposite it flipped over in a step (0.69 radians). It
+  is now turned in its own steps, at a limited rate, and the blend is gone.
+- **Petals touched down at up to 1.25 a second.** The way home was underdamped. Near its
+  place a petal now steers twice as hard for a speed that falls with the distance left, and
+  touches down at about 0.3.
+- **A thrown petal tumbled up to 17 radians a second.** Its tumbling counts no more than two
+  cruising speeds.
+- **The heart was a pale cream** once the picture's tones were mapped; it is a deeper gold.
+- **Idle**: in the spike Idle animation swelled the bloom with the kit's idle level. Here the
+  voice is the mic's alone, as for the boids: the bands open and fold a few petals.
+- **The spike's petal colours drifted with the clock.** They move only as the palette's own
+  Colour speed moves them.
+
+Two checks of the render suite used the old Rose as "an older WebGL effect" whose renderer
+had made the canvas's context. No such effect is left, so the check now makes a renderer of
+its own on the canvas first, and the kit must still start cleanly after it.

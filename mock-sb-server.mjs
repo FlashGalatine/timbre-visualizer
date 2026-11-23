@@ -42,7 +42,6 @@ const MIME = {
   '.json': 'application/json; charset=utf-8',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
   '.svg': 'image/svg+xml', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf',
-  '.stl': 'application/octet-stream',
 };
 
 // The C# action's global-var cache: null until the first control-panel push,

@@ -12,6 +12,13 @@ traceability.
 
 ### Added
 
+- **Rose settings**: `density` (0 to 100, default 50: 40 to 72 petals, of which 43% are
+  always out), `thorns` (0 to 100, default 50: how long the thorns grow; none at 0),
+  `scatterSensitivity` (0 to 100, default 50; never at 0), `regatherSeconds` (0 to 10,
+  default 3: the calm wait before the petals come home) and `cameraDrift` (0 to 100, default
+  50) for the Rose effect, which also has the shared Scene placement sliders now. What the
+  new Rose is made of is in `overlay/rose.js` (`TimbreRose`), loaded by all three overlay
+  pages and by `verify` under Node, and documented in `docs/EFFECTS.md` ("The rose").
 - **Boids settings**: `density` (0 to 100, default 50: 36 to 84 birds), `frightSensitivity`
   (0 to 100, default 50; never at 0), `settleSeconds` (0 to 10, default 3: the calm wait
   before a fright is over) and `cameraDrift` (0 to 100, default 50) for the Boids effect.
@@ -216,6 +223,21 @@ traceability.
 
 ### Changed
 
+- **Rose is now a rose the voice makes bloom**, made in code, a scene on the scene kit. The
+  spinning wireframe of a model file is gone. One rose floats in the box on a leaning stem
+  with two leaves; in silence it is a small, neat rose with every petal on its head and a
+  smooth stem. The voice makes it grow: thorns come out of the stem (the stem is a spectrum:
+  each thorn listens to one of the eight lowest bands, low at the foot and high under the
+  head, and its tip wears that band's colour), and petals sprout, more of them the louder
+  the voice, until it is a full, wide bloom. Each syllable is a ripple from the heart of the
+  rose out through its petals and up the stem. In a pause the outer petals fold away and the
+  thorns draw in. A thump of the mic throws every petal off the head and they fly round the
+  box as a flock, tumbling, as the birds and the fish do; the bare head shows a golden
+  heart; after a calm wait they come home from the heart outward, each to its own place, and
+  none leaves the picture. With the mic off and Idle animation on, a few petals open and
+  fold and no thorn grows. The petals take the palette's colour; the stem and the leaves
+  stay green. Everything is solid, so it shows over a bright backdrop too. The effect's name
+  and id are unchanged. With this, every WebGL effect is a scene on the scene kit.
 - **Boids is now birds on a wire that the voice sends up**, a scene on the scene kit. The
   flat-shaded cones are gone. Three wires hang across the box, and in silence birds sit on
   them in rows, wings folded. The wires are a spectrum: each stretch listens to one of the
@@ -453,6 +475,16 @@ traceability.
 - **Peak Hold's marker is timed in seconds and scaled to the page**, so it looks the same
   at any frame rate. It falls faster than before on the two large pages (1440×1080 and
   1920×1080).
+
+### Removed
+
+- **The rose model and the "3D model" settings.** `overlay/assets/rose.stl` and its notice
+  are gone, with the shared settings group that only the old Rose still used (`stlObject`:
+  intensity, zoom, sparks, sensitivity, jitter, smoothing, rotation, position, clones,
+  arrangement, spacing, spin axis): its tables in `shared/viz-config.js`
+  (`STL_OBJECT_DEFAULTS`, `STL_OBJECT_RANGES`), `cfgSTLObject` in the overlay, and its group
+  in the control panel. A saved config that still holds `stlObject` is read as before and
+  the key is dropped. Rose has the Scene placement sliders and its own settings instead.
 
 ## [1.0.9] — 2026-07-29
 

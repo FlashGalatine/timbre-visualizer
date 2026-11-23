@@ -56,7 +56,6 @@
       <textarea id="matrixText" spellcheck="false"></textarea>
       <div class="row"><button id="btnMatrixApply">Apply text</button></div>
     </div>
-    <div id="stlKnobs" hidden><h2>3D model</h2><div id="stlKnobRows"></div></div>
     <div id="scenePlacement" hidden><h2>Scene placement</h2><div id="scenePlacementRows"></div></div>
     <div id="afterglowGroup" hidden><h2>Afterglow</h2><div id="afterglowRows"></div></div>
   </section>
@@ -96,14 +95,6 @@
   const TOGGLE_LABELS = {
     idleAnim: 'Idle animation', showLabels: 'Labels', showChevrons: 'Chevrons',
     showDecorations: 'Decorations', showBorder: 'Border + glow',
-  };
-  const STL_FORMAT = {
-    rotX: (v) => v + '°', rotY: (v) => v + '°', rotZ: (v) => v + '°',
-    posX: (v) => Number(v).toFixed(2), posY: (v) => Number(v).toFixed(2), posZ: (v) => Number(v).toFixed(2),
-    spacing: (v) => Number(v).toFixed(2),
-    sensitivity: (v) => v + '%', jitter: (v) => v + '%', smoothing: (v) => v + '%',
-    arrangement: (v) => (v < 25 ? 'Rows' : v < 50 ? 'Columns' : v < 75 ? 'Grid' : 'Scattered'),
-    spinAxis: (v) => (v < 33 ? 'X' : v < 67 ? 'Y' : 'Z'),
   };
   const nice = (k) => k.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
 
@@ -193,7 +184,6 @@
   vizSel.addEventListener('change', () => { cfg.activeViz = vizSel.value; renderVizKnobs(); push(); });
 
   // ── Per-viz knobs (rebuilt when the active viz changes) ────────────────
-  const STL_VIZ = new Set(T.VIZ_USES_3D.filter((n) => ['rose'].includes(n)));
   function renderVizKnobs() {
     const holder = $('perVizKnobs');
     holder.innerHTML = '';
@@ -208,17 +198,8 @@
     }
     $('matrixExtras').hidden = cfg.activeViz !== 'matrix';
     if (cfg.activeViz === 'matrix') refreshMatrixUI();
-    $('stlKnobs').hidden = !STL_VIZ.has(cfg.activeViz);
     $('scenePlacement').hidden = !T.VIZ_SCENES.includes(cfg.activeViz);
     $('afterglowGroup').hidden = !T.VIZ_AFTERGLOW.includes(cfg.activeViz);
-  }
-
-  // ── Shared STL knob group (built once; shown for STL vizes) ────────────
-  for (const [k, r] of Object.entries(T.STL_OBJECT_RANGES)) {
-    const row = sliderRow('stl-' + k, nice(k), r,
-      () => cfg.stlObject[k], (v) => { cfg.stlObject[k] = v; }, STL_FORMAT[k]);
-    $('stlKnobRows').appendChild(row);
-    refreshers.push(row.refresh);
   }
 
   // ── Scene placement knobs (built once; shown for scene effects) ────────

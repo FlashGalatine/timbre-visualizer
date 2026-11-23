@@ -78,9 +78,8 @@ on its last/default settings and reconnects with backoff.
 
 ## 5. Drive it
 
-Everything in the control panel pushes live: effect picker, per-effect knobs, the 3D
-model group (for the STL effects), matrix text, global sliders/toggles, and the mic
-device. Device labels need a one-shot mic grant in the dock — click **Refresh** next to
+Everything in the control panel pushes live: effect picker, per-effect knobs, scene
+placement, matrix text, global sliders/toggles, and the mic device. Device labels need a one-shot mic grant in the dock — click **Refresh** next to
 the device dropdown.
 
 The mic selection is part of the shared config, so **all overlay pages capture the same

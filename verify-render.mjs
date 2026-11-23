@@ -12,7 +12,7 @@
 //
 // Covered:  fake-mic LISTENING path • 2D factory (visualizer) draws pixels •
 //           config push flips viz (matrix), gain + label toggles apply •
-//           3D STL factory (rose) initializes WebGL • mic-denied idle path •
+//           the rose activates the WebGL canvas • mic-denied idle path •
 //           control.html emits a Timbre Push whose config round-trips •
 //           1920×1080 page: 1728×624 buffer, SCALE pinned 4.8, ring effect stays
 //           inside the canvas, decoration toggles rescale, no-border fills the box •
@@ -361,13 +361,13 @@ async function main() {
     await page.waitForTimeout(400);
     check('matrix draws pixels', await page.evaluate(canvas2dHasPixels));
 
-    // ── 3D STL factory ─────────────────────────────────────────────────────
+    // ── A WebGL effect takes the 3D canvas ─────────────────────────────────
     await pushConfig((c) => { c.activeViz = 'rose'; });
     const rose = await page.waitForFunction(
       () => window.__timbre.currentVizName === 'rose' && document.getElementById('vizCanvas3D').style.display !== 'none',
       { timeout: 5000 }).then(() => true).catch(() => false);
-    check('3D STL factory (rose) activates the WebGL canvas', rose);
-    await page.waitForTimeout(1200); // STL fetch + first frames
+    check('a WebGL effect (the rose) activates the WebGL canvas', rose);
+    await page.waitForTimeout(600); // first frames
 
     await pushConfig((c) => { c.activeViz = 'thanksgiving-harvest'; });
     await page.waitForFunction(() => window.__timbre.scene && window.__timbre.scene.active, { timeout: 5000 }).catch(() => {});
@@ -4593,6 +4593,346 @@ async function main() {
 
     }
 
+    // ── The rose: a kit scene of a rose that grows thorns and sprouts petals, and whose petals fly as a flock ──
+    {   // its own block: the names below are the rose's own
+    // Build the scene afresh, drive the level, the 32 bins and the mic's peak by hand, and read the
+    // canvas and the scene after each step. A step gives level, secs, and either all (every bin,
+    // 0..1) or bins ([[bin, 0..1], ...]); peak is the raw peak the thump hears (0 unless given);
+    // idle: true has the mic off, off: true has the mic and Idle animation off; knobs sets settings
+    // from that step on (watchEdge: the canvas's four edges are looked at after every frame of the
+    // step, not only its last); gap: milliseconds the page stops drawing for, before the step;
+    // wobble: every other frame comes that share of a frame early and the rest that much late.
+    // Beside the scene, the rose is made again here from the arithmetic alone, frame for frame (the
+    // bands followed, the syllable, each thump and homecoming as the scene reports it, every step,
+    // what each blade and the stalk are sent), and model says how far the scene's own is from it.
+    // The palette is turned to the colour furthest from green, so that petals and leaves can be told apart.
+    const ROSE = 'rose';
+    const roseRun = (steps, { fps = 60, knobs = null, hue = null, colorSpeed = null, gain = null } = {}) => wide.evaluate(({ id, steps, fps, knobs, hue, colorSpeed, gain }) => {
+      window.frame = function () {};
+      const saved = { frequencies, micActive, cfgIdleAnim, cfgColorHue, cfgColorSpeed, cfgGain, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz[id]);
+      try {
+        if (knobs) Object.assign(perViz[id], knobs);
+        if (hue === null) { let best = -1e9; for (let i = 0; i < PALETTE.length; i++) { const c = getColor(i), far = c[0] + c[2] - 2 * c[1]; if (far > best) { best = far; hue = i; } } }
+        cfgColorHue = hue;
+        if (colorSpeed !== null) cfgColorSpeed = colorSpeed;
+        if (gain !== null) cfgGain = gain;
+        TimbreScene.testLevel = 0;
+        micPeak = 0;
+        setActiveViz('visualizer'); setActiveViz(id);
+        const K = TimbreRose, follow = TimbreScene.follow;
+        const knob = (name, otherwise = 50) => (typeof perViz[id][name] === 'number' ? perViz[id][name] : otherwise);
+        const m = { ok: true, bands: new Float32Array(8), ro: K.createRose(K.SEED, K.countFor(knob('density'))), trail: 0, flash: 0, clock: 0, thumps: 0, jostles: 0, gathers: 0, random: K.rng(7),
+          sent: { pos: new Float32Array(K.BLADES_MAX * 3), fwd: new Float32Array(K.BLADES_MAX * 3), nrm: new Float32Array(K.BLADES_MAX * 3), A: new Float32Array(K.BLADES_MAX * 4), B: new Float32Array(K.BLADES_MAX * 4), C: new Float32Array(K.BLADES_MAX * 4) },
+          st: { pos: new Float32Array(K.STALK_POINTS * 3), nrm: new Float32Array(K.STALK_POINTS * 3), tone: new Float32Array(K.STALK_POINTS * 3) } };
+        const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), f = new Uint8Array(32), out = [];
+        let now = 100000 + 1000 / 120, last = null;
+        for (const st of steps) {
+          TimbreScene.testLevel = st.level;
+          micActive = !st.idle && !st.off;
+          cfgIdleAnim = st.off ? false : saved.cfgIdleAnim;
+          if (st.knobs) Object.assign(perViz[id], st.knobs);
+          f.fill(st.all !== undefined ? Math.round(st.all * 255) : 0);
+          if (st.bins) for (const [i, v] of st.bins) f[i] = Math.round(v * 255);
+          frequencies = f;
+          micPeak = st.peak || 0;
+          let stepsTaken = 0, stepsMost = 0, stepsLeast = 99, flashMost = 0, pulseMost = 0, kickMost = 0, openMost = 0, openLeast = 999, flyingMost = 0, flyingLeast = 999, comingMost = 0, thornsMost = 0, looseFrames = 0, phases = [], homeAt = -1, edgeFrames = 0, dipMost = 0;
+          const W0 = gl.drawingBufferWidth, H0 = gl.drawingBufferHeight;
+          // Is anything drawn in this strip of the canvas? (For a step with watchEdge, the four edges are looked at after every frame.)
+          const strip = (x, y, sw, sh) => { const b = new Uint8Array(sw * sh * 4); gl.readPixels(x, y, sw, sh, gl.RGBA, gl.UNSIGNED_BYTE, b); for (let q = 3; q < b.length; q += 4) if (b[q] >= 25) return true; return false; };
+          if (st.gap) { now += st.gap; m.ok = false; }   // what the machine does about a page that stopped is its own business: the rose is not made again past one
+          for (let i = 0, n = Math.round(st.secs * fps); i < n; i++) {
+            const dt = (1 + (st.wobble || 0) * (i % 2 ? 1 : -1)) / fps;
+            now += 1000 * dt;
+            currentViz.draw(now, dt);
+            const live = window.__timbre.scene.state;
+            if (st.watchEdge && (strip(0, H0 - 4, W0, 4) || strip(0, 0, W0, 4) || strip(0, 0, 4, H0) || strip(W0 - 4, 0, 4, H0))) edgeFrames++;
+            stepsTaken += live.steps; if (live.steps > stepsMost) stepsMost = live.steps; if (live.steps < stepsLeast) stepsLeast = live.steps;
+            if (live.flash > flashMost) flashMost = live.flash; if (live.pulse > pulseMost) pulseMost = live.pulse; if (live.kick > kickMost) kickMost = live.kick;
+            if (live.open > openMost) openMost = live.open; if (live.open < openLeast) openLeast = live.open;
+            if (live.flying > flyingMost) flyingMost = live.flying; if (live.flying < flyingLeast) flyingLeast = live.flying; if (live.coming > comingMost) comingMost = live.coming;
+            if (live.thorns > thornsMost) thornsMost = live.thorns;
+            if (live.head[1] < dipMost) dipMost = live.head[1];
+            if (live.phase === 'pieces') looseFrames++;
+            if (phases[phases.length - 1] !== live.phase) phases.push(live.phase);
+            if (live.attached === live.petals) { if (homeAt < 0) homeAt = i; } else homeAt = -1;
+            // The same frame, from the arithmetic alone.
+            const isLive = micActive || cfgIdleAnim, count = K.countFor(knob('density')), flame = K.settle(live.flame), kick = K.settle(live.kick);
+            if (isLive) m.clock += dt;
+            if (count !== m.ro.n) K.lay(m.ro, count);
+            for (let b = 0; b < 8; b++) {
+              let v = 0;
+              if (micActive) v = K.loudness(f, b, cfgGain); else if (cfgIdleAnim) v = K.idle(b, m.clock);
+              m.bands[b] = follow(m.bands[b], v, v > m.bands[b] ? K.RISE : K.FALL, dt);
+              if (v === 0) m.bands[b] = K.settle(m.bands[b]);
+            }
+            m.trail = follow(m.trail, flame, K.TRAIL, dt);
+            const pulse = K.pulseOf(flame, m.trail);
+            m.flash = K.settle(m.flash * Math.exp(-dt / K.FLASH_S));
+            if (live.thumps > m.thumps) { m.thumps = live.thumps; m.random = K.rng(1000 + m.thumps); K.scatter(m.ro, count, 1, m.random); m.flash = 1; }
+            else if (live.jostles > m.jostles) { m.jostles = live.jostles; K.scatter(m.ro, count, K.JOSTLE, m.random); m.flash = Math.max(m.flash, 0.6); }
+            else if (live.gathers > m.gathers) { m.gathers = live.gathers; K.gather(m.ro, count, m.random); }
+            if (isLive) K.advance(m.ro, count, dt, { flame, kick, bands: m.bands, pulse, mic: micActive });
+            K.dress(m.sent, m.ro, count, { flame, kick, flash: m.flash, lead: m.ro.left });
+            K.stalk(m.st, m.ro, { thorn: K.thornFor(knob('thorns')), flame });
+            m.count = count; m.pulse = pulse;
+          }
+          const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);   // row 0 is the bottom of the canvas
+          const s = window.__timbre.scene, state = s.state, P = state.points, V = state.speeds, ST = state.states, n = state.petals, ro = m.ro;
+          const mul = (mt, v) => [0, 1, 2, 3].map((r) => mt[r] * v[0] + mt[4 + r] * v[1] + mt[8 + r] * v[2] + mt[12 + r] * v[3]);
+          const spot = (x, y, z) => { const c = mul(state.proj, mul(state.view, mul(state.world, [x, y, z, 1]))); return [Math.floor((c[0] / c[3] * 0.5 + 0.5) * w), Math.floor((c[1] / c[3] * 0.5 + 0.5) * h)]; };
+          const rgbaAt = (x, y, z) => { const [px0, py0] = spot(x, y, z); return px0 < 0 || py0 < 0 || px0 >= w || py0 >= h ? [0, 0, 0, -1] : Array.from(px.subarray((py0 * w + px0) * 4, (py0 * w + px0) * 4 + 4)); };
+          const like = (c, d) => (c[0] * d[0] + c[1] * d[1] + c[2] * d[2]) / ((Math.hypot(c[0], c[1], c[2]) || 1) * (Math.hypot(d[0], d[1], d[2]) || 1));
+          // solid: pixels something covers. petal: those nearer the petals' colour than the stem's green; green: the others.
+          // away: petal pixels more than 1.15 from the head (loose petals). part: pixels half covered. edge: anything at the canvas's edge.
+          const head = spot(state.at[0], state.at[1], state.at[2]), unitPx = Math.hypot(spot(state.at[0] + 1, state.at[1], state.at[2])[0] - head[0], spot(state.at[0] + 1, state.at[1], state.at[2])[1] - head[1]) || 1;
+          let solid = 0, petal = 0, green = 0, away = 0, part = 0, edge = 0, sx = 0, sum = 0;
+          const petalSum = [0, 0, 0], greenSum = [0, 0, 0], box = [w, -1, h, -1], petalBox = [w, -1, h, -1];
+          for (let i = 0; i < px.length; i += 4) {
+            const x = (i / 4) % w, y = Math.floor(i / 4 / w), a = px[i + 3];
+            if (a >= 250) {
+              solid++; sx += x; sum += px[i] + px[i + 1] + px[i + 2];
+              const c = [px[i], px[i + 1], px[i + 2]];
+              if (like(c, state.pal[0]) > like(c, state.green)) {
+                petal++; petalSum[0] += c[0]; petalSum[1] += c[1]; petalSum[2] += c[2];
+                if (Math.hypot(x - head[0], y - head[1]) > 1.15 * unitPx) away++;
+                if (x < petalBox[0]) petalBox[0] = x; if (x > petalBox[1]) petalBox[1] = x; if (y < petalBox[2]) petalBox[2] = y; if (y > petalBox[3]) petalBox[3] = y;
+              } else { green++; greenSum[0] += c[0]; greenSum[1] += c[1]; greenSum[2] += c[2]; }
+              if (x < box[0]) box[0] = x; if (x > box[1]) box[1] = x; if (y < box[2]) box[2] = y; if (y > box[3]) box[3] = y;
+              if (x < 4 || y < 4 || x >= w - 4 || y >= h - 4) edge++;
+            } else if (a >= 25) { part++; if (x < 4 || y < 4 || x >= w - 4 || y >= h - 4) edge++; }
+          }
+          const diff = { n: 0, max: 0 };
+          if (last && last.length === px.length) for (let i = 0; i < px.length; i++) { const d = Math.abs(px[i] - last[i]); if (d) { diff.n++; if (d > diff.max) diff.max = d; } }
+          last = px;
+          // Where the middle of each loose petal falls on the canvas, and whether something is drawn there; how fast they fly, and how far from the lead.
+          let onPetal = 0, onCanvas = 0, speed = 0, fromLead = 0, flashing = 0;
+          const SB = state.sentB;
+          for (let i = 0; i < n; i++) {
+            if (SB[(K.FIXED + i) * 4 + 3] > 0.05) flashing++;
+            if (ST[i] === 0) continue;
+            const [x, y] = spot(P[i * 3] + V[i * 3] * state.left, P[i * 3 + 1] + V[i * 3 + 1] * state.left, P[i * 3 + 2] + V[i * 3 + 2] * state.left);
+            if (x >= 0 && y >= 0 && x < w && y < h) { onCanvas++; if (px[(y * w + x) * 4 + 3] >= 250) onPetal++; }
+            speed += Math.hypot(V[i * 3], V[i * 3 + 1], V[i * 3 + 2]); fromLead += Math.hypot(P[i * 3] - state.lead[0], P[i * 3 + 1] - state.lead[1], P[i * 3 + 2] - state.lead[2]);
+          }
+          // The thorns: for each, a place a third of the way along where a full thorn would be. Is something drawn there, and what colour?
+          const thornAt = [];
+          for (let j = 0; j < K.THORNS; j++) {
+            const t = K.THORN_SPAN[0] + K.THORN_SPAN[1] * (j + 0.5) / K.THORNS, sa = K.stemAt(ro, t), az = j * K.THORN_TURN[0] + K.THORN_TURN[1], L = K.THORN_LONG;
+            const o = [0, 1, 2].map((k) => sa.e1[k] * Math.cos(az) + sa.e2[k] * Math.sin(az)), g = 1 / 3;
+            thornAt.push(rgbaAt(...[0, 1, 2].map((k) => sa.at[k] + o[k] * (K.stemRadius(t) * 0.6 + L * g) - sa.run[k] * K.THORN_HOOK[1] * L * g * g)));
+          }
+          // The heart on the stem's top, and a place halfway up the stem.
+          const heart = rgbaAt(...[0, 1, 2].map((k) => state.at[k] + state.top[k] * 0.05)), mid = K.stemAt(ro, 0.2), stemMid = rgbaAt(mid.at[0], mid.at[1], mid.at[2]);
+          // The rose made again, beside the scene's own.
+          const model = { ok: m.ok, count: m.count, gapP: 0, gapV: 0, gapGrown: 0, gapThorn: 0, gapSent: 0, gapStalk: 0, gapBands: 0, states: true };
+          if (m.count !== n) model.ok = false;
+          else {
+            const GR = state.grownOf, TH = state.thornOf, blades = K.FIXED + n;
+            for (let i = 0; i < n * 3; i++) { model.gapP = Math.max(model.gapP, Math.abs(P[i] - ro.p[i])); model.gapV = Math.max(model.gapV, Math.abs(V[i] - ro.v[i])); }
+            for (let i = 0; i < n; i++) { model.gapGrown = Math.max(model.gapGrown, Math.abs(GR[i] - ro.grown[i])); if (ST[i] !== ro.state[i]) model.states = false; }
+            for (let j = 0; j < K.THORNS; j++) model.gapThorn = Math.max(model.gapThorn, Math.abs(TH[j] - ro.thorn[j]));
+            for (const [mine, theirs, per] of [[m.sent.pos, state.sentPos, 3], [m.sent.fwd, state.sentFwd, 3], [m.sent.nrm, state.sentNrm, 3], [m.sent.A, state.sentA, 4], [m.sent.B, state.sentB, 4], [m.sent.C, state.sentC, 4]]) for (let i = 0; i < blades * per; i++) model.gapSent = Math.max(model.gapSent, Math.abs(mine[i] - theirs[i]));
+            const SP = state.stalkPos, TN = state.stalkTone;
+            for (let i = 0; i < K.STALK_POINTS * 3; i++) model.gapStalk = Math.max(model.gapStalk, Math.abs(SP[i] - m.st.pos[i]), Math.abs(TN[i] - m.st.tone[i]));
+            for (let b = 0; b < 8; b++) model.gapBands = Math.max(model.gapBands, Math.abs(state.bands[b] - m.bands[b]));
+            model.pulse = Math.abs(state.pulse - m.pulse); model.flash = Math.abs(state.flash - m.flash); model.clock = Math.abs(state.clock - m.clock); model.left = Math.abs(state.left - ro.left);
+            model.head = Math.max(...[0, 1, 2].map((k) => Math.abs(state.head[k] - ro.head[k]))); model.bloom = Math.abs(state.bloom - ro.bloom) + Math.abs(state.full - ro.full);
+            model.counts = state.attached === ro.attached && state.flying === ro.flying && state.coming === ro.coming && state.open === ro.open && state.kept === ro.kept && state.homing === ro.homing;
+          }
+          const size = (b) => ({ w: b[1] < 0 ? 0 : b[1] - b[0] + 1, h: b[3] < 0 ? 0 : b[3] - b[2] + 1, x0: b[0], x1: b[1], y0: b[2], y1: b[3] });
+          const g = getColor(state.colorT + PALETTE.length / 2), loose = n - state.attached;
+          out.push({ state, model, solid, petal, green, away, part, edge, edgeFrames, stepsTaken, stepsMost, stepsLeast, flashMost, pulseMost, kickMost, openMost, openLeast, flyingMost, flyingLeast, comingMost, thornsMost, looseFrames, dipMost, phases: phases.join(), homeAt,
+            onPetal, onCanvas, flashing, thornOf: state.thornOf, grownOf: state.grownOf, speed: loose ? speed / loose : 0, fromLead: loose ? fromLead / loose : 0, thornAt, heart, stemMid,
+            petalColor: petal ? petalSum.map((v) => v / petal) : null, greenColor: green ? greenSum.map((v) => v / green) : null,
+            bright: solid ? sum / solid : 0, centroidX: solid ? sx / solid : 0, box: size(box), petalBox: size(petalBox), unitPx, cornerAlpha: px[3], canvas: [w, h], diff, kitCam: s.camera, hue: cfgColorHue,
+            pal: [0, 1, 2, 3, 4, 5].map((i) => getColor(state.colorT + (i * PALETTE.length) / 6).slice(0, 3)), greenWant: [0, 1, 2].map((i) => Math.round(K.GREEN[i] * 255 + K.GREEN_PALETTE * g[i])) });
+        }
+        return out;
+      } finally {
+        frequencies = saved.frequencies; micActive = saved.micActive; cfgIdleAnim = saved.cfgIdleAnim; cfgColorHue = saved.cfgColorHue; cfgColorSpeed = saved.cfgColorSpeed; cfgGain = saved.cfgGain;
+        if (saved.micPeak !== undefined) micPeak = saved.micPeak;
+        Object.assign(perViz[id], knobs0); TimbreScene.testLevel = null;
+      }
+    }, { id: ROSE, steps, fps, knobs, hue, colorSpeed, gain });
+    // A picture is as the last one was, but for the stray pixel this GPU allows itself (see the glass prism's block).
+    const same = (r) => r.diff.n <= 8 && r.diff.max <= 1;
+    // And a picture that has moved differs from the last step's in more of its numbers than this.
+    const MOVES = 1000;
+    // The rose made again from the arithmetic is the scene's own, to the last digit.
+    const remade = (r) => r.model.ok && r.model.gapP === 0 && r.model.gapV === 0 && r.model.gapGrown === 0 && r.model.gapThorn === 0 && r.model.gapSent === 0 && r.model.gapStalk === 0 && r.model.gapBands === 0 && r.model.states && r.model.counts
+      && r.model.pulse === 0 && r.model.flash === 0 && r.model.clock < 1e-9 && r.model.left === 0 && r.model.head === 0 && r.model.bloom === 0;
+    const still = { knobs: { cameraDrift: 0 }, colorSpeed: 0, gain: 1 };
+    const like = (c, d) => (c[0] * d[0] + c[1] * d[1] + c[2] * d[2]) / ((Math.hypot(c[0], c[1], c[2]) || 1) * (Math.hypot(d[0], d[1], d[2]) || 1));
+    // The colour of band b, from the six the scene was given (as the shader has it, near enough for telling hues apart).
+    const tint = (r, b) => { const u = (b / 8) % 1 * 6, i = Math.floor(u), f0 = u - i, f = f0 * f0 * (3 - 2 * f0), a = r.state.pal[i % 6], c = r.state.pal[(i + 1) % 6]; return [0, 1, 2].map((k) => a[k] + (c[k] - a[k]) * f); };
+    const thornsDrawn = (r) => r.thornAt.filter((c) => c[3] >= 250).length;
+    // A thump, held for three frames; talking; and no sound at all.
+    const thump = { level: 0, secs: 0.05, peak: 1 }, talk = { level: 0.6, all: 0.5 }, hush = { level: 0 };
+
+    await activate(ROSE);
+    const roState = await sceneState();
+    const sit = await roseRun([Object.assign({ secs: 1 }, hush), Object.assign({ secs: 0.5 }, hush)], still);
+    const ss = sit[1].state;
+    check('rose is a kit scene: a solid rose on its stem, a transparent corner and nothing at the edge',
+      !!roState && roState.active === true && roState.targetSize[0] === 1728 && sit[1].solid > 32000 && sit[1].solid < 40500 && sit[1].cornerAlpha === 0 && sit[1].edge === 0
+      && ss.solid === true && ss.neverCulled === true && ss.petals === 56 && ss.kept === 24 && ss.drawn === 67 && ss.gridPoints === 135 && ss.triangles === 224 && ss.stalkPoints === 914 && ss.stalkTriangles === 1596
+      && ss.phase === 'whole' && ss.live === true && ss.hues === 0.03 && JSON.stringify(ss.pal) === JSON.stringify(sit[1].pal) && JSON.stringify(ss.green) === JSON.stringify(sit[1].greenWant),
+      JSON.stringify({ size: roState && roState.targetSize, solid: sit[1].solid, part: sit[1].part, edge: sit[1].edge, corner: sit[1].cornerAlpha, flags: [ss.solid, ss.neverCulled], drawn: ss.drawn, counts: [ss.gridPoints, ss.triangles, ss.stalkPoints, ss.stalkTriangles], pal: ss.pal, want: sit[1].pal, green: [ss.green, sit[1].greenWant] }));
+    check('rose: in silence every petal is on the head, 24 of them out, and the stem has no thorns', ss.attached === 56 && ss.open === 24 && ss.flying === 0 && ss.coming === 0 && ss.thorns === 0 && thornsDrawn(sit[1]) <= 4 && sit[1].away === 0 && sit[1].petal > 20000 && sit[1].green > 9500
+      && sit[1].stemMid[3] >= 250 && sit[1].stepsTaken === 30 && sit.every(remade),
+      JSON.stringify({ attached: ss.attached, open: ss.open, thorns: [ss.thorns, thornsDrawn(sit[1])], away: sit[1].away, petal: sit[1].petal, green: sit[1].green, stem: sit[1].stemMid, steps: sit[1].stepsTaken, model: sit[1].model }));
+    check('rose: the petals are the palette\'s colour, and the stem and the leaves are green', like(sit[1].petalColor, ss.pal[0]) > 0.93 && like(sit[1].greenColor, ss.green) > 0.95 && like(sit[1].petalColor, ss.green) < 0.9 && like(sit[1].stemMid, ss.green) > 0.95,
+      JSON.stringify({ petal: sit[1].petalColor, pal: ss.pal[0], green: sit[1].greenColor, want: ss.green, hue: sit[1].hue }));
+
+    // Thorns and petals.
+    const oneBand = await roseRun([Object.assign({ secs: 0.5 }, hush), { level: 0.05, bins: [[2, 0.6]], secs: 1.5 }], still);
+    const own = (r, b) => r.thornOf.filter((v, j) => Math.floor(j / 2) === b), others = (r, b) => r.thornOf.filter((v, j) => Math.floor(j / 2) !== b);
+    const sprouted = (r) => r.grownOf.map((g, i) => (i >= r.state.kept && g > 0.9 ? i % 8 : -1)).filter((b) => b >= 0);
+    check('rose: a band brings out its own two thorns, each as far as the band is loud, wearing its colour, and unfurls folded petals of that band only', own(oneBand[1], 2).every((v) => Math.abs(v - Math.min(1, 1.3 * Math.round(0.6 * 255) / 255)) < 0.01) && others(oneBand[1], 2).every((v) => v === 0)
+      && sprouted(oneBand[1]).length >= 2 && sprouted(oneBand[1]).every((b) => b === 2) && oneBand[1].state.open === 24 + sprouted(oneBand[1]).length && [4, 5].some((j) => oneBand[1].thornAt[j][3] >= 250 && like(oneBand[1].thornAt[j], tint(oneBand[1], 2)) > like(oneBand[1].thornAt[j], oneBand[1].state.green))
+      && oneBand[0].state.thorns === 0 && oneBand.every(remade),
+      JSON.stringify({ own: own(oneBand[1], 2), others: others(oneBand[1], 2), sprouted: sprouted(oneBand[1]), open: oneBand[1].state.open, at: [oneBand[1].thornAt[4], oneBand[1].thornAt[5]], tint: tint(oneBand[1], 2), model: oneBand[1].model }));
+    const quietVoice = await roseRun([Object.assign({ secs: 0.5 }, hush), { level: 0.3, secs: 1.5 }], still), loudVoice = await roseRun([Object.assign({ secs: 0.5 }, hush), { level: 0.95, secs: 1.5 }], still);
+    check('rose: a quiet voice opens a few petals; a loud one opens them all into a wide bloom and brings out every thorn', quietVoice[1].state.open > 26 && quietVoice[1].state.open < 44 && loudVoice[1].state.open === 56 && loudVoice[1].state.thorns > 0.85 && thornsDrawn(loudVoice[1]) >= thornsDrawn(sit[1]) + 6
+      && loudVoice[1].petal > 2.2 * sit[1].petal && quietVoice[1].petal > 1.05 * sit[1].petal && quietVoice[1].petal < 0.8 * loudVoice[1].petal && loudVoice[1].petalBox.w > 1.4 * sit[1].petalBox.w && loudVoice[1].away < 0.1 * loudVoice[1].petal && loudVoice[1].edge === 0
+      && loudVoice[1].state.bloom > 0.9 && quietVoice.every(remade) && loudVoice.every(remade),
+      JSON.stringify({ open: [quietVoice[1].state.open, loudVoice[1].state.open], thorns: [loudVoice[1].state.thorns, thornsDrawn(loudVoice[1])], petal: [sit[1].petal, quietVoice[1].petal, loudVoice[1].petal], box: [sit[1].petalBox.w, loudVoice[1].petalBox.w], away: loudVoice[1].away, bloom: loudVoice[1].state.bloom, model: loudVoice[1].model }));
+    const [gained] = await roseRun([{ level: 0.02, bins: [[5, 0.2]], secs: 1 }], { knobs: { cameraDrift: 0 }, colorSpeed: 0, gain: 3 });
+    check('rose: Gain makes a band louder to its thorns and its petals', Math.abs(gained.state.bands[5] - 3 * Math.round(0.2 * 255) / 255) < 1e-4 && own(gained, 5).every((v) => Math.abs(v - 1.3 * 3 * Math.round(0.2 * 255) / 255) < 0.01) && sprouted(gained).length >= 2 && sprouted(gained).every((b) => b === 5) && remade(gained),
+      JSON.stringify({ level: gained.state.bands[5], own: own(gained, 5), sprouted: sprouted(gained) }));
+    const pause = await roseRun([Object.assign({ secs: 0.5 }, hush), { level: 0.95, all: 0.6, secs: 2 }, Object.assign({ secs: 0.5 }, hush), Object.assign({ secs: 9 }, hush), Object.assign({ secs: 0.5 }, hush)], still);
+    check('rose: in a pause the petals stay out a moment, then fold away and the thorns draw in, until it is the small rose again with a smooth stem', pause[1].state.open === 56 && pause[2].state.open > 40 && pause[3].state.open === 24 && pause[3].state.thorns === 0 && pause[3].state.bloom === 0
+      && pause[3].grownOf.every((g, i) => g === (i < 24 ? 1 : 0)) && Math.abs(pause[4].petal - sit[1].petal) < 0.12 * sit[1].petal && thornsDrawn(pause[4]) <= thornsDrawn(sit[1]) && pause[1].diff.n > MOVES && pause.every(remade),
+      JSON.stringify({ open: pause.map((r) => r.state.open), thorns: pause.map((r) => +r.state.thorns.toFixed(3)), petal: [sit[1].petal, pause[1].petal, pause[4].petal], model: pause.map((r) => r.model.ok) }));
+    const ripple = await roseRun([{ level: 0.4, all: 0.6, secs: 3 }, { level: 0.95, all: 0.6, secs: 0.15 }, { level: 0.95, all: 0.6, secs: 1.5 }], still);
+    check('rose: a syllable is a ripple from the heart out through the petals: they flash as it passes, and then it has passed', ripple[1].pulseMost > 0.9 && ripple[1].flashing > 15 && ripple[2].flashing < ripple[1].flashing / 3 && ripple[1].bright > ripple[0].bright + 4 && ripple.every(remade),
+      JSON.stringify({ pulse: ripple[1].pulseMost, flashing: ripple.map((r) => r.flashing), bright: ripple.map((r) => r.bright) }));
+
+    // The thump.
+    const calm3 = { knobs: { cameraDrift: 0, regatherSeconds: 3 }, colorSpeed: 0, gain: 1 };
+    const th = await roseRun([Object.assign({ secs: 1 }, hush), thump, Object.assign({ secs: 0.5 }, hush), Object.assign({ secs: 2 }, hush), Object.assign({ secs: 7 }, hush), Object.assign({ secs: 9 }, hush), Object.assign({ secs: 0.5 }, hush)], calm3);
+    const gold = (c) => c[3] >= 250 && c[0] > 150 && c[0] > 1.1 * c[1] && c[1] > 1.3 * c[2];
+    check('rose: a thump of the mic throws every petal off the head: they are all in the air at once, the head nods, and its golden heart is bare', th[0].state.attached === 56 && th[1].state.thumps === 1 && th[1].state.phase === 'pieces' && th[1].state.flying === 56 && th[1].state.attached === 0 && th[1].flashMost === 1
+      && th[2].dipMost < -0.03 && th[2].away > 0.6 * th[2].petal && th[2].petal > 6000 && gold(th[2].heart) && !gold(th[0].heart) && th[2].onCanvas === 56 && th[2].onPetal >= 40,
+      JSON.stringify({ attached: [th[0].state.attached, th[1].state.attached], thumps: th[1].state.thumps, phase: th[1].state.phase, flying: th[1].state.flying, flash: th[1].flashMost, dip: th[2].dipMost, away: [th[2].away, th[2].petal], heart: [th[0].heart, th[2].heart], on: [th[2].onPetal, th[2].onCanvas] }));
+    check('rose: loose, the petals fly as a flock through the silence, inside the picture, every one fully grown; after the calm wait they come home from the heart outward and the rose is whole; then it folds to the small rose again', th[3].state.flying === 56 && th[3].flyingLeast === 56
+      && th[3].grownOf.every((g) => g > 0.99) && th[3].speed > 0.9 && th[3].fromLead < 1.3 && th.every((r) => r.edge === 0) && th[4].phases === 'pieces,returning,whole' && th[4].comingMost > 10 && th[4].state.attached === 56 && th[4].homeAt > 120 && th[4].homeAt < 400
+      && th[4].state.gathers === 1 && th[5].state.open === 24 && th[5].state.attached === 56 && Math.abs(th[6].petal - sit[1].petal) < 0.12 * sit[1].petal && !gold(th[6].heart) && th[6].away === 0 && th.every(remade),
+      JSON.stringify({ flying: th.map((r) => r.state.flying), speed: th[3].speed, fromLead: th[3].fromLead, edge: th.map((r) => r.edge), phases: th.map((r) => r.phases), coming: th[4].comingMost, homeAt: th[4].homeAt, open: th.map((r) => r.state.open), petal: [sit[1].petal, th[6].petal], model: th.map((r) => r.model.ok && r.model.gapP) }));
+    const again = await roseRun([Object.assign({ secs: 1 }, hush), thump, Object.assign({ secs: 0.9 }, hush), thump, Object.assign({ secs: 0.4 }, hush)], calm3);
+    check('rose: a peak while the petals are loose throws them again', again[2].state.jostles === 0 && again[3].state.jostles === 1 && again[3].state.thumps === 1 && again[3].flashMost >= 0.6 && again[4].state.flying === 56 && again.every((r) => r.edge === 0) && again.every(remade),
+      JSON.stringify({ jostles: again.map((r) => r.state.jostles), flash: again[3].flashMost, model: again.map((r) => r.model.ok) }));
+    const watched = (st) => Object.assign({ watchEdge: true }, st), often = [Object.assign({ secs: 0.5 }, hush), watched(thump)];
+    for (let i = 0; i < 6; i++) often.push(watched(Object.assign({ secs: 0.7 }, talk)), watched(thump));
+    often.push(watched(Object.assign({ secs: 1 }, talk)));
+    const jostled = await roseRun(often, { knobs: { cameraDrift: 100, regatherSeconds: 3, density: 100, thorns: 100 }, colorSpeed: 0, gain: 1 }), lastJ = jostled[jostled.length - 1];
+    check('rose: thrown again and again while it is loud, at its fullest, thorns at their longest and the camera swaying its furthest, nothing leaves the picture: nothing is drawn at the edge of the canvas in any frame', lastJ.state.jostles >= 5 && lastJ.state.thumps === 1 && lastJ.state.flying === 72
+      && jostled.slice(1).every((r) => r.edgeFrames === 0 && r.edge === 0) && lastJ.away > 4000 && jostled.every(remade),
+      JSON.stringify({ jostles: lastJ.state.jostles, thumps: lastJ.state.thumps, flying: lastJ.state.flying, edgeFrames: jostled.map((r) => r.edgeFrames), away: lastJ.away, model: jostled.map((r) => r.model.ok) }));
+    const stopped = await roseRun([Object.assign({ secs: 0.6 }, hush), thump, Object.assign({ secs: 0.1 }, hush), Object.assign({ secs: 0.1, gap: 4000 }, hush)], calm3);
+    check('rose: after the page has stopped drawing every petal is back on the head, and the flash is over', stopped[2].state.phase === 'pieces' && stopped[2].state.flash > 0.3 && stopped[2].state.flying === 56 && stopped[3].state.phase === 'whole' && stopped[3].state.attached === 56 && stopped[3].state.open === 24 && stopped[3].flashMost === 0 && stopped[3].away === 0,
+      JSON.stringify({ phase: stopped.map((r) => r.state.phase), flash: stopped.map((r) => r.state.flash), attached: stopped.map((r) => r.state.attached), most: stopped[3].flashMost, away: stopped[3].away }));
+    const [, , never] = await roseRun([Object.assign({ secs: 0.6 }, hush), thump, Object.assign({ secs: 0.5 }, hush)], { knobs: { cameraDrift: 0, scatterSensitivity: 0 }, colorSpeed: 0, gain: 1 });
+    const lasts = [];
+    for (const secs of [1, 3]) { const r = await roseRun([Object.assign({ secs: 0.6 }, hush), thump, Object.assign({ secs: 6 }, hush)], { knobs: { cameraDrift: 0, regatherSeconds: secs }, colorSpeed: 0, gain: 1 }); lasts.push(r[2].looseFrames / 60); }
+    check('rose: Scatter sensitivity 0 is never scattered; Regather seconds is the calm wait before the petals start for home', never.state.thumps === 0 && never.state.attached === 56 && lasts[0] > 0.9 && lasts[0] < 1.2 && lasts[1] > 2.9 && lasts[1] < 3.2 && Math.abs(lasts[1] - lasts[0] - 2) < 0.05,
+      JSON.stringify({ never: [never.state.thumps, never.state.attached], lasts }));
+    const [, deaf] = await roseRun([{ level: 0, idle: true, secs: 1 }, { level: 0, idle: true, secs: 0.3, peak: 1 }], still);
+    check('rose: with the mic off a peak scatters nothing', deaf.state.phase === 'whole' && deaf.state.thumps === 0 && deaf.state.attached === 56 && deaf.flashMost === 0 && remade(deaf), JSON.stringify({ phase: deaf.state.phase, thumps: deaf.state.thumps }));
+
+    // The settings.
+    const dens = await roseRun([Object.assign({ secs: 0.5, knobs: { density: 0 } }, hush), Object.assign({ secs: 0.5, knobs: { density: 100 } }, hush), { level: 0.95, all: 0.6, secs: 2, knobs: { density: 100 } }, Object.assign({ knobs: { density: 100 } }, thump), Object.assign({ secs: 0.5, knobs: { density: 100 } }, hush), Object.assign({ secs: 0.05, knobs: { density: 0 } }, hush)], calm3);
+    check('rose: Density is how many petals there are, 40 to 72, of which 17 to 31 are always out; when it changes the head is laid again, every petal back on it', dens[0].state.petals === 40 && dens[0].state.kept === 17 && dens[0].state.drawn === 51 && dens[0].state.open === 17 && dens[1].state.petals === 72 && dens[1].state.kept === 31 && dens[1].state.drawn === 83 && dens[1].state.open === 31
+      && dens[2].state.open === 72 && dens[4].state.flying === 72 && dens[5].state.petals === 40 && dens[5].state.attached === 40 && dens[5].state.flying === 0 && dens[5].state.open === 17 && dens[5].away < 0.1 * dens[4].away && dens.every(remade) && dens.every((r) => r.edge === 0),
+      JSON.stringify({ petals: dens.map((r) => r.state.petals), drawn: dens.map((r) => r.state.drawn), open: dens.map((r) => r.state.open), flying: dens.map((r) => r.state.flying), petal: dens.map((r) => r.petal), model: dens.map((r) => r.model.ok) }));
+    const thorny = [];
+    for (const t of [0, 50, 100]) thorny.push((await roseRun([{ level: 0.95, all: 0.6, secs: 1.5 }], { knobs: { cameraDrift: 0, thorns: t }, colorSpeed: 0, gain: 1 }))[0]);
+    check('rose: Thorns is how long they grow: none at 0, twice as long at 100 as at 50', thorny.every((r) => r.state.thorns > 0.85) && thorny[0].state.thornLong === 0 && Math.abs(thorny[1].state.thornLong - 0.26) < 1e-9 && Math.abs(thorny[2].state.thornLong - 0.52) < 1e-9
+      && thornsDrawn(thorny[1]) >= thornsDrawn(thorny[0]) + 6 && thorny[1].solid > thorny[0].solid + 800 && thorny[2].solid > thorny[1].solid + 1500 && thorny.every(remade) && thorny.every((r) => r.edge === 0),
+      JSON.stringify({ long: thorny.map((r) => r.state.thornLong), drawn: thorny.map(thornsDrawn), solid: thorny.map((r) => r.solid) }));
+    const drift = [];
+    for (const d of [0, 50, 100]) drift.push((await roseRun([Object.assign({ secs: 0.5 }, hush)], { knobs: { cameraDrift: d }, colorSpeed: 0, gain: 1 }))[0]);
+    check('rose: Camera drift sways the camera: not at all at 0, twice as far at 100 as at 50', drift[0].state.orbit === 0 && Math.abs(drift[1].state.orbit) > 1e-3 && Math.abs(drift[2].state.orbit - 2 * drift[1].state.orbit) < 1e-9 && Math.abs(drift[1].kitCam[0]) > 0.01 && Math.abs(drift[0].kitCam[0]) < 1e-9 && drift.every(remade),
+      JSON.stringify({ orbit: drift.map((r) => r.state.orbit), cam: drift.map((r) => r.kitCam) }));
+
+    const hues = await roseRun([Object.assign({ secs: 0.5 }, hush), Object.assign({ secs: 0.5 }, hush)], { knobs: { cameraDrift: 0 }, colorSpeed: 100, hue: 0, gain: 1 });
+    const [hue0] = await roseRun([Object.assign({ secs: 0.5 }, hush)], Object.assign({ hue: 0 }, still)), [hue3] = await roseRun([Object.assign({ secs: 0.5 }, hush)], Object.assign({ hue: 3 }, still));
+    check('rose: the petals\' colour moves as the palette moves it, with Colour speed and with Colour hue, and the green keeps to green', hue0.state.colorT === 0 && hue3.state.colorT === 3 && JSON.stringify(hue0.state.pal) !== JSON.stringify(hue3.state.pal)
+      && hues[1].state.colorT > hues[0].state.colorT && JSON.stringify(hues[1].state.pal) !== JSON.stringify(hues[0].state.pal) && hues[1].diff.n > MOVES && hues.every(remade)
+      && [hue0, hue3].every((r) => r.state.green[1] > 1.5 * r.state.green[0] && r.state.green[1] > 1.5 * r.state.green[2] && like(r.stemMid, r.state.green) > 0.88),
+      JSON.stringify({ hue: [hue0.state.colorT, hue3.state.colorT], drift: hues.map((r) => r.state.colorT), diff: hues[1].diff, green: [hue0.state.green, hue3.state.green], stem: [hue0.stemMid, hue3.stemMid] }));
+
+    // The mic off: idle, and nothing live.
+    const idle = await roseRun([{ level: 0, idle: true, secs: 8 }, { level: 0, idle: true, secs: 0.5 }], still);
+    // (The kit's own idle swell would be a voice of up to a half: the rose takes no notice of it.)
+    const [swell] = await roseRun([{ level: 0.5, idle: true, secs: 8 }], still);
+    check('rose: with the mic off and Idle animation on, the bands swell in turn and a few petals open and fold; every petal stays on the head and no thorn grows; the voice is the mic\'s alone', idle[0].openMost > 26 && idle[0].openMost < 44 && idle[0].openLeast < idle[0].openMost && idle[0].thornsMost === 0
+      && idle[0].state.attached === 56 && idle[0].stepsTaken === 480 && idle[1].state.live === true && idle.every(remade) && swell.state.flame === 0 && swell.state.bloom === 0 && swell.thornsMost === 0 && swell.openMost < 44 && thornsDrawn(swell) <= thornsDrawn(sit[1]) + 1 && remade(swell),
+      JSON.stringify({ most: idle[0].openMost, least: idle[0].openLeast, thorns: idle[0].thornsMost, steps: idle[0].stepsTaken, swell: [swell.state.flame, swell.openMost, swell.thornsMost], model: idle[0].model }));
+    const off = await roseRun([{ level: 0.95, all: 0.6, secs: 2 }, { level: 0, off: true, secs: 2 }, { level: 0, off: true, secs: 0.5 }, { level: 0, off: true, secs: 3 }, Object.assign({ secs: 9 }, hush)], still);
+    check('rose: with the mic and Idle animation off, nothing moves: the bloom stays as it was, thorns and all, and the picture does not change; it folds when the mic is back', off[0].state.open === 56 && off[1].state.live === false && off[2].stepsTaken === 0 && off[3].stepsTaken === 0 && off[3].state.open === 56 && off[3].state.thorns > 0.5
+      && same(off[2]) && same(off[3]) && off[4].state.open === 24 && off[4].state.thorns === 0 && off.every(remade),
+      JSON.stringify({ open: off.map((r) => r.state.open), steps: off.map((r) => r.stepsTaken), diff: [off[2].diff, off[3].diff], thorns: off.map((r) => +r.state.thorns.toFixed(3)), model: off.map((r) => r.model.ok) }));
+    const offLoose = await roseRun([Object.assign({ secs: 1 }, hush), thump, Object.assign({ secs: 0.5 }, hush), { level: 0, off: true, secs: 5 }, { level: 0, off: true, secs: 0.5 }, Object.assign({ secs: 2 }, hush), Object.assign({ secs: 8 }, hush)], calm3);
+    check('rose: the mic going off while the petals are loose stops them in the air, and no time passes for the thump: they wait out its calm once the mic is back, and then come home', offLoose[3].phases === 'pieces' && offLoose[4].state.flying === 56 && offLoose[4].stepsTaken === 0 && same(offLoose[4]) && offLoose[5].phases === 'pieces'
+      && offLoose[5].state.flying === 56 && offLoose[6].state.attached === 56 && offLoose[6].phases === 'pieces,returning,whole' && offLoose.every(remade),
+      JSON.stringify({ phases: offLoose.map((r) => r.phases), flying: offLoose.map((r) => r.state.flying), diff: offLoose[4].diff, attached: offLoose[6].state.attached, model: offLoose.map((r) => r.model.ok) }));
+
+    // The frame rate, frames early and late, and a long frame.
+    const loose2 = [Object.assign({ secs: 0.5 }, hush), thump, Object.assign({ secs: 2 }, talk)];
+    const at60 = (await roseRun(loose2, calm3))[2], at30 = (await roseRun(loose2, Object.assign({ fps: 30 }, calm3)))[2];
+    const early = (await roseRun([Object.assign({ secs: 0.5 }, hush), thump, Object.assign({ secs: 2 + 1 / 60, wobble: 0.2 }, talk)], calm3))[2];
+    check('rose: at 30 frames a second it takes two steps a frame; frames a fifth early and late are still one step each at 60, and each loose petal is drawn as far on as the rose is ahead of or behind its steps', at60.stepsTaken === 120 && at30.stepsTaken === 120 && at60.stepsMost === 1 && at30.stepsMost === 2 && at30.stepsLeast === 2 && early.stepsMost === 1 && early.stepsLeast === 1
+      && Math.abs(Math.abs(early.state.left) - 0.2 / 60) < 1e-9 && at60.state.left === 0 && Math.abs(at30.speed - at60.speed) < 0.08 * at60.speed && at60.state.flying === 56 && remade(at60) && remade(at30) && remade(early) && early.onPetal >= 45,
+      JSON.stringify({ steps: [at60.stepsTaken, at30.stepsTaken, early.stepsTaken], most: [at60.stepsMost, at30.stepsMost, early.stepsMost], left: early.state.left, speed: [at60.speed, at30.speed], on: [early.onPetal, early.onCanvas] }));
+    const [, longFrame] = await roseRun([Object.assign({ secs: 1 }, talk), Object.assign({ secs: 0.5, gap: 4000 }, talk)], Object.assign({ fps: 2 }, still));
+    check('rose: a frame that takes half a second is six steps and no more, and the rose is still in the picture', longFrame.stepsMost === 6 && longFrame.stepsTaken === 6 && longFrame.edge === 0 && longFrame.state.left === 0 && longFrame.state.attached === 56,
+      JSON.stringify({ most: longFrame.stepsMost, taken: longFrame.stepsTaken, edge: longFrame.edge, left: longFrame.state.left, attached: longFrame.state.attached }));
+    await pushConfig((c) => { c.activeViz = ROSE; c.placement.x = 30; });
+    await wide.waitForTimeout(300);
+    const [placed] = await roseRun([Object.assign({ secs: 1 }, hush)], still);
+    await pushConfig((c) => { c.placement.x = 0; });
+    await wide.waitForTimeout(300);
+    check('rose: Scene placement slides it', placed.centroidX - sit[0].centroidX > 150 && placed.solid > 0.9 * sit[0].solid, JSON.stringify({ x: [sit[0].centroidX, placed.centroidX], solid: [sit[0].solid, placed.solid] }));
+
+    // The small page.
+    const smallRose = await page.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz['rose']); window.frame = function () {}; try { perViz['rose'].cameraDrift = 0; TimbreScene.testLevel = 0; frequencies = new Uint8Array(32); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('rose');
+      const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+      const read = () => { gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px); let solid = 0, edge = 0; for (let i = 0; i < px.length; i += 4) if (px[i + 3] >= 250) { solid++; const x = (i / 4) % w, y = Math.floor(i / 4 / w); if (x < 2 || y < 2 || x >= w - 2 || y >= h - 2) edge++; } return { solid, edge }; };
+      let now = 200000;
+      for (let i = 0; i < 60; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      const small = read(), open0 = window.__timbre.scene.state.open;
+      TimbreScene.testLevel = 0.95;
+      for (let i = 0; i < 120; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      const full = read(), open1 = window.__timbre.scene.state.open;
+      micPeak = 1; TimbreScene.testLevel = 0;
+      for (let i = 0; i < 4; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      micPeak = 0;
+      for (let i = 0; i < 90; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      const loose = read(), s2 = window.__timbre.scene.state;
+      return { canvas: [w, h], small, open0, full, open1, loose, flying: s2.flying };
+    } finally { TimbreScene.testLevel = null; window.frame = fr; frequencies = heard.frequencies; micActive = heard.micActive; if (heard.micPeak !== undefined) micPeak = heard.micPeak; Object.assign(perViz['rose'], knobs0); setActiveViz('visualizer'); } });
+    check('rose: on the small page the rose is drawn, blooms with the voice, and its petals fly, all inside the picture', smallRose.open0 === 24 && smallRose.small.solid > 150 && smallRose.small.edge === 0 && smallRose.open1 === 56 && smallRose.full.solid > 1.4 * smallRose.small.solid && smallRose.full.edge === 0
+      && smallRose.flying === 56 && smallRose.loose.edge === 0 && smallRose.loose.solid > smallRose.small.solid,
+      JSON.stringify(smallRose));
+    await wide.bringToFront();
+    await wide.waitForTimeout(300);
+    // Loud, at its fullest, in bloom and then in the air: a frame's script time, and a frame drawn and finished by the GPU.
+    const roCost = await wide.evaluate(() => { const fr = window.frame, heard = { frequencies, micActive, micPeak: typeof micPeak === 'undefined' ? undefined : micPeak }, knobs0 = Object.assign({}, perViz['rose']); window.frame = function () {}; try { perViz['rose'].density = 100; TimbreScene.testLevel = 0.9; frequencies = new Uint8Array(32).fill(150); micActive = true; micPeak = 0; setActiveViz('visualizer'); setActiveViz('rose');
+      const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), one = new Uint8Array(4); let now = performance.now();
+      for (let i = 0; i < 120; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      micPeak = 1; for (let i = 0; i < 4; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); } micPeak = 0;
+      for (let i = 0; i < 30; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+      let script = 0, whole = 0;
+      for (let i = 0; i < 60; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); script += performance.now() - t; }
+      for (let i = 0; i < 60; i++) { now += 1000 / 60; const t = performance.now(); currentViz.draw(now, 1 / 60); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, one); whole += performance.now() - t; }
+      return { script: script / 60, whole: whole / 60, flying: window.__timbre.scene.state.flying }; } finally { TimbreScene.testLevel = null; window.frame = fr; frequencies = heard.frequencies; micActive = heard.micActive; if (heard.micPeak !== undefined) micPeak = heard.micPeak; Object.assign(perViz['rose'], knobs0); } });
+    check('rose: loud, with all 72 petals in the air, draw() averages under 2 ms of script time, and a frame drawn and finished by the GPU under 7 ms (' + roCost.script.toFixed(2) + ' and ' + roCost.whole.toFixed(2) + ' ms)',
+      roCost.flying === 72 && roCost.script < 2 && roCost.whole < 7, JSON.stringify(roCost));
+
+    }
+
     // Every kit scene, so the next one is covered without a new check.
     const gpuAfterSelect = (name) => wide.evaluate((n) => { setActiveViz('visualizer'); setActiveViz(n); currentViz.draw(performance.now(), 1 / 60); const s = window.__timbre.scene; return [s.memory.geometries, s.memory.textures, s.programs]; }, name);
     for (const name of T.VIZ_SCENES) {
@@ -4623,7 +4963,7 @@ async function main() {
       } finally { gl.createTexture = create; gl.deleteTexture = del; }
       return out;
     }, T.VIZ_SCENES);
-    const TEXTURES = { 'thanksgiving-harvest': 9, 'winter-aurora': 8, 'pride-ribbon': 5, 'bi-pride-ribbon': 5, 'ace-pride-ribbon': 5, 'trans-pride-ribbon': 5, 'july-fourth-stripes': 7, 'sunburst-3d': 5, 'mountains-3d': 5, 'phosphor': 4, 'chladni': 4, 'glass-prism': 4, 'metaball': 3, 'ink': 3, 'shards': 3, 'jelly': 3, 'school-of-fish': 2, 'boids': 2 };
+    const TEXTURES = { 'thanksgiving-harvest': 9, 'winter-aurora': 8, 'pride-ribbon': 5, 'bi-pride-ribbon': 5, 'ace-pride-ribbon': 5, 'trans-pride-ribbon': 5, 'july-fourth-stripes': 7, 'sunburst-3d': 5, 'mountains-3d': 5, 'phosphor': 4, 'chladni': 4, 'glass-prism': 4, 'metaball': 3, 'ink': 3, 'shards': 3, 'jelly': 3, 'school-of-fish': 2, 'boids': 2, 'rose': 2 };
     check('a scene deletes every GL texture it made, whichever scene ran before it',
       Object.keys(texturesLeft).length === T.VIZ_SCENES.length ** 2 && Object.entries(texturesLeft).every(([pair, [made, left]]) => made >= TEXTURES[pair.split(' then ')[1]] && left === 0), JSON.stringify(texturesLeft));
 
@@ -4750,8 +5090,10 @@ async function main() {
     check('scene parts: a leaf lies flat, about 0.23 wide and 0.57 long',
       nearly(parts.leaf[1], 0, 1e-6) && nearly(parts.leaf[4], 0, 1e-6) && nearly(parts.leaf[3] - parts.leaf[0], 0.23, 0.01) && nearly(parts.leaf[5] - parts.leaf[2], 0.57, 0.01), JSON.stringify(parts.leaf));
 
-    // An older WebGL effect can leave the texture upload flags set on the shared context. The
-    // page's first scene (the kit builds its renderer then) must start without a GL error.
+    // Something that made the 3D canvas's context before the kit did (as the effects with their
+    // own renderers used to, before every WebGL effect was a scene) can leave the texture upload
+    // flags set on it. The page's first scene (the kit builds its renderer then) must start
+    // without a GL error.
     // (A page applies the pushed config when it connects, so the config must not name a scene.)
     await pushConfig((c) => { c.activeViz = 'visualizer'; });
     const freshPage = async () => {
@@ -4765,11 +5107,10 @@ async function main() {
       const fresh = await freshPage();
       const first = await fresh.evaluate(async () => {
         window.frame = function () {};
-        setActiveViz('rose');
-        await new Promise((r) => setTimeout(r, 900));
-        currentViz.draw(performance.now(), 1 / 60);
+        // A renderer of its own on the canvas, as an older effect had, and the flag left as one with a texture would leave it.
+        const older = new THREE.WebGLRenderer({ canvas: document.getElementById('vizCanvas3D'), alpha: true, antialias: true });
+        older.render(new THREE.Scene(), new THREE.PerspectiveCamera(40, 2, 0.1, 100));
         const gl = document.getElementById('vizCanvas3D').getContext('webgl2');
-        // None of the older effects left uploads a texture any more, so the flag is set here as one that did would leave it.
         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
         const before = { flip: gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL), error: gl.getError() };
         setActiveViz('thanksgiving-harvest');
@@ -4779,8 +5120,8 @@ async function main() {
         const attrs = gl.getContextAttributes();
         return { before, created, drawn: gl.getError(), active: !!s && s.active === true, attrs: [attrs.alpha, attrs.antialias, attrs.depth, attrs.stencil, attrs.premultipliedAlpha] };
       });
-      check('an older WebGL effect made the context, and the flip flag is set as one with a texture would leave it (what the next check guards against)', first.before.flip === true && first.before.error === 0, JSON.stringify(first.before));
-      check('the first scene after an older WebGL effect starts without a GL error', first.created === 0 && first.drawn === 0 && first.active, JSON.stringify(first));
+      check('another renderer made the context first, and the flip flag is set as one with a texture would leave it (what the next check guards against)', first.before.flip === true && first.before.error === 0, JSON.stringify(first.before));
+      check('the first scene on a context something else made starts without a GL error', first.created === 0 && first.drawn === 0 && first.active, JSON.stringify(first));
       await fresh.close();
     }
     // With no context yet, the kit must still create it as three.js would have.
@@ -4799,7 +5140,7 @@ async function main() {
     }
 
     const roseOk = await wide.evaluate(async () => { setActiveViz('rose'); await new Promise((r) => setTimeout(r, 1200)); currentViz.draw(performance.now()); const gl = document.getElementById('vizCanvas3D').getContext('webgl2'); return gl.getError() === 0 && !gl.isContextLost(); });
-    check('an existing WebGL effect runs cleanly after a scene', roseOk);
+    check('the rose runs cleanly after another scene', roseOk);
 
     const noThree = await wide.evaluate(() => { const T3 = window.THREE; window.THREE = undefined; let threw = false; try { setActiveViz('visualizer'); setActiveViz('thanksgiving-harvest'); currentViz.draw(performance.now(), 1 / 60); } catch { threw = true; } window.THREE = T3; setActiveViz('visualizer'); return threw; });
     check('no THREE, no throw', noThree === false);
