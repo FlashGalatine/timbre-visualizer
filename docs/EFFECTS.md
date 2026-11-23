@@ -90,8 +90,9 @@ let horizontal layouts (bars, columns, scrolling scenes) fill `W` naturally.
 ## Registration (3 edits)
 
 1. Drop the file in `overlay/factories/my-effect.js`.
-2. `shared/viz-config.js`: add `'my-effect'` to `ACTIVE_VIZ_NAMES` (and to `VIZ_USES_3D`
-   if it renders WebGL); add a `DEFAULT_PER_VIZ['my-effect'] = { myKnob: 50 }` entry if it
+2. `shared/viz-config.js`: add `'my-effect'` to `ACTIVE_VIZ_NAMES` (an effect that renders
+   WebGL is a kit scene, registered as below); add a
+   `DEFAULT_PER_VIZ['my-effect'] = { myKnob: 50 }` entry if it
    has knobs — the control panel generates sliders from it automatically (numeric knobs
    are 0–100 unless overridden in `PER_VIZ_MAX`).
 3. Add the `<script src="factories/my-effect.js">` tag to all three overlay HTML pages.
@@ -133,8 +134,8 @@ The factory's `start` calls `TimbreScene.create(definition())`, `stop` disposes 
 and `onResize` and `draw` pass through. `create` returns `null` when three.js or WebGL is
 missing, or when `build()` throws (the error goes to the console and whatever `build` had
 made is freed); the effect then simply draws nothing. `dispose()` frees everything the scene
-made and puts the WebGL context back to its defaults, so the next effect (including the older
-WebGL ones) starts clean. (`thanksgiving-harvest` writes the same wrapper out by hand.)
+made and puts the WebGL context back to its defaults, so the next effect starts clean.
+(`thanksgiving-harvest` writes the same wrapper out by hand.)
 
 ### The `k` context (passed to `build` and `update`)
 
@@ -191,6 +192,14 @@ Sunburst need only the phase.
 
 ### The rules
 
+- **A scene is the kit's factory, and makes no renderer.** Register it with
+  `TimbreScene.factory`. Never create a `WebGLRenderer` or ask a canvas for a WebGL
+  context: every scene draws through the kit's one renderer, and that is what keeps GPU
+  memory from growing as effects are switched. `npm run verify` fails if any file under
+  `overlay/` but `scene-kit.js` does either, or if `VIZ_USES_3D` and `VIZ_SCENES` do not
+  hold the same names. `npm run verify:render` selects every scene in `VIZ_SCENES` twice
+  and fails if its count of geometries, textures or shader programs grew ("re-selecting
+  <name> does not grow GPU resources"); a new scene is covered without a new check.
 - **Only solid objects may darken the stream.** Light is written with alpha 0, so it adds
   to whatever is behind the overlay in OBS and never greys it. Never use three's stock
   `AdditiveBlending` for light, glows or sprites; wrap their material in `k.addLight()`.
@@ -201,7 +210,11 @@ Sunburst need only the phase.
 - **Everything is per second.** Speeds, decays and probabilities are computed from `dt`
   (`x += speed * dt`, `v *= Math.exp(-rate * dt)`), never per frame, so a scene looks the
   same at 30 and 60 fps. A random part that must not speed up with the frame rate is
-  redrawn at a fixed rate, not on every call.
+  redrawn at a fixed rate, not on every call. Something that fires on a peak or a beat
+  has its wait before it may fire again counted in seconds too. Prove it with a render
+  check that feeds the scene the same sound at two frame rates and compares what it
+  reports through `debug()`. Every scene has such checks (search the suite for "30 and 60
+  fps" and "30 frames a second").
 - **A shader gets a phase, not the time.** Time handed to a shader comes through
   `TimbreScene.phase()` or a `createClock()` (above), wrapped where the shader's waves come
   round, so its float stays small on a source left open for days. Never hand a shader
@@ -230,6 +243,24 @@ Sunburst need only the phase.
   folds in the previous frame so light lingers, tone-maps, and writes the canvas. The
   afterglow length follows the global **Trail veil** setting. Don't render, clear or resize
   anything yourself.
+- **Nothing builds up.** The kit draws the scene afresh every frame. The one thing carried
+  from frame to frame is the kit's afterglow, which fades. A scene keeps no picture of its
+  own (no 2D canvas it paints over and over, no render target it never clears), so nothing
+  can pile up to solid over a long stream.
+- **Make it once, in `build`.** Geometries, materials, textures, gradients, tables and
+  arrays are made in `build` (or when a setting that sizes them changes) and written into
+  in `update`. Nothing that could be made once is made every frame. Each scene has a cost
+  check in `npm run verify:render` that it must stay under: `draw()` averaged over many
+  frames, a few milliseconds of script time (search the suite for "draw() averages
+  under"). Give a new scene one, taken at the settings where it does the most work.
+- **Every setting changes the picture.** Give each key the scene lists in
+  `DEFAULT_PER_VIZ` a render check that shows the picture, or the state `debug()`
+  reports, differs between two values of it.
+- **Read the sound in one place.** The kit hands `update` the level and the beat
+  (`audio`, above). A scene that wants the bands reads the core's `frequencies` through
+  one small function of its own module, as `loudness(bins, band, gain)` in
+  `overlay/rose.js` does. Do not paste the `bandAverage` helper of the older 2D effects
+  into a scene.
 
 ### Scene placement
 
@@ -243,9 +274,9 @@ schema) and apply live through the camera, without rebuilding the scene.
 The same three edits as any effect (above), plus the id in two more lists in
 `shared/viz-config.js`:
 
-1. Add the id to `VIZ_SCENES`, the list of kit scenes that came with the scene kit (it
-   shows the Scene placement group for the effect), and to `VIZ_USES_3D`, the existing
-   list of every WebGL effect (it shows the WebGL canvas). `ACTIVE_VIZ_NAMES` and
+1. Add the id to `VIZ_SCENES`, the list of kit scenes (it shows the Scene placement
+   group for the effect), and to `VIZ_USES_3D`, the list of every WebGL effect (it shows
+   the WebGL canvas). The two lists must hold the same names. `ACTIVE_VIZ_NAMES` and
    `DEFAULT_PER_VIZ` work as usual.
 2. Add the scene's `<script>` tag to all three overlay pages, after `scene-kit.js` and
    `scene-parts.js`, which the pages already load before the factories.
@@ -1544,9 +1575,22 @@ DoAction "Timbre Push"  args: { config: "<full config JSON>" }     — set + bro
 DoAction "Timbre Push"  args: { reason: "…" }                      — re-broadcast cached
 ```
 
+On Streamer.bot's WebSocket Server that is one frame,
+`{ "request": "DoAction", "id": "<an id of yours>", "action": { "name": "Timbre Push" }, "args": { … } }`.
+To receive the broadcasts, subscribe first:
+`{ "request": "Subscribe", "id": "<an id>", "events": { "general": ["Custom"] } }`. The key
+is lowercase `general` in the request; the events arrive with the source `General`.
+
 Send one `Timbre Push` per change, and keep the action in a blocking queue
 ([SETUP.md](SETUP.md), step 2). Two requests for the action that overlap in the default
 queue share one set of arguments, so one of them is lost.
+
+Do not send the next request until the last one has run. Timbre's own pages
+(`shared/panel-client-sb.js`) keep one request in flight each: the next is sent when the
+reply and a `timbre:config` or `timbre:error` broadcast have both arrived, in either
+order, or after 800 ms, because a sync with nothing saved broadcasts nothing. While a
+push waits its turn, a newer push takes its place. This orders one sender's own
+requests. Only the blocking queue orders two senders.
 
 The broadcast every page receives is
 `{ "type": "timbre:config", "config": { …full config… } }` inside SB's `General.Custom`
@@ -1583,7 +1627,12 @@ What the action cannot take or replay, it logs in Streamer.bot and broadcasts as
 | `bad-cache` | a sync was asked for and the saved config is not one JSON object; it is not sent, and not deleted | `the saved config is damaged; change a setting to replace it` |
 | `exception` | the action threw; the exception itself is in Streamer.bot's log only | `the action threw an exception` |
 
-The reply to the `DoAction` request says only that the action was queued: it is `ok` for
-a refused config too. The `timbre:error` broadcast is the answer. An action pasted before
+The reply to the `DoAction` request says only that the action was queued. It comes
+before the action has run, its `status` is `ok` for a refused config too, and its
+`args.queueName` is the name of the queue the action is in (`Default` for the default
+queue). When no action has the name, the reply is
+`{ "id": "…", "status": "error", "error": "The action '<name>' was not found" }` and
+nothing runs. (Both replies as measured on Streamer.bot 1.0.7.) For a request that was
+queued, the `timbre:config` or `timbre:error` broadcast is the answer. An action pasted before
 these checks existed sends `{ "type": "timbre:error", "message": "<the exception's text>" }`
 with no `code`, and broadcasts nothing when it refuses a config.

@@ -31,7 +31,7 @@
 //       true when the socket opens ("connected"). <body> gets the class `offline`
 //       while it is false.
 //   svc:message        the broadcast's data, as sent: { type, ... }
-//       e.g. { type:'timbre:config', config } or { type:'timbre:error', message }.
+//       e.g. { type:'timbre:config', config } or { type:'timbre:error', code, message }.
 //   sb:action-queued   { action, id, push, queueName, defaultQueue }
 //       Streamer.bot answered a DoAction with status "ok": the action exists and
 //       was put in a queue. It has NOT run yet. `queueName` is the queue's name as
@@ -109,8 +109,9 @@
   // the timbre:config broadcast it ends with (or timbre:error, when it threw). The
   // next send is released when the request in flight has been answered AND such a
   // broadcast has arrived since it was sent, in either order, or after FAILSAFE_MS:
-  // a sync with nothing saved, and a config the action refuses, produce no
-  // broadcast. An error reply releases at once, because nothing was queued.
+  // a sync with nothing saved produces no broadcast, and nor does a config refused
+  // by an action pasted before it sent timbre:error for a refusal (release 1.0.189).
+  // An error reply releases at once, because nothing was queued.
   //
   // While a config push waits, a newer one for the same action takes its place:
   // each push carries the whole config, so only the newest matters. The one in

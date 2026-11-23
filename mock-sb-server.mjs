@@ -3,7 +3,7 @@
 // Timbre depends on, as they were measured on Streamer.bot 1.0.7:
 //
 //   • HTTP Server on :7474 — SB Path->Folder file serving. Maps:
-//       /timbre-overlay/*  -> overlay/  (the visualizer pages + factories + assets)
+//       /timbre-overlay/*  -> overlay/  (the visualizer pages + factories + font + three.js)
 //       /timbre-shared/*   -> shared/   (viz-config.js + panel-client-sb.js)
 //       /timbre-control/*  -> control/  (the control panel / OBS dock page)
 //       /timbre-spike/*    -> spike/    (the CEF mic-permission spike page)

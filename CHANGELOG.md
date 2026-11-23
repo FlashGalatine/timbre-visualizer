@@ -10,6 +10,41 @@ traceability.
 
 ## [Unreleased]
 
+## [1.0.191] — 2026-11-23
+
+Docs, notices and package details. No behaviour changes: nothing to copy but the docs,
+and nothing to re-paste.
+
+### Changed
+
+- **Node.js 20 or later** is now the stated minimum (`package.json`, README). The pinned
+  browser driver for the render suite needs it. Timbre itself runs in the browser and in
+  Streamer.bot; Node is only for the development tools.
+- **`docs/SETUP.md`** gains: which folder map is needed for what (an overlay needs
+  `timbre-overlay` and `timbre-shared`; the dock needs `timbre-control`, `timbre-shared`
+  and `timbre-overlay` for its preview; `timbre-spike` is used once); an "Updating"
+  section (pages first, then re-paste when the changelog says so); a table of every line
+  the dock's status can show and what to do about each; and what deleting the
+  `timbre.config` variable really does (new page loads start on defaults; open pages and
+  the dock keep theirs until reloaded).
+- **`docs/EFFECTS.md`**: the rules a kit scene must meet now include making no renderer
+  of its own, building nothing up over time, making things once, every setting changing
+  the picture, and reading the sound in one place. The wire-format section describes one
+  request in flight and Streamer.bot's replies.
+- **README**: the testing section names the three commands and says what the mock does
+  and does not model, with no check counts to go stale. Statements the redesign had made
+  untrue are corrected.
+- **Third-party notices**: the licence texts for the Audiowide font
+  (`overlay/fonts/OFL.txt`) and three.js (`overlay/vendor/LICENSE-three.txt`) are now in
+  the repository, as fetched from their sources, and `THIRD_PARTY_NOTICES.md` gives the
+  right copyright lines.
+- **Changelog corrections**: the 1.0.9 notes no longer say every model question was
+  settled at a commit where two meshes were still in the history, and no longer call the
+  two sword files copyrighted (they were CC0 placeholders; the models the effects were
+  designed around are the copyrighted ones). The 1.0.175 note on the history rewrite is
+  corrected the same way.
+- `.gitignore` covers `.worktrees/`, `.superpowers/` and `*.log`.
+
 ## [1.0.189] — 2026-11-23
 
 **Re-paste `actions/timbre-push.cs` into the `Timbre Push` action and Compile.** Do it in
@@ -273,10 +308,12 @@ recorded at the time, plus the two items under "Setup and history".
   their arguments in the default queue, 0 of 25 in a blocking queue. Nothing to re-paste:
   `actions/timbre-push.cs` has not changed since the first commit. The setup guide's
   tested version is now 1.0.7.
-- **The repository's history was rewritten on 2026-11-23.** Four model files that should not
-  have been published were removed from every commit: the CC BY-NC-ND Japandi rose mesh,
-  an earlier rose mesh of unrecorded origin, and the Lightning Sword and Save the Queen
-  models. No file in the current tree changed. **Every commit hash from before this
+- **The repository's history was rewritten on 2026-11-23.** Four model files were removed
+  from every commit. Two should not have been published: the CC BY-NC-ND Japandi rose
+  mesh and an earlier rose mesh of unrecorded origin. The other two, the Lightning Sword
+  and Save the Queen files, were CC0 placeholders made for Timbre; they went with them
+  so that the only model left in history is the author's own rose. No file in the
+  current tree changed. **Every commit hash from before this
   release is different**, and the hashes cited in this changelog and in `docs/` have been
   corrected. A clone or fork made before 2026-11-23 must be made again.
 
@@ -800,8 +837,10 @@ recorded at the time, plus the two items under "Setup and history".
   (`978dc01`, 2026-07-11)
 - **`rose.stl` replaced with the author's own CC-BY-4.0 mesh**, generated with
   Meshy.ai and converted from the Bambu 3MF (Z-up → Y-up, so the default spin
-  axis is the stem). 4,558 triangles, renders as a clean wireframe rose. All
-  STL provenance concerns are now resolved. (`d56f03f`, 2026-07-11)
+  axis is the stem). 4,558 triangles, renders as a clean wireframe rose. This
+  settled the files in the tree, not the history: the Japandi mesh and the
+  earlier rose mesh could still be downloaded from older commits until the
+  history was rewritten on 2026-11-23 (see 1.0.175). (`d56f03f`, 2026-07-11)
 
 ### Removed
 
@@ -809,9 +848,11 @@ recorded at the time, plus the two items under "Setup and history".
   blocks redistributing the processed mesh and NC conflicts with monetized
   stream use. Down to **49 effects** (37 2D + 12 WebGL). (`2e8c6cc`,
   2026-07-11)
-- **Lightning Sword and Save the Queen visualizers** — copyrighted source
-  assets. Down to 50 effects (37 2D + 13 WebGL) at the time; the STL group
-  remains. (`c267399`, 2026-07-11)
+- **Lightning Sword and Save the Queen visualizers** — the models the two
+  effects were made for are copyrighted. The sword files published here were
+  recorded as CC0 procedural stand-ins for them (see 0.1.0). Down to 50
+  effects (37 2D + 13 WebGL) at the time; the STL group remains. (`c267399`,
+  2026-07-11)
 
 ### Documentation
 
@@ -828,17 +869,20 @@ StreamService / ControlPanel toolkit. (`ee5c34a`)
 ### Added
 
 - **52 visualizer effects** (2D canvas and WebGL) driven by the microphone.
-  See *Removed* above — the shipping count is now 49.
+  See *Removed* under 1.0.9: three were taken out, which left 49 at that
+  release.
 - **Self-capturing overlay** — the overlay captures the mic itself via
   `getUserMedia` inside OBS CEF, so only configuration JSON crosses the wire
   over the Streamer.bot WebSocket. No audio ever travels the bus.
 - Single source of truth for settings in `shared/viz-config.js`, with a control
   page and a `spike/` permission-check page.
-- Public STL swords are CC0 procedural replacements.
+- Public STL swords are CC0 procedural replacements. (They are in no commit
+  now: see 1.0.175.)
 
 Verified offline: `verify` 28/28, `verify:render` 14/14.
 
-[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.189...main
+[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.191...main
+[1.0.191]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.189...v1.0.191
 [1.0.189]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.187...v1.0.189
 [1.0.187]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.185...v1.0.187
 [1.0.185]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.183...v1.0.185

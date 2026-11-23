@@ -21,16 +21,17 @@ control.html ── DoAction "Timbre Push" {config} ──► Streamer.bot (C# c
 - **No audio crosses any wire.** Each overlay page runs its own `getUserMedia` →
   `AnalyserNode` (fftSize 64, ~30 fps). Only the settings JSON travels, via Streamer.bot.
 - **One config message** (`timbre:config`) carries everything: active effect, global knobs,
-  the shared 3D-model knob group, per-effect knobs, and the mic device to capture.
-- **Sync-on-connect:** on WebSocket open the overlay fires `DoAction "Timbre Push"`, and the
-  C# action re-broadcasts the cached config — a source added mid-stream paints correctly.
+  scene placement, the afterglow length, per-effect knobs, and the mic device to capture.
+- **Sync-on-connect:** when a page connects it fires `DoAction "Timbre Push"`, and the
+  C# action re-broadcasts the saved config — a source added mid-stream paints correctly.
 - All names/defaults/ranges live in one file (`shared/viz-config.js`) used by the overlay,
   the control panel, and the verify suites.
 
 ## Quick start (no Streamer.bot needed)
 
 First, get the code — either `git clone https://github.com/FlashGalatine/timbre-visualizer.git`
-or click **<> Code → Download ZIP** on the repo page and extract it. Then, inside the folder:
+or click **<> Code → Download ZIP** on the repo page and extract it. You need Node.js 20
+or later. Then, inside the folder:
 
 ```
 npm install
@@ -39,6 +40,10 @@ npm start          # mock Streamer.bot on :7474 (HTTP) + :8080 (WS)
 
 Open `http://127.0.0.1:7474/` and launch the control panel + an overlay from the index.
 The overlay will ask for mic permission in a normal browser.
+
+The mock uses Streamer.bot's own default ports, so it cannot start while Streamer.bot is
+running on them. Close Streamer.bot first, or give the mock other ports with the
+`SB_HTTP_PORT` and `SB_WS_PORT` environment variables.
 
 ## Quick start (real Streamer.bot)
 
@@ -62,25 +67,43 @@ OBS Browser Source and
 waveforms, matrix rain with custom text, seasonal/holiday scenes, Pride flags, and
 floating 3D scenes that answer the voice (a rose that blooms, birds on a wire, a school
 of fish, a Christmas tree whose lights carry your voice). Add your own: drop a factory file in `overlay/factories/`, register it in
-`shared/viz-config.js`, add a `<script>` tag — see [docs/EFFECTS.md](docs/EFFECTS.md).
+`shared/viz-config.js`, add a `<script>` tag to the three overlay pages — see [docs/EFFECTS.md](docs/EFFECTS.md).
 
 ## Verification
 
 ```
-npm run verify           # over 1,000 protocol/table checks, against a mock of Streamer.bot
-npm run verify:render    # over 900 real-pixel checks in system Edge/Chrome (fake mic device)
+npm run verify           # under Node, no browser: the settings tables, config handling, the effects' arithmetic, the transport and the dock's logic, against a mock of Streamer.bot
+npm run verify:render    # in the Edge or Chrome on the machine, with a fake microphone: what the pages draw, and the dock operated by mouse and keyboard
 npm run verify:cs        # Windows only: compiles the C# action and runs its accept/reject cases
 ```
 
 `npm install` brings `playwright-core`, which `verify:render` drives. It uses the Edge or Chrome
-already on the machine and downloads no browser.
+already on the machine and downloads no browser. `verify:cs` needs `csc.exe` from the .NET
+Framework and is not part of `npm run verify`.
 
-The mock answers as Streamer.bot 1.0.7 was measured to: it replies when an action is queued (not
-when it has run), stores a config as it was sent, and broadcasts to every connected page. It is
-not Streamer.bot: the microphone check in docs/SETUP.md still has to be done in OBS. Each suite starts its own mock on
-side ports (7476 and 8090), and stops with a message if something already answers there.
+`verify` and `verify:render` run against `mock-sb-server.mjs`, not against Streamer.bot.
+Each starts its own mock on side ports (7476 and 8090), and stops with a message if
+something already answers there. The mock models these things, as they were measured on
+Streamer.bot 1.0.7:
 
-`verify:cs` needs `csc.exe` from the .NET Framework and is not part of `npm run verify`.
+- The reply to a `DoAction` is sent when the action is queued, not when it has run, and
+  it names the queue the action is in.
+- An action that does not exist gets Streamer.bot's error reply.
+- A sync replay is broadcast to every connected page, not only to the one that asked.
+- The action's checks: the mock runs a line-for-line copy of `actions/timbre-push.cs`,
+  refuses what the action refuses with the same error codes, and stores a config as it
+  was sent.
+- An overlap mode, off by default: two requests for `Timbre Push` that arrive together
+  run with one request's arguments, which is what Streamer.bot's default queue does.
+
+It does not model:
+
+- Streamer.bot's own C# compiler. `verify:cs` compiles the action with the .NET
+  Framework's compiler against a stand-in for `CPH`; compiling it in Streamer.bot is
+  still the test that counts.
+- Real timing. The mock answers at once, or after a fixed delay a test sets.
+- OBS's browser. The render suite drives Edge or Chrome with a fake microphone that is
+  always granted, so the microphone check in docs/SETUP.md still has to be done in OBS.
 
 ## Author & support
 
@@ -94,4 +117,5 @@ Built by **Ashe "Flash" Galatine**.
 ## License
 
 MIT — see [LICENSE](LICENSE). Third-party: three.js (MIT) and the Audiowide font
-(SIL OFL 1.1) — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+(SIL OFL 1.1) — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Their licence texts
+are `overlay/vendor/LICENSE-three.txt` and `overlay/fonts/OFL.txt`.
