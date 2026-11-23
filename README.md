@@ -128,7 +128,12 @@ node tools/compare-input.mjs --ref <git ref> --out <folder>
   its limit (`tools/input-readers.mjs` lists the readers; `npm run verify` checks that each
   line it mirrors is still in the effect's file).
 - `compare.txt`: per effect, the share of pixels that differ and the change in light, sorted
-  from most changed to least. `sheets/<effect>.png`: old on the left, new on the right.
+  from most changed to least. `sheets/<effect>.png`: old on the left, new on the right, a
+  row for each signal pictured (`--signals`).
+- `state.txt` (`--steps record,state --only <kit scenes> --watch <fields>`): fields of a
+  scene's state (what its `debug()` reports) read on every frame of every signal, old
+  against new: the least, middle and greatest value, and for whole numbers how often they
+  change. `--idle <seconds>` adds a run with the mic off and Idle animation on.
 - It serves the pages itself on the suites' side port (7476), so it must not run while a
   suite does. It never contacts Streamer.bot.
 

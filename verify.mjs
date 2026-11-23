@@ -2968,9 +2968,9 @@ await import('./overlay/chladni.js');
   const F = C.FIGURES, PI = Math.PI;
   const exact = (fig, x, z) => Math.cos(fig[0] * PI * x) * Math.cos(fig[1] * PI * z) + fig[2] * Math.cos(fig[1] * PI * x) * Math.cos(fig[0] * PI * z);
 
-  ok(C.GRAINS_MIN === 6000 && C.GRAINS_MAX === 30000 && C.HALF === 2.2 && C.THICK === 0.09 && C.G === 48 && C.T === 2048 && C.BANDS === 16 && C.BLEND === 0.8 && C.PAUSE === 0.45 && C.HOLD === 3 && C.REST === 2.5
-    && C.HUSH === 0.1 && C.LOUD === 0.22 && C.HUM === 0.04 && C.GRAV === 9 && C.REACH === 0.04 && C.SPREAD === 0.024 && C.TONE_LOW === 0.4 && C.TONE_SPAN === 2.6 && C.FLEX === 0.035 && C.BEAT === 4 && C.RIM === 0.16 && C.ONSET === 0.1 && C.STEPS_MAX === 6 && C.TONE_RATE === 2.5 && C.LIFT === 0.014 && C.SIZE === 0.085 && C.RINGS === 32,
-    'the sizes: 6,000 to 30,000 grains on a plate 4.4 on a side and 0.09 thick, a grid of 48, tables of 2,048, 16 bands, a blend of 0.8 s, a pause of 0.45 s, a hold of 3 s, a rest of 2.5 s between throws');
+  ok(C.GRAINS_MIN === 6000 && C.GRAINS_MAX === 30000 && C.HALF === 2.2 && C.THICK === 0.09 && C.G === 48 && C.T === 2048 && C.BANDS === 12 && C.BLEND === 0.8 && C.PAUSE === 0.45 && C.HOLD === 3 && C.REST === 2.5
+    && C.HUSH === 0.1 && C.LOUD === 0.22 && C.HUM === 0.04 && C.GRAV === 9 && C.REACH === 0.04 && C.SPREAD === 0.024 && C.TONE_LOW === 3 && C.TONE_SPAN === 6 && C.EDGE === 0.4 && C.IDLE_BANDS === 16 && C.IDLE_LOW === 0.4 && C.IDLE_SPAN === 2.6 && C.FLEX === 0.035 && C.BEAT === 4 && C.RIM === 0.16 && C.ONSET === 0.1 && C.STEPS_MAX === 6 && C.TONE_RATE === 2.5 && C.LIFT === 0.014 && C.SIZE === 0.085 && C.RINGS === 32,
+    'the sizes: 6,000 to 30,000 grains on a plate 4.4 on a side and 0.09 thick, a grid of 48, tables of 2,048, a tone weighed over the 12 lowest log bands, a blend of 0.8 s, a pause of 0.45 s, a hold of 3 s, a rest of 2.5 s between throws');
   ok(C.grainCount(0) === 6000 && C.grainCount(50) === 18000 && C.grainCount(100) === 30000 && C.grainCount(-9) === 6000 && C.grainCount(500) === 30000 && C.grainCount(NaN) === 18000 && C.grainCount(undefined) === 18000 && C.grainCount(25) === 12000,
     'Density 0 is 6,000 grains, 50 is 18,000, 100 is 30,000; anything else is held to that range, and no setting at all is the default');
 
@@ -3005,26 +3005,70 @@ await import('./overlay/chladni.js');
 
   // The tone, and which figure.
   {
-    const bands = new Float32Array(16);
+    const bands = new Float32Array(32);
     const none = C.toneOf(bands);
-    bands[3] = 0.1;
+    bands[6] = 0.1;
     const faint = C.toneOf(bands);
-    bands.fill(0); bands[0] = 1;
+    bands.fill(0); bands[3] = 1;
     const low = C.toneOf(bands);
+    bands.fill(0); bands[0] = 1;
+    const lowest = C.toneOf(bands);
     bands.fill(0); bands[9] = 1;
     const high = C.toneOf(bands);
-    bands.fill(0); bands[1] = 0.5; bands[2] = 0.5;
+    bands.fill(0); bands[11] = 1;
+    const highest = C.toneOf(bands);
+    bands.fill(0); bands[5] = 0.5; bands[6] = 0.5;
     const mid = C.toneOf(bands);
-    bands.fill(0); bands[2] = 0.9; bands[5] = 0.3;
+    bands.fill(0); bands[4] = 0.9; bands[7] = 0.3;
     const lean = C.toneOf(bands);
-    ok(none === -1 && faint === -1 && low === 0 && high === 1 && near(mid, 1.1 / 2.6) && near(lean, (2.3 - 0.4) / 2.6, 1e-6),
-      'the tone is where the sound\'s weight sits among the 16 lowest bins, each weighing as its square, 0 to 1; with too little sound there is none');
-    // A floor of hiss in every bin under a low voice: the tone stays near the voice's. (Weighed plainly, it would be 1.)
-    bands.fill(0); bands[1] = 0.8;
+    ok(none === -1 && faint === -1 && low === 0 && lowest === 0 && high === 1 && highest === 1 && near(mid, 2.5 / 6) && near(lean, (4.3 - 3) / 6, 1e-6),
+      'the tone is where the sound\'s weight sits among the 12 lowest log bands (60 to 438 Hz), each weighing as its square: 0 with the weight at band 3 or below, 1 at band 9 or above; with too little sound there is none');
+    // The bands above the twelfth count for nothing: a sound that is all vowel, or all hiss, has no tone.
+    bands.fill(0); bands[12] = 1; bands[20] = 1; bands[31] = 1;
+    const above = C.toneOf(bands);
+    bands[5] = 0.5;
+    const under = C.toneOf(bands);
+    ok(above === -1 && near(under, 2 / 6) && near(C.centreOf(bands, 12), 5) && near(C.centreOf(bands, 32), (12 + 20 + 31 + 5 * 0.25) / 3.25) && C.centreOf(new Float32Array(32), 12) === -1,
+      'what sounds above 438 Hz does not move the tone, and by itself gives none');
+    // A floor of hiss in every band under a low voice: the tone stays near the voice's.
+    bands.fill(0); bands[4] = 0.8;
     const clean = C.toneOf(bands);
-    bands.fill(0.05); bands[1] = 0.8;
+    bands.fill(0.05); bands[4] = 0.8;
     const hissy = C.toneOf(bands);
-    ok(near(clean, 0.6 / 2.6, 1e-6) && hissy > clean && hissy - clean < 0.15, 'a floor of hiss under the voice barely moves the tone');
+    ok(near(clean, 1 / 6, 1e-6) && hissy > clean && hissy - clean < 0.02, 'a floor of hiss under the voice barely moves the tone');
+    // Pitch picks the figure. A voice here is its pitch and the note an octave above it, as loud as each other, each in the log band it falls in.
+    const bandOf = (hz) => Math.floor(32 * Math.log(hz / 60) / Math.log(200));
+    const voiced = (hz) => { const b = new Float32Array(32); b[bandOf(hz)] = 0.8; b[bandOf(2 * hz)] = 0.8; return C.wantFigure(C.toneOf(b)); };
+    const rising = [];
+    for (let c = 0; c <= 11.001; c += 0.05) { const b = new Float32Array(32), k = Math.min(10, Math.floor(c)), part = Math.min(1, c - k); b[k] = Math.sqrt(1 - part); b[k + 1] = Math.sqrt(part); rising.push(C.wantFigure(C.toneOf(b))); }
+    ok(bandOf(60) === 0 && bandOf(90) === 2 && bandOf(130) === 4 && bandOf(180) === 6 && bandOf(360) === 10 && bandOf(437) === 11 && bandOf(439) === 12 && voiced(180) > voiced(130) && voiced(130) > voiced(90) && voiced(90) > 0 && voiced(180) < 9
+      && rising[0] === 0 && rising[rising.length - 1] === 9 && rising.every((f, i) => i === 0 || f === rising[i - 1] || f === rising[i - 1] + 1) && new Set(rising).size === 10,
+      `a higher voice asks for a more intricate figure (90, 130 and 180 Hz: figures ${voiced(90)}, ${voiced(130)} and ${voiced(180)}), and a tone rising through the twelve bands asks for all ten figures in turn, first to last`);
+    // Gain says how loud the microphone is: it decides whether there is sound enough to tell a tone, never which tone.
+    {
+      const voice = new Float32Array(32); voice[4] = 0.9; voice[5] = 0.7; voice[8] = 0.6; voice[9] = 0.3;
+      const at = [0.5, 1, 1.5, 2].map((g) => C.toneOf(voice, g)), held = (g) => { let sum = 0, moment = 0; for (let b = 0; b < 12; b++) { const v = Math.min(1, voice[b] * g), w = v * v; sum += w; moment += b * w; } return (moment / sum - 3) / 6; };
+      const soft = new Float32Array(32); soft[5] = 0.08; soft[6] = 0.08;
+      ok(at.every((v) => v === at[0]) && at[0] > 0.3 && at[0] < 0.5 && C.toneOf(voice) === at[0] && Math.abs(held(2) - at[0]) > 0.05
+        && C.toneOf(soft, 1) === -1 && near(C.toneOf(soft, 2), 2.5 / 6) && C.toneOf(soft, 1.26) > 0 && C.toneOf(soft, 1.24) === -1 && C.toneOf(voice, 0) === -1
+        && C.centreOf(soft, 12) === -1 && near(C.centreOf(soft, 12, 2), 5.5),
+        `the tone is the same at every Gain (${at.map((v) => v.toFixed(4)).join(' ')} at 0.5, 1, 1.5 and 2; with bands held to 1 after Gain it would be ${held(2).toFixed(4)} at 2): Gain only decides whether there is sound enough to tell, and at Gain 0 there is none`);
+    }
+    // The mic's wanted figure keeps to the figure it has until the tone is 0.4 of a figure past its edge.
+    {
+      let want = 4; const wobble = [];
+      for (let i = 0; i < 40; i++) { want = C.heldFigure(i % 2 ? 0.512 : 0.488, want); wobble.push(want); }
+      let from5 = 5; for (let i = 0; i < 40; i++) from5 = C.heldFigure(i % 2 ? 0.512 : 0.488, from5);
+      const up = [], down = [];
+      let w = 0; for (let t = 0; t <= 1.0001; t += 0.002) { w = C.heldFigure(Math.min(1, t), w); up.push(w); }
+      for (let t = 1; t >= -0.0001; t -= 0.002) { w = C.heldFigure(Math.max(0, t), w); down.push(w); }
+      const plain = [0.488, 0.512].map((t) => C.wantFigure(t));
+      ok(plain.join() === '4,5' && wobble.every((f) => f === 4) && from5 === 5
+        && C.heldFigure(0.535, 4) === 4 && C.heldFigure(0.545, 4) === 5 && C.heldFigure(0.465, 5) === 5 && C.heldFigure(0.455, 5) === 4 && C.heldFigure(0.77, 2) === 7 && C.heldFigure(0.12, 8) === 1
+        && C.heldFigure(0.935, 8) === 8 && C.heldFigure(0.945, 8) === 9 && C.heldFigure(0.065, 1) === 1 && C.heldFigure(0.055, 1) === 0 && C.heldFigure(NaN, 3) === 3 && C.heldFigure(-1, 3) === 0
+        && up[0] === 0 && up[up.length - 1] === 9 && up.every((f, i) => i === 0 || f === up[i - 1] || f === up[i - 1] + 1) && down[down.length - 1] === 0 && down.every((f, i) => i === 0 || f === down[i - 1] || f === down[i - 1] - 1),
+        'the mic\'s wanted figure is kept while the tone wobbles across an edge (0.488 and 0.512 by turns: plainly figures 4 and 5, held at whichever it had), let go once the tone is 0.4 of a figure past the edge either way, and a rising tone still asks for all ten in turn and a falling one comes back to the first');
+    }
     ok(C.meanOf(0.2, 1, 0, 0.01) === 1 && near(C.meanOf(1, 0, 0.05, 0.05), 0.5) && near(C.meanOf(0.4, 0.4, 0.3, 0.1), 0.4) && near(C.meanOf(0, 1, 0.09, 0.01), 0.1) && C.meanOf(0.7, 0.3, 0, 0) === 0.3,
       'a running mean: what there was, for as long as it lasted, and the new value for its moment');
     ok(C.wantFigure(0) === 0 && C.wantFigure(0.05) === 0 && C.wantFigure(0.1) === 1 && C.wantFigure(0.45) === 4 && C.wantFigure(0.999) === 9 && C.wantFigure(1) === 9 && C.wantFigure(-1) === 0 && C.wantFigure(NaN) === 0,
@@ -3275,8 +3319,35 @@ await import('./overlay/chladni.js');
   }
   ok(C.radius(0, 0) === 0 && near(C.radius(1, 1), 1) && near(C.radius(1, 0), Math.SQRT1_2) && near(C.radius(-0.5, 0.5), 0.5), 'a grain\'s colour goes by how far it is from the middle of the plate, 1 at a corner');
   {
-    const centre = (s) => 0.4 + 2.6 * (0.5 + 0.5 * Math.sin(0.08 * s)), toneAt = (s) => { const b = new Float32Array(16); for (let i = 0; i < 16; i++) b[i] = C.idle(i, s); return C.toneOf(b); };
+    // The tone Idle animation had before the log bands, written out: the weight of 16 pretended bands, 0 at 0.4 and 1 at 3.
+    const centre = (s) => 0.4 + 2.6 * (0.5 + 0.5 * Math.sin(0.08 * s)), was = new Float32Array(16);
+    const toneWas = (s) => { let sum = 0, moment = 0; for (let b = 0; b < 16; b++) { const d = b - centre(s); was[b] = Math.exp(-(d * d) / 1.5); const w = was[b] * was[b]; sum += w; moment += b * w; } return sum > 0.02 ? Math.min(1, Math.max(0, (moment / sum - 0.4) / 2.6)) : -1; };
+    const toneAt = (s) => C.idleTone(s);
     const quarter = Math.PI / 2 / 0.08;
+    // A minute of Idle animation at 60 frames a second, through the plate's own listening (the kit's idle level, the mean over
+    // a phrase's first tenth of a second, then following): the tone heard, the figure wanted and the figure taken, frame by frame.
+    const minute = (heardAt) => {
+      const st = C.voice(), dt = 1 / 60, out = { heard: [], want: [], figure: [] };
+      let tone = 0, cold = true, heardFor = 0, clock = 0;
+      for (let k = 1; k <= 3600; k++) {
+        const ms = 100000 + k * 1000 / 60, level = 0.26 + 0.2 * Math.sin(ms / 900) * Math.sin(ms / 2300 + 1);
+        clock += dt;
+        if (st.quiet > C.PAUSE) { cold = true; heardFor = 0; }
+        const heard = heardAt(clock);
+        if (heard >= 0) {
+          if (cold) { tone = C.meanOf(tone, heard, heardFor, dt); heardFor += dt; if (heardFor >= C.ONSET - 1e-9) cold = false; }
+          else tone += (heard - tone) * (1 - Math.exp(-C.TONE_RATE * dt));
+        }
+        const want = C.wantFigure(tone);
+        C.listen(st, level, cold ? -1 : want, dt);
+        out.heard.push(heard); out.want.push(want); out.figure.push(st.figure);
+      }
+      return out;
+    };
+    const before = minute(toneWas), after = minute((s) => C.idleTone(s));
+    ok(before.heard.every((v, i) => v === after.heard[i]) && before.want.join() === after.want.join() && before.figure.join() === after.figure.join()
+      && new Set(after.want).size === 10 && new Set(after.figure).size >= 3 && after.heard.every((v) => v >= 0 && v <= 1),
+      `Idle animation is as it was before the tone moved to the log bands: over a minute at 60 frames a second the tone heard is the same number on every frame, and so are the figure wanted (all ten, ${after.want.filter((v, i) => i > 0 && v !== after.want[i - 1]).length} changes) and the figure taken (${[...new Set(after.figure)].join(' ')})`);
     ok(near(C.idle(2, 0), Math.exp(-0.09 / 1.5)) && near(C.idle(4, 10), Math.exp(-Math.pow(4 - centre(10), 2) / 1.5)) && [0, 5, 10, 15].every((b) => C.idle(b, 33) >= 0 && C.idle(b, 33) <= 1)
       && Math.abs(toneAt(0) - 0.5) < 0.05 && toneAt(quarter) > 0.95 && toneAt(3 * quarter) < 0.1 && toneAt(quarter / 2) > toneAt(0) && toneAt(quarter / 2) < 0.95 && toneAt(2.5 * quarter) < toneAt(2 * quarter) && toneAt(2.5 * quarter) > 0.05,
       'with the mic off the tone drifts slowly from one end of the figures to the other and back, without stopping at either');
@@ -8582,8 +8653,8 @@ console.log('\n[30] audio capture: one microphone request at a time');
     const byPosition = files.filter((f) => !['overlay/audio-capture.js', 'overlay/core.js', 'overlay/scene-kit.js'].includes(f) && /frequencies\s*\[/.test(text(f)));
     ok(files.length > 70 && byPosition.length === 0, `no effect file and no scene module reads \`frequencies\` by position (frequencies[...]): the log bands are read through TimbreHelix.spread, bandMean and levels, or summed up as micBands ${byPosition.join(' ')}`);
     const sliceReaders = files.filter((f) => /loudness\(slices,|(?<![.\w])slices(\.length|\[)|\? slices :/.test(text(f)) && !['overlay/audio-capture.js', 'overlay/core.js'].includes(f)).map((f) => f.replace(/^overlay\/(factories\/)?|\.js$/g, '')).sort();
-    ok(sliceReaders.join() === ['autumn-leaves', 'blob', 'boids', 'chladni', 'christmas-tree', 'dia-de-muertos-calavera', 'easter-eggs', 'glass-prism', 'halloween-jack', 'ink', 'jelly', 'lunar-new-year-lanterns', 'metaball', 'mountains', 'new-year-fireworks', 'phosphor', 'rose', 'school-of-fish', 'shards', 'spring-blossoms', 'st-patricks-shamrocks', 'summer-tide', 'sunburst', 'valentines-hearts'].join(),
-      `the slices are read by the 13 scene modules, the ten seasonal 2D effects and the blob's outline, and by nothing else: ${sliceReaders.join(' ')}`);
+    ok(sliceReaders.join() === ['autumn-leaves', 'blob', 'boids', 'christmas-tree', 'dia-de-muertos-calavera', 'easter-eggs', 'glass-prism', 'halloween-jack', 'ink', 'jelly', 'lunar-new-year-lanterns', 'metaball', 'mountains', 'new-year-fireworks', 'phosphor', 'rose', 'school-of-fish', 'shards', 'spring-blossoms', 'st-patricks-shamrocks', 'summer-tide', 'sunburst', 'valentines-hearts'].join(),
+      `the slices are read by 12 scene modules, the ten seasonal 2D effects and the blob's outline, and by nothing else (the chladni plate hears the log bands): ${sliceReaders.join(' ')}`);
     const { mirrored, readers, barEffects } = await import('./tools/input-readers.mjs');
     const { GUARD, SIGNALS, TIMES } = await import('./tools/input-replay.mjs');
     const gone = mirrored.filter(([file, line]) => !text(file).includes(line));

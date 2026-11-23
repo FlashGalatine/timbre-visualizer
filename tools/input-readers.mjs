@@ -8,7 +8,8 @@
 // (`mirrors`): verify.mjs checks that every such line is still in its file, so a reader here
 // cannot drift from the effect unnoticed.
 import '../overlay/helix.js';
-const HX = globalThis.TimbreHelix;
+import '../overlay/chladni.js';
+const HX = globalThis.TimbreHelix, PLATE = globalThis.TimbreChladni;
 
 const clamp01 = (v) => (v > 1 ? 1 : v > 0 ? v : 0);
 const avg = (f, from, to) => { let sum = 0; for (let i = from; i < to; i++) sum += f[i]; return sum / ((to - from) * 255); };
@@ -19,7 +20,7 @@ const sliceAvg = (t, from, to) => (t.s ? avg(t.s, from, to) : NaN);
 const SEASONAL = ['autumn-leaves', 'dia-de-muertos-calavera', 'easter-eggs', 'halloween-jack', 'lunar-new-year-lanterns', 'new-year-fireworks', 'spring-blossoms', 'st-patricks-shamrocks', 'summer-tide', 'valentines-hearts'];
 const HELIX = ['dna', 'comet', 'fireflies', 'pulse-rings', 'orbit', 'black-hole', 'blob', 'owl', 'television'];
 // Which scene modules read each slice (their BANDS, or the bands their columns and beams are given).
-const MODULES = { 8: ['boids', 'christmas-tree', 'ink', 'jelly', 'rose', 'school-of-fish', 'shards', 'metaball', 'phosphor'], 9: ['mountains-3d', 'sunburst-3d'], 10: ['glass-prism'], 16: ['chladni'] };
+const MODULES = { 8: ['boids', 'christmas-tree', 'ink', 'jelly', 'rose', 'school-of-fish', 'shards', 'metaball', 'phosphor'], 9: ['mountains-3d', 'sunburst-3d'], 10: ['glass-prism'] };
 const modulesFor = (k) => Object.entries(MODULES).filter(([n]) => k < Number(n)).flatMap(([, names]) => names);
 
 // limit: how far the mean may move (a share of the old mean); signals: the signals the limit is
@@ -57,7 +58,7 @@ export const readers = [
     old: (t) => avg(t.f, 0, 32), new: (t) => HX.heard('all', t.b) },
 
   // Group 3: the scene modules' loudness(bins, band, gain) = min(1, bins[band] / 255 × gain), now of the slices.
-  ...Array.from({ length: 16 }, (_, k) => ({ group: 3, name: `loudness of value ${k}, now slice ${k}`, effects: modulesFor(k), limit: 0.10,
+  ...Array.from({ length: 10 }, (_, k) => ({ group: 3, name: `loudness of value ${k}, now slice ${k}`, effects: modulesFor(k), limit: 0.10,
     old: (t) => Math.min(1, t.f[k] / 255), new: (t) => Math.min(1, slice(t, k) / 255) })),
 
   // Group 5: the seasonal effects' bandAverage(lo, hi), now of the slices.
@@ -69,6 +70,14 @@ export const readers = [
   { group: 6, name: "the scene kit's level", effects: ['every kit scene (20 effects)'], limit: 0.05,
     mirrors: [['overlay/scene-kit.js', 'if (bands) return Math.min(1, bands.level * cfgGain);']],
     old: (t) => Math.min(1, Math.max(rms64(t.w) * 3, avg(t.f, 0, 6) * 1.1)), new: (t) => (t.b ? Math.min(1, t.b.level) : NaN) },
+
+  // Group 7: the chladni plate's tone, which picks its figure (0 where the sound has none). It was where the weight
+  // of slices 0 to 15 sat, 0 at 0.4 and 1 at 3; it is where the weight of log bands 0 to 11 sits, as toneOf() has it.
+  // Different on purpose, so it has no limit: `--steps state --only chladni --watch tone,want,figure` shows what it does.
+  { group: 7, name: "chladni's tone (was slices 0-15, now log bands 0-11)", effects: ['chladni'],
+    mirrors: [['overlay/chladni.js', 'if (micActive) { for (let b = 0; b < BANDS; b++) bands[b] = loudness(frequencies, b, 1); heard = toneOf(bands, cfgGain); }']],
+    old: (t) => { if (!t.s) return NaN; let sum = 0, moment = 0; for (let b = 0; b < 16; b++) { const w = (t.s[b] / 255) ** 2; sum += w; moment += b * w; } return sum > 0.02 ? clamp01((moment / sum - 0.4) / 2.6) : 0; },
+    new: (t) => Math.max(0, PLATE.toneOf(Float32Array.from({ length: PLATE.BANDS }, (_, b) => PLATE.loudness(t.f, b, 1)))) },
 ];
 
 // Group 4: the bar and spectrum effects. Each lays `count` bars over the spectrum; `gain` is

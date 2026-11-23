@@ -99,9 +99,11 @@ on reads a little differently with it off: Gain is where the streamer evens that
   byte scale); fed the same recorded sound, the slices and the old values agree to within 1
   of 255 (`npm run verify:render` checks it against a real 64-point `AnalyserNode`).
 - **Which one to read.** A new effect, or one being rebuilt, reads `micBands` or the log
-  bands. `slices` exists for the effects tuned before this change: the 13 scene modules
+  bands. `slices` exists for the effects tuned before this change: 12 scene modules
   (`loudness(slices, band, gain)`), the ten seasonal 2D effects (`bandAverage`), and the
-  blob's outline. Do not read `frequencies` by position (`frequencies[3]`): a position is a
+  blob's outline. Each scene moves to the log bands in a change of its own; the chladni
+  plate was the first (its tone is weighed over log bands 0 to 11, see its section), and
+  `npm run verify` lists exactly which files still read `slices`. Do not read `frequencies` by position (`frequencies[3]`): a position is a
   band a quarter of an octave wide, not 750 Hz. To lay bars over the spectrum use
   `TimbreHelix.spread(frequencies, i, count)`: bar `i` of `count` reads the mean of the
   bands from `i × 32 / count` to the next bar's first, so 20 bars cover 60 Hz to 12 kHz
@@ -368,7 +370,8 @@ Sunburst need only the phase.
   `treble`, or the log bands in `frequencies`, through one small function of its own
   module. The scenes built before the log bands read `slices` that way, as
   `loudness(bins, band, gain)` in `overlay/rose.js` does: wherever the notes on a scene
-  below say "bins" or "the eight lowest bins", they mean the slices. Do not paste the
+  below say "bins" or "the eight lowest bins", they mean the slices. The chladni plate
+  reads the log bands that way (`loudness(frequencies, band, gain)`). Do not paste the
   `bandAverage` helper of the older 2D effects into a scene.
 
 ### Scene placement
@@ -842,10 +845,35 @@ offers:
   `cos(n·π·x)·cos(m·π·z) + s·cos(m·π·x)·cos(n·π·z)`. Its lines are where that is zero.
   `cell(x)` is the table cell for a place, and `sample(fig, ix, iz, out)` reads a figure's
   value and its slope each way from the tables (2,048 cells across the plate).
-- **The sound.** `toneOf(bands)` is where the sound's weight sits among the 16 lowest bins,
-  each weighing as its square, 0 to 1, or -1 with too little sound to tell. `meanOf(...)` is
-  the running mean the scene takes of it over a phrase's first tenth of a second.
-  `wantFigure(tone)` is the figure a tone asks for. `voice()` is what the plate remembers
+- **The sound.** The level and the beat (the shake and the throws) come from the scene kit.
+  The tone, which picks the figure, comes from the log bands: `toneOf(bands)` is where the
+  sound's weight sits among the 12 lowest (`BANDS`: 60 to 438 Hz, where a voice's pitch and
+  the note an octave above it are), each band weighing as its square, so the bands that
+  sound decide it and hiss under them does not. `centreOf(bands, count, gain)` is that
+  place as a band number; the tone is 0 with it at band 3 (`TONE_LOW`) and 1 at band 9
+  (`TONE_LOW + TONE_SPAN`), or -1 with too little sound in those bands to tell (the figure
+  is then kept). Gain says how loud the microphone is, so it counts in that one test (the
+  squares, times Gain squared, must come to more than 0.02) and nowhere else: the bands
+  are weighed as the sampler gives them, and a voice asks for the same figure at any Gain. What sounds above 438 Hz, the vowels and an "s", does not count, so the
+  tone goes by the pitch and not by what is being said. The two constants were fitted on
+  the recorded sounds of `tools/compare-input.mjs`: the voice at 150 Hz sits in the middle
+  of the sixth figure's tenth of the tone (0.55) and the voice at 220 Hz in the middle of
+  the eighth's (0.74), the band at 0.37 and the kick between 0.05 and 0.2, and the rising
+  tone asks for all ten figures in turn. Before, the tone was weighed over slices 0 to 15,
+  where both voices read 0.99 and asked for the last figure. To see what a change to any
+  of this does, run
+  `node tools/compare-input.mjs --ref <git ref> --steps record,state --only chladni --watch tone,want,figure --signals speech,speech220,kick,music,sweep`.
+  `meanOf(...)` is the running mean the scene takes of the tone over a phrase's first tenth
+  of a second. `wantFigure(tone)` is the figure a tone asks for, and
+  `heldFigure(tone, was)` the figure the mic's tone asks for given the one it asked for
+  last: the same one until the tone is 0.4 of a figure (`EDGE`) past its edge, either way,
+  so a voice whose tone lies on the edge between two figures does not go back and forth
+  between them. 0.4 is the least of the margins tried (0, 0.2, 0.3, 0.4, 0.5) at which the
+  recorded voices at 260 and 300 Hz, whose tones lie on an edge, stop going back and
+  forth, at Gain 1, 1.5 and 2; the rising tone still asks for all ten figures. (The voice
+  at 90 Hz moves its tone by more than a figure, and still changes three times in six
+  seconds.) Idle animation's
+  tone is taken as it is, by `wantFigure`. `voice()` is what the plate remembers
   (its figure, the one before, what the tone last asked for, how long since it changed, how
   long the voice has been quiet, whether a phrase is waiting) and `listen(st, level, want,
   dt)` is one moment of listening: a new phrase takes `phraseFigure(want, has, had)`, the
@@ -869,7 +897,11 @@ offers:
   `glow(f, shake)` how bright it glows where the figure's value is `f`. `sandBright(shake,
   inAir)`, `pale(out, rgb)` and `radius(x, z)` are how bright and what colour a grain is,
   and `grainSize(scale, zoom)` how wide it is drawn.
-  `idle(b, t)` is what a band pretends to hear with the mic off.
+  `idle(b, t)` is what one of 16 pretended bands hears with the mic off, and `idleTone(t)`
+  the tone of those bands (0 with their weight at 0.4, 1 at 3: `IDLE_LOW`, `IDLE_SPAN`).
+  They are the bands and the tone the plate had before it heard the log bands, kept so
+  that Idle animation draws the same figures at the same moments as it did;
+  `npm run verify` holds a minute of it to the old arithmetic, frame by frame.
 - **The Rotate settings.** `turn(out, x, y, z, rx, ry, rz)`, `bounds(...)` and
   `poseFor(rx, ry, rz)` turn the plate, say how far it then reaches from the middle of the
   frame, and say where to put it and how large to draw it so that it stays inside. They are
