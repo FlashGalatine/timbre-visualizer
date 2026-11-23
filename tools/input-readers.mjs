@@ -9,7 +9,8 @@
 // cannot drift from the effect unnoticed.
 import '../overlay/helix.js';
 import '../overlay/chladni.js';
-const HX = globalThis.TimbreHelix, PLATE = globalThis.TimbreChladni;
+import '../overlay/phosphor.js';
+const HX = globalThis.TimbreHelix, PLATE = globalThis.TimbreChladni, DECK = globalThis.TimbrePhosphor;
 
 const clamp01 = (v) => (v > 1 ? 1 : v > 0 ? v : 0);
 const avg = (f, from, to) => { let sum = 0; for (let i = from; i < to; i++) sum += f[i]; return sum / ((to - from) * 255); };
@@ -20,7 +21,7 @@ const sliceAvg = (t, from, to) => (t.s ? avg(t.s, from, to) : NaN);
 const SEASONAL = ['autumn-leaves', 'dia-de-muertos-calavera', 'easter-eggs', 'halloween-jack', 'lunar-new-year-lanterns', 'new-year-fireworks', 'spring-blossoms', 'st-patricks-shamrocks', 'summer-tide', 'valentines-hearts'];
 const HELIX = ['dna', 'comet', 'fireflies', 'pulse-rings', 'orbit', 'black-hole', 'blob', 'owl', 'television'];
 // Which scene modules read each slice (their BANDS, or the bands their columns and beams are given).
-const MODULES = { 8: ['boids', 'christmas-tree', 'ink', 'jelly', 'rose', 'school-of-fish', 'shards', 'metaball', 'phosphor'], 9: ['mountains-3d', 'sunburst-3d'], 10: ['glass-prism'] };
+const MODULES = { 8: ['boids', 'christmas-tree', 'ink', 'jelly', 'rose', 'school-of-fish', 'shards', 'metaball'], 9: ['mountains-3d', 'sunburst-3d'], 10: ['glass-prism'] };
 const modulesFor = (k) => Object.entries(MODULES).filter(([n]) => k < Number(n)).flatMap(([, names]) => names);
 
 // limit: how far the mean may move (a share of the old mean); signals: the signals the limit is
@@ -78,6 +79,17 @@ export const readers = [
     mirrors: [['overlay/chladni.js', 'if (micActive) { for (let b = 0; b < BANDS; b++) bands[b] = loudness(frequencies, b, 1); heard = toneOf(bands, cfgGain); }']],
     old: (t) => { if (!t.s) return NaN; let sum = 0, moment = 0; for (let b = 0; b < 16; b++) { const w = (t.s[b] / 255) ** 2; sum += w; moment += b * w; } return sum > 0.02 ? clamp01((moment / sum - 0.4) / 2.6) : 0; },
     new: (t) => Math.max(0, PLATE.toneOf(Float32Array.from({ length: PLATE.BANDS }, (_, b) => PLATE.loudness(t.f, b, 1)))) },
+
+  // Group 8: the phosphor's ten bands, which shape its traces. Band b was slice b; it is the mean of a run of log bands
+  // (runOf(b)) times BAND_GAIN, as its loudness() has it. Each band is different on purpose, so it has no limit. Their
+  // total, each band times its weight() (the sum in shape()), is held to a tenth of what it was under the two voices.
+  // `--steps state --only phosphor --watch now,flame,kick,stands,heard --frames` reads the bands as the scene follows them.
+  ...Array.from({ length: DECK.K }, (_, b) => ({ group: 8, name: `phosphor's band ${b} (was slice ${b}, now log bands ${DECK.runOf(b)[0]}-${DECK.runOf(b)[1] - 1})`, effects: ['phosphor'],
+    old: (t) => (t.s ? Math.min(1, t.s[b] / 255) : NaN), new: (t) => DECK.loudness(t.f, b, 1) })),
+  { group: 8, name: "phosphor's bands, each times its weight, added", effects: ['phosphor'], limit: 0.10, signals: ['speech', 'speech220'],
+    mirrors: [['overlay/phosphor.js', 'if (micActive) v = loudness(frequencies, b, cfgGain);']],
+    old: (t) => { if (!t.s) return NaN; let sum = 0; for (let b = 0; b < DECK.K; b++) sum += Math.min(1, t.s[b] / 255) * DECK.weight(b); return sum; },
+    new: (t) => { let sum = 0; for (let b = 0; b < DECK.K; b++) sum += DECK.loudness(t.f, b, 1) * DECK.weight(b); return sum; } },
 ];
 
 // Group 4: the bar and spectrum effects. Each lays `count` bars over the spectrum; `gain` is

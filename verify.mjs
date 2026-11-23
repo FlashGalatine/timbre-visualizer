@@ -2834,8 +2834,9 @@ await import('./overlay/phosphor.js');
   const ease = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
   const P = Ph.P, K = Ph.K;
 
-  ok(Ph.SLICES_MIN === 12 && Ph.SLICES_MAX === 36 && Ph.P === 96 && Ph.K === 10 && Ph.W === 6.4 && Ph.D === 3.6 && Ph.SPAN === 2.2 && Ph.HZ === 24 && Ph.HIST === 56 && Ph.LOW === 0.14 && Ph.TALL === 1.5 && Ph.GLOW === 0.28 && Ph.FRONT === 0.006 && Ph.RISE === 20 && Ph.FALL === 8,
-    'the sizes: 12 to 36 slices of 96 points, a deck 6.4 wide and 3.6 deep holding 2.2 s, ten bands, 56 history samples at 24 a second');
+  ok(Ph.SLICES_MIN === 12 && Ph.SLICES_MAX === 36 && Ph.P === 96 && Ph.K === 10 && Ph.W === 6.4 && Ph.D === 3.6 && Ph.SPAN === 2.2 && Ph.HZ === 24 && Ph.HIST === 56 && Ph.LOW === 0.14 && Ph.TALL === 1.5 && Ph.GLOW === 0.28 && Ph.FRONT === 0.006 && Ph.RISE === 20 && Ph.FALL === 8
+    && Ph.FIRST === 4 && Array.isArray(Ph.RUNS) && Ph.RUNS.join() === '2,2,2,3,3,3,3,3,3,3' && Ph.BAND_GAIN === 0.96,
+    'the sizes: 12 to 36 slices of 96 points, a deck 6.4 wide and 3.6 deep holding 2.2 s, ten bands (runs of two and three log bands from the fifth, times 0.96), 56 history samples at 24 a second');
   ok((Ph.HIST - 1) / Ph.HZ >= Ph.SPAN, 'the history reaches back as far as the last slice');
   ok(Ph.sliceCount(0) === 12 && Ph.sliceCount(50) === 24 && Ph.sliceCount(100) === 36 && Ph.sliceCount(-9) === 12 && Ph.sliceCount(500) === 36 && Ph.sliceCount(NaN) === 24 && Ph.sliceCount(undefined) === 24 && Ph.sliceCount(25) === 18,
     'Depth 0 is 12 slices, 50 is 24, 100 is 36; anything else is held to that range, and no setting at all is the default');
@@ -2851,10 +2852,32 @@ await import('./overlay/phosphor.js');
     && Ph.weight(0) === 1 && near(Ph.weight(9), 1 / 2.35) && near(Ph.weight(4), 1 / 1.6),
     'each band is a sine across the width: the lowest 1.2 waves and 0.9 more for each band, running alternately one way and the other, the higher ones faster and a little weaker');
   {
-    const bins = new Uint8Array(32); bins[0] = 255; bins[1] = 51; bins[9] = 102;
-    ok(near(Ph.loudness(bins, 0, 1), 1) && near(Ph.loudness(bins, 1, 1), 0.2) && near(Ph.loudness(bins, 9, 1), 0.4) && near(Ph.loudness(bins, 1, 2), 0.4) && Ph.loudness(bins, 9, 3) === 1
-      && Ph.loudness(bins, 1, 0) === 0 && Ph.loudness(null, 3, 1) === 0 && Ph.loudness(new Uint8Array(0), 3, 1) === 0 && Ph.loudness(bins, 40, 1) === 0,
-      'a band is as loud as its bin, times Gain, held to 1; nothing with no bins or a band past the last bin');
+    // The ten bands are runs of the sampler's 32 log bands (band k starts at 60 x 200^(k/32) Hz), one run after another.
+    const runs = typeof Ph.runOf === 'function' ? Array.from({ length: K }, (_, b) => Ph.runOf(b)) : [], hz = (k) => Math.round(60 * Math.pow(200, k / 32));
+    ok(runs.length === K && runs.every((r) => Array.isArray(r)) && runs.map((r) => r.join('-')).join(' ') === '4-6 6-8 8-10 10-13 13-16 16-19 19-22 22-25 25-28 28-31'
+      && runs.every((r, b) => r[1] - r[0] === Ph.RUNS[b] && r[0] === (b ? runs[b - 1][1] : Ph.FIRST)) && Ph.runOf(-1) === null && Ph.runOf(10) === null && Ph.runOf(2.5) === null
+      && hz(4) === 116 && hz(6) === 162 && hz(8) === 226 && hz(10) === 314 && hz(31) === 10169,
+      "the ten bands are runs of log bands with none left out between them: 4-5, 6-7 and 8-9 (116 to 314 Hz, where a voice's pitch is), then seven runs of three, up to band 30 (10.2 kHz)");
+    const bins = new Uint8Array(32); bins[4] = 255; bins[5] = 51; bins[10] = 102; bins[11] = 102; bins[12] = 102; bins[30] = 255;
+    ok(near(Ph.loudness(bins, 0, 1), 0.6 * 0.96) && near(Ph.loudness(bins, 3, 1), 0.4 * 0.96) && near(Ph.loudness(bins, 9, 1), 0.96 / 3) && near(Ph.loudness(bins, 3, 2), 0.8 * 0.96) && Ph.loudness(bins, 3, 3) === 1 && Ph.loudness(bins, 1, 1) === 0
+      && Ph.loudness(bins, 3, 0) === 0 && Ph.loudness(null, 3, 1) === 0 && Ph.loudness(new Uint8Array(0), 3, 1) === 0 && Ph.loudness(new Uint8Array(12), 3, 1) === 0 && Ph.loudness(bins, 10, 1) === 0 && Ph.loudness(bins, -1, 1) === 0,
+      'a band is as loud as the mean of its run of log bands, times 0.96, times Gain, held to 1; nothing with no bands, with too few of them, or for a band that is not one of the ten');
+    {
+      // What lies outside the runs (60 to 116 Hz, and the last log band) counts for nothing; a sound in every log band fills every band alike.
+      const outside = new Uint8Array(32); outside.fill(255, 0, 4); outside[31] = 255;
+      const full = new Uint8Array(32).fill(255), half = new Uint8Array(32).fill(128);
+      const all = (b32, gain) => Array.from({ length: K }, (_, b) => Ph.loudness(b32, b, gain));
+      ok(all(outside, 4).every((v) => v === 0) && all(full, 1).every((v) => near(v, 0.96)) && all(full, 2).every((v) => v === 1) && all(half, 1).every((v) => near(v, (128 / 255) * 0.96)),
+        'log bands 0 to 3 and 31 are in no run, and a sound as loud in every log band is as loud in every one of the ten');
+      // A tone rising through the log bands: the loudest of the ten goes from the first to the last, never back, and each is the loudest in turn.
+      const tops = [];
+      for (let k = Ph.FIRST; k <= 30; k++) { const one = new Uint8Array(32); one[k] = 200; const v = all(one, 1); tops.push(v.indexOf(Math.max(...v))); }
+      ok(tops[0] === 0 && tops[tops.length - 1] === 9 && tops.every((b, i) => i === 0 || b === tops[i - 1] || b === tops[i - 1] + 1) && new Set(tops).size === K,
+        `a tone rising from 116 Hz to 10 kHz sounds the ten bands in turn, first to last: ${tops.join(' ')}`);
+      // Two voices: their pitches fall in different bands (150 Hz in the first, 220 Hz in the second), so their traces are not the same wave.
+      const bandAt = (f) => Math.floor(32 * Math.log(f / 60) / Math.log(200)), of = (f) => runs.findIndex((r) => bandAt(f) >= r[0] && bandAt(f) < r[1]);
+      ok(of(150) === 0 && of(220) === 1 && of(300) === 2 && of(440) === 3 && of(100) === -1 && of(8000) === 9, 'a voice at 150 Hz has its pitch in the first band and one at 220 Hz in the second; the notes an octave above them are in the third and fourth');
+    }
   }
 
   // The shape of a trace.
@@ -2930,6 +2953,28 @@ await import('./overlay/phosphor.js');
   }
   ok(near(Ph.idle(2, 3), Math.max(0, 0.3 + 0.25 * Math.sin(0.7 * 3 + 1.3 * 2))) && near(Ph.idle(7, 3), 0.4 * Math.max(0, 0.3 + 0.25 * Math.sin(0.7 * 3 + 1.3 * 7))) && [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].every((b) => Ph.idle(b, 11.3) >= 0 && Ph.idle(b, 11.3) <= 1)
     && Math.abs(Ph.idle(1, 0) - Ph.idle(1, 2)) > 0.05, 'with the mic off the bands follow a slow pattern, the higher ones weaker');
+  {
+    // Idle animation is as it was before the bands moved to the log bands: a minute at 60 frames a second, each band's pretended
+    // loudness and what the scene follows it to (up at 20 a second, down at 8), against the arithmetic written out.
+    const was = (b, t) => Math.max(0, 0.3 + 0.25 * Math.sin(0.7 * t + 1.3 * b)) * (b < 5 ? 1 : 0.4), dt = 1 / 60;
+    const follow = (cur, target, rate) => cur + (target - cur) * (1 - Math.exp(-rate * dt));
+    const a = new Float32Array(K), z = new Float32Array(K);
+    let clock = 0, same = true, moved = 0;
+    for (let k = 1; k <= 3600; k++) {
+      clock += dt;
+      for (let b = 0; b < K; b++) {
+        const v = Ph.idle(b, clock), w = was(b, clock);
+        if (v !== w) same = false;
+        const before = a[b];
+        a[b] = follow(a[b], v, v > a[b] ? Ph.RISE : Ph.FALL); z[b] = follow(z[b], w, w > z[b] ? 20 : 8);
+        if (a[b] !== z[b]) same = false;
+        moved += Math.abs(a[b] - before);
+      }
+    }
+    const source = await readFile(resolve(__dirname, 'overlay/phosphor.js'), 'utf8');
+    ok(same && moved > 10 && source.includes('else if (cfgIdleAnim) v = idle(b, s.clock);') && source.includes('if (micActive) v = loudness(frequencies, b, cfgGain);') && !/loudness\(slices/.test(source),
+      "Idle animation feeds the ten bands what it did before they heard the log bands (the same numbers on every frame of a minute), and only the microphone's path reads the log bands");
+  }
 
   // The table.
   ok(T.VIZ_SCENES[T.VIZ_SCENES.indexOf('mountains-3d') + 1] === 'phosphor' && T.VIZ_USES_3D.includes('phosphor'), 'phosphor is a kit scene, listed after the mountains');
@@ -8653,13 +8698,13 @@ console.log('\n[30] audio capture: one microphone request at a time');
     const byPosition = files.filter((f) => !['overlay/audio-capture.js', 'overlay/core.js', 'overlay/scene-kit.js'].includes(f) && /frequencies\s*\[/.test(text(f)));
     ok(files.length > 70 && byPosition.length === 0, `no effect file and no scene module reads \`frequencies\` by position (frequencies[...]): the log bands are read through TimbreHelix.spread, bandMean and levels, or summed up as micBands ${byPosition.join(' ')}`);
     const sliceReaders = files.filter((f) => /loudness\(slices,|(?<![.\w])slices(\.length|\[)|\? slices :/.test(text(f)) && !['overlay/audio-capture.js', 'overlay/core.js'].includes(f)).map((f) => f.replace(/^overlay\/(factories\/)?|\.js$/g, '')).sort();
-    ok(sliceReaders.join() === ['autumn-leaves', 'blob', 'boids', 'christmas-tree', 'dia-de-muertos-calavera', 'easter-eggs', 'glass-prism', 'halloween-jack', 'ink', 'jelly', 'lunar-new-year-lanterns', 'metaball', 'mountains', 'new-year-fireworks', 'phosphor', 'rose', 'school-of-fish', 'shards', 'spring-blossoms', 'st-patricks-shamrocks', 'summer-tide', 'sunburst', 'valentines-hearts'].join(),
-      `the slices are read by 12 scene modules, the ten seasonal 2D effects and the blob's outline, and by nothing else (the chladni plate hears the log bands): ${sliceReaders.join(' ')}`);
+    ok(sliceReaders.join() === ['autumn-leaves', 'blob', 'boids', 'christmas-tree', 'dia-de-muertos-calavera', 'easter-eggs', 'glass-prism', 'halloween-jack', 'ink', 'jelly', 'lunar-new-year-lanterns', 'metaball', 'mountains', 'new-year-fireworks', 'rose', 'school-of-fish', 'shards', 'spring-blossoms', 'st-patricks-shamrocks', 'summer-tide', 'sunburst', 'valentines-hearts'].join(),
+      `the slices are read by 11 scene modules, the ten seasonal 2D effects and the blob's outline, and by nothing else (the chladni plate and the phosphor hear the log bands): ${sliceReaders.join(' ')}`);
     const { mirrored, readers, barEffects } = await import('./tools/input-readers.mjs');
     const { GUARD, SIGNALS, TIMES } = await import('./tools/input-replay.mjs');
     const gone = mirrored.filter(([file, line]) => !text(file).includes(line));
     const gains = barEffects.map((e) => Number((/const LOG_GAIN = ([\d.]+);/.exec(text(e.file)) || [])[1]));
-    ok(mirrored.length >= 20 && gone.length === 0 && [1, 2, 3, 5, 6].every((g) => readers.some((r) => r.group === g)) && barEffects.length === 9 && gains.every((g) => g > 0.3 && g <= 1),
+    ok(mirrored.length >= 20 && gone.length === 0 && [1, 2, 3, 5, 6, 7, 8].every((g) => readers.some((r) => r.group === g)) && barEffects.length === 9 && gains.every((g) => g > 0.3 && g <= 1),
       `tools/input-readers.mjs: every line of an effect it writes out again is still in the effect's file (${mirrored.length} lines), and each of the nine bar effects has its LOG_GAIN (${gains.join(' ')}) ${gone.map((m) => m.join(': ')).join(' | ')}`);
     const want = JSON.parse(text('tools/input-expectations.json')), names = globalThis.TIMBRE.ACTIVE_VIZ_NAMES;
     const whole = (e) => !!e && e.light > 0 && e.light < 1 && e.lit >= 0 && e.lit <= 1 && Array.isArray(e.grid) && e.grid.length === GUARD.cols * GUARD.rows && e.grid.every((v) => v >= 0 && v <= 1);

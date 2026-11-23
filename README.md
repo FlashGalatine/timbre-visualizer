@@ -133,7 +133,10 @@ node tools/compare-input.mjs --ref <git ref> --out <folder>
 - `state.txt` (`--steps record,state --only <kit scenes> --watch <fields>`): fields of a
   scene's state (what its `debug()` reports) read on every frame of every signal, old
   against new: the least, middle and greatest value, and for whole numbers how often they
-  change. `--idle <seconds>` adds a run with the mic off and Idle animation on.
+  change. A field that is a list is summed up over its values, with how far one of them
+  moves in a second (`now.3` reads one value of it). `--idle <seconds>` adds a run with the
+  mic off and Idle animation on, and `--frames` writes every frame's values to
+  `state-frames.json`.
 - It serves the pages itself on the suites' side port (7476), so it must not run while a
   suite does. It never contacts Streamer.bot.
 
