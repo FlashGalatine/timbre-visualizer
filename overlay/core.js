@@ -9,8 +9,8 @@
    Transport: config arrives as `svc:message` CustomEvents dispatched by
    /timbre-shared/panel-client-sb.js (Streamer.bot General.Custom broadcasts).
    Audio never crosses the wire — audio-capture.js (loaded after this file)
-   fills the `frequencies` / `waveform` / `micPeak` / `micBands` / `micActive`
-   bindings from the page's own microphone.
+   fills the `frequencies` / `slices` / `waveform` / `micPeak` / `micBands` /
+   `micActive` bindings from the page's own microphone.
 
    All names, defaults, and ranges come from /timbre-shared/viz-config.js
    (the TIMBRE global) — the single source of truth shared with control.html.
@@ -144,7 +144,11 @@ let SCALE = W / 260;
 /* ── Shared audio + status state (filled by audio-capture.js) ── */
 const statusEl = document.getElementById('vizStatus');
 const labelEl = document.querySelector('.viz-label');
-let frequencies = null;
+let frequencies = null;   // 32 log-spaced bands, 60 Hz to 12 kHz, 0-255; null with no mic
+/* What `frequencies` held before the log bands: 32 values 750 Hz apart (at 48 kHz), 0-255,
+   from a 64-sample look. For the effects tuned on those values, which read them by position;
+   a new or rebuilt effect reads micBands or the log bands. null with no mic. See docs/EFFECTS.md. */
+let slices = null;
 let waveform = null;
 let micPeak = null;   // loudest input sample (0..1) across the whole sample interval; null with no mic
 /* The sound summed up once per audio sample (about 30 a second), all before Gain except the
@@ -353,6 +357,7 @@ window.addEventListener('svc:message', (evt) => {
 window.__timbre = {
   get micActive() { return micActive; },
   get frequencies() { return frequencies; },
+  get slices() { return slices; },
   get micPeak() { return micPeak; },
   get micBands() { return micBands; },
   get currentVizName() { return currentVizName; },

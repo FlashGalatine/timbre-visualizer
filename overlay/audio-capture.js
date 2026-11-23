@@ -5,12 +5,15 @@
    tab over a WebSocket relay. Here each overlay page runs its own
    getUserMedia + AnalyserNode, so no audio data crosses any wire — only
    config does (via Streamer.bot). Loaded as a plain <script> AFTER core.js;
-   it assigns the same script-scope `frequencies` / `waveform` / `micPeak` / `micActive`
-   bindings the effect factories already read, so the factories are untouched.
+   it assigns the script-scope `frequencies` / `slices` / `waveform` / `micPeak` /
+   `micBands` / `micActive` bindings the effect factories read.
 
    What it publishes, about 30 times a second:
      frequencies  32 bands, 0-255, log-spaced from 60 Hz to 12 kHz (folded from a
                   2048-point analysis; see fold() below)
+     slices       what `frequencies` was before the bands: 32 values 750 Hz apart (at
+                  48 kHz), 0-255, from a look at the newest 64 samples (see sliceLook()
+                  below). For the effects tuned on those values and for nothing new.
      waveform     the newest 64 input samples, 0-255 (128 is silence)
      micPeak      the loudest input sample over at least the last two looks, 0-1
      micBands     { bass, mid, treble, rms, centroid, level, beat, beats }: the
@@ -48,7 +51,6 @@
   const BASS = [0, 9];            // 60 Hz to 266 Hz: a voice's pitch, a kick drum
   const MID = [9, 25];            // 266 Hz to 3.76 kHz: vowels, most of a voice
   const TREBLE = [25, 32];        // 3.76 kHz to 12 kHz: "s" and "t", cymbals
-  const VOICE = [BASS[0], MID[1]]; // bass and mid together, for the one level
   // The beat: the level jumps this far above its own recent average. The numbers are the
   // scene kit's, which found its beats this way from every frame before the sampler did.
   const BEAT_RATIO = 1.35;
@@ -56,17 +58,18 @@
   const BEAT_GAP_MS = 220;
   const BEAT_AVG_RATE = 2;        // per second
 
-  // The microphone as it is: none of the browser's call processing. Echo cancellation and
-  // noise suppression gate quiet sounds, and automatic gain flattens loud against soft.
-  const RAW = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+  // The slices: the look the sampler took before the bands. A 64-sample analysis has 32 values.
+  const SLICE_SIZE = 64;
+  const SLICES = SLICE_SIZE / 2;
 
   // `micPeak` is declared in core.js. OBS can serve this file fresh beside a cached core.js from
   // before `micPeak` existed, and in strict mode writing an undeclared name throws: teardownStream()
   // would throw at the start of acquire(), before getUserMedia, and every effect would stay without a
   // mic. `typeof` does not throw on an undeclared name, so look once here, and without the binding
-  // skip both writes to it and the analyser that feeds it. The same goes for `micBands`.
+  // skip both writes to it and the analyser that feeds it. The same goes for `micBands` and `slices`.
   const HAS_PEAK = typeof micPeak !== 'undefined';
   const HAS_BANDS = typeof micBands !== 'undefined';
+  const HAS_SLICES = typeof slices !== 'undefined';
 
   // ── The arithmetic (pure: no microphone, no page) ──────────────────────────
 
@@ -145,20 +148,30 @@
     return sum / ((range[1] - range[0]) * 255);
   };
 
-  // Sum the sound up once. `bands` are the 32 folded values and `samples` the input itself
-  // (-1 to 1). Written into `into`, all before Gain:
+  // Sum the sound up once. `bands` are the 32 folded values, `samples` the input itself
+  // (-1 to 1) and `look` the 32 slices of the same moment (sliceLook() below). Written into
+  // `into`, all before Gain:
   //   bass, mid, treble  the mean of the bands of each stretch, 0 to 1
   //   rms                the root mean square of the samples, 0 to 1 (a full-scale sine is 0.707)
   //   centroid           where the weight of the 32 bands lies, 0 (all in band 0) to 1 (all in
   //                      band 31); 60 · 200^centroid is roughly its frequency in Hz. 0 in silence.
-  //   level              one loudness, 0 to about 1.1: the larger of 3 × rms and 1.1 × the mean
-  //                      of the bands of bass and mid together (60 Hz to 3.76 kHz, where a voice
-  //                      is). It is what the scene kit hands a scene as its level; the mean of
-  //                      the six 750 Hz bins up to 4.5 kHz stood here before the bands.
-  function summarize(bands, samples, into) {
-    let sq = 0;
-    for (let i = 0; i < samples.length; i++) sq += samples[i] * samples[i];
+  //   level              one loudness, 0 to 3: the larger of 3 × the root mean square of the
+  //                      newest 64 samples and 1.1 × the mean of slices 0 to 5 (the sound up to
+  //                      about 4.5 kHz). It is what the scene kit hands a scene as its level,
+  //                      and it is made the way the kit made its own before the sampler did
+  //                      (from `waveform` and the six lowest 750 Hz values), so the kit's
+  //                      scenes and their beats are where they were.
+  function summarize(bands, samples, into, look) {
+    let sq = 0, recent = 0;
+    const newest = Math.max(0, samples.length - WAVE_SIZE);
+    for (let i = 0; i < samples.length; i++) {
+      sq += samples[i] * samples[i];
+      // The newest 64 as the published `waveform` holds them (whole steps of 1/128): the kit read those.
+      if (i >= newest) { const step = Math.max(-128, Math.min(127, Math.floor(samples[i] * 128))) / 128; recent += step * step; }
+    }
     const rms = samples.length ? Math.sqrt(sq / samples.length) : 0;
+    let low = 0;
+    if (look) for (let k = 0; k < 6; k++) low += look[k];
     let weight = 0, moment = 0;
     for (let b = 0; b < BANDS; b++) { weight += bands[b]; moment += bands[b] * b; }
     into.bass = meanOf(bands, BASS);
@@ -166,7 +179,7 @@
     into.treble = meanOf(bands, TREBLE);
     into.rms = rms > 1 ? 1 : rms;
     into.centroid = weight > 0 ? moment / (weight * (BANDS - 1)) : 0;
-    into.level = Math.max(into.rms * 3, meanOf(bands, VOICE) * 1.1);
+    into.level = Math.max(samples.length ? Math.sqrt(recent / (samples.length - newest)) * 3 : 0, (low / (6 * 255)) * 1.1);
     return into;
   }
 
@@ -189,6 +202,50 @@
     };
   }
 
+  // ── The slices ──
+  // Before the bands the sampler asked a 64-point AnalyserNode for its byte spectrum, and
+  // effects were tuned on those 32 values: value k is the sound around 750 · k Hz (at 48 kHz;
+  // sample rate / 64 apart at any rate), about 750 Hz to either side, seen in a look of
+  // 64 samples (1.3 ms). The slices are those values, worked out here from the newest 64
+  // samples of the one analysis the sampler has now, by the node's own arithmetic: a Blackman
+  // window, a 64-point transform, each magnitude divided by 64, smoothed over time (0.7 of the
+  // look before plus 0.3 of this one), and its decibels put on the 0-255 scale (-100 dB is 0,
+  // -30 dB is 255). Fed the same sound they read what the old sampler's `frequencies` read
+  // (tools/compare-input.mjs measures it). The plan holds the window, the transform's table
+  // and `held`, the smoothed magnitudes: one plan per microphone session.
+  function slicePlan() {
+    const window = new Float64Array(SLICE_SIZE), cos = new Float64Array(SLICE_SIZE), sin = new Float64Array(SLICE_SIZE);
+    for (let n = 0; n < SLICE_SIZE; n++) {
+      const x = n / SLICE_SIZE;
+      window[n] = 0.42 - 0.5 * Math.cos(2 * Math.PI * x) + 0.08 * Math.cos(4 * Math.PI * x);
+      cos[n] = Math.cos(2 * Math.PI * x);
+      sin[n] = Math.sin(2 * Math.PI * x);
+    }
+    return { window, cos, sin, held: new Float64Array(SLICES), look: new Float64Array(SLICE_SIZE) };
+  }
+
+  // One look: the newest 64 of `samples` (-1 to 1) into `out` (32 values, 0-255), returned.
+  // Fewer than 64 samples, and samples that are no number, read as silence.
+  function sliceLook(samples, plan, out) {
+    const look = plan.look, from = samples.length - SLICE_SIZE;
+    for (let n = 0; n < SLICE_SIZE; n++) {
+      const v = from >= 0 ? samples[from + n] : 0;
+      look[n] = Number.isFinite(v) ? v * plan.window[n] : 0;
+    }
+    for (let k = 0; k < SLICES; k++) {
+      let re = 0, im = 0;
+      for (let n = 0; n < SLICE_SIZE; n++) {
+        const at = (k * n) % SLICE_SIZE;
+        re += look[n] * plan.cos[at];
+        im -= look[n] * plan.sin[at];
+      }
+      const held = plan.held[k] = SMOOTHING * plan.held[k] + (1 - SMOOTHING) * Math.sqrt(re * re + im * im) / SLICE_SIZE;
+      const value = held > 0 ? (255 * (20 * Math.log10(held) - MIN_DB)) / (MAX_DB - MIN_DB) : 0;
+      out[k] = value >= 255 ? 255 : value > 0 ? Math.floor(value) : 0;
+    }
+    return out;
+  }
+
   const clockMs = () => (typeof performance !== 'undefined' && performance && typeof performance.now === 'function' ? performance.now() : Date.now());
 
   // ── The capture ────────────────────────────────────────────────────────────
@@ -203,6 +260,7 @@
   let waveAll = null;             // the same as bytes; its newest 64 are what is published
   let waveBuf = null;
   let bands = null;               // this session's micBands object
+  let slicing = null;             // this session's slice plan (it holds the smoothing)
   let beat = null;
   let stream = null;
   let sampleTimer = null;
@@ -218,6 +276,7 @@
   let gen = 0;
 
   const freqBuf = new Uint8Array(BANDS);
+  const sliceBuf = new Uint8Array(SLICES);
 
   function emit(state) {
     window.dispatchEvent(new CustomEvent('timbre:mic', { detail: { state } }));
@@ -236,20 +295,21 @@
     waveAll = null;
     waveBuf = null;
     bands = null;
+    slicing = null;
     beat = null;
     micActive = false;
     frequencies = null;
     waveform = null;
     if (HAS_PEAK) micPeak = null;
     if (HAS_BANDS) micBands = null;
+    if (HAS_SLICES) slices = null;
   }
 
   // Build getUserMedia constraints for the configured device. `ideal` (not
   // `exact`) so a stale/foreign deviceId still falls back to the default mic
-  // instead of throwing OverconstrainedError. Returns the device part only:
-  // acquire() adds the three processing flags.
+  // instead of throwing OverconstrainedError.
   async function buildConstraints() {
-    if (!wantDeviceId && !wantLabel) return null;
+    if (!wantDeviceId && !wantLabel) return { audio: true };
     let deviceId = wantDeviceId;
     // deviceIds are origin/profile-scoped and churn; if we also know the
     // human label, re-match it against the current device list.
@@ -262,13 +322,8 @@
         if (byLabel) deviceId = byLabel.deviceId;
       }
     } catch { /* enumerateDevices unavailable — just try what we have */ }
-    return deviceId ? { deviceId: { ideal: deviceId } } : null;
+    return deviceId ? { audio: { deviceId: { ideal: deviceId } } } : { audio: true };
   }
-
-  // The two shapes for one device: with the three flags off, and as it was asked for before
-  // them ({ audio: true }, or the device alone), for a device that refuses the flags.
-  const rawShape = (device) => ({ audio: Object.assign({}, device, RAW) });
-  const plainShape = (device) => ({ audio: device || true });
 
   async function acquire() {
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
@@ -277,18 +332,9 @@
     teardownStream();
     emit('acquiring');
     try {
-      const device = await buildConstraints();
+      const constraints = await buildConstraints();
       if (my !== gen) return;     // overtaken before the microphone was asked for
-      let got, raw = true;
-      try {
-        got = await navigator.mediaDevices.getUserMedia(rawShape(device));
-      } catch (err) {
-        // Only a device that cannot meet the constraints is asked again, once, without the
-        // flags, and only by the request still in force. Anything else is a failure as before.
-        if (my !== gen || !err || err.name !== 'OverconstrainedError') throw err;
-        raw = false;
-        got = await navigator.mediaDevices.getUserMedia(plainShape(device));
-      }
+      const got = await navigator.mediaDevices.getUserMedia(constraints);
       if (my !== gen) {           // overtaken while waiting: give the microphone back, build nothing
         got.getTracks().forEach((t) => t.stop());
         return;
@@ -315,6 +361,7 @@
       waveBuf = waveAll.subarray(size - WAVE_SIZE);   // the newest 64 samples
       bands = { bass: 0, mid: 0, treble: 0, rms: 0, centroid: 0, level: 0, beat: false, beats: 0 };
       beat = createBeat();
+      slicing = slicePlan();
 
       // A short thump can be over before two looks have passed. This one spans at least two
       // intervals: the smallest power of two >= 2 * sampleRate * SAMPLE_MS / 1000, within
@@ -350,9 +397,13 @@
           }
           micPeak = Math.min(1, hi / 127);
         }
-        if (HAS_BANDS) {
+        if (HAS_BANDS || HAS_SLICES) {
           analyser.getFloatTimeDomainData(timeBuf);
-          summarize(freqBuf, timeBuf, bands);
+          sliceLook(timeBuf, slicing, sliceBuf);
+        }
+        if (HAS_SLICES) slices = sliceBuf;
+        if (HAS_BANDS) {
+          summarize(freqBuf, timeBuf, bands, sliceBuf);
           // The beat is found on the level after Gain, as the scene kit found it: Gain is how
           // the streamer says how loud their microphone is.
           const gain = typeof cfgGain === 'number' ? cfgGain : 1;
@@ -363,13 +414,6 @@
         micActive = true;
       }, SAMPLE_MS);
       emit('listening');
-      // Which of the two was used, and what the device says it is doing.
-      const track = stream.getTracks()[0];
-      const now = track && typeof track.getSettings === 'function' ? track.getSettings() : null;
-      console.info('[timbre-capture] microphone open,', raw
-        ? 'asked for with echo cancellation, noise suppression and automatic gain off.'
-        : 'WITHOUT the three flags: the device refused echo cancellation, noise suppression and automatic gain off, so the browser\'s own processing is on.',
-      now ? `The device reports echoCancellation ${now.echoCancellation}, noiseSuppression ${now.noiseSuppression}, autoGainControl ${now.autoGainControl}.` : '');
     } catch (err) {
       // An overtaken request that failed: the session (or the newer request) is not its to touch.
       if (my !== gen) return;
@@ -397,6 +441,6 @@
       teardownStream();
       emit('denied');
     },
-    analysis: { FFT_SIZE, BANDS, WAVE_SIZE, BAND_LOW_HZ, BAND_HIGH_HZ, BAND_LIFT_DB, MIN_DB, MAX_DB, BASS, MID, TREBLE, bandEdges, analysisSize, foldPlan, fold, summarize, createBeat },
+    analysis: { FFT_SIZE, BANDS, WAVE_SIZE, BAND_LOW_HZ, BAND_HIGH_HZ, BAND_LIFT_DB, MIN_DB, MAX_DB, BASS, MID, TREBLE, SLICES, SLICE_SIZE, bandEdges, analysisSize, foldPlan, fold, summarize, createBeat, slicePlan, sliceLook },
   };
 })();

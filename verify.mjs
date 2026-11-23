@@ -117,11 +117,12 @@
 //      request and a device switch; start() then setDevice() before the first
 //      request resolves, granted in either order; a stale failure; the request
 //      in force failing and its retry; an old track ending; and stop(), also
-//      with a request still waiting. Then Sprint 7: the three processing flags
-//      and the one retry without them for a device that refuses; the fold of a
+//      with a request still waiting. Then Sprint 7: the fold of a
 //      2048-point analysis into 32 bands (edges, weights, equal bins, a single
-//      tone, silence, the 0-255 range); and bass, mid, treble, rms, centroid,
-//      level and the beat on spectra made by hand. (Runs before section 4.)
+//      tone, silence, the 0-255 range); bass, mid, treble, rms, centroid,
+//      level and the beat on spectra made by hand; and the 32 slices, the
+//      short look the 750 Hz values came from (a tone, its neighbours, the
+//      smoothing, the newest 64 samples only). (Runs before section 4.)
 //  31. The eight 2D effects of Sprint 6, from their files: the seven that move
 //      take their time from the dt handed to draw(); the six that leave a trail
 //      fade it with fadeOrClear; the five that repaint lines over one share one
@@ -884,9 +885,40 @@ await import('./overlay/helix.js');
   ok(HX.peakOf(centred()) === 0 && near(HX.peakOf(half), 64 / 127) && HX.peakOf(clipped) === 1 && HX.peakOf(null) === 0, 'peakOf: silence, half, clipped, none');
   const z = HX.levels(new Uint8Array(32), centred(), 1), none = HX.levels(null, null, 1);
   ok(z.loud === 0 && z.low === 0 && z.high === 0 && none.loud === 0 && none.low === 0 && none.high === 0, 'levels: silence is zero');
-  const bins = (from, to) => { const f = new Uint8Array(32); for (let i = from; i <= to; i++) f[i] = 255; return f; };
-  const lo = HX.levels(bins(0, 1), centred(), 1), hi = HX.levels(bins(2, 10), centred(), 1), top = HX.levels(bins(11, 31), centred(), 1);
-  ok(lo.low === 1 && lo.high === 0 && hi.low === 0 && hi.high === 1 && top.low === 0 && top.high === 0, 'levels: low and high read their own bins');
+  const bins = (from, to, v = 255) => { const f = new Uint8Array(32); for (let i = from; i <= to; i++) f[i] = v; return f; };
+  {
+    // Sprint A: the readers tuned on the old 750 Hz values, re-mapped to the new input.
+    const wAll = HX.wide(bins(0, 31)), wBass = HX.wide(bins(0, 8)), wMid = HX.wide(bins(9, 24)), wTop = HX.wide(bins(25, 31)), wHalf = HX.wide(bins(0, 31, 102)), wNone = HX.wide(null);
+    ok(HX.WIDE.bass.join() === '0,9' && HX.WIDE.mid.join() === '9,25' && HX.WIDE.treble.join() === '25,32'
+      && wAll.bass === 1 && wAll.mid === 1 && wAll.treble === 1 && wBass.bass === 1 && wBass.mid === 0 && wBass.treble === 0 && wMid.bass === 0 && wMid.mid === 1 && wMid.treble === 0
+      && wTop.bass === 0 && wTop.mid === 0 && wTop.treble === 1 && near(wHalf.bass, 0.4) && near(wHalf.mid, 0.4) && near(wHalf.treble, 0.4) && wNone.bass === 0 && wNone.mid === 0 && wNone.treble === 0,
+      'wide: the three wide bands of the 32 log bands (bass is the mean of bands 0-8, mid of 9-24, treble of 25-31, each 0 to 1), as the sampler sums them into micBands; nothing heard is three zeros');
+    const names = Object.keys(HX.HEARD).sort().join();
+    const b = { bass: 0.5, mid: 0.25, treble: 0.125 };
+    ok(names === 'all,bass,high,low' && Object.values(HX.HEARD).every((w) => w.length === 3 && w.every((v) => Number.isFinite(v) && v >= 0))
+      && Object.entries(HX.HEARD).every(([k, w]) => near(HX.heard(k, b), 0.5 * w[0] + 0.25 * w[1] + 0.125 * w[2]) && near(HX.heard(k, { bass: 1, mid: 0, treble: 0 }), w[0]) && HX.heard(k, null) === 0 && HX.heard(k, { bass: 0, mid: 0, treble: 0 }) === 0)
+      && HX.heard('none', b) === 0 && HX.heard('low', {}) === 0,
+      `heard: each re-mapped level is a weighted sum of micBands' bass, mid and treble, before Gain and not clamped (low ${HX.HEARD.low.join(' ')}, high ${HX.HEARD.high.join(' ')}, bass ${HX.HEARD.bass.join(' ')}, all ${HX.HEARD.all.join(' ')}); no bands, bands with no numbers and a name it does not know give 0`);
+    const lo = HX.levels(bins(0, 8), centred(), 1), mid = HX.levels(bins(9, 24), centred(), 1), top = HX.levels(bins(25, 31), centred(), 1), soft = HX.levels(bins(0, 8, 102), centred(), 1), soft2 = HX.levels(bins(0, 8, 102), centred(), 2);
+    ok(near(lo.low, Math.min(1, HX.HEARD.low[0])) && near(lo.high, Math.min(1, HX.HEARD.high[0])) && near(mid.low, Math.min(1, HX.HEARD.low[1])) && near(mid.high, Math.min(1, HX.HEARD.high[1]))
+      && near(top.low, Math.min(1, HX.HEARD.low[2])) && near(top.high, Math.min(1, HX.HEARD.high[2])) && near(soft.low, 0.4 * HX.HEARD.low[0]) && near(soft2.low, Math.min(1, 0.8 * HX.HEARD.low[0]))
+      && HX.HEARD.low[0] > HX.HEARD.low[1] && HX.HEARD.low[1] > HX.HEARD.low[2] && HX.HEARD.high[0] === 0 && HX.HEARD.high[2] > HX.HEARD.high[1],
+      `levels: handed the 32 log bands, low and high are the weighted sums of their three wide bands times Gain, clamped to 1 (bass alone: low ${lo.low.toFixed(2)}, high ${lo.high.toFixed(2)}; mid alone: ${mid.low.toFixed(2)}, ${mid.high.toFixed(2)}; treble alone: ${top.low.toFixed(2)}, ${top.high.toFixed(2)})`);
+    const ramp = Uint8Array.from({ length: 32 }, (_, k) => k * 8);
+    ok(near(HX.bandMean(ramp, 29, 32), (29 + 30 + 31) * 8 / 3 / 255) && near(HX.bandMean(bins(0, 31), 0, 32), 1) && HX.bandMean(null, 0, 4) === 0 && near(HX.bandMean(ramp, 30, 40), (30 + 31) * 8 / 2 / 255) && HX.bandMean(ramp, 5, 5) === 0,
+      'bandMean: the mean of a stretch of values (first, one past the last) as 0 to 1; a stretch past the end counts only what is there, and nothing heard or an empty stretch is 0');
+    // The bar spread: bar i of `count` reads the bands from i × 32 / count to the next.
+    const covers = (count) => { const seen = new Array(32).fill(0); let ordered = true, last = -1; for (let i = 0; i < count; i++) { const [a, z] = HX.spreadRange(i, count, 32); if (!(z > a) || a < last) ordered = false; last = a; for (let k = a; k < z; k++) seen[k]++; } return { seen, ordered }; };
+    const few = [1, 2, 5, 8, 11, 12, 14, 16, 20, 24, 31, 32].map(covers), many = [33, 40, 48, 64].map(covers);
+    const r20 = Array.from({ length: 20 }, (_, i) => HX.spreadRange(i, 20, 32).join('-')).join(' ');
+    ok(few.every((c) => c.ordered && c.seen.every((n) => n === 1)) && many.every((c) => c.ordered && c.seen.every((n) => n >= 1))
+      && r20 === '0-1 1-3 3-4 4-6 6-8 8-9 9-11 11-12 12-14 14-16 16-17 17-19 19-20 20-22 22-24 24-25 25-27 27-28 28-30 30-32'
+      && HX.spreadRange(0, 64, 32).join() === '0,1' && HX.spreadRange(1, 64, 32).join() === '0,1' && HX.spreadRange(63, 64, 32).join() === '31,32',
+      `spreadRange: with 32 bars or fewer every band belongs to exactly one bar, in order, so the bars cover 60 Hz to 12 kHz (20 bars: ${r20}); with more bars than bands each bar reads one band and none is left out`);
+    ok(HX.spread(ramp, 7, 32) === 56 && HX.spread(ramp, 0, 20) === 0 && near(HX.spread(ramp, 1, 20), (8 + 16) / 2) && near(HX.spread(ramp, 19, 20), (240 + 248) / 2) && near(HX.spread(ramp, 0, 1), 124)
+      && near(HX.spread(ramp, 10, 11), (29 + 30 + 31) * 8 / 3) && HX.spread(ramp, 5, 64) === 16 && HX.spread(null, 0, 20) === 0 && HX.spread(ramp, 20, 20) === 0 && HX.spread(ramp, -1, 20) === 0 && HX.spread(new Uint8Array(0), 0, 20) === 0,
+      'spread: a bar reads the mean of its bands, on the 0-255 scale of the values; with 32 bars it is the band itself; nothing heard, an empty array and a bar that is not one of the count read 0');
+  }
   const g1 = HX.levels(new Uint8Array(32), half, 1), g2 = HX.levels(new Uint8Array(32), half, 2);
   ok(near(g1.loud, 64 / 127 * 1.5) && g2.loud === 1 && near(HX.peakOf(half), 64 / 127), 'levels: Gain scales loudness and clamps');
   ok(near(HX.twist(0), 0.7) && near(HX.twist(1), 6.5) && HX.radius(0) === 12 && HX.radius(1) === 34, 'twist and radius at the ends');
@@ -7868,8 +7900,8 @@ console.log('\n[30] audio capture: one microphone request at a time');
   // the capture to fill are declared the same way, as the script's own `let`s (`peak: false`
   // leaves micPeak out, as a cached core.js from before it existed would). `holdLists` makes
   // enumerateDevices wait for the test too. No microphone, no audio and no real timer is used.
-  const loadCapture = ({ peak = true, holdLists = false, bands = true, rate = 48000 } = {}) => {
-    const w = { peak, bands, db: -65, requests: [], streams: [], contexts: [], analysers: [], lists: [], intervals: new Map(), timeouts: new Map(), events: [], warns: [], infos: [], seq: 0, now: 0 };
+  const loadCapture = ({ peak = true, holdLists = false, bands = true, slices = true, rate = 48000 } = {}) => {
+    const w = { peak, bands, slices, tone: null, looks: 0, db: -65, requests: [], streams: [], contexts: [], analysers: [], lists: [], intervals: new Map(), timeouts: new Map(), events: [], warns: [], infos: [], seq: 0, now: 0 };
     const makeStream = (request) => {
       const s = { request, tracks: [{ stops: 0, onended: null, stop() { this.stops++; } }], getTracks() { return this.tracks; } };
       w.streams.push(s);
@@ -7884,7 +7916,7 @@ console.log('\n[30] audio capture: one microphone request at a time');
         // Every bin at w.db decibels, and a waveform at rest but for one full-scale sample (the
         // oldest of the window, so the newest 64 that are published are all at rest).
         const a = { fftSize: 2048, smoothingTimeConstant: 0.8, getByteFrequencyData(buf) { buf.fill(7); }, getFloatFrequencyData(buf) { buf.fill(w.db); },
-          getByteTimeDomainData(buf) { buf.fill(128); buf[0] = 255; }, getFloatTimeDomainData(buf) { buf.fill(0); buf[0] = 1; } };
+          getByteTimeDomainData(buf) { buf.fill(128); buf[0] = 255; }, getFloatTimeDomainData(buf) { buf.fill(0); buf[0] = 1; if (w.tone) { const end = w.looks * 1584 + buf.length; for (let i = 64; i < buf.length; i++) buf[i] = w.tone.amp * Math.sin(2 * Math.PI * w.tone.hz * (end - buf.length + i) / rate); } } };
         this.analysers.push(a); w.analysers.push(a);
         return a;
       }
@@ -7917,12 +7949,12 @@ console.log('\n[30] audio capture: one microphone request at a time');
     };
     sandbox.window = sandbox;
     vm.createContext(sandbox);
-    vm.runInContext(`let frequencies = null; let waveform = null; ${peak ? 'let micPeak = null; ' : ''}${bands ? 'let micBands = null; ' : ''}let micActive = false; globalThis.__see = (code) => eval(code);`, sandbox, { filename: 'stand-in for core.js' });
+    vm.runInContext(`let frequencies = null; let waveform = null; ${peak ? 'let micPeak = null; ' : ''}${bands ? 'let micBands = null; ' : ''}${slices ? 'let slices = null; ' : ''}let micActive = false; globalThis.__see = (code) => eval(code);`, sandbox, { filename: 'stand-in for core.js' });
     vm.runInContext(captureText, sandbox, { filename: 'overlay/audio-capture.js' });
     w.see = sandbox.__see;
     w.capture = sandbox.timbreCapture;
     w.tick = () => { for (const t of [...w.intervals.values()]) t.fn(); };
-    w.look = (ms = 33) => { w.now += ms; w.tick(); };   // one look of the sampler, `ms` after the last
+    w.look = (ms = 33) => { w.now += ms; w.looks++; w.tick(); };   // one look of the sampler, `ms` after the last
     w.advance = (ms) => { w.now += ms; for (const [id, t] of [...w.timeouts]) if (t.at <= w.now && w.timeouts.has(id)) { w.timeouts.delete(id); t.fn(); } };
     return w;
   };
@@ -7943,9 +7975,10 @@ console.log('\n[30] audio capture: one microphone request at a time');
     if (ctx.analysers.length !== (w.peak ? 2 : 1) || ctx.analysers[0].fftSize !== 2048 || ctx.analysers[0].smoothingTimeConstant !== 0.7) return false;
     w.tick();
     return w.see('micActive') === true && w.see('frequencies').length === 32 && w.see('waveform').length === 64 && (w.peak ? w.see('micPeak') === 1 && ctx.analysers[1].fftSize === 4096 : true)
-      && (!w.bands || (w.see('micBands') !== null && typeof w.see('micBands.beats') === 'number'));
+      && (!w.bands || (w.see('micBands') !== null && typeof w.see('micBands.beats') === 'number'))
+      && (!w.slices || (w.see('slices') !== null && w.see('slices').length === 32));
   };
-  const nothingAlive = (w) => { const a = alive(w); return a.streams === '' && a.contexts === '' && a.samplers === 0 && a.retries === 0 && w.see('micActive') === false && w.see('frequencies') === null && w.see('waveform') === null && (!w.peak || w.see('micPeak') === null) && (!w.bands || w.see('micBands') === null); };
+  const nothingAlive = (w) => { const a = alive(w); return a.streams === '' && a.contexts === '' && a.samplers === 0 && a.retries === 0 && w.see('micActive') === false && w.see('frequencies') === null && w.see('waveform') === null && (!w.peak || w.see('micPeak') === null) && (!w.bands || w.see('micBands') === null) && (!w.slices || w.see('slices') === null); };
 
   // ── What a single request does (unchanged by TIM-14) ──
   {
@@ -7955,14 +7988,14 @@ console.log('\n[30] audio capture: one microphone request at a time');
     const waiting = says(w);
     if (w.requests[0]) w.requests[0].resolve();
     await settle();
-    ok(asked === '{"audio":{"echoCancellation":false,"noiseSuppression":false,"autoGainControl":false}}' && /^0 live stream.*, 0 open context.*, 0 sampler timer.*events acquiring$/.test(waiting) && oneSession(w, 'default') && w.events.join() === 'acquiring,listening' && w.contexts.length === 1 && w.analysers.length === 2,
-      `start() asks for the default microphone once, with echo cancellation, noise suppression and automatic gain off, and when it is granted there is one stream, one context with its two analysers and one sampler timer, publishing 32 frequency values, 64 waveform values and the peak — ${says(w)}`);
+    ok(asked === '{"audio":true}' && /^0 live stream.*, 0 open context.*, 0 sampler timer.*events acquiring$/.test(waiting) && oneSession(w, 'default') && w.events.join() === 'acquiring,listening' && w.contexts.length === 1 && w.analysers.length === 2,
+      `start() asks for the default microphone once, as { audio: true }, and when it is granted there is one stream, one context with its two analysers and one sampler timer, publishing 32 frequency values, 64 waveform values and the peak — ${says(w)}`);
     w.capture.setDevice('mic-b', 'Mic B'); await settle();
     const switching = says(w), asked2 = w.requests.length > 1 ? w.requests[1].constraints : '';
     if (w.requests[1]) w.requests[1].resolve();
     await settle();
-    ok(asked2 === '{"audio":{"deviceId":{"ideal":"mic-b"},"echoCancellation":false,"noiseSuppression":false,"autoGainControl":false}}' && /^0 live stream.*, 0 open context.*, 0 sampler timer/.test(switching) && oneSession(w, 'mic-b') && w.streams[0].tracks[0].stops === 1 && w.contexts[0].closes === 1 && w.events.join() === 'acquiring,listening,acquiring,listening',
-      `setDevice() on a running capture closes the session it has and asks for the new microphone by its id (as ideal, not exact) with the same three flags off; granted, there is again one of each, on the new device — ${says(w)}`);
+    ok(asked2 === '{"audio":{"deviceId":{"ideal":"mic-b"}}}' && /^0 live stream.*, 0 open context.*, 0 sampler timer/.test(switching) && oneSession(w, 'mic-b') && w.streams[0].tracks[0].stops === 1 && w.contexts[0].closes === 1 && w.events.join() === 'acquiring,listening,acquiring,listening',
+      `setDevice() on a running capture closes the session it has and asks for the new microphone by its id (as ideal, not exact) and by nothing else; granted, there is again one of each, on the new device — ${says(w)}`);
     w.capture.setDevice('mic-b', 'Mic B'); await settle();
     ok(w.requests.length === 2 && oneSession(w, 'mic-b'), 'setDevice() with the device already in use asks for nothing and leaves the session alone');
   }
@@ -8136,81 +8169,7 @@ console.log('\n[30] audio capture: one microphone request at a time');
     }
   }
 
-  // ── Sprint 7 (D-08): a device that refuses the three flags still opens ──
-  console.log('\n[30] audio capture: the raw microphone, the fold into 32 bands, and the shared bands');
-  const RAW_FLAGS = '"echoCancellation":false,"noiseSuppression":false,"autoGainControl":false';
-  {
-    const w = loadCapture();
-    w.capture.start(); await settle();
-    const saidRaw = loadCapture();
-    saidRaw.capture.start(); await settle(); saidRaw.requests[0].resolve(); await settle();
-    w.requests[0].reject('OverconstrainedError'); await settle();
-    const between = says(w), second = w.requests.length > 1 ? w.requests[1].constraints : '';
-    if (w.requests[1]) w.requests[1].resolve();
-    await settle();
-    w.advance(60000); await settle();
-    ok(second === '{"audio":true}' && /^0 live stream.*0 retry timer\(s\), 2 request\(s\), events acquiring$/.test(between) && oneSession(w, 'default') && w.requests.length === 2 && w.events.join() === 'acquiring,listening' && w.warns.length === 0
-      && w.infos.length === 1 && /WITHOUT the three flags/.test(w.infos[0]) && saidRaw.infos.length === 1 && /off\./.test(saidRaw.infos[0]) && !/WITHOUT/.test(saidRaw.infos[0]),
-      `a microphone that refuses the three flags (OverconstrainedError) is asked for once more without them, as { audio: true }, and opens: no MIC DENIED, no retry timer, and the console says which was used — ${says(w)} | said: ${w.infos[0]} | a device that takes them: ${saidRaw.infos[0]}`);
-    saidRaw.capture.stop();
-  }
-  {
-    const w = loadCapture();
-    w.capture.setDevice('mic-b', 'Mic B'); w.capture.start(); await settle();
-    const first = w.requests[0].constraints;
-    w.requests[0].reject('OverconstrainedError'); await settle();
-    const second = w.requests.length > 1 ? w.requests[1].constraints : '';
-    if (w.requests[1]) w.requests[1].resolve();
-    await settle();
-    ok(first === '{"audio":{"deviceId":{"ideal":"mic-b"},' + RAW_FLAGS + '}}' && second === '{"audio":{"deviceId":{"ideal":"mic-b"}}}' && oneSession(w, 'mic-b') && w.requests.length === 2,
-      `the same for a picked device: the second request keeps the device (as ideal) and drops only the three flags — ${first} then ${second}`);
-  }
-  {
-    // The second request refused too: reported and retried as any failure, and the retry starts with the flags again.
-    const w = loadCapture();
-    w.capture.start(); await settle();
-    w.requests[0].reject('OverconstrainedError'); await settle();
-    w.requests[1].reject('OverconstrainedError'); await settle();
-    const denied = says(w), asked = w.requests.length;
-    w.advance(10000); await settle();
-    const retry = w.requests.length > 2 ? w.requests[2].constraints : '';
-    // Another kind of failure is not asked for again without the flags.
-    const other = loadCapture();
-    other.capture.start(); await settle();
-    other.requests[0].reject('NotAllowedError'); await settle();
-    ok(asked === 2 && /0 live stream.*1 retry timer\(s\).*events acquiring,denied$/.test(denied) && w.warns.length === 1 && retry === '{"audio":{' + RAW_FLAGS + '}}' && w.requests.length === 3
-      && other.requests.length === 1 && other.events.join() === 'acquiring,denied' && other.timeouts.size === 1,
-      `refused without the flags as well, it is MIC DENIED with one retry after 10 seconds, which asks with the flags again (at most two requests an attempt); a failure of another kind (NotAllowedError) is not asked for a second time — ${denied}`);
-    w.capture.stop(); other.capture.stop();
-  }
-  {
-    // The request counter across the second request.
-    const late = loadCapture();
-    late.capture.start(); await settle();
-    late.requests[0].reject('OverconstrainedError'); await settle();
-    late.capture.setDevice('mic-b', 'Mic B'); await settle();
-    const inFlight = late.requests.map((r) => r.constraints).join(' ; ');
-    late.requests[1].resolve(); await settle();             // the overtaken request's second try is granted
-    const afterStale = says(late), staleStops = late.streams[0] ? late.streams[0].tracks[0].stops : -1, builtForStale = late.contexts.length;
-    late.requests[2].resolve(); await settle();
-    const early = loadCapture();
-    early.capture.start(); await settle();
-    early.capture.setDevice('mic-b', 'Mic B'); await settle();
-    early.requests[0].reject('OverconstrainedError'); await settle();   // overtaken before it was refused
-    const askedEarly = early.requests.length;
-    early.requests[1].resolve(); await settle();
-    const stopped = loadCapture();
-    stopped.capture.start(); await settle();
-    stopped.requests[0].reject('OverconstrainedError'); await settle();
-    stopped.capture.stop(); await settle();
-    stopped.requests[1].resolve(); await settle();
-    stopped.advance(60000); await settle();
-    ok(late.requests.length === 3 && staleStops === 1 && builtForStale === 0 && /^0 live stream.*0 open context/.test(afterStale) && oneSession(late, 'mic-b') && late.contexts.length === 1 && late.events.join() === 'acquiring,acquiring,listening'
-      && askedEarly === 2 && oneSession(early, 'mic-b') && early.requests.length === 2 && early.events.join() === 'acquiring,acquiring,listening'
-      && nothingAlive(stopped) && stopped.streams.length === 1 && stopped.streams[0].tracks[0].stops === 1 && stopped.contexts.length === 0 && stopped.requests.length === 2 && stopped.infos.length === 0,
-      `the request counter holds across the second request: overtaken while its second request waits, the stream it is then handed is stopped and nothing is built (${inFlight}); overtaken before it is refused, it asks for nothing more; and stop() while the second request waits leaves nothing alive — ${says(late)} | ${says(early)} | ${says(stopped)}`);
-  }
-
+  console.log('\n[30] audio capture: the fold into 32 bands, the shared bands, and the 32 slices');
   // ── Sprint 7 (D-07): the fold ──
   {
     const A = loadCapture().capture.analysis;
@@ -8276,20 +8235,34 @@ console.log('\n[30] audio capture: one microphone request at a time');
   {
     const A = loadCapture().capture.analysis;
     const near = (a, b, tol = 1e-9) => Math.abs(a - b) <= tol;
-    const sum = (bands, samples) => A.summarize(bands, samples, {});
+    const sum = (bands, samples, look) => A.summarize(bands, samples, {}, look);
     const sine = Float32Array.from({ length: 2048 }, (_, i) => Math.sin(i * 2 * Math.PI * 8 / 2048)), rest = new Float32Array(2048);
     const all = sum(new Uint8Array(32).fill(255), sine), none = sum(new Uint8Array(32), rest);
     const only = (lo, hi, v = 255) => { const b = new Uint8Array(32); b.fill(v, lo, hi); return sum(b, rest); };
     const low = only(0, 9), mid = only(9, 25), high = only(25, 32), half = only(0, 32, 102), b0 = only(0, 1), b31 = only(31, 32), b10 = only(10, 11);
     ok(A.BASS.join() === '0,9' && A.MID.join() === '9,25' && A.TREBLE.join() === '25,32'
-      && near(all.bass, 1) && near(all.mid, 1) && near(all.treble, 1) && near(all.rms, Math.SQRT1_2, 1e-6) && near(all.centroid, 0.5) && near(all.level, 3 * Math.SQRT1_2, 1e-5)
+      && near(all.bass, 1) && near(all.mid, 1) && near(all.treble, 1) && near(all.rms, Math.SQRT1_2, 1e-6) && near(all.centroid, 0.5) && near(all.level, 3 * Math.SQRT1_2, 0.03)
       && [none.bass, none.mid, none.treble, none.rms, none.centroid, none.level].every((v) => v === 0)
-      && near(low.bass, 1) && low.mid === 0 && low.treble === 0 && near(low.centroid, 4 / 31) && near(low.level, 1.1 * 9 / 25)
-      && mid.bass === 0 && near(mid.mid, 1) && mid.treble === 0 && near(mid.centroid, 16.5 / 31) && near(mid.level, 1.1 * 16 / 25)
+      && near(low.bass, 1) && low.mid === 0 && low.treble === 0 && near(low.centroid, 4 / 31) && low.level === 0
+      && mid.bass === 0 && near(mid.mid, 1) && mid.treble === 0 && near(mid.centroid, 16.5 / 31) && mid.level === 0
       && high.bass === 0 && high.mid === 0 && near(high.treble, 1) && near(high.centroid, 28 / 31) && high.level === 0
-      && near(half.bass, 0.4) && near(half.mid, 0.4) && near(half.treble, 0.4) && near(half.level, 0.44)
+      && near(half.bass, 0.4) && near(half.mid, 0.4) && near(half.treble, 0.4) && half.level === 0
       && b0.centroid === 0 && near(b31.centroid, 1) && near(b10.centroid, 10 / 31),
-      `the summary of a spectrum: bass is the mean of bands 0-8, mid of 9-24 and treble of 25-31 (0 to 1); rms is the samples' own (a full-scale sine: ${all.rms.toFixed(3)}); centroid is where the weight lies (band 0: ${b0.centroid}, band 10: ${b10.centroid.toFixed(3)}, band 31: ${b31.centroid}, all equal: ${all.centroid}); level is the larger of 3 × rms and 1.1 × the mean of bands 0-24; silence is all zeros`);
+      `the summary of a spectrum: bass is the mean of bands 0-8, mid of 9-24 and treble of 25-31 (0 to 1); rms is the samples' own (a full-scale sine: ${all.rms.toFixed(3)}); centroid is where the weight lies (band 0: ${b0.centroid}, band 10: ${b10.centroid.toFixed(3)}, band 31: ${b31.centroid}, all equal: ${all.centroid}); the bands by themselves give no level (it is made from the samples and the slices, below); silence is all zeros`);
+
+    {
+      // Sprint A: the level is made as the scene kit made its own before the sampler did, from
+      // the newest 64 samples and the six lowest slices, so the kit's scenes stay where they were.
+      const looks = (from, to, v = 255) => { const s = new Uint8Array(32); s.fill(v, from, to); return s; };
+      const none32 = new Uint8Array(32), full = new Uint8Array(32).fill(255);
+      const newest = new Float32Array(2048); newest.fill(0.5, 2048 - 64);          // only the newest 64 samples sound
+      const older = new Float32Array(2048); older.fill(0.5, 0, 2048 - 64);         // everything but the newest 64
+      const sixLow = sum(none32, rest, looks(0, 6)), halfLow = sum(none32, rest, looks(0, 6, 102)), above = sum(full, rest, looks(6, 32)), three = sum(none32, rest, looks(0, 3));
+      const short = sum(none32, newest, none32), long = sum(none32, older, none32), both = sum(none32, newest, looks(0, 6, 51)), noLook = sum(full, newest);
+      ok(near(sixLow.level, 1.1) && near(halfLow.level, 0.44) && above.level === 0 && near(three.level, 0.55)
+        && near(short.level, 1.5, 1e-6) && long.level === 0 && near(long.rms, 0.5 * Math.sqrt(1984 / 2048), 1e-6) && near(both.level, 1.5, 1e-6) && near(noLook.level, 1.5, 1e-6),
+        `level is the larger of 3 × the root mean square of the newest 64 samples and 1.1 × the mean of slices 0 to 5 (what the scene kit worked out for itself before the bands): slices 0-5 full is ${sixLow.level.toFixed(2)}, at 102 of 255 ${halfLow.level.toFixed(2)}, the slices above them and the 32 bands count for nothing, and samples older than the newest 64 count for rms but not for level`);
+    }
 
     const beat = A.createBeat(); let t = 0; const at = (level, ms = 33) => { t += ms; return beat.step(level, t); };
     const firstLoud = A.createBeat().step(0.9, 0);
@@ -8306,19 +8279,23 @@ console.log('\n[30] audio capture: one microphone request at a time');
     w.capture.start(); await settle(); w.requests[0].resolve(); await settle();
     w.db = -100; for (let i = 0; i < 10; i++) w.look();
     const quietBands = Object.assign({}, w.see('micBands')), quietFreq = Array.from(w.see('frequencies'));
-    w.db = -65; w.look();
-    const hit = Object.assign({}, w.see('micBands')), hitFreq = Array.from(w.see('frequencies'));
+    // A burst: every bin at -65 dB and a 750 Hz tone of amplitude 0.25 in the samples (the level is made from the samples).
+    const loudTone = { hz: 750, amp: 0.25 };
+    w.db = -65; w.tone = loudTone; w.look();
+    const hit = Object.assign({}, w.see('micBands')), hitFreq = Array.from(w.see('frequencies')), hitSlices = Array.from(w.see('slices'));
     w.look();
     const after = Object.assign({}, w.see('micBands'));
-    w.db = -100; for (let i = 0; i < 60; i++) w.look();
-    w.db = -65; w.look();
+    w.db = -100; w.tone = null; for (let i = 0; i < 60; i++) w.look();
+    const faded = w.see('micBands.level'), fadedBeats = w.see('micBands.beats');
+    w.db = -65; w.tone = loudTone; w.look();
     const second = Object.assign({}, w.see('micBands'));
-    const v65 = Math.floor(255 * 50 / 70), rmsOne = Math.sqrt(1 / 2048);
+    const v65 = Math.floor(255 * 50 / 70), rmsOne = Math.sqrt(1 / 2048), rmsTone = Math.sqrt((1 + 1984 * 0.25 * 0.25 / 2) / 2048);
+    const levelTone = Math.max(3 * 0.25 * Math.SQRT1_2, 1.1 * hitSlices.slice(0, 6).reduce((a, b) => a + b, 0) / 6 / 255);
     ok(quietFreq.every((v) => v === 54) && near(quietBands.bass, 54 / 255) && quietBands.beat === false && quietBands.beats === 0
-      && hitFreq.every((v) => v === v65) && near(hit.bass, v65 / 255) && near(hit.mid, v65 / 255) && near(hit.treble, v65 / 255) && near(hit.centroid, 0.5) && near(hit.rms, rmsOne, 1e-7) && near(hit.level, 1.1 * v65 / 255)
-      && hit.beat === true && hit.beats === 1 && after.beat === false && after.beats === 1 && second.beat === true && second.beats === 2
+      && hitFreq.every((v) => v === v65) && near(hit.bass, v65 / 255) && near(hit.mid, v65 / 255) && near(hit.treble, v65 / 255) && near(hit.centroid, 0.5) && near(quietBands.rms, rmsOne, 1e-7) && quietBands.level === 0 && near(hit.rms, rmsTone, 1e-4) && near(hit.level, levelTone, 1e-6) && hit.level > 0.5 && hit.level < 0.7 && after.level > hit.level && faded === 0
+      && hit.beat === true && hit.beats === 1 && after.beat === false && after.beats === 1 && second.beat === true && second.beats === fadedBeats + 1
       && Array.from(w.see('waveform')).every((v) => v === 128) && w.see('micPeak') === 1,
-      `the sampler publishes micBands on every look: the three bands, rms, centroid and level of what it just folded (every bin at -65 dB: ${hitFreq[0]} in every band, bass ${hit.bass.toFixed(3)}, level ${hit.level.toFixed(3)}), beat true on the look the level jumps and false on the next, and beats counting them (${second.beats} after two); the waveform is the newest 64 samples and micPeak is as before`);
+      `the sampler publishes micBands on every look: the three bands and the centroid of what it just folded (every bin at -65 dB: ${hitFreq[0]} in every band, bass ${hit.bass.toFixed(3)}), rms and level from its samples (a 750 Hz tone of amplitude 0.25: level ${hit.level.toFixed(3)} on the first look, more on the next, 0 again a while after it stops), beat true on the look the level jumps and false on the next, and beats counting them (${fadedBeats} by the time the first burst has faded, one more on the second); the waveform is the newest 64 samples and micPeak is as before`);
     w.capture.stop();
     ok(nothingAlive(w), 'stop() puts micBands back to null with the rest');
 
@@ -8330,6 +8307,88 @@ console.log('\n[30] audio capture: one microphone request at a time');
     ok(threw === '' && oneSession(old, 'default') && Array.from(old.see('frequencies')).every((v) => v === v65) && old.see('typeof micBands') === 'undefined',
       `beside a core.js from before micBands the sampler still runs and publishes the 32 bands, the waveform and the peak, and writes no micBands ${threw}`);
     old.capture.stop();
+  }
+
+  // ── Sprint A: the 32 slices, the short look the 750 Hz values came from ──
+  {
+    const A = loadCapture().capture.analysis, HX = globalThis.TimbreHelix;
+    const near = (a, b, tol) => Math.abs(a - b) <= tol;
+    ok(A.BASS.join() === HX.WIDE.bass.join() && A.MID.join() === HX.WIDE.mid.join() && A.TREBLE.join() === HX.WIDE.treble.join(),
+      'helix.js sums the same three wide bands from the log bands as the sampler does for micBands');
+    // A tone on the centre of slice k (750 · k Hz at 48 kHz), amplitude 0.01, looked at again and again.
+    const run = (hz, looks, amp = 0.01, rate = 48000, junk = false) => {
+      const plan = A.slicePlan(), out = new Uint8Array(32), all = [];
+      for (let n = 0; n < looks; n++) {
+        const x = new Float32Array(2048);
+        for (let i = 0; i < 2048; i++) x[i] = amp * Math.sin(2 * Math.PI * hz * (n * 1584 + i) / rate + 0.3);
+        if (junk) for (let i = 0; i < 2048 - 64; i++) x[i] = ((i * 7919) % 200) / 100 - 1;   // loud rubbish everywhere but the newest 64
+        all.push(Array.from(A.sliceLook(x, plan, out)));
+      }
+      return all;
+    };
+    const value = (magnitude) => Math.floor(255 * (20 * Math.log10(magnitude) + 100) / 70);
+    const t10 = run(7500, 40), last = t10[39], first = t10[0], t1 = run(750, 40)[39], junk = run(7500, 40, 0.01, 48000, true)[39];
+    ok(A.SLICES === 32 && A.SLICE_SIZE === 64 && last.length === 32
+      && near(last[10], value(0.0021), 1) && near(last[9], value(0.00125), 1) && near(last[11], value(0.00125), 1) && near(last[8], value(0.0002), 1) && near(last[12], value(0.0002), 1)
+      && last.every((v, k) => Math.abs(k - 10) <= 2 || v === 0) && near(first[10], value(0.3 * 0.0021), 1) && first[10] < last[10]
+      && near(t1[1], value(0.0021), 1) && near(t1[3], value(0.0002), 1) && t1.slice(4).every((v) => v === 0),
+      `a slice is one value of a 64-sample look, as the sampler's analysis was before the bands: a tone of amplitude 0.01 on the centre of slice 10 (7.5 kHz at 48 kHz) settles at ${last[10]} there, ${last[9]} and ${last[11]} in the slices beside it, ${last[8]} and ${last[12]} two away and 0 elsewhere; each look moves 0.3 of the way, so the first reads ${first[10]}`);
+    ok(junk.join() === last.join(), 'a look is the newest 64 samples and nothing older');
+    const silent = run(7500, 3, 0)[2], loud = run(7500, 40, 1)[39], odd = Array.from(A.sliceLook(new Float32Array(2048).fill(NaN), A.slicePlan(), new Array(32).fill(9))), short = Array.from(A.sliceLook(new Float32Array(10), A.slicePlan(), new Array(32).fill(9)));
+    let seed = 7; const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+    let inRange = true; { const plan = A.slicePlan(); for (let n = 0; n < 100; n++) { const x = Float32Array.from({ length: 2048 }, () => (rnd() * 2 - 1) * Math.pow(10, -4 * rnd())); if (!A.sliceLook(x, plan, new Array(32)).every((v) => Number.isInteger(v) && v >= 0 && v <= 255)) inRange = false; } }
+    ok(silent.every((v) => v === 0) && loud[10] === 255 && odd.every((v) => v === 0) && short.every((v) => v === 0) && inRange,
+      'slices are whole numbers from 0 to 255: silence, samples that are no number and fewer than 64 samples give 32 zeros, a full-scale tone gives 255');
+
+    // The sampler publishes them on every look, from the samples it already has.
+    const w = loadCapture();
+    w.capture.start(); await settle(); w.requests[0].resolve(); await settle();
+    w.look();
+    const rest = Array.from(w.see('slices'));
+    w.tone = { hz: 7500, amp: 0.01 };
+    const heard = []; for (let i = 0; i < 40; i++) { w.look(); heard.push(w.see('slices')[10]); }
+    const settled = Array.from(w.see('slices'));
+    ok(rest.length === 32 && rest.every((v) => v === 0) && near(heard[0], value(0.3 * 0.0021), 1) && near(heard[39], value(0.0021), 1) && settled.every((v, k) => Math.abs(k - 10) <= 2 || v === 0) && w.contexts[0].analysers.length === 2,
+      `the sampler publishes 32 slices on every look, from the samples of the one analysis (no third analyser): at rest all 0, and with the tone slice 10 reads ${heard[0]} on the first look and ${heard[39]} once settled`);
+    w.capture.stop();
+    ok(nothingAlive(w), 'stop() puts slices back to null with the rest');
+    w.capture.start(); await settle(); w.requests[1].resolve(); await settle(); w.look();
+    ok(near(w.see('slices')[10], value(0.3 * 0.0021), 1), `a new session starts its slices from silence: the first look of the same tone reads ${w.see('slices')[10]} again`);
+    w.capture.stop();
+
+    // Beside a core.js from before slices existed.
+    const old = loadCapture({ slices: false });
+    old.capture.start(); await settle(); old.requests[0].resolve(); await settle();
+    let threw = '';
+    try { old.look(); old.look(); } catch (e) { threw = String(e); }
+    ok(threw === '' && oneSession(old, 'default') && old.see('typeof slices') === 'undefined' && old.see('micBands') !== null,
+      `beside a core.js from before slices the sampler still runs and publishes the rest, and writes no slices ${threw}`);
+    old.capture.stop();
+  }
+
+  // ── Sprint A: no effect reads `frequencies` by position, and the measuring tool mirrors the effects ──
+  {
+    const fs = await import('node:fs');
+    const text = (rel) => fs.readFileSync(resolve(__dirname, rel), 'utf8');
+    const files = [...fs.readdirSync(resolve(__dirname, 'overlay')).filter((f) => f.endsWith('.js')).map((f) => 'overlay/' + f), ...fs.readdirSync(resolve(__dirname, 'overlay/factories')).filter((f) => f.endsWith('.js')).map((f) => 'overlay/factories/' + f)];
+    // audio-capture.js and core.js make and hold the bands; scene-kit.js reads six values by position only beside a sampler from before micBands, whose values are the 750 Hz ones.
+    const byPosition = files.filter((f) => !['overlay/audio-capture.js', 'overlay/core.js', 'overlay/scene-kit.js'].includes(f) && /frequencies\s*\[/.test(text(f)));
+    ok(files.length > 70 && byPosition.length === 0, `no effect file and no scene module reads \`frequencies\` by position (frequencies[...]): the log bands are read through TimbreHelix.spread, bandMean and levels, or summed up as micBands ${byPosition.join(' ')}`);
+    const sliceReaders = files.filter((f) => /loudness\(slices,|(?<![.\w])slices(\.length|\[)|\? slices :/.test(text(f)) && !['overlay/audio-capture.js', 'overlay/core.js'].includes(f)).map((f) => f.replace(/^overlay\/(factories\/)?|\.js$/g, '')).sort();
+    ok(sliceReaders.join() === ['autumn-leaves', 'blob', 'boids', 'chladni', 'christmas-tree', 'dia-de-muertos-calavera', 'easter-eggs', 'glass-prism', 'halloween-jack', 'ink', 'jelly', 'lunar-new-year-lanterns', 'metaball', 'mountains', 'new-year-fireworks', 'phosphor', 'rose', 'school-of-fish', 'shards', 'spring-blossoms', 'st-patricks-shamrocks', 'summer-tide', 'sunburst', 'valentines-hearts'].join(),
+      `the slices are read by the 13 scene modules, the ten seasonal 2D effects and the blob's outline, and by nothing else: ${sliceReaders.join(' ')}`);
+    const { mirrored, readers, barEffects } = await import('./tools/input-readers.mjs');
+    const { GUARD, SIGNALS, TIMES } = await import('./tools/input-replay.mjs');
+    const gone = mirrored.filter(([file, line]) => !text(file).includes(line));
+    const gains = barEffects.map((e) => Number((/const LOG_GAIN = ([\d.]+);/.exec(text(e.file)) || [])[1]));
+    ok(mirrored.length >= 20 && gone.length === 0 && [1, 2, 3, 5, 6].every((g) => readers.some((r) => r.group === g)) && barEffects.length === 9 && gains.every((g) => g > 0.3 && g <= 1),
+      `tools/input-readers.mjs: every line of an effect it writes out again is still in the effect's file (${mirrored.length} lines), and each of the nine bar effects has its LOG_GAIN (${gains.join(' ')}) ${gone.map((m) => m.join(': ')).join(' | ')}`);
+    const want = JSON.parse(text('tools/input-expectations.json')), names = globalThis.TIMBRE.ACTIVE_VIZ_NAMES;
+    const whole = (e) => !!e && e.light > 0 && e.light < 1 && e.lit >= 0 && e.lit <= 1 && Array.isArray(e.grid) && e.grid.length === GUARD.cols * GUARD.rows && e.grid.every((v) => v >= 0 && v <= 1);
+    ok(GUARD.effects.length >= 12 && new Set(GUARD.effects).size === GUARD.effects.length && GUARD.effects.every((n) => names.includes(n)) && SIGNALS.includes(GUARD.signal) && TIMES[GUARD.signal].includes(GUARD.time)
+      && Object.keys(want.effects).sort().join() === GUARD.effects.slice().sort().join() && GUARD.effects.every((n) => whole(want.effects[n])) && want.signal === GUARD.signal && want.time === GUARD.time
+      && ['looks', 'bands', 'slices', 'lowSlices', 'bass', 'mid', 'treble', 'rms', 'level', 'beats'].every((k) => typeof want.sound[k] === 'number'),
+      `the render suite's guard names ${GUARD.effects.length} effects that exist, at a moment the tools look at, and tools/input-expectations.json holds a whole frame's numbers for each of them and the sound's`);
   }
 }
 

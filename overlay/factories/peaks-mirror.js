@@ -10,6 +10,8 @@ VIZ_FACTORIES['peaks-mirror'] = function () {
   const BASS_RATE = -60 * Math.log(0.78);   // the bass level keeps 78% of itself over a 60 fps frame
   const GLOW_STOPS = 64;                    // colour stops down the seam's glow
   const EDGE_STRIPS = 6;                    // strips the glow dims over toward each end of the seam
+  // LOG_GAIN is fitted so that a recorded voice gives the light the 750 Hz values gave.
+  const LOG_GAIN = 0.74;
   let heightRows = null;
   let scrollProgress = 0;
   let bassEMA = 0;
@@ -17,14 +19,13 @@ VIZ_FACTORIES['peaks-mirror'] = function () {
   function sampleHeights(now) {
     const out = new Array(GRID_W).fill(0);
     if (micActive && frequencies && frequencies.length > 0) {
-      const n = frequencies.length;
       // The spectrum is mirrored about the middle of the mesh, which lies between its two
-      // middle columns: those two take the lowest bin and the two edges the highest.
+      // middle columns: those two take the lowest bands and the two edges the highest. Each
+      // half's columns are spread over all 32 log bands (TimbreHelix.spread).
       const mid = (GRID_W - 1) / 2;
       for (let i = 0; i < GRID_W; i++) {
         const dist = Math.abs(i - mid) - 0.5;
-        const binIdx = Math.min(n - 1, Math.floor((dist / (mid - 0.5)) * (n - 1)));
-        const v = (frequencies[binIdx] || 0) / 255 * cfgGain;
+        const v = TimbreHelix.spread(frequencies, dist, mid + 0.5) / 255 * LOG_GAIN * cfgGain;
         out[i] = v * 28;
       }
     } else if (cfgIdleAnim) {
@@ -146,8 +147,8 @@ VIZ_FACTORIES['peaks-mirror'] = function () {
       const veil = VEIL * cfgEffectBgOpacity;
       const share = fadeOrClear(veil, dt);
       let bassInst = 0;
-      if (micActive && frequencies && frequencies.length >= 4) {
-        bassInst = ((frequencies[0] + frequencies[1] + frequencies[2] + frequencies[3]) / 4 / 255) * cfgGain;
+      if (micActive && micBands) {
+        bassInst = TimbreHelix.heard('bass', micBands) * cfgGain;   // what values 0-3 of the 750 Hz spectrum gave (helix.js)
       }
       bassEMA = ema(bassEMA, bassInst, BASS_RATE, dt);
       const cellsPerSec = 0.6 + bassEMA * 1.6;

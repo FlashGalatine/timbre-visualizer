@@ -338,10 +338,9 @@ VIZ_FACTORIES['winter-aurora'] = TimbreScene.factory(function () {
     s.bright = Math.min(1.25, s.glow * drive);
     s.kick = audio.kick * waves;
     let low = 0, high = 0;
-    if (micActive && frequencies && frequencies.length >= 32) {
-      for (let i = 0; i < 4; i++) low += frequencies[i];
-      for (let i = 8; i < 32; i++) high += frequencies[i];
-      low = Math.min(1, (low / 4 / 255) * cfgGain); high = Math.min(1, (high / 24 / 255) * cfgGain * 3);
+    if (micActive && micBands && frequencies) {
+      // What values 0-3 and 8-31 of the 750 Hz spectrum gave: see "The re-mapped readers" in helix.js.
+      low = Math.min(1, TimbreHelix.heard('bass', micBands) * cfgGain); high = Math.min(1, TimbreHelix.bandMean(frequencies, 29, 32) * cfgGain * 3);
     } else {
       low = audio.level * (0.6 + 0.4 * Math.sin(t * 0.31)); high = audio.level * (0.6 + 0.4 * Math.sin(t * 0.23 + 2));
     }

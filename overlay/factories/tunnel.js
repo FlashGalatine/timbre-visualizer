@@ -1,6 +1,9 @@
 /* ── tunnel (perspective neon pipe — circular ribs + wall rails, bends with audio) ── */
 VIZ_FACTORIES['tunnel'] = function () {
   const STREAKS = 14;
+  // The rails read the 32 log bands, spread over all of them (TimbreHelix.spread).
+  // LOG_GAIN is fitted so that a recorded voice gives the light the 750 Hz values gave.
+  const LOG_GAIN = 0.6;
   const RINGS = 18;
   const RING_SPACING = 16;
   const TUNNEL_RADIUS = 22;
@@ -39,10 +42,8 @@ VIZ_FACTORIES['tunnel'] = function () {
       const trails = veil > 0.001;
       const share = fadeOrClear(veil, dt);
       let loudness = 0;
-      if (micActive && frequencies) {
-        let sum = 0;
-        for (let i = 0; i < frequencies.length; i++) sum += frequencies[i];
-        loudness = (sum / (frequencies.length * 255)) * cfgGain;
+      if (micActive && micBands) {
+        loudness = TimbreHelix.heard('all', micBands) * cfgGain;   // what all 32 values of the 750 Hz spectrum gave (helix.js)
       } else if (cfgIdleAnim) {
         loudness = 0.05 + 0.05 * Math.sin(now / 1100);
       }
@@ -136,11 +137,9 @@ VIZ_FACTORIES['tunnel'] = function () {
         ctx.arc(ring.cx, ring.cy, ring.rad, 0, Math.PI * 2);
         ctx.stroke();
       }
-      const numBins = (frequencies && frequencies.length) || 32;
       function streakAmp(s) {
         if (micActive && frequencies) {
-          const bin = Math.min(numBins - 1, Math.floor(s * numBins / STREAKS));
-          return Math.min(1, (frequencies[bin] / 255) * cfgGain);
+          return Math.min(1, (TimbreHelix.spread(frequencies, s, STREAKS) / 255) * LOG_GAIN * cfgGain);
         }
         if (cfgIdleAnim) return 0.25 + 0.2 * Math.sin(s * 0.7 + now / 700);
         return 0.15;

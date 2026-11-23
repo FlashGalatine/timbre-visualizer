@@ -463,7 +463,7 @@
 
       // The tone. After a pause it is the mean of what is heard over the first ONSET seconds
       // of the voice, and the phrase waits for that; within a phrase the tone is followed.
-      for (let b = 0; b < BANDS; b++) bands[b] = micActive ? loudness(frequencies, b, cfgGain) : cfgIdleAnim ? idle(b, s.clock) : 0;
+      for (let b = 0; b < BANDS; b++) bands[b] = micActive ? loudness(slices, b, cfgGain) : cfgIdleAnim ? idle(b, s.clock) : 0;
       if (st.quiet > PAUSE) { s.cold = true; s.heardFor = 0; }
       const heard = toneOf(bands);
       if (heard >= 0) {

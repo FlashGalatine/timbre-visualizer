@@ -18,11 +18,11 @@ VIZ_FACTORIES['new-year-fireworks'] = function () {
   let lastBeat = 0;
   let lastIdle = 0;
   function bandAverage(lo, hi) {
-    if (!frequencies || frequencies.length === 0) return 0;
-    const a = Math.floor(lo * frequencies.length);
-    const b = Math.min(frequencies.length, Math.floor(hi * frequencies.length));
+    if (!slices || slices.length === 0) return 0;
+    const a = Math.floor(lo * slices.length);
+    const b = Math.min(slices.length, Math.floor(hi * slices.length));
     let s = 0;
-    for (let i = a; i < b; i++) s += frequencies[i];
+    for (let i = a; i < b; i++) s += slices[i];
     const n = Math.max(1, b - a);
     return (s / (n * 255)) * cfgGain;
   }

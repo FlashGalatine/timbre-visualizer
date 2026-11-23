@@ -5,6 +5,9 @@ VIZ_FACTORIES['peak-hold'] = function () {
   const PEAK_THICKNESS = Math.max(1, Math.round(2 * SCALE));
   const PEAK_HOLD_MS = 300;
   const ghosts = TimbreGlow.createBarGhosts();
+  // The bars read the 32 log bands (60 Hz to 12 kHz), spread over all of them (TimbreHelix.spread).
+  // LOG_GAIN is fitted so that a recorded voice gives the light the 750 Hz values gave.
+  const LOG_GAIN = 0.74;
   let peaks = null;
   function ensurePeakArray(n) {
     if (!peaks || peaks.length !== n) peaks = new Array(n).fill(null).map(() => ({ y: H, heldUntil: 0 }));
@@ -21,7 +24,7 @@ VIZ_FACTORIES['peak-hold'] = function () {
       for (let i = 0; i < numBars; i++) {
         let value;
         if (micActive && frequencies) {
-          value = (frequencies[i] || 0) * cfgGain;
+          value = TimbreHelix.spread(frequencies, i, numBars) * LOG_GAIN * cfgGain;
         } else if (cfgIdleAnim) {
           value = 30 + 25 * Math.sin(Date.now() / 600 + i * 0.4);
         } else {

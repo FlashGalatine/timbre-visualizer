@@ -24,7 +24,7 @@ VIZ_FACTORIES['blob'] = function () {
       ctx.clearRect(0, 0, W, H);
       const live = micActive && !!waveform;
       const level = live ? HX.levels(frequencies, waveform, cfgGain) : QUIET;
-      blob.step({ dt, live, level, bins: live ? frequencies : null, gain: cfgGain, bounce: cfgBounce, idle: cfgIdleAnim, W, H, scale: SCALE });
+      blob.step({ dt, live, level, bins: live ? slices : null, gain: cfgGain, bounce: cfgBounce, idle: cfgIdleAnim, W, H, scale: SCALE });
       const ears = blob.ears, n = blob.px.length;
       const cx = W / 2, cy = H / 2 + blob.cy, R = blob.radius, stretch = blob.stretch;
       const colorT = ((Date.now() * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;

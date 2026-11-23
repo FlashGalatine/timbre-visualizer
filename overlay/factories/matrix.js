@@ -60,11 +60,10 @@ VIZ_FACTORIES['matrix'] = function () {
       // The rain's trail: a 60 fps frame takes 18% off, and a frame of any other length as much as leaves the same after a second.
       fadeOrClear(0.18, dt);
       let loudness = 0.1, bass = 0;
-      if (micActive && frequencies) {
-        let sum = 0;
-        for (let i = 0; i < frequencies.length; i++) sum += frequencies[i];
-        loudness = (sum / (frequencies.length * 255)) * cfgGain;
-        bass = ((frequencies[0] + frequencies[1] + frequencies[2] + frequencies[3]) / 4 / 255) * cfgGain;
+      if (micActive && micBands) {
+        // What all 32 values, and values 0-3, of the 750 Hz spectrum gave (helix.js).
+        loudness = TimbreHelix.heard('all', micBands) * cfgGain;
+        bass = TimbreHelix.heard('bass', micBands) * cfgGain;
       } else if (cfgIdleAnim) {
         loudness = 0.12 + 0.04 * Math.sin(now / 800);
       } else {

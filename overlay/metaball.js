@@ -254,7 +254,7 @@
       let out = 0;
       for (let b = 0; b < DROPS; b++) {
         let v = 0;
-        if (micActive) v = loudness(frequencies, b, cfgGain);
+        if (micActive) v = loudness(slices, b, cfgGain);
         else if (cfgIdleAnim) v = idle(b, s.clock);
         bands[b] = follow(bands[b], v, v > bands[b] ? RISE : FALL, dt);
         if (v === 0) bands[b] = settle(bands[b]);   // all but home is home: a muted blob comes to rest

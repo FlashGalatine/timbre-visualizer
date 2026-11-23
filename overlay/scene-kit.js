@@ -351,10 +351,10 @@
     return typeof micBands !== 'undefined' && micBands && typeof micBands.level === 'number' ? micBands : null;
   }
 
-  // Mic loudness, 0..1: the sampler's level (the larger of 3 × the input's RMS and 1.1 × the
-  // mean of its bass and mid bands), times Gain. Beside a sampler that publishes none, the waveform RMS or the low
-  // six values of `frequencies`, as before. Without a mic, a slow swell when Idle animation is
-  // on, else silence.
+  // Mic loudness, 0..1: the sampler's level (the larger of 3 × the RMS of its newest 64 samples
+  // and 1.1 × the mean of its six lowest slices), times Gain. Beside a sampler that publishes
+  // none, the same from `waveform` and the low six values of `frequencies`, which are that
+  // sampler's 750 Hz values. Without a mic, a slow swell when Idle animation is on, else silence.
   function readLevel(nowMs) {
     if (typeof api.testLevel === 'number') return api.testLevel;
     const bands = heard();

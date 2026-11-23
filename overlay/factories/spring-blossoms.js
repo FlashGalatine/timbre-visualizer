@@ -20,11 +20,11 @@ VIZ_FACTORIES['spring-blossoms'] = function () {
   let petals = [];
   let smoothBass = 0, smoothMid = 0, smoothTreble = 0;
   function bandAverage(lo, hi) {
-    if (!frequencies || frequencies.length === 0) return 0;
-    const a = Math.floor(lo * frequencies.length);
-    const b = Math.min(frequencies.length, Math.floor(hi * frequencies.length));
+    if (!slices || slices.length === 0) return 0;
+    const a = Math.floor(lo * slices.length);
+    const b = Math.min(slices.length, Math.floor(hi * slices.length));
     let sum = 0;
-    for (let i = a; i < b; i++) sum += frequencies[i];
+    for (let i = a; i < b; i++) sum += slices[i];
     const n = Math.max(1, b - a);
     return (sum / (n * 255)) * cfgGain;
   }

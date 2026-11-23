@@ -6,10 +6,12 @@ VIZ_FACTORIES['spectrogram'] = function () {
   const HOTSPOT_H = Math.max(1, Math.round(SCALE));
   const HEAD_W = Math.max(1, Math.round(SCALE));
   let owed = 0;   // pixels of scroll not yet taken: the part of a pixel each frame leaves over
+  // The rows are the 32 log bands (60 Hz to 12 kHz), one row a band.
+  // LOG_GAIN is fitted so that a recorded voice gives the light the 750 Hz values gave.
+  const LOG_GAIN = 0.64;
   function getFreqs() {
     if (micActive && frequencies && frequencies.length > 0) {
-      if (cfgGain === 1) return frequencies;
-      return frequencies.map(v => Math.min(255, v * cfgGain));
+      return frequencies.map(v => Math.min(255, v * LOG_GAIN * cfgGain));
     }
     if (!cfgIdleAnim) return new Array(32).fill(0);
     const n = 32;
