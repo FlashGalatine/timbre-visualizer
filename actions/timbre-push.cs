@@ -67,8 +67,8 @@ public class CPHInline
     // The top-level keys of a full config: those of TIMBRE.defaultConfig() in
     // shared/viz-config.js. verify.mjs and verify-cs.mjs fail when the two lists differ.
     static readonly string[] RequiredKeys = {
-        "activeViz", "mic", "bars", "bounce", "gain", "colorSpeed", "colorHue", "bgOpacity",
-        "effectBgOpacity", "idleAnim", "showLabels", "showChevrons", "showDecorations",
+        "activeViz", "mic", "micProcessing", "bars", "bounce", "gain", "colorSpeed", "colorHue",
+        "bgOpacity", "effectBgOpacity", "idleAnim", "showLabels", "showChevrons", "showDecorations",
         "showBorder", "placement", "afterglow", "perViz"
     };
 

@@ -22,6 +22,9 @@
    Emits `timbre:mic` CustomEvents ({ state: 'listening'|'denied'|'acquiring' })
    that core.js turns into the status label. Exposes window.timbreCapture:
      setDevice(deviceId, label)  — switch mic (from config.mic pushes)
+     setProcessing(on)           — the browser's echo cancellation, noise suppression and
+                                   automatic gain: on (the default), or off for the raw
+                                   microphone (from config.micProcessing pushes)
      start() / stop()
      analysis                    — the arithmetic by itself (no microphone), for the checks
    ───────────────────────────────────────────────────────────────────────── */
@@ -57,6 +60,14 @@
   const BEAT_FLOOR = 0.07;
   const BEAT_GAP_MS = 220;
   const BEAT_AVG_RATE = 2;        // per second
+
+  // The microphone as it is, for when the Microphone processing setting is off: none of the
+  // browser's call processing. Echo cancellation and noise suppression gate quiet sounds, and
+  // automatic gain flattens loud against soft.
+  const RAW = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+  // What a device that cannot meet those constraints is refused with (the second name is the
+  // one older browsers gave it).
+  const REFUSALS = ['OverconstrainedError', 'ConstraintNotSatisfiedError'];
 
   // The slices: the look the sampler took before the bands. A 64-sample analysis has 32 values.
   const SLICE_SIZE = 64;
@@ -267,6 +278,7 @@
   let retryTimer = null;
   let wantDeviceId = '';
   let wantLabel = '';
+  let wantProcessing = true;      // config.micProcessing: the browser's processing, on until a config says off
   let running = false;
   // One microphone request at a time (TIM-14). Every acquire() takes the next number, and so
   // does stop(); a request whose number is no longer `gen` was overtaken while it waited (by a
@@ -307,9 +319,10 @@
 
   // Build getUserMedia constraints for the configured device. `ideal` (not
   // `exact`) so a stale/foreign deviceId still falls back to the default mic
-  // instead of throwing OverconstrainedError.
+  // instead of throwing OverconstrainedError. Returns the device part only (null for
+  // the default microphone): acquire() makes the shape to ask with.
   async function buildConstraints() {
-    if (!wantDeviceId && !wantLabel) return { audio: true };
+    if (!wantDeviceId && !wantLabel) return null;
     let deviceId = wantDeviceId;
     // deviceIds are origin/profile-scoped and churn; if we also know the
     // human label, re-match it against the current device list.
@@ -322,8 +335,14 @@
         if (byLabel) deviceId = byLabel.deviceId;
       }
     } catch { /* enumerateDevices unavailable — just try what we have */ }
-    return deviceId ? { audio: { deviceId: { ideal: deviceId } } } : { audio: true };
+    return deviceId ? { deviceId: { ideal: deviceId } } : null;
   }
+
+  // The two shapes for one device. plainShape is what the capture has always asked with
+  // ({ audio: true }, or the device alone): the browser's processing is left on. rawShape
+  // adds the three flags, off.
+  const plainShape = (device) => ({ audio: device || true });
+  const rawShape = (device) => ({ audio: Object.assign({}, device, RAW) });
 
   async function acquire() {
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
@@ -332,9 +351,25 @@
     teardownStream();
     emit('acquiring');
     try {
-      const constraints = await buildConstraints();
+      const device = await buildConstraints();
       if (my !== gen) return;     // overtaken before the microphone was asked for
-      const got = await navigator.mediaDevices.getUserMedia(constraints);
+      // With the processing on (the default) this is one request, with the shape it has
+      // always had. A change of the setting is a new acquire(), so `raw` holds for this one.
+      const raw = !wantProcessing;
+      let got, refused = false;
+      if (!raw) {
+        got = await navigator.mediaDevices.getUserMedia(plainShape(device));
+      } else {
+        try {
+          got = await navigator.mediaDevices.getUserMedia(rawShape(device));
+        } catch (err) {
+          // Only a device that cannot meet the constraints is asked again, once, without the
+          // flags, and only by the request still in force. Anything else is a failure as before.
+          if (my !== gen || !err || REFUSALS.indexOf(err.name) < 0) throw err;
+          refused = true;
+          got = await navigator.mediaDevices.getUserMedia(plainShape(device));
+        }
+      }
       if (my !== gen) {           // overtaken while waiting: give the microphone back, build nothing
         got.getTracks().forEach((t) => t.stop());
         return;
@@ -414,6 +449,16 @@
         micActive = true;
       }, SAMPLE_MS);
       emit('listening');
+      // For a microphone asked for raw: which of the two shapes opened it, and what the device
+      // says it is doing. (With the processing on nothing is said, as before the setting.)
+      if (raw) {
+        const track = stream.getTracks()[0];
+        const now = track && typeof track.getSettings === 'function' ? track.getSettings() : null;
+        console.info('[timbre-capture] microphone open,', refused
+          ? 'WITHOUT the three flags: the device refused echo cancellation, noise suppression and automatic gain off, so the browser\'s own processing is on.'
+          : 'asked for with echo cancellation, noise suppression and automatic gain off.',
+        now ? `The device reports echoCancellation ${now.echoCancellation}, noiseSuppression ${now.noiseSuppression}, autoGainControl ${now.autoGainControl}.` : '');
+      }
     } catch (err) {
       // An overtaken request that failed: the session (or the newer request) is not its to touch.
       if (my !== gen) return;
@@ -431,6 +476,14 @@
       if (id === wantDeviceId && lb === wantLabel) return;
       wantDeviceId = id;
       wantLabel = lb;
+      if (running) acquire();
+    },
+    // The browser's processing on (anything but false) or off (false). A change opens the
+    // microphone again, as a change of device does, under the same request counter.
+    setProcessing(on) {
+      const want = on !== false;
+      if (want === wantProcessing) return;
+      wantProcessing = want;
       if (running) acquire();
     },
     start() { if (!running) { running = true; acquire(); } },

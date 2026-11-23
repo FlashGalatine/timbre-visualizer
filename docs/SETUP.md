@@ -103,12 +103,26 @@ on its last/default settings and reconnects with backoff.
 ## 5. Drive it
 
 Everything in the control panel pushes live: effect picker, per-effect knobs, scene
-placement, matrix text, global sliders/toggles, and the mic device. Device labels need a one-shot mic grant in the dock — click **Refresh** next to
+placement, matrix text, global sliders/toggles, the mic device and its Microphone processing toggle. Device labels need a one-shot mic grant in the dock — click **Refresh** next to
 the device dropdown.
 
 The mic selection is part of the shared config, so **all overlay pages capture the same
 configured device**. Overlays re-match the device by label if Chromium's device ids
 churn, and fall back to the system default mic rather than going dark.
+
+**Microphone processing** (under the device, in the dock's Microphone section) is what the
+browser does to the microphone before the overlay sees it:
+
+- **On** (the default, and what Timbre has always done): the browser's echo cancellation,
+  noise suppression and automatic gain. Quiet sounds are gated and loud and soft are evened
+  out, so the effects sit still when the room is quiet.
+- **Off**: the raw microphone. It is truer to the sound, but it lets room noise through in
+  quiet moments (a fan, a keyboard), so an effect may stir when nobody is speaking. If the
+  effects read too strong or too weak after the change, set **Gain**.
+
+Changing it re-opens the microphone on every overlay page (`WAITING` for a moment, then
+`LISTENING`). It is saved with the other settings. A microphone that cannot be opened raw
+is opened with the processing on instead, and the overlay page's console says so.
 
 ## Updating
 
@@ -126,6 +140,16 @@ and says whether the action must be pasted again.
 The order matters. The action refuses a settings change that does not carry every
 top-level setting, and an older dock page may not send them all: with a new action and
 an old dock, every change is then refused and the dock says "not a full config".
+
+Release 1.0.196, which adds the **Microphone processing** setting, is one where the action must be
+pasted again: pages first, then re-paste. The new action asks for the new setting
+(`micProcessing`) in every change, and a dock page from before that release does not send
+it. In the other order every change made in the old dock page is refused, with "not a
+full config" on its status line, until that page is reloaded; what is saved stays as it
+was. With the pages updated and the old action still in place, everything works, the new
+toggle included; the old action only does not insist on the new setting. Your saved
+settings are kept either way, and settings saved before the release read as Microphone
+processing on.
 
 ## Troubleshooting
 

@@ -108,7 +108,7 @@ const cases = [
   ['an empty config argument is a sync request', { config: '' },
     (r) => r.ret === true && r.warn === 0 && r.bc.length === 1 && r.bc[0] === wire(full)],
   ['TIM-26 and TIM-31: a partial config is refused: false, one warning that names the code and the missing keys, the stored config untouched, and ONE timbre:error broadcast with the code and its fixed message (before: stored, and broadcast as a config)', { config: partial },
-    (r) => r.ret === false && r.warn === 1 && r.info === 0 && /^\[Timbre Push\] refused \(partial-config\)/.test(r.log[0]) && /missing: mic, bars, bounce/.test(r.log[0]) && r.log[0].includes(`(${partial.length} chars)`)
+    (r) => r.ret === false && r.warn === 1 && r.info === 0 && /^\[Timbre Push\] refused \(partial-config\)/.test(r.log[0]) && /missing: mic, micProcessing, bars, bounce/.test(r.log[0]) && r.log[0].includes(`(${partial.length} chars)`)
       && r.bc.length === 1 && r.bc[0] === errorWire('partial-config') && stored(r) === full],
   ['TIM-05: text in braces that is not JSON is refused as bad-config, and the log line has its length and not its text (before: stored, and spliced into a broadcast no page can parse)', { config: '{not json}' },
     (r) => r.ret === false && r.warn === 1 && /^\[Timbre Push\] refused \(bad-config\)/.test(r.log[0]) && r.log[0].includes('(10 chars)') && !r.log[0].includes('not json')

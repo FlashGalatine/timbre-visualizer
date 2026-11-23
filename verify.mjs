@@ -117,7 +117,10 @@
 //      request and a device switch; start() then setDevice() before the first
 //      request resolves, granted in either order; a stale failure; the request
 //      in force failing and its retry; an old track ending; and stop(), also
-//      with a request still waiting. Then Sprint 7: the fold of a
+//      with a request still waiting. Then Sprint B: the browser's processing
+//      as a setting (the shape asked for with it on and off, the re-open, the
+//      one retry without the three flags for a device that refuses them, and
+//      the request counter across that second request). Then Sprint 7: the fold of a
 //      2048-point analysis into 32 bands (edges, weights, equal bins, a single
 //      tone, silence, the 0-255 range); bass, mid, treble, rms, centroid,
 //      level and the beat on spectra made by hand; and the 32 slices, the
@@ -299,6 +302,22 @@ console.log('\n[2] sanitizeConfig');
   ok(!('injected' in s), 'unknown top-level keys dropped');
   const base = T.defaultConfig(); base.bounce = 77;
   ok(T.sanitizeConfig({ gain: 50 }, base).bounce === 77, 'partial merge preserves base');
+}
+{
+  // Sprint B (D-08): micProcessing, the browser's own handling of the microphone, on or off.
+  const d = T.defaultConfig(), keys = Object.keys(d);
+  ok(d.micProcessing === true && keys[keys.indexOf('mic') + 1] === 'micProcessing' && !('micProcessing' in T.TOP_BOOLS),
+    `defaultConfig has micProcessing, on (what the capture did before the setting), beside mic, and it is not one of the Global toggles: ${keys.join()}`);
+  const off = T.sanitizeConfig({ micProcessing: false });
+  ok(T.sanitizeConfig({}).micProcessing === true && T.sanitizeConfig({ gain: 50 }).micProcessing === true && T.sanitizeConfig({ gain: 50 }, off).micProcessing === false && T.sanitizeConfig(null, off).micProcessing === false,
+    'a config with no micProcessing (one saved before the setting existed) has it on, and merged over a base it leaves the base\'s value');
+  const odd = [0, 1, 'false', 'true', '', null, undefined, NaN, {}, [], 'off'];
+  const overOn = odd.map((v) => T.sanitizeConfig({ micProcessing: v }).micProcessing), overOff = odd.map((v) => T.sanitizeConfig({ micProcessing: v }, off).micProcessing);
+  ok(overOn.every((v) => v === true) && overOff.every((v) => v === false),
+    `a micProcessing that is not true or false is ignored, not read as one of them (0, 1, "false", "true", "", null, NaN, {}, [] and "off" leave it as it was): over on ${overOn.join()}; over off ${overOff.join()}`);
+  ok(off.micProcessing === false && T.sanitizeConfig({ micProcessing: true }, off).micProcessing === true && T.sanitizeConfig({ micProcessing: false }, T.sanitizeConfig({ micProcessing: true })).micProcessing === false
+    && JSON.stringify(Object.keys(off)) === JSON.stringify(keys) && JSON.stringify({ ...off, micProcessing: true }) === JSON.stringify(d),
+    'micProcessing true and false are taken as they are, over the defaults and over a base, and change nothing else');
 }
 {
   const c = T.sanitizeConfig({ placement: { x: 999, y: -999, size: 5 } });
@@ -7638,9 +7657,9 @@ console.log('\n[29] overlay core: one canvas height, equal configs, a config tha
   // and a capture that records the device it is given. `big` is the two large pages: their
   // canvases are 624 tall and they scale the heights core.js asks for by 4.8, with the same
   // script they have in their own page. see(code) reads or sets core.js's own variables.
-  const loadCore = ({ big = false } = {}) => {
+  const loadCore = ({ big = false, oldCapture = false } = {}) => {
     const el = () => ({ style: {}, innerHTML: '', textContent: '', classList: { on: new Set(), toggle(n, f) { if (f) this.on.add(n); else this.on.delete(n); } } });
-    const log = { sets2d: 0, sets3d: 0, clears: 0, fills: [], warns: [], resizes: 0, configs: 0, devices: 0, starts: [] };
+    const log = { sets2d: 0, sets3d: 0, clears: 0, fills: [], warns: [], resizes: 0, configs: 0, devices: 0, processing: [], calls: [], starts: [] };
     const pen = { fillStyle: '#000', globalCompositeOperation: 'source-over', depth: 0, stack: [],
       clearRect(x, y, w, h) { log.clears++; log.cleared = [x, y, w, h]; },
       fillRect(x, y, w, h) { log.fills.push({ style: this.fillStyle, op: this.globalCompositeOperation, rect: [x, y, w, h] }); },
@@ -7660,7 +7679,9 @@ console.log('\n[29] overlay core: one canvas height, equal configs, a config tha
       document: { documentElement: { style: { setProperty(name, value) { log.vars = (log.vars || 0) + 1; log[name] = value; } } },
         getElementById: (id) => els[id], querySelector: (s) => (s === '.viz-label' ? label : s === '.visualizer-box' ? box : null), querySelectorAll: (s) => (s === '.chevron-track' ? tracks : []) },
       addEventListener: (type, fn) => { (listeners[type] = listeners[type] || []).push(fn); },
-      timbreCapture: { setDevice() { log.devices++; } },
+      // `oldCapture`: an audio-capture.js from before Sprint B, which OBS can serve from its cache beside a new core.js.
+      timbreCapture: oldCapture ? { setDevice() { log.devices++; log.calls.push('device'); } }
+        : { setDevice() { log.devices++; log.calls.push('device'); }, setProcessing(on) { log.processing.push(on); log.calls.push('processing'); } },
     };
     sandbox.window = sandbox;
     vm.createContext(sandbox);
@@ -7744,6 +7765,29 @@ console.log('\n[29] overlay core: one canvas height, equal configs, a config tha
     d.send(cfgWith({ activeViz: 'matrix' }));
     ok(d.log.sets2d === s1 + 1 && d.log.clears === k1 + 1 && d.log.starts.join() === 'visualizer,matrix' && d.shown().H === 130 && d.log.resizes === 0,
       'a switch of effect puts the 2D canvas back to a clean state once (cleared, its context as new) before the new effect starts, and tells no effect of a resize');
+  }
+
+  // ── Sprint B (D-08): micProcessing goes to the capture, as the device does ──
+  {
+    const c = loadCore();
+    c.send(T.defaultConfig());
+    const first = c.log.processing.join(), order = c.log.calls.join();
+    c.send(cfgWith({ micProcessing: false }));
+    const off = c.log.processing.join(), devicesAtOff = c.log.devices;
+    c.send(cfgWith({ micProcessing: false })); c.send(JSON.parse(JSON.stringify(cfgWith({ micProcessing: false }))));
+    const again = c.log.processing.join();
+    c.send(cfgWith({ gain: 150 }));          // a broadcast without the key: the default, on
+    const back = c.log.processing.join();
+    c.send({ activeViz: 'visualizer', micProcessing: 'no' });
+    ok(first === 'true' && order === 'processing,device' && off === 'true,false' && devicesAtOff === 2 && again === 'true,false' && back === 'true,false,true' && c.log.processing.join() === 'true,false,true,true'
+      && c.see('timbreConfig').micProcessing === true && c.log.warns.length === 0,
+      `a config's micProcessing is handed to the capture (setProcessing) with every config that is applied, before the device; a config equal to the one in force hands it nothing; a broadcast without it, or with something that is not true or false, hands it true — setProcessing got ${c.log.processing.join()}`);
+    // Beside an audio-capture.js from before the setting (OBS can cache one file and not the other).
+    const old = loadCore({ oldCapture: true });
+    let threw = '';
+    try { old.send(cfgWith({ micProcessing: false, activeViz: 'matrix', gain: 150 })); } catch (e) { threw = String(e); }
+    ok(threw === '' && old.log.warns.length === 0 && old.log.devices === 1 && old.see('currentVizName') === 'matrix' && old.see('cfgGain') === 1.5 && old.see('timbreConfig').micProcessing === false,
+      `beside an audio-capture.js from before the setting (no setProcessing) the config is still applied whole: the device is set, the effect switched, nothing thrown or warned of ${threw || old.log.warns.join(' | ')}`);
   }
 
   // ── TIM-06: a config that throws leaves the overlay drawing with what it has ──
@@ -8169,6 +8213,169 @@ console.log('\n[30] audio capture: one microphone request at a time');
     }
   }
 
+  // ── Sprint B (D-08): the browser's processing as a setting ──
+  console.log('\n[30] audio capture: the browser\'s processing on or off, and a device that refuses it off');
+  const RAW_FLAGS = '"echoCancellation":false,"noiseSuppression":false,"autoGainControl":false';
+  // (Through a helper that asks first: beside a capture without the setting these checks fail, they do not throw.)
+  const processing = (w, on) => { if (typeof w.capture.setProcessing === 'function') w.capture.setProcessing(on); };
+  const rawCapture = (options) => { const w = loadCapture(options); processing(w, false); return w; };
+  {
+    // The shape asked for in each state, with and without a picked device, and the re-open.
+    const w = loadCapture();
+    const has = typeof w.capture.setProcessing === 'function';
+    processing(w, false);
+    const early = w.requests.length;                 // before start(): nothing is asked for yet
+    w.capture.start(); await settle();
+    const offDefault = w.requests[0] ? w.requests[0].constraints : '';
+    if (w.requests[0]) w.requests[0].resolve();
+    await settle();
+    const openOff = oneSession(w, 'default');
+    w.capture.setDevice('mic-b', 'Mic B'); await settle();
+    const offDevice = w.requests[1] ? w.requests[1].constraints : '';
+    if (w.requests[1]) w.requests[1].resolve();
+    await settle();
+    processing(w, false); await settle();
+    const sameOff = w.requests.length;               // the value it has: nothing is asked for
+    processing(w, true); await settle();
+    const switching = says(w), onDevice = w.requests[2] ? w.requests[2].constraints : '';
+    if (w.requests[2]) w.requests[2].resolve();
+    await settle();
+    const openOn = oneSession(w, 'mic-b') && w.streams.length === 3 && w.streams[1].tracks[0].stops === 1 && w.contexts[1].closes === 1;
+    w.capture.setDevice('', ''); await settle();
+    const onDefault = w.requests[3] ? w.requests[3].constraints : '';
+    if (w.requests[3]) w.requests[3].resolve();
+    await settle();
+    for (const v of [true, undefined, null, 0, 1, 'false', '']) processing(w, v);   // only false turns it off
+    await settle();
+    ok(has && early === 0 && offDefault === '{"audio":{' + RAW_FLAGS + '}}' && offDevice === '{"audio":{"deviceId":{"ideal":"mic-b"},' + RAW_FLAGS + '}}' && openOff && sameOff === 2
+      && /^0 live stream.*, 0 open context.*, 0 sampler timer.*3 request/.test(switching) && onDevice === '{"audio":{"deviceId":{"ideal":"mic-b"}}}' && openOn && onDefault === '{"audio":true}'
+      && w.requests.length === 4 && oneSession(w, 'default') && w.events.join() === 'acquiring,listening,acquiring,listening,acquiring,listening,acquiring,listening'
+      && w.infos.length === 2 && w.infos.every((s) => /off\./.test(s) && !/WITHOUT/.test(s)) && w.warns.length === 0,
+      `with the browser's processing off (setProcessing(false)) the microphone is asked for with echo cancellation, noise suppression and automatic gain off, the default one (${offDefault}) and a picked one (${offDevice}); with it on, exactly as before the setting (${onDevice} and ${onDefault}); changing it on a running capture closes the session and opens the microphone again, once, and setting the value it has asks for nothing; the console says so only for a microphone asked for raw — ${says(w)}`);
+    w.capture.stop();
+  }
+  {
+    // The request counter, for a change of the setting while a request waits.
+    for (const order of [[0, 1], [1, 0]]) {
+      const w = loadCapture();
+      w.capture.start(); await settle();
+      processing(w, false); await settle();
+      const asked = w.requests.map((r) => r.constraints).join(' ; ');
+      for (const i of order) { if (w.requests[i]) w.requests[i].resolve(); await settle(); }
+      const mine = liveStreams(w).length === 1 && liveStreams(w)[0].request === w.requests[1];
+      ok(asked === '{"audio":true} ; {"audio":{' + RAW_FLAGS + '}}' && mine && oneSession(w, 'default') && w.contexts.length === 1 && w.streams.length === 2 && w.streams[w.requests[0].stream === w.streams[0] ? 0 : 1].tracks[0].stops === 1 && w.events.join() === 'acquiring,acquiring,listening',
+        `the setting changed while the first request is still waiting (the page starts with it on; the saved config then says off), granted ${order[0] === 0 ? 'oldest' : 'newest'} first: the one session is the raw request's, and the overtaken request's stream is stopped and nothing built for it — ${says(w)}`);
+      w.capture.stop();
+    }
+    // The setting and the device changed by one config (core.js sets one, then the other): the microphone is asked for once.
+    const both = loadCapture();
+    both.capture.start(); await settle(); both.requests[0].resolve(); await settle();
+    processing(both, false); both.capture.setDevice('mic-b', 'Mic B'); await settle();
+    const askedBoth = both.requests.slice(1).map((r) => r.constraints).join(' ; ');
+    if (both.requests[1]) both.requests[1].resolve();
+    await settle();
+    ok(askedBoth === '{"audio":{"deviceId":{"ideal":"mic-b"},' + RAW_FLAGS + '}}' && oneSession(both, 'mic-b') && both.requests.length === 2,
+      `the setting and the device changed together open the microphone once, with both — ${askedBoth}`);
+    both.capture.stop();
+  }
+  {
+    // A device that refuses the three flags still opens.
+    const w = rawCapture();
+    w.capture.start(); await settle();
+    const saidRaw = rawCapture();
+    saidRaw.capture.start(); await settle(); saidRaw.requests[0].resolve(); await settle();
+    w.requests[0].reject('OverconstrainedError'); await settle();
+    const between = says(w), second = w.requests.length > 1 ? w.requests[1].constraints : '';
+    if (w.requests[1]) w.requests[1].resolve();
+    await settle();
+    w.advance(60000); await settle();
+    // The name older browsers gave the same refusal.
+    const legacy = rawCapture();
+    legacy.capture.start(); await settle(); legacy.requests[0].reject('ConstraintNotSatisfiedError'); await settle();
+    const legacySecond = legacy.requests.length > 1 ? legacy.requests[1].constraints : '';
+    ok(second === '{"audio":true}' && /^0 live stream.*0 retry timer\(s\), 2 request\(s\), events acquiring$/.test(between) && oneSession(w, 'default') && w.requests.length === 2 && w.events.join() === 'acquiring,listening' && w.warns.length === 0
+      && w.infos.length === 1 && /WITHOUT the three flags/.test(w.infos[0]) && saidRaw.infos.length === 1 && /off\./.test(saidRaw.infos[0]) && !/WITHOUT/.test(saidRaw.infos[0]) && legacySecond === '{"audio":true}',
+      `with the processing off, a microphone that refuses the three flags (OverconstrainedError; ConstraintNotSatisfiedError in older browsers) is asked for once more without them, as { audio: true }, and opens: no MIC DENIED, no retry timer, and the console says which was used — ${says(w)} | said: ${w.infos[0]} | a device that takes them: ${saidRaw.infos[0]}`);
+    saidRaw.capture.stop(); legacy.capture.stop();
+  }
+  {
+    const w = rawCapture();
+    w.capture.setDevice('mic-b', 'Mic B'); w.capture.start(); await settle();
+    const first = w.requests[0].constraints;
+    w.requests[0].reject('OverconstrainedError'); await settle();
+    const second = w.requests.length > 1 ? w.requests[1].constraints : '';
+    if (w.requests[1]) w.requests[1].resolve();
+    await settle();
+    ok(first === '{"audio":{"deviceId":{"ideal":"mic-b"},' + RAW_FLAGS + '}}' && second === '{"audio":{"deviceId":{"ideal":"mic-b"}}}' && oneSession(w, 'mic-b') && w.requests.length === 2,
+      `the same for a picked device: the second request keeps the device (as ideal) and drops only the three flags — ${first} then ${second}`);
+  }
+  {
+    // The second request refused too: reported and retried as any failure, and the retry starts with the flags again.
+    const w = rawCapture();
+    w.capture.start(); await settle();
+    w.requests[0].reject('OverconstrainedError'); await settle();
+    if (w.requests[1]) w.requests[1].reject('OverconstrainedError');
+    await settle();
+    const denied = says(w), asked = w.requests.length;
+    w.advance(10000); await settle();
+    const retry = w.requests.length > 2 ? w.requests[2].constraints : '';
+    // Another kind of failure is not asked for again without the flags.
+    const other = rawCapture();
+    other.capture.start(); await settle();
+    other.requests[0].reject('NotAllowedError'); await settle();
+    // And with the processing on there are no flags to drop: a refusal is a failure, as it was before the setting.
+    const on = loadCapture();
+    on.capture.start(); await settle();
+    on.requests[0].reject('OverconstrainedError'); await settle();
+    ok(asked === 2 && /0 live stream.*1 retry timer\(s\).*events acquiring,denied$/.test(denied) && w.warns.length === 1 && retry === '{"audio":{' + RAW_FLAGS + '}}' && w.requests.length === 3
+      && other.requests.length === 1 && other.events.join() === 'acquiring,denied' && other.timeouts.size === 1
+      && on.requests.length === 1 && on.events.join() === 'acquiring,denied' && on.timeouts.size === 1 && on.warns.length === 1 && on.infos.length === 0,
+      `refused without the flags as well, it is MIC DENIED with one retry after 10 seconds, which asks with the flags again (at most two requests an attempt); a failure of another kind (NotAllowedError) is not asked for a second time, and neither is any failure while the processing is on — ${denied}`);
+    w.capture.stop(); other.capture.stop(); on.capture.stop();
+  }
+  {
+    // The request counter across the second request.
+    const late = rawCapture();
+    late.capture.start(); await settle();
+    late.requests[0].reject('OverconstrainedError'); await settle();
+    late.capture.setDevice('mic-b', 'Mic B'); await settle();
+    const inFlight = late.requests.map((r) => r.constraints).join(' ; ');
+    if (late.requests[1]) late.requests[1].resolve();       // the overtaken request's second try is granted
+    await settle();
+    const afterStale = says(late), staleStops = late.streams[0] ? late.streams[0].tracks[0].stops : -1, builtForStale = late.contexts.length;
+    if (late.requests[2]) late.requests[2].resolve();
+    await settle();
+    const early = rawCapture();
+    early.capture.start(); await settle();
+    early.capture.setDevice('mic-b', 'Mic B'); await settle();
+    early.requests[0].reject('OverconstrainedError'); await settle();   // overtaken before it was refused
+    const askedEarly = early.requests.length;
+    early.requests[1].resolve(); await settle();
+    const stopped = rawCapture();
+    stopped.capture.start(); await settle();
+    stopped.requests[0].reject('OverconstrainedError'); await settle();
+    stopped.capture.stop(); await settle();
+    if (stopped.requests[1]) stopped.requests[1].resolve();
+    await settle();
+    stopped.advance(60000); await settle();
+    // The setting put back on while the second request waits: that request is overtaken like any other.
+    const turned = rawCapture();
+    turned.capture.start(); await settle();
+    turned.requests[0].reject('OverconstrainedError'); await settle();
+    processing(turned, true); await settle();
+    const turnedAsked = turned.requests.map((r) => r.constraints).join(' ; ');
+    if (turned.requests[1]) turned.requests[1].resolve();
+    await settle();
+    const turnedStale = turned.contexts.length === 0 && turned.streams.length === 1 && turned.streams[0].tracks[0].stops === 1;
+    if (turned.requests[2]) turned.requests[2].resolve();
+    await settle();
+    ok(late.requests.length === 3 && staleStops === 1 && builtForStale === 0 && /^0 live stream.*0 open context/.test(afterStale) && oneSession(late, 'mic-b') && late.contexts.length === 1 && late.events.join() === 'acquiring,acquiring,listening'
+      && askedEarly === 2 && oneSession(early, 'mic-b') && early.requests.length === 2 && early.events.join() === 'acquiring,acquiring,listening'
+      && nothingAlive(stopped) && stopped.streams.length === 1 && stopped.streams[0].tracks[0].stops === 1 && stopped.contexts.length === 0 && stopped.requests.length === 2 && stopped.infos.length === 0
+      && turnedAsked === '{"audio":{' + RAW_FLAGS + '}} ; {"audio":true} ; {"audio":true}' && turnedStale && oneSession(turned, 'default') && turned.contexts.length === 1 && turned.infos.length === 0,
+      `the request counter holds across the second request: overtaken while its second request waits (by a device, or by the setting put back on), the stream it is then handed is stopped and nothing is built (${inFlight}); overtaken before it is refused, it asks for nothing more; and stop() while the second request waits leaves nothing alive — ${says(late)} | ${says(early)} | ${says(stopped)} | ${says(turned)}`);
+  }
+
   console.log('\n[30] audio capture: the fold into 32 bands, the shared bands, and the 32 slices');
   // ── Sprint 7 (D-07): the fold ──
   {
@@ -8460,6 +8667,21 @@ console.log('\n[28] dock: edits kept, status line, preview address, whole charac
     'a key leaves the record when a broadcast carries its value, and only that key (top level and per-effect)');
   ok(J(D.unsettledEdits(T, edits, merged)) === '{}' && !D.hasKeys(D.unsettledEdits(T, edits, J(merged) && JSON.parse(J(merged)))), 'the dock\'s own echo settles every edit');
   ok(J(D.unsettledEdits(T, { showLabels: false, idleAnim: true }, {})) === '{"showLabels":false}', 'false is a value like any other: it is kept until a broadcast says false, and a value equal to what came in is settled');
+  {
+    // Sprint B (D-08): the microphone section's toggle. It is in the page, in that section, wired
+    // as the Global toggles are (through edit()), and its edit is kept and merged like any other.
+    const section = (/<h2[^>]*>Microphone \(overlay capture\)<\/h2>([\s\S]*?)<\/section>/.exec(html) || [])[1] || '';
+    const toggle = {};
+    D.setAt(toggle, ['micProcessing'], false);
+    ok(/<input type="checkbox" id="micProcessing">/.test(section) && (html.match(/id="micProcessing"/g) || []).length === 1 && /echo cancellation, noise suppression and automatic gain/.test(section) && /raw microphone/.test(section)
+      && /\$\('micProcessing'\)/.test(html) && (html.match(/edit\(\['micProcessing'\], /g) || []).length === 1 && !/micProcessing/.test(html.slice(from, to)),
+      'control.html has one micProcessing checkbox, in the Microphone section, which says what on and off do, and its change goes through edit() as every control\'s does');
+    ok(J(toggle) === '{"micProcessing":false}' && J(D.unsettledEdits(T, toggle, {})) === '{"micProcessing":false}' && J(D.unsettledEdits(T, toggle, savedCfg)) === '{"micProcessing":false}' && J(D.unsettledEdits(T, toggle, { micProcessing: false })) === '{}'
+      && J(D.unsettledEdits(T, { micProcessing: true }, { micProcessing: false })) === '{"micProcessing":true}' && J(D.unsettledEdits(T, { micProcessing: true }, {})) === '{}'
+      && D.mergeEdits(T, toggle, savedCfg).micProcessing === false && D.mergeEdits(T, {}, savedCfg).micProcessing === true && D.mergeEdits(T, {}, { micProcessing: false }).micProcessing === false
+      && Object.keys(D.mergeEdits(T, toggle, savedCfg)).join() === Object.keys(T.defaultConfig()).join(),
+      'the toggle\'s edit is kept until a broadcast carries its value (a broadcast from before the setting carries "on"), and the config the dock then pushes holds it, with every top-level key');
+  }
   ok(J(D.unsettledEdits(T, { placement: { x: 500 }, bars: 999 }, { placement: { x: 100 }, bars: 32 })) === '{}', 'a value is compared as it would be stored: out of range, it is settled by its clamped value');
   ok(J(D.unsettledEdits(T, { nope: 1, perViz: { 'no-such-effect': { a: 1 }, dna: { nope: 2 } }, activeViz: 'no-such-effect' }, {})) === '{}', 'a key the config cannot hold is dropped from the record: no broadcast could ever carry it');
   ok(J(D.unsettledEdits(T, edits, null)) === frozen && J(D.unsettledEdits(T, edits, 'junk')) === frozen && D.mergeEdits(T, edits, null).bars === 24, 'a broadcast that is not a config settles nothing, and the merge still stands on the defaults');

@@ -8288,6 +8288,59 @@ async function main() {
       check('dock: choosing System default pushes it, and the placeholder goes', !!cleared && m3.value === '' && m3.index === 0 && m3.options === m2.options - 1, JSON.stringify(m3));
     }
 
+    // Sprint B (D-08): the Microphone processing toggle, from a click in the dock to the
+    // constraints an overlay page hands getUserMedia. The page's own getUserMedia is kept and
+    // only watched: what it was asked with, and what the track it gave says it is doing.
+    {
+      const RAW = '{"audio":{"echoCancellation":false,"noiseSuppression":false,"autoGainControl":false}}';
+      const ov = await ctxt.newPage();
+      await ov.addInitScript(() => {
+        window.__asked = []; window.__tracks = [];
+        const md = navigator.mediaDevices, real = md.getUserMedia.bind(md);
+        md.getUserMedia = (c) => { window.__asked.push(JSON.stringify(c)); return real(c).then((s) => { const t = s.getAudioTracks()[0]; window.__tracks.push(t && t.getSettings ? t.getSettings() : null); return s; }); };
+      });
+      await ov.goto(overlayUrl, { waitUntil: 'load' });
+      // Listening on the session of request number n (one request per session).
+      const listeningOn = (n) => ov.waitForFunction((k) => window.__asked.length === k && window.__tracks.length === k && window.__timbre.micActive === true && document.getElementById('vizStatus').textContent === 'LISTENING', n, { timeout: 8000 }).then(() => true).catch(() => false);
+      const first = await listeningOn(1);
+      await sleep(400);   // the saved config has come in by now: it says nothing new of the microphone
+      const start = { checked: await dock.isChecked('#micProcessing'), saved: (await saved()).micProcessing, asked: await ov.evaluate(() => window.__asked.slice()) };
+      check('dock: the Microphone section has a Microphone processing toggle, on by default, and an overlay opened with it on asks for its microphone as { audio: true }, once',
+        first && start.checked === true && start.saved !== false && start.asked.join(' ; ') === '{"audio":true}', JSON.stringify(start));
+      await dock.click('#micProcessing');
+      const savedOff = await until(async () => (await saved()).micProcessing === false, 4000);
+      const second = await listeningOn(2);
+      const off = await ov.evaluate(() => ({ asked: window.__asked.slice(), tracks: window.__tracks.slice(), cfg: window.__timbre.config.micProcessing, level: window.__timbre.micBands ? window.__timbre.micBands.level : null }));
+      check('dock: turning Microphone processing off is saved, and the overlay opens its microphone again with echo cancellation, noise suppression and automatic gain off, and is LISTENING',
+        !!savedOff && second && off.cfg === false && off.asked.length === 2 && off.asked[1] === RAW && (await dock.isChecked('#micProcessing')) === false && (await statusOf(dock)).text === 'Streamer.bot connected', JSON.stringify(off));
+      check('dock: the browser then says the three are off on the track it gave (echoCancellation, noiseSuppression, autoGainControl all false)',
+        !!off.tracks[1] && off.tracks[1].echoCancellation === false && off.tracks[1].noiseSuppression === false && off.tracks[1].autoGainControl === false, JSON.stringify(off.tracks));
+      // A slider moved now changes nothing about the microphone: it is not opened again.
+      await arrow(dock, 'g-bounce');
+      await sleep(700);
+      const quiet = await ov.evaluate(() => window.__asked.length);
+      // A page opened while it is off: the default first (the page starts before any config), then raw.
+      const late = await ctxt.newPage();
+      await late.addInitScript(() => {
+        window.__asked = [];
+        const md = navigator.mediaDevices, real = md.getUserMedia.bind(md);
+        md.getUserMedia = (c) => { window.__asked.push(JSON.stringify(c)); return real(c); };
+      });
+      await late.goto(overlayUrl, { waitUntil: 'load' });
+      const lateRaw = await late.waitForFunction((raw) => window.__asked[window.__asked.length - 1] === raw && window.__timbre.micActive === true && document.getElementById('vizStatus').textContent === 'LISTENING', RAW, { timeout: 8000 }).then(() => true).catch(() => false);
+      const lateAsked = await late.evaluate(() => window.__asked.slice());
+      check('dock: with it off, another setting changed opens no microphone again, and an overlay page opened afterwards ends on the raw microphone (the default first, at load, then raw when the saved config comes in)',
+        quiet === 2 && lateRaw && lateAsked.length === 2 && lateAsked[0] === '{"audio":true}' && lateAsked[1] === RAW, JSON.stringify({ quiet, lateAsked }));
+      await late.close();
+      await dock.click('#micProcessing');
+      const savedOn = await until(async () => (await saved()).micProcessing === true, 4000);
+      const third = await listeningOn(3);
+      const on = await ov.evaluate(() => ({ asked: window.__asked.slice(), cfg: window.__timbre.config.micProcessing }));
+      check('dock: turning it back on opens the microphone once more, as { audio: true }, exactly as before the setting',
+        !!savedOn && third && on.cfg === true && on.asked.length === 3 && on.asked[2] === '{"audio":true}' && (await dock.isChecked('#micProcessing')) === true, JSON.stringify(on));
+      await ov.close();
+    }
+
     // TIM-18 (2): Matrix text typed and not applied.
     {
       await dock.selectOption('#activeViz', 'matrix');
