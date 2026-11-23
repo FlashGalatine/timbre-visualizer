@@ -10,6 +10,42 @@ traceability.
 
 ## [Unreleased]
 
+## [1.0.177] — 2026-11-23
+
+Tools only: nothing a streamer installs changes, and there is nothing to re-paste.
+
+### Changed
+
+- **The mock answers like Streamer.bot.** The reply to a `DoAction` is sent when the
+  action is queued, with the request's own arguments and the queue's name; an action that
+  does not exist gets Streamer.bot's error reply; a sync replay goes to every connected
+  page, not only the one that asked; a pushed config is stored as sent after the same
+  two-character check the C# makes. `.svg`, `.woff` and `.woff2` are served as
+  `application/octet-stream`, as Streamer.bot 1.0.7 serves them.
+- **The mock no longer falls over on a bad request**: a path that does not decode, a frame
+  that is not an object, an oversized frame, a connection error. It refuses a WebSocket
+  from a page of another site.
+- `playwright-core` is a pinned dev dependency (1.65.0), so `npm install` is all the
+  render suite needs.
+
+### Added
+
+- **Overlap mode in the mock** (`GET /mock/bleed?on=1` or `MOCK_ARG_BLEED=1`): two requests
+  for `Timbre Push` that arrive together both run with the later one's arguments, which
+  is what Streamer.bot's default queue does. Off by default. Also `/mock/throw`,
+  `/mock/missing` and `/mock/stats`.
+- **Every effect is smoke-tested**: one pass over all 52 on the 1920×1080 page checks that
+  each one starts, throws nothing, draws something and stays inside a time budget, with
+  named checks for four earlier fixes (fireworks, easter eggs, ring bars, matrix).
+- **A guard that keeps the old renderer leak closed**: every WebGL effect must be a scene
+  on the scene kit, and no file but the kit may create a WebGL renderer.
+- **`npm run verify:cs`** (Windows only, not part of `verify`): compiles
+  `actions/timbre-push.cs` with the .NET Framework compiler against a stand-in for `CPH`
+  and runs its accept and reject cases.
+- A check that tries every range in the settings tables at both ends.
+- Both suites stop with one clear line when something already answers on their ports,
+  and stop their own mock however they end.
+
 ## [1.0.175] — 2026-11-23
 
 The first tagged release since 1.0.9. It collects everything that landed on `main` in
@@ -592,6 +628,7 @@ StreamService / ControlPanel toolkit. (`ee5c34a`)
 
 Verified offline: `verify` 28/28, `verify:render` 14/14.
 
-[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.175...main
+[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.177...main
+[1.0.177]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.175...v1.0.177
 [1.0.175]: https://github.com/FlashGalatine/timbre-visualizer/compare/d85cf93...v1.0.175
 [1.0.9]: https://github.com/FlashGalatine/timbre-visualizer/compare/ee5c34a...d85cf93
