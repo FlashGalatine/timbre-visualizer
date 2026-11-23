@@ -120,7 +120,7 @@ its own on the canvas first, and the kit must still start cleanly after it.
 
 ## What the review found
 
-One independent review of the branch at `2203e34`, by a reviewer that ran its own
+One independent review of the branch at `1a8d35e`, by a reviewer that ran its own
 simulations (the real `definition()` under Node with a stand-in for three.js, and a copy of
 the blade's shader). Five findings, each confirmed here by running the reviewer's script
 before anything was changed:

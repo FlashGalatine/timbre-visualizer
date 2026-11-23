@@ -62,7 +62,7 @@ Conditions the spec implies that are most likely to bite, each pinned by a test 
 **Interfaces:**
 - Produces: `TIMBRE.VIZ_AFTERGLOW` (array of six names), `TIMBRE.AFTERGLOW_RANGE = { min: 0, max: 4, step: 0.1, default: 1.6 }`, `config.afterglow` (number), the `core.js` global `cfgAfterglow` (seconds), DOM ids `afterglowGroup` and `afterglow`.
 
-`git show 647a448 d3e2088` shows every place the `placement` setting touched. `afterglow` needs the same places, as a single number instead of a group.
+`git show 3ad4fe5 3390196` shows every place the `placement` setting touched. `afterglow` needs the same places, as a single number instead of a group.
 
 - [ ] **Step 1: Write the failing config tests** in `verify.mjs`, next to the `VIZ_SCENES` and placement checks:
 

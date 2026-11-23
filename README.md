@@ -45,6 +45,7 @@ The overlay will ask for mic permission in a normal browser.
 See **[docs/SETUP.md](docs/SETUP.md)**. Summary: map four HTTP-server folders
 (`timbre-overlay`, `timbre-shared`, `timbre-control`, `timbre-spike`), create one action
 named exactly **`Timbre Push`** with the C# in [actions/timbre-push.cs](actions/timbre-push.cs),
+put that action in a blocking action queue (the setup guide says why),
 then add `http://127.0.0.1:7474/timbre-overlay/mic-visualizers-300x220.html` (or the
 4:3 `mic-visualizers-1440x1080.html` / 16:9 `mic-visualizers-1920x1080.html` pages, which
 scale to whatever size you give the Browser Source — 720×540, 1280×720, 960×540 …) as an

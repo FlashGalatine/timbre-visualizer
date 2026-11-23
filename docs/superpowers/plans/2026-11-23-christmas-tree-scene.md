@@ -72,7 +72,7 @@ condition that never made a difference and was removed. Run again: all caught.
 
 ## What the review found
 
-One independent review of the branch at `d1225dc`, by a reviewer that ran its own
+One independent review of the branch at `37294d6`, by a reviewer that ran its own
 simulations of the arithmetic and of the scene's update under Node. Its findings, and what
 was done:
 
