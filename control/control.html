@@ -78,6 +78,10 @@
       <button id="btnMicRefresh" title="Requests a one-shot mic grant so device labels appear">Refresh</button>
     </div>
     <p class="hint">The overlay captures its own mic; this just tells it which device to use.</p>
+    <div class="toggles" style="margin-top:6px">
+      <label><input type="checkbox" id="micProcessing"> Microphone processing</label>
+    </div>
+    <p class="hint">On: the browser's echo cancellation, noise suppression and automatic gain, as the overlay has always had. Off: the raw microphone, which is truer to the sound but lets room noise through in quiet moments. Changing it re-opens the microphone.</p>
   </section>
 
   <details>
@@ -548,6 +552,18 @@
   });
   $('btnMicRefresh').addEventListener('click', () => listMics(true));
   listMics(false);
+
+  // ── Mic processing toggle ──────────────────────────────────────────────
+  // The browser's echo cancellation, noise suppression and automatic gain: on, or
+  // off for the raw microphone. Wired as the Global toggles are.
+  {
+    const input = $('micProcessing');
+    input.checked = cfg.micProcessing;
+    input.addEventListener('change', () => edit(['micProcessing'], input.checked));
+    const refresh = () => { if (!interacting.has(input.id)) input.checked = cfg.micProcessing; };
+    track(input, refresh);
+    refreshers.push(refresh);
+  }
 
   // ── Inbound: config broadcasts (incl. our own echo + sync-on-connect) ──
   function takeConfig(raw) {

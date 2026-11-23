@@ -23,7 +23,10 @@ control.html ── DoAction "Timbre Push" {config} ──► Streamer.bot (C# c
   them the 32 values 750 Hz apart that effects built earlier were tuned on). Only the
   settings JSON travels, via Streamer.bot.
 - **One config message** (`timbre:config`) carries everything: active effect, global knobs,
-  scene placement, the afterglow length, per-effect knobs, and the mic device to capture.
+  scene placement, the afterglow length, per-effect knobs, the mic device to capture, and
+  whether the browser processes it. **Microphone processing** on (the default) is the browser's
+  echo cancellation, noise suppression and automatic gain; off is the raw microphone, which
+  is truer to the sound but lets room noise through in quiet moments.
 - **Sync-on-connect:** when a page connects it fires `DoAction "Timbre Push"`, and the
   C# action re-broadcasts the saved config — a source added mid-stream paints correctly.
 - All names/defaults/ranges live in one file (`shared/viz-config.js`) used by the overlay,

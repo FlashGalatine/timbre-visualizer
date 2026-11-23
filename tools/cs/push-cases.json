@@ -74,8 +74,9 @@
     { "name": "two keys (TIM-26)", "text": "{\"activeViz\":\"matrix\",\"gain\":150}", "expect": "partial-config" },
     { "name": "braces, brackets and quotes inside a string do not count", "text": "{\"a\":\"}{][\\\"\\\\\"}", "expect": "partial-config" },
     { "name": "a full config one level down (its keys are not top-level keys)", "full": { "before": "{\"config\":", "after": "}" }, "expect": "partial-config" },
-    { "name": "the key names as values, not as keys", "text": "{\"keys\":[\"activeViz\",\"mic\",\"bars\",\"bounce\",\"gain\",\"colorSpeed\",\"colorHue\",\"bgOpacity\",\"effectBgOpacity\",\"idleAnim\",\"showLabels\",\"showChevrons\",\"showDecorations\",\"showBorder\",\"placement\",\"afterglow\",\"perViz\"]}", "expect": "partial-config" },
+    { "name": "the key names as values, not as keys", "text": "{\"keys\":[\"activeViz\",\"mic\",\"micProcessing\",\"bars\",\"bounce\",\"gain\",\"colorSpeed\",\"colorHue\",\"bgOpacity\",\"effectBgOpacity\",\"idleAnim\",\"showLabels\",\"showChevrons\",\"showDecorations\",\"showBorder\",\"placement\",\"afterglow\",\"perViz\"]}", "expect": "partial-config" },
     { "name": "a full config from before placement and afterglow existed (11 November 2026)", "full": { "drop": ["placement", "afterglow"] }, "expect": "partial-config" },
+    { "name": "a full config from a dock page of before the Browser processing setting (no micProcessing)", "full": { "drop": ["micProcessing"] }, "expect": "partial-config" },
     { "name": "a full config with one key name written with an escape (keys are compared as written)", "full": { "swap": ["\"activeViz\":", "\"activ\\u0065Viz\":"] }, "expect": "partial-config" },
 
     { "name": "NOT CAUGHT: a full config with a misspelt literal", "full": { "swap": ["\"idleAnim\":true", "\"idleAnim\":tru"] }, "expect": "accept", "gap": true },
@@ -85,6 +86,7 @@
     { "name": "saved: a full config, as today's dock sends it", "where": "cache", "full": {}, "expect": "replay" },
     { "name": "saved: a config from before some per-effect settings existed", "where": "cache", "full": { "drop": ["perViz.television", "perViz.school-of-fish", "perViz.dna.helixFreq", "perViz.matrix.pool"] }, "expect": "replay" },
     { "name": "saved: a config from before placement and afterglow existed (a saved config is never asked for every key)", "where": "cache", "full": { "drop": ["placement", "afterglow"] }, "expect": "replay" },
+    { "name": "saved: a config from before the Browser processing setting (no micProcessing; each page reads it as on)", "where": "cache", "full": { "drop": ["micProcessing"] }, "expect": "replay" },
     { "name": "saved: a partial config an older action stored", "where": "cache", "text": "{\"activeViz\":\"matrix\",\"gain\":150}", "expect": "replay" },
     { "name": "saved: a config with spaces round it (sent trimmed, left as it is)", "where": "cache", "full": { "before": "  ", "after": "\n" }, "expect": "replay" },
     { "name": "saved: a config over 64 KB (the cap is for what comes in, not for what is saved)", "where": "cache", "full": { "size": 70000 }, "expect": "replay" },

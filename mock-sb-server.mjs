@@ -356,8 +356,8 @@ function sendToSubscribers(dataJson) {
 // (verify-cs.mjs for the C#, verify.mjs for this), and verify.mjs fails when they differ.
 const MAX_CONFIG_CHARS = 64 * 1024;
 const REQUIRED_KEYS = [
-  'activeViz', 'mic', 'bars', 'bounce', 'gain', 'colorSpeed', 'colorHue', 'bgOpacity',
-  'effectBgOpacity', 'idleAnim', 'showLabels', 'showChevrons', 'showDecorations',
+  'activeViz', 'mic', 'micProcessing', 'bars', 'bounce', 'gain', 'colorSpeed', 'colorHue',
+  'bgOpacity', 'effectBgOpacity', 'idleAnim', 'showLabels', 'showChevrons', 'showDecorations',
   'showBorder', 'placement', 'afterglow', 'perViz',
 ];
 // The fixed text the C# gives each code.

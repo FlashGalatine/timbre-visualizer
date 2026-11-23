@@ -330,7 +330,12 @@ function applyConfig(raw) {
     else perViz[name] = knobs;
   }
 
-  if (window.timbreCapture) window.timbreCapture.setDevice(cfg.mic.deviceId, cfg.mic.label);
+  if (window.timbreCapture) {
+    // OBS can serve this file fresh beside a cached audio-capture.js from before the setting,
+    // which has no setProcessing: the rest of the config is applied all the same.
+    if (typeof window.timbreCapture.setProcessing === 'function') window.timbreCapture.setProcessing(cfg.micProcessing);
+    window.timbreCapture.setDevice(cfg.mic.deviceId, cfg.mic.label);
+  }
   setActiveViz(cfg.activeViz);
   if (currentViz && typeof currentViz.onConfig === 'function') currentViz.onConfig(cfg);
 }

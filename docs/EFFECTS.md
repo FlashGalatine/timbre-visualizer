@@ -54,6 +54,20 @@ Script-scope globals available to factories (from core.js):
 device picked in the dock) and looks at it about 30 times a second. Everything it publishes
 is before Gain, but for the beat.
 
+Asked for that way, the browser runs its own echo cancellation, noise suppression and
+automatic gain on the microphone before the overlay sees it. That is the dock's **Browser
+processing** toggle (the top-level setting `micProcessing`), on by default. With it off the
+capture asks for the same device with `echoCancellation`, `noiseSuppression` and
+`autoGainControl` all `false`: the raw microphone, which is truer to the sound (quiet sounds
+are not gated, loud and soft are not evened out) but lets room noise through in quiet
+moments, so an effect that sat still in silence may stir. A device that refuses those
+constraints (`OverconstrainedError`) is asked for once more without them, and the console
+says so; any other failure is `MIC DENIED` and a retry, as before. Changing the setting
+closes the session and opens the microphone again (`timbreCapture.setProcessing(on)`, under
+the same request counter as a change of device), so `micBands`, its beat count included,
+starts afresh. Nothing an effect reads changes shape. An effect tuned with the processing
+on reads a little differently with it off: Gain is where the streamer evens that out.
+
 - `frequencies` is 32 **log bands**, each the same musical width (about a quarter of an
   octave): band `k` runs from `60 · 200^(k/32)` Hz to `60 · 200^((k+1)/32)` Hz. The edges,
   in Hz: 60, 71, 84, 99, 116, 137, 162, 191, 226, 266, 314, 371, 438, 516, 609, 719, 849,
@@ -1695,13 +1709,16 @@ The broadcast every page receives is
 `{ "type": "timbre:config", "config": { …full config… } }` inside SB's `General.Custom`
 envelope. The full config shape is exactly `TIMBRE.defaultConfig()` in
 `shared/viz-config.js` — that file is the schema. `afterglow` (seconds, 0 to 4, default
-1.6) is the top-level key for the bar and wave effects' afterglow.
+1.6) is the top-level key for the bar and wave effects' afterglow. `micProcessing` (`true`
+or `false`, default `true`) is the top-level key for the browser's own handling of the
+microphone: `true` leaves its echo cancellation, noise suppression and automatic gain on,
+`false` asks for the raw microphone. A value that is neither is ignored.
 
 **A push must be a full config.** `config` is the text of ONE JSON object, at most 64 KB
 (65536 UTF-16 units; a full config is about 3.4 KB), that has every top-level key of
 `TIMBRE.defaultConfig()`:
 
-`activeViz`, `mic`, `bars`, `bounce`, `gain`, `colorSpeed`, `colorHue`, `bgOpacity`, `effectBgOpacity`, `idleAnim`, `showLabels`, `showChevrons`, `showDecorations`, `showBorder`, `placement`, `afterglow`, `perViz`
+`activeViz`, `mic`, `micProcessing`, `bars`, `bounce`, `gain`, `colorSpeed`, `colorHue`, `bgOpacity`, `effectBgOpacity`, `idleAnim`, `showLabels`, `showChevrons`, `showDecorations`, `showBorder`, `placement`, `afterglow`, `perViz`
 
 A partial config (`{ "gain": 150 }`) is not merged into the saved one. It is refused:
 nothing is saved, no `timbre:config` is sent, the saved config stays as it was, and the

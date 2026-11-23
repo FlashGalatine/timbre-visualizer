@@ -150,6 +150,12 @@
     showBorder: true,      // show the accent border + glow halo around the box
   };
 
+  // The microphone's own toggle (it is in the dock's Microphone section, not with the Global
+  // toggles above). On: the browser's echo cancellation, noise suppression and automatic gain,
+  // which is what the capture has always had. Off: the raw microphone, truer to the sound,
+  // which lets room noise through in quiet moments.
+  const MIC_PROCESSING_DEFAULT = true;
+
   const MAX_STRING = 4096;
 
   function clamp(v, lo, hi) {
@@ -195,7 +201,7 @@
 
   // A complete config object with every default.
   function defaultConfig() {
-    const cfg = { activeViz: 'visualizer', mic: { deviceId: '', label: '' } };
+    const cfg = { activeViz: 'visualizer', mic: { deviceId: '', label: '' }, micProcessing: MIC_PROCESSING_DEFAULT };
     for (const [k, r] of Object.entries(TOP_RANGES)) cfg[k] = r.default;
     for (const [k, v] of Object.entries(TOP_BOOLS)) cfg[k] = v;
     cfg.placement = {};
@@ -226,6 +232,9 @@
       if (typeof partial.mic.deviceId === 'string') cfg.mic.deviceId = partial.mic.deviceId.slice(0, 256);
       if (typeof partial.mic.label === 'string') cfg.mic.label = partial.mic.label.slice(0, 256);
     }
+    // Only true or false: anything else is ignored, not read as one of them, because the
+    // value decides how the microphone is opened.
+    if (typeof partial.micProcessing === 'boolean') cfg.micProcessing = partial.micProcessing;
     if (partial.placement && typeof partial.placement === 'object') {
       for (const [k, v] of Object.entries(partial.placement)) {
         const r = own(PLACEMENT_RANGES, k) ? PLACEMENT_RANGES[k] : null;
