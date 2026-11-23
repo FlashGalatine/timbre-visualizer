@@ -18,7 +18,7 @@ traceability.
   again) and `cameraDrift` (0 to 100, default 50) for the Christmas Tree effect, which also
   has the shared Scene placement sliders now. `lightDensity` stays (48 to 128 lights on the
   string, 96 at its default of 60) and so does `starGlow` (how far the voice swings the
-  star: not at all at 0, twice as far at 100), each with any saved value. What the new tree
+  star: not at all at 0, further at 100), each with any saved value. What the new tree
   is made of is in `overlay/christmas-tree.js` (`TimbreTree`), loaded by all three overlay
   pages and by `verify` under Node, and documented in `docs/EFFECTS.md` ("The Christmas
   tree").

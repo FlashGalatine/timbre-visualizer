@@ -42,7 +42,7 @@ rays, and the light that lands on the kit's unseen ground.
 - **A thump shakes the tree.** A hard peak of the mic (the shatter machine, as DNA and the
   rest hear it) rocks the tree on its trunk, sets every bauble swinging, makes the lights
   flicker while it rocks, and knocks the snow off every bough: it comes away as clumps that
-  fall, the top tiers first. A peak while the tree is bare shakes it again, less. After a
+  fall, and the snow lying on each tier goes, the top tiers first. A peak while the tree is bare shakes it again, less; so does a peak while the snow is settling, which throws off what has settled (a clump still in the air is left where it is). After a
   calm wait the snow settles on the boughs again, slowly.
 - **Snow falls**, a little more when you speak and after beats.
 
@@ -63,7 +63,7 @@ their own papers and ribbons.
 | Setting | Range, default | What it does |
 | --- | --- | --- |
 | `lightDensity` | 0 to 100, 60 | How many lights are on the string: 48 to 128 (96 at 60). Kept, with any saved value. |
-| `starGlow` | 0 to 100, 50 | How far the voice swings the star, its rays and the light it throws: not at all at 0 (a plain gold star with a faint glow), twice as far at 100. Kept. |
+| `starGlow` | 0 to 100, 50 | How far the voice swings the star, its rays and the light it throws: not at all at 0 (a plain gold star with a faint glow), further at 100 (the star shows at most half as much again as a full voice does at 50). Kept. |
 | `snowfall` | 0 to 100, 50 | How much snow falls: none at 0, twice as much at 100. New; it takes the place of `snowSpeed`, which is retired (a saved value is dropped). |
 | `shakeSensitivity` | 0 to 100, 50 | How hard a peak must be to shake the tree, by DNA's rule; never at 0. |
 | `resettleSeconds` | 0 to 10, 3 | The calm wait before the snow settles on the boughs again. |
@@ -99,7 +99,8 @@ factory file is the kit's one line.
 
 - Clumps of snow fall straight through the boughs below them; in the picture they are lost
   among the boughs and reappear under them.
-- The lowest boughs reach a little past the drift at the front, so a clump can fall beside
-  the drift and end at the unseen ground.
+- The lowest boughs reach a little past the drift at the front. (Clumps keep over the drift.)
+- The top tier's baubles brush the boughs below them when they swing inward.
+- Snow that a thump set going is all gone before it settles again, even at Resettle seconds 0.
 - With a palette colour near green, green lights and baubles hang on a green tree.
 - The star's shadows are drawn again every frame, like every scene's.

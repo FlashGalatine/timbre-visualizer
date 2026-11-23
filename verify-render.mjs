@@ -5098,9 +5098,9 @@ async function main() {
         setActiveViz('visualizer'); setActiveViz(id);
         const K = TimbreTree, follow = TimbreScene.follow, T6 = K.TIERS.length;
         const knob = (name, otherwise = 50) => (typeof perViz[id][name] === 'number' ? perViz[id][name] : otherwise);
-        const m = { ok: true, bands: new Float32Array(8), tr: K.createTree(K.SEED, K.countFor(knob('lightDensity', 60))), clock: 0, thumps: 0, jostles: 0, settles: 0, random: K.rng(7),
+        const m = { ok: true, bands: new Float32Array(8), tr: K.createTree(K.SEED, K.countFor(knob('lightDensity', 60)), K.snowFor(knob('snowfall'))), clock: 0, thumps: 0, jostles: 0, settles: 0, random: K.rng(7),
           sent: { bright: new Float32Array(K.LIGHTS_MAX), bulb: new Float32Array(K.LIGHTS_MAX * 3), halo: new Float32Array(K.LIGHTS_MAX * 3), haloSize: new Float32Array(K.LIGHTS_MAX), ball: new Float32Array(K.BAUBLES * 3), ballCol: new Float32Array(K.BAUBLES * 3),
-            ballHow: new Float32Array(K.BAUBLES * 2), cap: new Float32Array(T6 * 2), flake: new Float32Array(K.FLAKES * 4), star: new Float32Array(8), string: new Float32Array(4) } };
+            ballHow: new Float32Array(K.BAUBLES * 2), cap: new Float32Array(T6 * 2), flake: new Float32Array(K.FLAKES * 4), star: new Float32Array(8), string: new Float32Array(4), lean: new Float32Array(2) } };
         const gl = document.getElementById('vizCanvas3D').getContext('webgl2'), f = new Uint8Array(32), out = [];
         let now = 100000 + 1000 / 120, last = null;
         for (const st of steps) {
@@ -5186,7 +5186,7 @@ async function main() {
           if (tr.n !== n) model.ok = false;
           else {
             for (const [mine, theirs, len] of [[m.sent.bright, state.sentBright, n], [m.sent.bulb, state.sentBulb, n * 3], [m.sent.halo, state.sentHalo, n * 3], [m.sent.haloSize, state.sentHaloSize, n], [m.sent.ball, state.sentBall, K.BAUBLES * 3],
-              [m.sent.ballCol, state.sentBallCol, K.BAUBLES * 3], [m.sent.ballHow, state.sentBallHow, K.BAUBLES * 2], [m.sent.cap, state.sentCap, T6 * 2], [m.sent.flake, state.sentFlake, K.FLAKES * 4], [m.sent.star, state.sentStar, 8], [m.sent.string, state.sentString, 4], [tr.string.at, at, n * 3]])
+              [m.sent.ballCol, state.sentBallCol, K.BAUBLES * 3], [m.sent.ballHow, state.sentBallHow, K.BAUBLES * 2], [m.sent.cap, state.sentCap, T6 * 2], [m.sent.flake, state.sentFlake, K.FLAKES * 4], [m.sent.star, state.sentStar, 8], [m.sent.string, state.sentString, 4], [m.sent.lean, state.sentLean, 2], [tr.string.at, at, n * 3]])
               for (let i = 0; i < len; i++) model.gapSent = Math.max(model.gapSent, Math.abs(mine[i] - theirs[i]));
             for (let i = 0; i < T6; i++) model.gapState = Math.max(model.gapState, Math.abs(tr.snow[i] - state.snowOf[i]));
             for (let i = 0; i < 4; i++) model.gapState = Math.max(model.gapState, Math.abs(tr.lean[i] - state.leanOf[i]));
@@ -5309,9 +5309,10 @@ async function main() {
       && glows[1].state.lights3.star > 35 && glows[2].state.lights3.star > glows[1].state.lights3.star + 8 && glows[2].state.starLook.rays > glows[1].state.starLook.rays + 0.3 && glows[1].starGlow > 2 * glows[0].starGlow && glows[2].starGlow > 1.1 * glows[1].starGlow
       && glows.every(remade) && glows.every((r) => r.edge === 0),
       JSON.stringify({ gold: glows.map((r) => r.state.starLook.gold), light: glows.map((r) => r.state.lights3.star), rays: glows.map((r) => r.state.starLook.rays), drawn: glows.map((r) => r.starGlow) }));
+    const [dry] = await treeRun([Object.assign({ secs: 0.1 }, hush)], { knobs: { cameraDrift: 0, snowfall: 0 }, colorSpeed: 0, gain: 1 });
     const snows = [];
     for (const sn of [0, 50, 100]) snows.push((await treeRun([Object.assign({ secs: 14 }, hush)], { knobs: { cameraDrift: 0, snowfall: sn }, colorSpeed: 0, gain: 1 }))[0]);
-    check('christmas tree: Snowfall is how much snow falls: none at 0, 55 flakes in silence at 50, twice as many at 100', snows[0].state.falling === 0 && snows[1].state.falling === 55 && snows[2].state.falling === 110 && snows[2].solid > snows[0].solid + 150 && snows.every(remade) && snows.every((r) => r.edge === 0),
+    check('christmas tree: Snowfall is how much snow falls: none at 0, from the first frame; 55 flakes in silence at 50, twice as many at 100', dry.state.falling === 0 && dry.fallingMost === 0 && remade(dry) && snows[0].state.falling === 0 && snows[1].state.falling === 55 && snows[2].state.falling === 110 && snows[2].solid > snows[0].solid + 150 && snows.every(remade) && snows.every((r) => r.edge === 0),
       JSON.stringify({ falling: snows.map((r) => r.state.falling), solid: snows.map((r) => r.solid) }));
     const drift = [];
     for (const d of [0, 50, 100]) drift.push((await treeRun([Object.assign({ secs: 2 }, hush)], { knobs: { cameraDrift: d }, colorSpeed: 0, gain: 1 }))[0]);
@@ -5335,9 +5336,9 @@ async function main() {
     check('christmas tree: the mic going off while the tree rocks and clumps are in the air stops them where they are, and no time passes for the thump; they go on when the mic is back', offMid[2].state.clumps > 40 && offMid[2].state.lean > 0.005 && offMid[3].stepsTaken === 0 && offMid[4].stepsTaken === 0
       && offMid[4].state.clumps === offMid[2].state.clumps && offMid[4].state.lean === offMid[2].state.lean && same(offMid[4]) && offMid[4].state.phase === 'pieces' && offMid[5].state.clumps === 0 && offMid[5].state.phase === 'pieces' && offMid.every(remade),
       JSON.stringify({ clumps: offMid.map((r) => r.state.clumps), lean: offMid.map((r) => +r.state.lean.toFixed(4)), steps: offMid.map((r) => r.stepsTaken), phase: offMid.map((r) => r.state.phase), diff: offMid[4].diff, model: offMid.map((r) => r.model.ok) }));
-    const [at60] = await treeRun([Object.assign({ secs: 2 }, talk)], still), [at30] = await treeRun([Object.assign({ secs: 2 }, talk)], Object.assign({ fps: 30 }, still)), [early] = await treeRun([Object.assign({ secs: 1, wobble: 0.2 }, talk)], still);
-    check('christmas tree: at 30 frames a second it takes two steps a frame and is the same tree as at 60; frames a fifth early and late are still one step each', at60.stepsTaken === 120 && at30.stepsTaken === 120 && at60.stepsMost === 1 && at30.stepsMost === 2 && at30.stepsLeast === 2
-      && early.stepsMost === 1 && early.stepsLeast === 1 && at30.state.time === at60.state.time && JSON.stringify(at30.state.snowOf) === JSON.stringify(at60.state.snowOf) && at30.state.falling === at60.state.falling && remade(at60) && remade(at30) && remade(early),
+    const [at60] = await treeRun([Object.assign({ secs: 2 }, talk)], still), [at30] = await treeRun([Object.assign({ secs: 2 }, talk)], Object.assign({ fps: 30 }, still)), [early] = await treeRun([Object.assign({ secs: 1, wobble: 0.2 }, talk)], still), [at50] = await treeRun([Object.assign({ secs: 0.5 }, hush), thump, Object.assign({ secs: 1 }, talk)], Object.assign({ fps: 50 }, calm3)), [, , at144] = await treeRun([Object.assign({ secs: 0.5 }, hush), thump, Object.assign({ secs: 1 }, talk)], Object.assign({ fps: 144 }, calm3));
+    check('christmas tree: at 30 frames a second it takes two steps a frame and is the same tree as at 60; frames a fifth early and late are still one step each; at 50 and at 144 frames a second, where frames and steps do not keep time, what is drawn is still the arithmetic, drawn as far on as the tree is ahead of its steps', at60.stepsTaken === 120 && at30.stepsTaken === 120 && at60.stepsMost === 1 && at30.stepsMost === 2 && at30.stepsLeast === 2
+      && early.stepsMost === 1 && early.stepsLeast === 1 && at30.state.time === at60.state.time && JSON.stringify(at30.state.snowOf) === JSON.stringify(at60.state.snowOf) && at30.state.falling === at60.state.falling && remade(at60) && remade(at30) && remade(early) && remade(at50) && remade(at144) && at144.stepsLeast === 0 && at144.stepsMost === 1 && at144.state.left !== 0 && at144.state.clumps > 0 && at144.edge === 0,
       JSON.stringify({ steps: [at60.stepsTaken, at30.stepsTaken, early.stepsTaken], most: [at60.stepsMost, at30.stepsMost, early.stepsMost], time: [at60.state.time, at30.state.time], model: [at60.model, at30.model, early.model] }));
     const [, longFrame] = await treeRun([Object.assign({ secs: 0.5 }, hush), { level: 0, secs: 0.5, peak: 1 }], Object.assign({ fps: 2 }, calm3));
     check('christmas tree: a frame that takes half a second is six steps and no more, and the tree is still in the picture', longFrame.stepsMost === 6 && longFrame.stepsTaken === 6 && longFrame.edge === 0 && longFrame.state.left === 0 && longFrame.state.thumps === 1,

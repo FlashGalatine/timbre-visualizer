@@ -1416,7 +1416,8 @@ follows the rose closely. It offers:
   is the drift's height, and `snowAt(x, z)` is where falling snow lands: on the drift, or
   beyond it a little above the unseen ground (`FLOOR`), so that no flake is drawn at the
   bottom edge of the picture.
-- **The tree's state.** `createTree(seed, n)` makes a tree with `n` lights: what the star
+- **The tree's state.** `createTree(seed, n, snow)` makes a tree with `n` lights and Snowfall's share of the usual
+  snow already in the air: what the star
   heard at each of its last 96 steps (`hist`), the star's own level, the lean of the trunk
   and its speed, sideways and toward the viewer (`lean`), how much snow lies on each tier
   (`snow`, 0 to 1) and whether it may lie (`lying`), what each tier hears (`level`), each
@@ -1427,7 +1428,8 @@ follows the rose closely. It offers:
 - **The thump.** `shake(tr, strength, random)` pushes the trunk, sets every bauble swinging,
   and makes each tier with snow on it throw clumps (eighteen at most, as many as it has
   snow), outward and down; the snow itself goes a moment later, the top tiers first.
-  `resettle(tr)` lets the snow settle again. The scene calls them when the shatter machine
+  A clump still in the air from the last shake is left where it is. `resettle(tr)` lets the
+  snow settle again; snow that a shake set going is all gone first, however soon that is. The scene calls them when the shatter machine
   says so: `shake` at 1 for a thump and at `JOSTLE` (0.6) for a peak while the tree is bare,
   `resettle` after the calm wait, and `lay` when the page had stopped drawing.
 - **The step.** `stepTree(tr, how)` is one step of 1/60 s: the star follows the voice (up
@@ -1447,6 +1449,9 @@ follows the rose closely. It offers:
   the sides and the top of its air and as it lands); the star's own light, its glow, its
   rays and the light it throws; and the string's light. `look` gives the string's five
   colours and the baubles' seven (`pal`, `balls`), a beat, and Star glow's share.
+- **Between steps.** What moves (the trunk's lean, the baubles, the flakes and the clumps) is
+  drawn as far on as the tree is ahead of or behind its steps (`tr.left`), so that it moves
+  evenly at 50 or 144 frames a second as at 60.
 - **The camera.** `swayFor` and `orbitAt` as the rose has them.
 
 Worth knowing:

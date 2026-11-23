@@ -42,7 +42,7 @@
   // The drift the tree stands on, and the presents on it.
   const DRIFT = [2.4, 0.2, 0.95], DRIFT_Z = 0, SINK = 0.03;   // its half width, its height and its half depth; how far in front of the tree its middle is; how far things stand sunk in it
   //                 x      z     w     h     d    turn  paper     ribbon
-  const PRESENTS = [[-0.98, 0.56, 0.44, 0.30, 0.36, 0.30, 0xc8232c, 0xf4f1e6], [0.84, 0.60, 0.36, 0.25, 0.32, -0.40, 0x2a5cc0, 0xe9c46a],
+  const PRESENTS = [[-0.68, 0.62, 0.44, 0.30, 0.36, 0.30, 0xc8232c, 0xf4f1e6], [0.84, 0.60, 0.36, 0.25, 0.32, -0.40, 0x2a5cc0, 0xe9c46a],
     [1.42, 0.34, 0.30, 0.44, 0.30, 0.20, 0xf2efe6, 0xc8232c], [-1.58, 0.30, 0.32, 0.22, 0.42, -0.25, 0xd9a441, 0x8a1c2b], [0.22, 0.72, 0.24, 0.19, 0.24, 0.60, 0x7a3fa0, 0xdfe3ea]];
 
   // The thump.
@@ -241,18 +241,18 @@
   //   swing, swingV, glow, sign: each bauble's swing, its speed, its inner light, and which way a rise sends it
   //   twinkle: each light's own rate, its place in time, and its share of a beat
   //   flake: every flake and clump (x, y, z, size)   flakeV: a flake's fall speed and its place in the sway; a clump's velocity   on: whether it is in the air
-  function createTree(seed, n) {
+  function createTree(seed, n, snow) {
     const T = TIERS.length;
     const tr = {
       seed, n: 0, string: null, spots: baubleSpots(),
       hist: new Float32Array(HISTORY), histAt: 0, star: 0, time: 0, left: 0, flash: 0,
-      lean: new Float32Array(4), snow: new Float32Array(T), wait: new Float32Array(T), lying: 1, level: new Float32Array(T), was: new Float32Array(T),
+      lean: new Float32Array(4), snow: new Float32Array(T), wait: new Float32Array(T), going: new Uint8Array(T), lying: 1, level: new Float32Array(T), was: new Float32Array(T),
       swing: new Float32Array(BAUBLES), swingV: new Float32Array(BAUBLES), glow: new Float32Array(BAUBLES), sign: new Float32Array(BAUBLES),
       twinkle: new Float32Array(LIGHTS_MAX * 3),
       flake: new Float32Array(FLAKES * 4), flakeV: new Float32Array(FLAKES * 3), on: new Uint8Array(FLAKES),
       random: null, falling: 0, clumps: 0,
     };
-    lay(tr, n);
+    lay(tr, n, snow);
     return tr;
   }
   // The string laid again for n lights; nothing else is touched.
@@ -267,11 +267,11 @@
     tr.on[i] = 1;
   }
   // The tree laid again whole, as it was made: the snow on every tier, nothing moving, the usual snow already in the air.
-  function lay(tr, n) {
-    const r = rng(tr.seed);
+  function lay(tr, n, snow) {
+    const r = rng(tr.seed), first = Math.min(FALLING_MAX, Math.round(SNOWING[0] * (typeof snow === 'number' ? snow : 1)));
     restring(tr, n);
     tr.hist.fill(0); tr.histAt = 0; tr.star = 0; tr.time = 0; tr.left = 0; tr.flash = 0;
-    tr.lean.fill(0); tr.snow.fill(1); tr.wait.fill(0); tr.lying = 1; tr.level.fill(0); tr.was.fill(0);
+    tr.lean.fill(0); tr.snow.fill(1); tr.wait.fill(0); tr.going.fill(0); tr.lying = 1; tr.level.fill(0); tr.was.fill(0);
     tr.swing.fill(0); tr.swingV.fill(0); tr.glow.fill(0);
     for (let b = 0; b < BAUBLES; b++) tr.sign[b] = r() < 0.5 ? -1 : 1;
     for (let j = 0; j < LIGHTS_MAX; j++) { tr.twinkle[j * 3] = TWINKLE_RATE[0] + TWINKLE_RATE[1] * r(); tr.twinkle[j * 3 + 1] = 2 * Math.PI * r(); tr.twinkle[j * 3 + 2] = r(); }
@@ -279,8 +279,8 @@
     for (let i = 0; i < FALLING_MAX; i++) { tr.flake[i * 4 + 3] = FLAKE[0] + FLAKE[1] * r(); tr.flakeV[i * 3] = FLAKE_FALL[0] + FLAKE_FALL[1] * r(); tr.flakeV[i * 3 + 1] = 2 * Math.PI * r(); }
     tr.random = rng(tr.seed + 1);
     // The usual snow is in the air already, at every height.
-    for (let i = 0; i < SNOWING[0]; i++) { start(tr, i); tr.flake[i * 4 + 1] = 0.3 + (SKY[1] - 0.3) * tr.random(); }
-    tr.falling = SNOWING[0]; tr.clumps = 0;
+    for (let i = 0; i < first; i++) { start(tr, i); tr.flake[i * 4 + 1] = 0.3 + (SKY[1] - 0.3) * tr.random(); }
+    tr.falling = first; tr.clumps = 0;
   }
   // What the star heard `ago` steps ago (between two steps too); the furthest back it can say is the oldest it remembers.
   function heard(tr, ago) {
@@ -306,12 +306,17 @@
       if (tr.snow[i] < SNOW_LEAST) continue;
       const R = TIERS[i][0], h = TIERS[i][1], base = TIERS[i][2], count = Math.round(CLUMPS_EACH * tr.snow[i]);
       tr.wait[i] = SNOW_WAIT * (TIERS.length - 1 - i);
-      for (let k = 0; k < count; k++) {
-        const c = FALLING_MAX + i * CLUMPS_EACH + k, q = c * 4, phi = 2 * Math.PI * random(), t = CLUMP_AT[0] + CLUMP_AT[1] * random(), out = CLUMP_OUT[0] + CLUMP_OUT[1] * random();
+      tr.going[i] = 1;
+      for (let k = 0, thrown = 0; k < CLUMPS_EACH && thrown < count; k++) {
+        const c = FALLING_MAX + i * CLUMPS_EACH + k;
+        if (tr.on[c]) continue;   // one still in the air from the last shake is left where it is
+        thrown++;
+        const q = c * 4, phi = 2 * Math.PI * random(), t = CLUMP_AT[0] + CLUMP_AT[1] * random(), out = CLUMP_OUT[0] + CLUMP_OUT[1] * random();
         tr.flake[q] = R * t * Math.cos(phi); tr.flake[q + 1] = FOOT + base + h * (1 - t - DROOP * t * t) + CLUMP_UP; tr.flake[q + 2] = R * t * Math.sin(phi);
         tr.flake[q + 3] = CLUMP[0] + CLUMP[1] * random();
         tr.flakeV[c * 3] = out * Math.cos(phi); tr.flakeV[c * 3 + 1] = -CLUMP_DOWN * random(); tr.flakeV[c * 3 + 2] = out * Math.sin(phi);
         tr.on[c] = 1;
+        keepOver(tr, c);
       }
     }
     tr.lying = 0;
@@ -343,9 +348,12 @@
     for (let i = 0; i < T; i++) {
       tr.wait[i] -= STEP;
       if (tr.wait[i] <= 0) {
+        // Snow that a shake set going goes on going until it is gone, whatever is said meanwhile; only then may it settle.
+        const to = tr.going[i] ? 0 : tr.lying;
         let a = tr.snow[i];
-        a += (tr.lying - a) * (1 - Math.exp(-(tr.lying ? SNOW_RATE[1] : SNOW_RATE[0]) * STEP));
-        tr.snow[i] = Math.abs(a - tr.lying) < 1e-3 ? tr.lying : a;
+        a += (to - a) * (1 - Math.exp(-(to ? SNOW_RATE[1] : SNOW_RATE[0]) * STEP));
+        tr.snow[i] = Math.abs(a - to) < 1e-3 ? to : a;
+        if (tr.snow[i] === 0) tr.going[i] = 0;
       }
       tr.was[i] = tr.level[i]; tr.level[i] = levelOf(how.bands, i);
     }
@@ -409,9 +417,12 @@
   //   flake: every flake and clump (x, y, z, size as drawn)
   //   star: its own light, its glow's size and strength, its rays' size and strength, how far it and its rays are turned, and the light it throws
   //   string: the string's light (its colour, and how strong)
+  //   lean: how far the trunk leans, sideways and toward the viewer
+  // What moves (the lean, the baubles, the flakes and the clumps) is drawn as far on as the tree is ahead of or behind its steps (`left`).
   // `look`: pal (the string's five colours, three numbers each), balls (the baubles' seven), kick (a beat), glow (Star glow's share).
   function dress(out, tr, look) {
-    const n = tr.n, flick = Math.min(1, FLICKER[1] * Math.hypot(tr.lean[0], tr.lean[2]));
+    const n = tr.n, left = tr.left, flick = Math.min(1, FLICKER[1] * Math.hypot(tr.lean[0], tr.lean[2]));
+    out.lean[0] = tr.lean[0] + tr.lean[1] * left; out.lean[1] = tr.lean[2] + tr.lean[3] * left;
     let mr = 0, mg = 0, mb = 0, mean = 0;
     for (let j = 0; j < n; j++) {
       const w = j * 3, rate = tr.twinkle[w], place = tr.twinkle[w + 1], k = (j % HUES[0]) * 3, cr = look.pal[k], cg = look.pal[k + 1], cb = look.pal[k + 2];
@@ -430,7 +441,7 @@
 
     const sp = tr.spots;
     for (let b = 0; b < BAUBLES; b++) {
-      const i = sp.tier[b], phi = sp.phi[b], len = HANG + sp.r[b], a = tr.swing[b], r = rimR(i, phi) * TIP_IN + len * Math.sin(a), q = b * 3, k = sp.hue[b] * 3;
+      const i = sp.tier[b], phi = sp.phi[b], len = HANG + sp.r[b], a = tr.swing[b] + tr.swingV[b] * left, r = rimR(i, phi) * TIP_IN + len * Math.sin(a), q = b * 3, k = sp.hue[b] * 3;
       out.ball[q] = r * Math.cos(phi); out.ball[q + 1] = rimY(i) + TIP_UP - len * Math.cos(a); out.ball[q + 2] = r * Math.sin(phi);
       out.ballCol[q] = look.balls[k]; out.ballCol[q + 1] = look.balls[k + 1]; out.ballCol[q + 2] = look.balls[k + 2];
       out.ballHow[b * 2] = sp.r[b]; out.ballHow[b * 2 + 1] = BALL_GLOW[0] + BALL_GLOW[1] * tr.glow[b] + BALL_GLOW[2] * tr.flash;
@@ -438,7 +449,8 @@
     for (let i = 0; i < TIERS.length; i++) { out.cap[i * 2] = TIERS[i][2] + TIERS[i][1] * (1 - tr.snow[i]); out.cap[i * 2 + 1] = tr.snow[i]; }
 
     for (let i = 0; i < FLAKES; i++) {
-      const q = i * 4, x = tr.flake[q], y = tr.flake[q + 1], z = tr.flake[q + 2];
+      const q = i * 4, w = i * 3, fall = i < FALLING_MAX;
+      const x = tr.flake[q] + (fall ? 0 : tr.flakeV[w] * left), y = tr.flake[q + 1] + (fall ? -tr.flakeV[w] : tr.flakeV[w + 1]) * left, z = tr.flake[q + 2] + (fall ? 0 : tr.flakeV[w + 2] * left);
       let size = 0;
       if (tr.on[i]) {
         if (i < FALLING_MAX) size = tr.flake[q + 3] * clamp((y - snowAt(x, z)) * LAND[1], 0, 1) * (1 - smooth(SIDE[0], SIDE[1], Math.abs(x))) * (1 - smooth(ROOF[1], ROOF[0], y));
@@ -567,7 +579,7 @@
     const sent = {
       bright: new Float32Array(LIGHTS_MAX), bulb: new Float32Array(LIGHTS_MAX * 3), halo: new Float32Array(LIGHTS_MAX * 3), haloSize: new Float32Array(LIGHTS_MAX),
       ball: new Float32Array(BAUBLES * 3), ballCol: new Float32Array(BAUBLES * 3), ballHow: new Float32Array(BAUBLES * 2), cap: new Float32Array(T * 2), flake: new Float32Array(FLAKES * 4),
-      star: new Float32Array(8), string: new Float32Array(4),
+      star: new Float32Array(8), string: new Float32Array(4), lean: new Float32Array(2),
     };
     const lightAt = new Float32Array(LIGHTS_MAX * 3);
     // The shatter machine counts its own pieces; these stand in for the snow, which falls in 3D here.
@@ -575,7 +587,7 @@
     const how = { flame: 0, kick: 0, burst: 0, bands, snow: 1 };
     const look = { pal: new Float32Array(HUES[0] * 3), balls: new Float32Array(HUES[1] * 3), kick: 0, glow: 1 };
     let THREE = null, HX = null, machine = null, random = null, camera = null, tmp = null;
-    let group = null, land = null, caps = [], wire = null, wireMat = null, bulbs = null, halos = null, baubles = null, flakes = null, star = null, starGlow = null, starRays = null, starLight = null, stringLight = null;
+    let group = null, land = null, caps = [], wire = null, bulbs = null, halos = null, baubles = null, flakes = null, star = null, starGlow = null, starRays = null, starLight = null, stringLight = null;
     let uploads = [], places = [];
     // What the checks read. clock: seconds the scene has been live. lights: how many are on the
     // string. steps: steps taken this frame. phase: the thump's (whole, pieces or returning).
@@ -587,12 +599,6 @@
       lightAt.set(tree.string.at);
       for (const at of places) at.needsUpdate = true;
       bulbs.geometry.instanceCount = tree.n; halos.geometry.instanceCount = tree.n;
-      const pts = [];
-      for (let p = 0; p < tree.string.wire.length; p += 3) pts.push(new THREE.Vector3(tree.string.wire[p], tree.string.wire[p + 1], tree.string.wire[p + 2]));
-      if (wire) { group.remove(wire); wire.geometry.dispose(); }
-      wire = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 1200, 0.006, 5), wireMat);
-      wire.receiveShadow = true;
-      group.add(wire);
       s.lights = tree.n; s.strung++;
     }
 
@@ -603,7 +609,7 @@
       machine = HX.createShatter({ random: HX.rng(7) });
       random = rng(7);
       tmp = new THREE.Color();
-      lay(tree, countFor(knob('lightDensity', 60)));
+      lay(tree, countFor(knob('lightDensity', 60)), snowFor(knob('snowfall')));
       const scene = k.scene;
       const std = (hex, roughness, extra) => new THREE.MeshStandardMaterial(Object.assign({ color: hex, roughness, metalness: 0 }, extra));
       const solid = (parent, geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; parent.add(m); return m; };
@@ -650,7 +656,12 @@
         c.rotation.y = i * TURN;
         caps.push(c);
       });
-      wireMat = std(0x0d2a1a, 0.8);
+      // The string's wire is the same wire however many lights are on it.
+      const pts = [];
+      for (let p = 0; p < tree.string.wire.length; p += 3) pts.push(new THREE.Vector3(tree.string.wire[p], tree.string.wire[p + 1], tree.string.wire[p + 2]));
+      wire = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 1200, 0.006, 5), std(0x0d2a1a, 0.8));
+      wire.receiveShadow = true;
+      group.add(wire);
 
       // What is drawn many times over: one small shape, and what is sent for each.
       const each = (geo, name, array, n, list) => { const at = new THREE.InstancedBufferAttribute(array, n).setUsage(THREE.DynamicDrawUsage); geo.setAttribute(name, at); list.push(at); };
@@ -726,7 +737,7 @@
     function show() {
       dress(sent, tree, look);
       for (const at of uploads) at.needsUpdate = true;
-      group.rotation.set(tree.lean[2], 0, tree.lean[0]);
+      group.rotation.set(sent.lean[1], 0, sent.lean[0]);
       for (let i = 0; i < T; i++) {
         const a = sent.cap[i * 2 + 1], c = caps[i];
         c.visible = a > 0.02;
@@ -782,7 +793,7 @@
         s.settles++;
         resettle(tree);
       } else if (event === 'reset') {   // the page had stopped drawing: the tree is as it was made
-        lay(tree, n);
+        lay(tree, n, snowFor(knob('snowfall')));
       }
       s.phase = machine.state;
 
@@ -832,7 +843,7 @@
         const list = (name, get) => Object.defineProperty(d, name, { get });
         list('sentBright', () => Array.from(sent.bright.subarray(0, n))); list('sentBulb', () => Array.from(sent.bulb.subarray(0, n * 3))); list('sentHalo', () => Array.from(sent.halo.subarray(0, n * 3)));
         list('sentHaloSize', () => Array.from(sent.haloSize.subarray(0, n))); list('sentBall', () => Array.from(sent.ball)); list('sentBallCol', () => Array.from(sent.ballCol)); list('sentBallHow', () => Array.from(sent.ballHow));
-        list('sentCap', () => Array.from(sent.cap)); list('sentFlake', () => Array.from(sent.flake)); list('sentStar', () => Array.from(sent.star)); list('sentString', () => Array.from(sent.string));
+        list('sentCap', () => Array.from(sent.cap)); list('sentFlake', () => Array.from(sent.flake)); list('sentStar', () => Array.from(sent.star)); list('sentString', () => Array.from(sent.string)); list('sentLean', () => Array.from(sent.lean));
         list('lightAt', () => Array.from(lightAt.subarray(0, n * 3))); list('onOf', () => Array.from(tree.on)); list('swingOf', () => Array.from(tree.swing)); list('glowOf', () => Array.from(tree.glow));
         return d;
       },

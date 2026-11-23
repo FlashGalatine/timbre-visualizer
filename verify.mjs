@@ -6505,10 +6505,10 @@ await import('./overlay/christmas-tree.js');
   const steps = (tr, n, h) => { for (let i = 0; i < n; i++) K.stepTree(tr, h); };
   const sheet = () => ({ bright: new Float32Array(K.LIGHTS_MAX), bulb: new Float32Array(K.LIGHTS_MAX * 3), halo: new Float32Array(K.LIGHTS_MAX * 3), haloSize: new Float32Array(K.LIGHTS_MAX),
     ball: new Float32Array(K.BAUBLES * 3), ballCol: new Float32Array(K.BAUBLES * 3), ballHow: new Float32Array(K.BAUBLES * 2), cap: new Float32Array(T6 * 2), flake: new Float32Array(K.FLAKES * 4),
-    star: new Float32Array(8), string: new Float32Array(4) });
+    star: new Float32Array(8), string: new Float32Array(4), lean: new Float32Array(2) });
   // A palette for the checks: light k of the string's five is (k + 1) / 10 red and half that green; bauble k of seven is (k + 1) / 10 blue.
   const look = (over = {}) => { const pal = new Float32Array(K.HUES[0] * 3), balls = new Float32Array(K.HUES[1] * 3); for (let k = 0; k < K.HUES[0]; k++) { pal[k * 3] = (k + 1) / 10; pal[k * 3 + 1] = (k + 1) / 20; } for (let k = 0; k < K.HUES[1]; k++) balls[k * 3 + 2] = (k + 1) / 10; return Object.assign({ pal, balls, kick: 0, glow: 1 }, over); };
-  const snapshot = (tr) => [tr.hist, tr.lean, tr.snow, tr.wait, tr.level, tr.swing, tr.swingV, tr.glow, tr.flake, tr.flakeV, tr.on, [tr.star, tr.time, tr.left, tr.flash, tr.lying, tr.histAt, tr.falling, tr.clumps]].map((a) => Array.from(a).join()).join('|');
+  const snapshot = (tr) => [tr.hist, tr.lean, tr.snow, tr.wait, tr.going, tr.level, tr.swing, tr.swingV, tr.glow, tr.flake, tr.flakeV, tr.on, [tr.star, tr.time, tr.left, tr.flash, tr.lying, tr.histAt, tr.falling, tr.clumps]].map((a) => Array.from(a).join()).join('|');
   const clumpsOn = (tr) => { let c = 0; for (let i = K.FALLING_MAX; i < K.FLAKES; i++) c += tr.on[i]; return c; };
   const fallingOn = (tr) => { let c = 0; for (let i = 0; i < K.FALLING_MAX; i++) c += tr.on[i]; return c; };
   const fl = Math.fround;
@@ -6704,7 +6704,10 @@ await import('./overlay/christmas-tree.js');
       const i = Math.floor((c - K.FALLING_MAX) / K.CLUMPS_EACH), [R, h, base] = K.TIERS[i], x = tr.flake[c * 4], y = tr.flake[c * 4 + 1] - K.FOOT, z = tr.flake[c * 4 + 2], r = Math.hypot(x, z);
       if (!(tr.on[c] === 1 && r <= R * 1.0001 && r >= R * K.CLUMP_AT[0] * 0.999 && y <= base + h && y >= K.rimY(i) && tr.flake[c * 4 + 3] >= K.CLUMP[0] && tr.flake[c * 4 + 3] <= K.CLUMP[0] + K.CLUMP[1])) placed = false;
       const out = (tr.flakeV[c * 3] * x + tr.flakeV[c * 3 + 2] * z) / r;
-      if (!(out >= K.CLUMP_OUT[0] * 0.999 && out <= (K.CLUMP_OUT[0] + K.CLUMP_OUT[1]) * 1.001 && tr.flakeV[c * 3 + 1] <= 0 && tr.flakeV[c * 3 + 1] >= -K.CLUMP_DOWN)) moving = false;
+      const atEdge = Math.hypot(x / K.KEEP[0], (z - K.DRIFT_Z) / K.KEEP[1]) > 1 - 1e-6;
+      if (Math.hypot(x / K.KEEP[0], (z - K.DRIFT_Z) / K.KEEP[1]) > 1 + 1e-6) placed = false;
+      if (atEdge ? tr.flakeV[c * 3] !== 0 || tr.flakeV[c * 3 + 2] !== 0 : !(out >= K.CLUMP_OUT[0] * 0.999 && out <= (K.CLUMP_OUT[0] + K.CLUMP_OUT[1]) * 1.001)) moving = false;
+      if (!(tr.flakeV[c * 3 + 1] <= 0 && tr.flakeV[c * 3 + 1] >= -K.CLUMP_DOWN)) moving = false;
     }
     ok(Math.abs(tr.lean[1]) >= K.ROCK[0] && Math.abs(tr.lean[1]) <= K.ROCK[0] + K.ROCK[1] && Math.abs(tr.lean[3]) <= K.ROCK[2] / 2 && tr.lean[0] === 0 && swinging && tr.lying === 0 && tr.flash === 1 && clumpsOn(tr) === K.CLUMPS && K.CLUMPS === K.CLUMPS_EACH * T6
       && placed && moving && Array.from(tr.snow).join() === before.join() && Array.from(tr.wait).every((w, i) => near(w, K.SNOW_WAIT * (T6 - 1 - i), 1e-7)),
@@ -6809,6 +6812,45 @@ await import('./overlay/christmas-tree.js');
     ok(fine && fallingOn(long) <= K.FALLING_MAX, 'thumped again and again while it is loud, the tree never leans far and every number stays a number');
   }
 
+  {
+    // What the review found.
+    // A second shake leaves the clumps that are still in the air where they are, and throws only as many more as there is room for.
+    const t2 = mk(); K.shake(t2, 1, K.rng(1001)); steps(t2, 20, how()); K.resettle(t2); steps(t2, 4, how());
+    const before = Array.from(t2.flake), wasOn = Array.from(t2.on);
+    K.shake(t2, K.JOSTLE, K.rng(7));
+    let snatched = 0; for (let c = K.FALLING_MAX; c < K.FLAKES; c++) if (wasOn[c] && (t2.flake[c * 4] !== before[c * 4] || t2.flake[c * 4 + 1] !== before[c * 4 + 1] || t2.flake[c * 4 + 2] !== before[c * 4 + 2])) snatched++;
+    // Snow that a shake set going goes on going until it is gone, even if it is told it may settle meanwhile; only then does it settle.
+    const g = mk(); K.shake(g, 1, K.rng(1001)); steps(g, 18, how()); K.resettle(g);
+    const told = Array.from(g.snow), least = told.slice();
+    for (let s = 0; s < 120; s++) { K.stepTree(g, how()); for (let i = 0; i < T6; i++) least[i] = Math.min(least[i], g.snow[i]); }
+    steps(g, 900, how());
+    ok(snatched === 0 && wasOn.slice(K.FALLING_MAX).filter(Boolean).length > 90 && told[0] > 0.5 && least.every((v) => v === 0) && Array.from(g.snow).every((v) => v === 1) && Array.from(g.going).every((v) => v === 0),
+      'a second shake leaves the clumps still in the air where they are; and snow that a shake set going is all gone before it settles again, however soon it is told it may');
+
+    // What moves is drawn as far on as the tree is ahead of or behind its steps.
+    const a = mk(), L0 = look(); K.shake(a, 1, K.rng(1001)); steps(a, 5, how());
+    const o0 = sheet(), o1 = sheet(); a.left = 0; K.dress(o0, a, L0); a.left = 0.004; K.dress(o1, a, L0);
+    const i0 = Array.from(a.on).findIndex((v, i) => v && i < K.FALLING_MAX && a.flake[i * 4 + 1] > 1 && a.flake[i * 4 + 1] < 2.5 && Math.abs(a.flake[i * 4]) < 2), c0 = K.FLAKES - 1;
+    const radial = (o, b) => Math.hypot(o.ball[b * 3], o.ball[b * 3 + 2]), len7 = K.HANG + a.spots.r[7];
+    ok(i0 >= 0 && a.on[c0] === 1 && near(o0.flake[i0 * 4 + 1] - o1.flake[i0 * 4 + 1], 0.004 * a.flakeV[i0 * 3], 1e-6) && o0.flake[i0 * 4] === o1.flake[i0 * 4] && near(o0.flake[i0 * 4 + 1], a.flake[i0 * 4 + 1], 1e-7)
+      && near(o1.flake[c0 * 4 + 1] - o0.flake[c0 * 4 + 1], 0.004 * a.flakeV[c0 * 3 + 1], 1e-6) && near(o1.flake[c0 * 4] - o0.flake[c0 * 4], 0.004 * a.flakeV[c0 * 3], 1e-6) && near(o1.flake[c0 * 4 + 2] - o0.flake[c0 * 4 + 2], 0.004 * a.flakeV[c0 * 3 + 2], 1e-6)
+      && near(o0.lean[0], a.lean[0], 1e-9) && near(o0.lean[1], a.lean[2], 1e-9) && near(o1.lean[0] - o0.lean[0], 0.004 * a.lean[1], 1e-7) && near(o1.lean[1] - o0.lean[1], 0.004 * a.lean[3], 1e-7) && Math.abs(a.lean[1]) > 0.1
+      && near(radial(o1, 7) - radial(o0, 7), len7 * (Math.sin(a.swing[7] + 0.004 * a.swingV[7]) - Math.sin(a.swing[7])), 1e-6) && Math.abs(a.swingV[7]) > 0.5,
+      'what moves is drawn as far on as the tree is ahead of its steps: a flake further down, a clump further along its fall, the trunk further over, a bauble further through its swing; so that they move evenly at any frame rate');
+
+    // No bauble hangs in a present; the snow in the air at the start is as much as Snowfall asks; a clump is over the drift from the moment it is thrown.
+    const or = sheet(); K.dress(or, mk(), L0);
+    let clear = true;
+    for (let b = 0; b < K.BAUBLES; b++) for (const [x, z, w, h, d] of K.PRESENTS) {
+      const top = K.driftHeight(x, z - K.DRIFT_Z) - K.SINK + h + 0.07, r = a.spots.r[b], far = Math.hypot(or.ball[b * 3] - x, or.ball[b * 3 + 2] - z);
+      if (far < Math.hypot(w, d) / 2 + r + 0.02 && K.FOOT + or.ball[b * 3 + 1] - r < top) clear = false;
+    }
+    const thrown = mk(); K.shake(thrown, 1, K.rng(1003)); let over = true;
+    for (let c = K.FALLING_MAX; c < K.FLAKES; c++) if (thrown.on[c] && Math.hypot(thrown.flake[c * 4] / K.KEEP[0], (thrown.flake[c * 4 + 2] - K.DRIFT_Z) / K.KEEP[1]) > 1 + 1e-6) over = false;
+    ok(clear && fallingOn(K.createTree(K.SEED, 96, 0)) === 0 && fallingOn(K.createTree(K.SEED, 96, 2)) === 2 * K.SNOWING[0] && fallingOn(K.createTree(K.SEED, 96, 1)) === K.SNOWING[0] && fallingOn(K.createTree(K.SEED, 96, 9)) === K.FALLING_MAX && over,
+      'no bauble hangs in a present; a new tree has as much snow in the air as Snowfall asks, none at 0; and a clump is over the drift from the moment it is thrown');
+  }
+
   // WHAT IS DRAWN
   {
     const tr = mk(), o = sheet(), L = look();
@@ -6911,8 +6953,10 @@ await import('./overlay/christmas-tree.js');
     for (let a = 0; a < 64; a++) { const g = (a / 64) * TAU; look2([K.DRIFT[0] * Math.cos(g), 0, K.DRIFT_Z + K.DRIFT[2] * Math.sin(g)]); look2([K.KEEP[0] * Math.cos(g), 0, K.DRIFT_Z + K.KEEP[1] * Math.sin(g)]); look2([K.rimR(0, g) * Math.cos(g), K.FOOT + K.rimY(0) - 0.16, K.rimR(0, g) * Math.sin(g)]); }
     for (const [x, z, w, h, dd] of K.PRESENTS) for (const sx of [-1, 1]) for (const sz of [-1, 1]) look2([x + sx * 0.75 * w, h + 0.3, z + sz * 0.75 * dd]);
     for (const lx of [-0.12, 0.12]) for (const lz of [-0.12, 0.12]) look2([-(K.STAR_Y + K.STAR[0]) * Math.sin(lx), K.FOOT + (K.STAR_Y + K.STAR[0]) * Math.cos(lx) * Math.cos(lz), (K.STAR_Y + K.STAR[0]) * Math.sin(lz)]);
-    for (const x of [-K.SIDE[1], K.SIDE[1]]) for (const y of [K.FLOOR, K.ROOF[0]]) for (const z of [K.SKY[3], K.SKY[4]]) look2([x, y, z]);
-    ok(worst < 0.985 && worst > 0.8, 'everything solid keeps inside the picture on every page, with the camera swaying its furthest: the drift, the presents, the star as far as a thump leans it, the snow in the air where it is drawn, and the clumps (the furthest reaches ' + worst.toFixed(3) + ' of the way to an edge)');
+    // The snow's air, as far as a flake is still drawn at a tenth of its size: to the sides, upward, down to the snow, and as far forward and back as it sways.
+    const swayZ = K.FLAKE_SWAY[3] / K.FLAKE_SWAY[2] * 2, edgeX = K.SIDE[0] + 0.8 * (K.SIDE[1] - K.SIDE[0]), edgeY = K.ROOF[1] + 0.8 * (K.ROOF[0] - K.ROOF[1]);
+    for (const x of [-edgeX, edgeX]) for (const y of [K.FLOOR + 0.1 / K.LAND[1], edgeY]) for (const z of [K.SKY[3] - swayZ, K.SKY[4] + swayZ]) look2([x, y, z]);
+    ok(worst < 0.99 && worst > 0.8, 'everything solid keeps inside the picture on every page, with the camera swaying its furthest: the drift, the presents, the star as far as a thump leans it, the snow in the air where it is drawn, and the clumps (the furthest reaches ' + worst.toFixed(3) + ' of the way to an edge)');
     ok(K.swayFor(0) === 0 && near(K.swayFor(50), K.SWAY) && near(K.swayFor(100), 2 * K.SWAY) && near(K.swayFor(undefined), K.SWAY) && K.orbitAt(0, 50) === 0 && near(K.orbitAt(Math.PI / 2 / K.ORBIT_RATE, 50), K.SWAY) && near(K.orbitAt(3, 100), 2 * K.SWAY * Math.sin(3 * K.ORBIT_RATE)),
       'the camera sways 0.14 radians each way at Camera drift 50, not at all at 0 and twice as far at 100, once in about 48 seconds');
   }
