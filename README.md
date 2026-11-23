@@ -67,11 +67,20 @@ of fish, a Christmas tree whose lights carry your voice). Add your own: drop a f
 ## Verification
 
 ```
-npm run verify           # 28 protocol/table tests against a faithful SB mock
-npm run verify:render    # 14 real-pixel tests in system Edge/Chrome (fake mic device)
+npm run verify           # over 1,000 protocol/table checks, against a mock of Streamer.bot
+npm run verify:render    # over 900 real-pixel checks in system Edge/Chrome (fake mic device)
+npm run verify:cs        # Windows only: compiles the C# action and runs its accept/reject cases
 ```
 
-`verify:render` needs `npm install --no-save playwright-core`.
+`npm install` brings `playwright-core`, which `verify:render` drives. It uses the Edge or Chrome
+already on the machine and downloads no browser.
+
+The mock answers as Streamer.bot 1.0.7 was measured to: it replies when an action is queued (not
+when it has run), stores a config as it was sent, and broadcasts to every connected page. It is
+not Streamer.bot: the microphone check in docs/SETUP.md still has to be done in OBS. Each suite starts its own mock on
+side ports (7476 and 8090), and stops with a message if something already answers there.
+
+`verify:cs` needs `csc.exe` from the .NET Framework and is not part of `npm run verify`.
 
 ## Author & support
 

@@ -2,15 +2,20 @@
 // capturing a (fake) microphone locally and taking config only from the SB mock.
 // This is the render half that verify.mjs (protocol-only) deliberately skips.
 //
-// Requires a Chromium channel on the machine (system Edge/Chrome):
-//   npm install --no-save playwright-core
+// Requires a Chromium channel on the machine (system Edge/Chrome). playwright-core is
+// a dev dependency, so `npm install` brings it; no browser is downloaded.
+//
+// The suite refuses to start when something already answers on its side ports (a mock
+// left over from a run that was killed), and stops its own mock when it exits or is
+// interrupted.
 //
 // Chromium's --use-fake-device-for-media-stream provides a synthetic audio input
 // (a tone), so getUserMedia succeeds headless and the analyser sees real energy —
 // the same code path OBS CEF runs, minus the CEF permission question that
 // spike/mic-test.html answers. Writes test-render.png / control-render.png.
 //
-// Covered:  fake-mic LISTENING path • 2D factory (visualizer) draws pixels •
+// Covered:  fake-mic LISTENING path • the Audiowide font loads though the mock serves it,
+//           as Streamer.bot does, as application/octet-stream • 2D factory (visualizer) draws pixels •
 //           config push flips viz (matrix), gain + label toggles apply •
 //           the rose activates the WebGL canvas • mic-denied idle path •
 //           control.html emits a Timbre Push whose config round-trips •
@@ -112,9 +117,16 @@
 //           Bounce 0 stills it and Bounce 100 keeps it inside the frame; with the idle animation
 //           it hovers in its sleep; a config push and a size change keep it; a seeded run repeats;
 //           the canvas state is left as found and the picture does not depend on the line settings
-//           it is handed; a draw stays inside its time budget; and the control panel lists it.
+//           it is handed; a draw stays inside its time budget; and the control panel lists it •
+//           a config with values out of range, stored by the mock as sent, is clamped by the page •
+//           every effect, once (all 52 names, on a fresh 1920×1080 page): it becomes active on the
+//           right canvas, draws pixels, throws nothing, and draw() averages under its budget •
+//           four fixes of the 10 November audit: every firework rocket bursts, inside the canvas,
+//           at 30 and 60 fps; the Easter eggs' Pattern knob reaches every kind; Ring Bars' bottom
+//           spoke follows the last bin; Matrix repaints a cell with the glyph that was there.
 
 import { spawn } from 'node:child_process';
+import { connect } from 'node:net';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
@@ -134,11 +146,31 @@ const controlUrl = `${BASE}/timbre-control/control.html?sbport=${WS_PORT}`;
 let passed = 0, failed = 0;
 const check = (n, ok, d) => { ok ? passed++ : failed++; console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${n}${!ok && d ? ' — ' + d : ''}`); };
 
+// A mock left running by a run that was killed still holds the side ports. The new
+// mock could not bind them, and the pages would talk to the old one.
+function portAnswers(port) {
+  return new Promise((res) => {
+    const s = connect({ host: '127.0.0.1', port });
+    const done = (v) => { s.destroy(); res(v); };
+    s.once('connect', () => done(true));
+    s.once('error', () => done(false));
+    s.setTimeout(1500, () => done(false));
+  });
+}
+
+// This suite's own mock never outlives it: stopped on exit, on a signal and on a crash.
+let mockChild = null;
+const stopMock = () => { if (mockChild && mockChild.exitCode === null) { try { mockChild.kill(); } catch {} } };
+process.on('exit', stopMock);
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK']) process.on(sig, () => { stopMock(); process.exit(130); });
+
 function startMock() {
   return new Promise((res, rej) => {
-    const child = spawn(process.execPath, ['mock-sb-server.mjs'], {
-      cwd: __dirname, stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, SB_HTTP_PORT: String(HTTP_PORT), SB_WS_PORT: String(WS_PORT) },
+    // stdin is a pipe the mock watches (MOCK_EXIT_WITH_PARENT): if this process is killed
+    // outright, the pipe closes and the mock exits by itself.
+    const child = mockChild = spawn(process.execPath, ['mock-sb-server.mjs'], {
+      cwd: __dirname, stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, SB_HTTP_PORT: String(HTTP_PORT), SB_WS_PORT: String(WS_PORT), MOCK_EXIT_WITH_PARENT: '1', MOCK_ARG_BLEED: '' },
     });
     let out = '';
     const timer = setTimeout(() => rej(new Error('mock did not start in 8s\n' + out)), 8000);
@@ -156,17 +188,22 @@ async function launch(extraArgs) {
   return await chromium.launch(opts);
 }
 
+// Push a config text through the mock, as it is. The mock stores and broadcasts it as sent.
+function pushRaw(text) {
+  return new Promise((res) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${WS_PORT}/`);
+    ws.on('open', () => {
+      ws.send(JSON.stringify({ request: 'DoAction', id: 'p', action: { name: 'Timbre Push' }, args: { config: text } }));
+      setTimeout(() => { ws.close(); res(); }, 250);
+    });
+  });
+}
+
 // Push a full config through the mock exactly like control.html does.
 function pushConfig(mutate) {
   const cfg = T.defaultConfig();
   mutate(cfg);
-  return new Promise((res) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${WS_PORT}/`);
-    ws.on('open', () => {
-      ws.send(JSON.stringify({ request: 'DoAction', id: 'p', action: { name: 'Timbre Push' }, args: { config: JSON.stringify(cfg) } }));
-      setTimeout(() => { ws.close(); res(); }, 250);
-    });
-  });
+  return pushRaw(JSON.stringify(cfg));
 }
 
 const canvas2dHasPixels = () => {
@@ -316,6 +353,12 @@ async function glowChecks(pg, name, { maxGhostAlpha, slack = 0, tweak } = {}) {
 async function main() {
   console.log('Timbre — real-pixel render verification\n');
   let mock, browser, deniedBrowser;
+  for (const port of [HTTP_PORT, WS_PORT]) {
+    if (await portAnswers(port)) {
+      console.error(`verify:render: something already answers on 127.0.0.1:${port}. It is most likely a mock left running by an earlier run; stop that process and run again. Nothing was tested.`);
+      process.exit(1);
+    }
+  }
   try {
     mock = await startMock();
     console.log(`mock SB up (:${HTTP_PORT} HTTP, :${WS_PORT} WS)\n`);
@@ -346,6 +389,21 @@ async function main() {
     check('micPeak is a level between 0 and 1 while listening', await page.waitForFunction(
       () => typeof window.__timbre.micPeak === 'number' && window.__timbre.micPeak > 0 && window.__timbre.micPeak <= 1, { timeout: 5000 }).then(() => true).catch(() => false));
 
+    {
+    // Streamer.bot serves a .woff2 as application/octet-stream, and so does the mock. The font must load all the same.
+    const font = await page.evaluate(async () => {
+      const served = await fetch('fonts/audiowide.woff2').then((r) => ({ status: r.status, type: r.headers.get('content-type') }), (e) => ({ status: 0, type: String(e) }));
+      let asked = 0;
+      try { asked = (await document.fonts.load("16px 'Audiowide'")).length; } catch {}
+      const face = [...document.fonts].find((f) => /Audiowide/.test(f.family));
+      const pen = document.createElement('canvas').getContext('2d'), text = 'AUDIO LISTENING 0123';
+      pen.font = "40px 'Audiowide', monospace"; const withIt = pen.measureText(text).width;
+      pen.font = '40px monospace'; const without = pen.measureText(text).width;
+      return { served, asked, status: face ? face.status : 'no such face', label: getComputedStyle(document.getElementById('vizStatus')).fontFamily, withIt, without };
+    });
+    check('the Audiowide font loads and is drawn with, though it is served as application/octet-stream',
+      font.served.status === 200 && font.served.type === 'application/octet-stream' && font.asked === 1 && font.status === 'loaded' && /Audiowide/.test(font.label) && Math.abs(font.withIt - font.without) > 1, JSON.stringify(font));
+    }
     await page.waitForTimeout(400);
     check('default 2D factory (visualizer) draws pixels', await page.evaluate(canvas2dHasPixels));
 
@@ -7050,6 +7108,167 @@ async function main() {
     await p43.close();
     await wide.close();
 
+    {
+    // ── The page clamps what it is sent ───────────────────────────────────
+    // The mock stores a config as sent, as Streamer.bot does, so nothing between the sender and
+    // the page puts a value back in range: the page has to.
+    await pushRaw('{"activeViz":"visualizer","bars":999,"gain":-5,"afterglow":99,"placement":{"size":5},"perViz":{"dna":{"reconnectSeconds":99}},"notAKnob":1}');
+    const clamped = await page.waitForFunction(() => window.__timbre.config.bars !== 20, { timeout: 5000 })
+      .then(() => page.evaluate(() => { const c = window.__timbre.config; return { bars: c.bars, gain: c.gain, afterglow: c.afterglow, size: c.placement.size, reconnect: c.perViz.dna.reconnectSeconds, extra: 'notAKnob' in c }; }), () => null);
+    check('a config with values out of range reaches the page as sent, and the page clamps it',
+      !!clamped && clamped.bars === 32 && clamped.gain === 0 && clamped.afterglow === 4 && clamped.size === 40 && clamped.reconnect === 10 && clamped.extra === false, JSON.stringify(clamped));
+    await pushConfig((c) => { c.activeViz = 'visualizer'; });
+    await page.waitForFunction(() => window.__timbre.config.bars === 20 && window.__timbre.config.gain === 100, { timeout: 5000 }).catch(() => {});
+
+    // ── Every effect, once (R-04) ─────────────────────────────────────────
+    // A fresh 1920×1080 page. Each name in ACTIVE_VIZ_NAMES is made active and drawn by hand with
+    // a steady voice: 90 frames to settle (shaders, first spawns), then 60 frames timed. What is
+    // asked of each: it becomes the active effect on the right canvas, nothing throws (in the
+    // hand-drawn frames or in the page's own loop afterwards), the frame has pixels, and draw()
+    // averages under the budget. The budget is 8 ms, half a 60 fps frame: it catches a draw that
+    // has become many times slower, not a small regression (the rebuilt effects have their own,
+    // tighter checks). This browser draws the 2D canvas without the GPU, and four old effects
+    // take 7 to 16 ms a frame in it today; each has an open finding, and gets 40 ms until it is
+    // fixed. Take a name out of KNOWN_SLOW when its effect is fixed or rebuilt.
+    const DRAW_BUDGET_MS = 8, SLOW_BUDGET_MS = 40, MIN_PIXELS = 100;
+    const KNOWN_SLOW = ['galaxy-ripple' /* O-02 */, 'tunnel' /* O-03 */, 'dia-de-muertos-calavera' /* O-05 */, 'st-patricks-shamrocks' /* a seasonal 2D effect, not yet rebuilt */];
+    const smoke = await ctxt.newPage();
+    const smokeErrors = [];
+    smoke.on('pageerror', (e) => smokeErrors.push(String(e)));
+    await smoke.setViewportSize({ width: 1920, height: 1080 });
+    await smoke.goto(overlayWideUrl, { waitUntil: 'load' });
+    await smoke.waitForFunction(() => window.__timbre && window.__timbre.micActive === true && window.__timbre.currentVizName === 'visualizer', { timeout: 8000 }).catch(() => {});
+    const costs = [];
+    for (const name of T.ACTIVE_VIZ_NAMES) {
+      const errorsBefore = smokeErrors.length;
+      const r = await smoke.evaluate((name) => {
+        const saved = { frequencies, waveform, micActive, micPeak };
+        const out = { active: false, canvas: false, pixels: 0, mean: null, threw: '' };
+        try {
+          setActiveViz(name === 'visualizer' ? 'waveform' : 'visualizer');   // so that this is a fresh start of the effect
+          setActiveViz(name);
+          const is3d = TIMBRE.VIZ_USES_3D.includes(name), c2 = document.getElementById('vizCanvas2D'), c3 = document.getElementById('vizCanvas3D');
+          out.active = currentVizName === name && !!currentViz && typeof currentViz.draw === 'function';
+          out.canvas = (c3.style.display !== 'none') === is3d && (c2.style.display !== 'none') === !is3d;
+          const f = new Uint8Array(32).fill(140), w = new Uint8Array(64);
+          for (let i = 0; i < 64; i++) w[i] = 128 + Math.round(Math.sin(i * 0.4) * 60);
+          frequencies = f; waveform = w; micActive = true; micPeak = 0.3;
+          let now = performance.now();
+          for (let i = 0; i < 90; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+          const t0 = performance.now();
+          for (let i = 0; i < 60; i++) { now += 1000 / 60; currentViz.draw(now, 1 / 60); }
+          out.mean = (performance.now() - t0) / 60;
+          // Read in the same task as the last draw: the WebGL canvas keeps no frame after it.
+          if (is3d) {
+            const gl = c3.getContext('webgl2'), gw = gl.drawingBufferWidth, gh = gl.drawingBufferHeight, px = new Uint8Array(gw * gh * 4);
+            gl.readPixels(0, 0, gw, gh, gl.RGBA, gl.UNSIGNED_BYTE, px);
+            for (let i = 0; i < px.length; i += 4) if (px[i + 3] > 0 || px[i] + px[i + 1] + px[i + 2] > 0) out.pixels++;
+          } else {
+            const d = ctx.getImageData(0, 0, W, H).data;
+            for (let i = 3; i < d.length; i += 4) if (d[i] > 0) out.pixels++;
+          }
+        } catch (e) { out.threw = String((e && e.stack) || e).slice(0, 400); }
+        finally { frequencies = saved.frequencies; waveform = saved.waveform; micActive = saved.micActive; micPeak = saved.micPeak; }
+        return out;
+      }, name).catch((e) => ({ active: false, canvas: false, pixels: 0, mean: null, threw: String(e).slice(0, 400) }));
+      await smoke.waitForTimeout(120);   // the page's own loop draws it now, with the fake microphone
+      const errors = smokeErrors.slice(errorsBefore);
+      costs.push([name, r.mean]);
+      const budget = KNOWN_SLOW.includes(name) ? SLOW_BUDGET_MS : DRAW_BUDGET_MS;
+      check(`every effect: ${name} becomes active, draws, throws nothing, and draw() averages under ${budget} ms`,
+        r.active && r.canvas && r.pixels >= MIN_PIXELS && !r.threw && errors.length === 0 && typeof r.mean === 'number' && r.mean < budget, JSON.stringify({ ...r, errors }));
+    }
+    check('every effect: the pass named all 52, and every name given the slow budget is an effect', costs.length === 52 && KNOWN_SLOW.every((n) => T.ACTIVE_VIZ_NAMES.includes(n)), `${costs.length} drawn`);
+    {
+      const slowest = costs.filter(([, ms]) => typeof ms === 'number').sort((x, y) => y[1] - x[1]).slice(0, 5).map(([n, ms]) => `${n} ${ms.toFixed(2)} ms`).join(', ');
+      console.log(`        (${costs.length} effects drawn; slowest draw() averages: ${slowest})`);
+    }
+
+    // ── Four fixes of the 10 November audit that are still live code ──────
+    // (Commit edabb4b fixed seven effects. Jelly, Shards and Chladni were rebuilt since and have
+    // their own checks; these four had none.) Each runs in one evaluate, with the mic off or a
+    // scripted sound, a clock of its own, and the page's state put back.
+    const fireworks = await smoke.evaluate(() => {
+      const saved = { frequencies, waveform, micActive, micPeak, idle: cfgIdleAnim }, push = Array.prototype.push, out = {};
+      try {
+        frequencies = null; waveform = null; micActive = false; micPeak = null; cfgIdleAnim = true;   // idle: one rocket every 3 s
+        for (const fps of [30, 60]) {
+          setActiveViz('visualizer'); setActiveViz('new-year-fireworks');
+          const dt = 1 / fps, ys = [], sparkAt = new Set(), rocketSeen = new WeakSet();
+          let t = 1e6, rockets = 0, bursts = 0;
+          // The effect keeps its particles to itself, so they are counted as they are pushed:
+          // a rocket once, and a burst as the first new spark at a point.
+          Array.prototype.push = function (...items) {
+            for (const p of items) {
+              if (p && p.kind === 'rocket' && !rocketSeen.has(p)) { rocketSeen.add(p); rockets++; }
+              if (p && p.kind === 'spark' && p.age === 0) { const k = p.x + ':' + p.y; if (!sparkAt.has(k)) { sparkAt.add(k); bursts++; ys.push(p.y); } }
+            }
+            return push.apply(this, items);
+          };
+          for (let i = 0; i < 60 * fps; i++) { t += dt * 1000; currentViz.draw(t, dt); }
+          Array.prototype.push = push;
+          out[fps] = { rockets, bursts, top: Math.min(...ys) / H, bottom: Math.max(...ys) / H };
+        }
+      } finally {
+        Array.prototype.push = push;
+        frequencies = saved.frequencies; waveform = saved.waveform; micActive = saved.micActive; micPeak = saved.micPeak; cfgIdleAnim = saved.idle;
+      }
+      return out;
+    });
+    for (const fps of [30, 60]) {
+      const r = fireworks[fps];
+      check(`fireworks at ${fps} fps: every rocket ends in a burst (a minute of idle rockets)`, r.rockets >= 15 && r.bursts >= r.rockets - 1, JSON.stringify(r));
+      check(`fireworks at ${fps} fps: every burst is centred inside the canvas`, r.top > 0.1 && r.bottom < 0.65, JSON.stringify(r));
+    }
+    const eggs = await smoke.evaluate(() => {
+      const was = perViz['easter-eggs'].patternStyle, push = Array.prototype.push;
+      try {
+        setActiveViz('visualizer'); setActiveViz('easter-eggs');
+        // The kinds of egg built by one draw after the Pattern knob moves ('' when the row was not rebuilt).
+        const built = (knob) => {
+          perViz['easter-eggs'].patternStyle = knob;
+          const seen = [];
+          Array.prototype.push = function (...items) { for (const p of items) if (p && p.pattern && p.slotX !== undefined) seen.push(p.pattern); return push.apply(this, items); };
+          try { currentViz.draw(performance.now(), 1 / 60); } finally { Array.prototype.push = push; }
+          return [...new Set(seen)].sort().join();
+        };
+        return { dots: built(30), mixed: built(90), stripes: built(10), again: built(10) };
+      } finally { Array.prototype.push = push; perViz['easter-eggs'].patternStyle = was; }
+    });
+    check('easter eggs: the Pattern knob rebuilds the row for dots, for mixed and for stripes, and not when it has not moved',
+      eggs.dots === 'dots' && eggs.mixed === 'dots,stripes,zigzag' && eggs.stripes === 'stripes' && eggs.again === '', JSON.stringify(eggs));
+    const spoke = await smoke.evaluate(() => {
+      const saved = { frequencies, micActive, spokes: perViz['ring-bars'].spokes }, fill = ctx.fillRect;
+      try {
+        setActiveViz('visualizer'); setActiveViz('ring-bars');
+        perViz['ring-bars'].spokes = 100;                 // 48 spokes: number 24 points straight down
+        const f = new Uint8Array(32); f[31] = 255;        // only the last bin is loud
+        frequencies = f; micActive = true;
+        let lowest = 0;
+        ctx.fillRect = function (x, y, w, h) { if (Math.abs(x + w / 2 - W / 2) < 3) lowest = Math.max(lowest, y); return fill.call(this, x, y, w, h); };
+        currentViz.draw(performance.now(), 1 / 60);
+        return { reach: (lowest - H / 2) / SCALE, gain: cfgGain };
+      } finally { ctx.fillRect = fill; frequencies = saved.frequencies; micActive = saved.micActive; perViz['ring-bars'].spokes = saved.spokes; }
+    });
+    check('ring bars: the bottom spoke follows the last frequency bin (it reaches past 40 units below the centre; the ring starts at 14)', spoke.reach > 40 && spoke.gain === 1, JSON.stringify(spoke));
+    const rain = await smoke.evaluate(() => {
+      const m = perViz['matrix'], saved = { frequencies, waveform, micActive, mode: m.mode, messages: m.messages, flow: m.flow }, text = ctx.fillText;
+      try {
+        frequencies = null; waveform = null; micActive = false;
+        m.mode = 'messages'; m.messages = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'; m.flow = 0;
+        setActiveViz('visualizer'); setActiveViz('matrix');
+        const cells = new Map();
+        let conflicts = 0, draws = 0;
+        ctx.fillText = function (s, x, y) { const k = x + ':' + y; if (cells.has(k) && cells.get(k) !== s) conflicts++; cells.set(k, s); draws++; return text.call(this, s, x, y); };
+        let t = performance.now() + 5000;
+        for (let i = 0; i < 240; i++) { t += 1000 / 60; currentViz.draw(t, 1 / 60); if (i % 60 === 59) cells.clear(); }
+        return { conflicts, draws };
+      } finally { ctx.fillText = text; frequencies = saved.frequencies; waveform = saved.waveform; micActive = saved.micActive; m.mode = saved.mode; m.messages = saved.messages; m.flow = saved.flow; }
+    });
+    check('matrix: the cell the head leaves is repainted with the glyph that was there (no cell gets two glyphs in one pass)', rain.draws > 100 && rain.conflicts === 0, JSON.stringify(rain));
+    check('every effect: no page errors from the pass or the four fixes', smokeErrors.length === 0, smokeErrors.slice(0, 5).join(' | '));
+    await smoke.close();
+    }
     // ── Control panel: UI change → Timbre Push → broadcast round-trip ─────
     const observed = [];
     const obs = new WebSocket(`ws://127.0.0.1:${WS_PORT}/`);

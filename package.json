@@ -16,10 +16,13 @@
   "scripts": {
     "start": "node mock-sb-server.mjs",
     "verify": "node verify.mjs",
-    "verify:render": "node verify-render.mjs"
+    "verify:render": "node verify-render.mjs",
+    "verify:cs": "node verify-cs.mjs"
   },
   "dependencies": {
     "ws": "^8.18.0"
   },
-  "comment": "verify:render also needs playwright-core (uses system Edge/Chrome): npm install --no-save playwright-core"
+  "devDependencies": {
+    "playwright-core": "1.65.0"
+  }
 }

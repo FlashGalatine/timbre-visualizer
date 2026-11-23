@@ -4,8 +4,11 @@
 //
 // Sections:
 //   1. Table consistency — every viz name has a factory file, per-viz defaults
-//      only name known vizes, 3D set is a subset, defaultConfig is complete.
-//   2. sanitizeConfig — clamping, allowlisting, string caps, unknown-key drops.
+//      only name known vizes, 3D set is a subset, defaultConfig is complete, the
+//      3D effects and the kit scenes are the same set, and only scene-kit.js
+//      makes a WebGL renderer or asks a canvas for a WebGL context.
+//   2. sanitizeConfig — clamping, allowlisting, string caps, unknown-key drops,
+//      and every range in the tables tried one by one at both ends.
 //   3. C# embed simulation — the exact string concatenation timbre-push.cs does,
 //      fed a config with kana + newlines + quotes, must round-trip.
 //   5. Scene kit arithmetic — the pure helpers behind the 3D scenes (sound
@@ -66,16 +69,29 @@
 //   4. Live transport seam — spawns mock-sb-server.mjs on side ports, loads the
 //      REAL shared/panel-client-sb.js under a browser shim, and asserts:
 //      Subscribe (lowercase), sync-on-connect DoAction, control push →
-//      General.Custom → svc:message round-trip on a second client.
+//      General.Custom → svc:message round-trip on a second client. Then the
+//      mock itself, against what Streamer.bot 1.0.7 was measured to do: the
+//      DoAction reply (sent on queueing, with the queue's name), the error
+//      reply for a missing action, a sync replay reaching every subscriber, a
+//      config stored as sent after the C#'s two-character check, the
+//      timbre:error switch, the overlap mode (runs that land together share
+//      one request's arguments), and that bad paths, bad frames, oversized
+//      frames and foreign origins do not bring it down.
 //
-// What the mock CANNOT prove (needs real Streamer.bot 1.0.4 + OBS):
-//   • SB's actual envelope quirks beyond what Tally/Greenroom already validated
-//   • C# compile inside SB's default reference set
+// The suite refuses to start when something already answers on its side ports
+// (a mock left over from a run that was killed), and stops its own mock when it
+// exits or is interrupted.
+//
+// What the mock CANNOT prove (needs real Streamer.bot + OBS):
+//   • SB's actual envelope quirks beyond what was measured on 1.0.7
+//   • C# compile inside SB's default reference set (npm run verify:cs compiles
+//     the action with the .NET Framework compiler, which is not SB's)
 //   • getUserMedia inside OBS CEF (spike/mic-test.html) and WebGL perf there
 
 import { spawn } from 'node:child_process';
+import { connect } from 'node:net';
 import { readdir, readFile } from 'node:fs/promises';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import './shared/viz-config.js';
 
@@ -84,6 +100,30 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const HTTP_PORT = 7476; // side ports so a real SB on 7474/8080 doesn't collide
 const WS_PORT = 8090;
+
+// A mock left running by a run that was killed still holds the side ports. The new
+// mock could not bind them, and the checks would talk to the old one. Say so and stop.
+function portAnswers(port) {
+  return new Promise((res) => {
+    const s = connect({ host: '127.0.0.1', port });
+    const done = (v) => { s.destroy(); res(v); };
+    s.once('connect', () => done(true));
+    s.once('error', () => done(false));
+    s.setTimeout(1500, () => done(false));
+  });
+}
+for (const port of [HTTP_PORT, WS_PORT]) {
+  if (await portAnswers(port)) {
+    console.error(`verify: something already answers on 127.0.0.1:${port}. It is most likely a mock left running by an earlier run; stop that process and run again. Nothing was tested.`);
+    process.exit(1);
+  }
+}
+
+// This suite's own mock never outlives it: stopped on exit, on a signal and on a crash.
+let mockChild = null;
+const stopMock = () => { if (mockChild && mockChild.exitCode === null) { try { mockChild.kill(); } catch {} } };
+process.on('exit', stopMock);
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK']) process.on(sig, () => { stopMock(); process.exit(130); });
 
 let pass = 0, fail = 0;
 function ok(cond, name) {
@@ -109,6 +149,29 @@ console.log('\n[1] table consistency');
   ok(badPerViz.length === 0, 'DEFAULT_PER_VIZ keys are all known vizes');
   ok(T.VIZ_USES_3D.every((n) => T.ACTIVE_VIZ_NAMES.includes(n)), 'VIZ_USES_3D ⊆ viz names');
   ok(T.VIZ_SCENES.every((n) => T.VIZ_USES_3D.includes(n)), 'VIZ_SCENES ⊆ VIZ_USES_3D');
+  // Every WebGL effect is a kit scene, so one renderer is shared and none leaks (TIM-16, O-08).
+  // Two things keep it so: the two lists hold the same names, and no file but the kit makes a
+  // renderer or asks a canvas for a WebGL context. (vendor/ is three.js itself.)
+  {
+    const strays = T.VIZ_USES_3D.filter((n) => !T.VIZ_SCENES.includes(n));
+    ok(strays.length === 0 && new Set(T.VIZ_USES_3D).size === T.VIZ_USES_3D.length && new Set(T.VIZ_SCENES).size === T.VIZ_SCENES.length && T.VIZ_USES_3D.length === T.VIZ_SCENES.length,
+      `VIZ_USES_3D and VIZ_SCENES hold the same names, each once${strays.length ? ' — 3D BUT NOT A SCENE: ' + strays.join(',') : ''}`);
+    const overlayDir = resolve(__dirname, 'overlay');
+    const texts = [];
+    const walk = async (dir) => {
+      for (const e of await readdir(dir, { withFileTypes: true })) {
+        const p = resolve(dir, e.name);
+        if (e.isDirectory()) { if (e.name !== 'vendor') await walk(p); }
+        else if (/\.(js|mjs|html|css)$/.test(e.name)) texts.push([relative(overlayDir, p).replace(/\\/g, '/'), await readFile(p, 'utf8')]);
+      }
+    };
+    await walk(overlayDir);
+    const RENDERER = /WebGLRenderer/, CONTEXT = /['"`](?:webgl2?|experimental-webgl2?)['"`]/;
+    const kit = texts.find(([f]) => f === 'scene-kit.js');
+    const leaks = texts.filter(([f, t]) => f !== 'scene-kit.js' && (RENDERER.test(t) || CONTEXT.test(t))).map(([f]) => f);
+    ok(texts.length > 80 && !!kit && RENDERER.test(kit[1]) && CONTEXT.test(kit[1]) && leaks.length === 0,
+      `only scene-kit.js makes a WebGL renderer or asks for a WebGL context (${texts.length} files under overlay/ read)${leaks.length ? ' — ALSO: ' + leaks.join(',') : ''}`);
+  }
   ok(T.VIZ_SCENES.includes('thanksgiving-harvest'), 'thanksgiving-harvest is a kit scene');
   ok(JSON.stringify(T.DEFAULT_PER_VIZ['thanksgiving-harvest']) === '{"candleGlow":50,"leafDensity":50,"cameraDrift":50}', 'thanksgiving knobs');
   ok(T.VIZ_SCENES.indexOf('winter-aurora') === 1 && T.VIZ_SCENES.indexOf('thanksgiving-harvest') === 0, 'winter-aurora is the second kit scene');
@@ -200,6 +263,37 @@ console.log('\n[2] sanitizeConfig');
     && JSON.stringify(oldFlags.perViz['july-fourth-stripes']) === '{"wind":50,"starTwinkle":10,"burstChance":100,"cameraDrift":50}', 'a saved pre-redesign flag config keeps its hearts, stripes, stars and bursts, drops the retired amplitudes and clamps');
   const oldAurora = T.sanitizeConfig({ perViz: { 'winter-aurora': { ribbonCount: 80, starDensity: 20, mountainOpacity: 10, snowfall: 400 } } });
   ok(JSON.stringify(oldAurora.perViz['winter-aurora']) === '{"auroraGlow":50,"snowfall":100,"starDensity":20,"cameraDrift":50}', 'a saved pre-redesign winter-aurora config keeps starDensity, drops the retired knobs and clamps');
+}
+// Every range in the tables, one by one: far above it gives the top, far below gives the
+// bottom, and a value inside is left alone. The list is built from the tables, so a new
+// setting is covered the day it is added, and breaking any one clamp fails here.
+{
+  const FAR = 1e9, bad = [];
+  let tried = 0;
+  const range = (label, lo, hi, run) => {
+    tried++;
+    const mid = Math.round((lo + hi) / 2);
+    if (run(FAR) !== hi) bad.push(label + ' above');
+    if (run(-FAR) !== lo) bad.push(label + ' below');
+    if (run(mid) !== mid) bad.push(label + ' inside');
+  };
+  for (const [k, r] of Object.entries(T.TOP_RANGES)) range(k, r.min, r.max, (v) => T.sanitizeConfig({ [k]: v })[k]);
+  for (const [k, r] of Object.entries(T.PLACEMENT_RANGES)) range('placement.' + k, r.min, r.max, (v) => T.sanitizeConfig({ placement: { [k]: v } }).placement[k]);
+  range('afterglow', T.AFTERGLOW_RANGE.min, T.AFTERGLOW_RANGE.max, (v) => T.sanitizeConfig({ afterglow: v }).afterglow);
+  for (const [name, knobs] of Object.entries(T.DEFAULT_PER_VIZ)) {
+    for (const [k, dflt] of Object.entries(knobs)) {
+      const label = 'perViz.' + name + '.' + k, get = (v) => T.sanitizeConfig({ perViz: { [name]: { [k]: v } } }).perViz[name][k];
+      if (typeof dflt === 'number') range(label, 0, (T.PER_VIZ_MAX[name] && T.PER_VIZ_MAX[name][k]) || 100, get);
+      else {
+        tried++;
+        if (get('x'.repeat(T.MAX_STRING + 50)).length !== T.MAX_STRING) bad.push(label + ' cap');
+        if (get('kept') !== 'kept') bad.push(label + ' inside');
+        if (get(7) !== dflt) bad.push(label + ' type');
+      }
+    }
+  }
+  for (const k of ['deviceId', 'label']) { tried++; if (T.sanitizeConfig({ mic: { [k]: 'm'.repeat(300) } }).mic[k].length !== 256) bad.push('mic.' + k + ' cap'); }
+  ok(bad.length === 0 && tried > 150, `every range in the tables clamps at both ends and leaves a value inside it alone (${tried} settings tried)${bad.length ? ' — WRONG: ' + bad.slice(0, 8).join(', ') : ''}`);
 }
 ok(JSON.stringify(T.defaultConfig().perViz.dna) === JSON.stringify({ helixFreq: 50, shatterSensitivity: 50, reconnectSeconds: 3 }), 'dna defaults: helixFreq 50, shatterSensitivity 50, reconnectSeconds 3');
 {
@@ -6981,13 +7075,17 @@ await import('./overlay/christmas-tree.js');
 // ── 4. Live transport seam (mock SB + real panel-client-sb.js) ───────────────
 console.log('\n[4] transport seam vs mock');
 {
-  const mock = spawn(process.execPath, [resolve(__dirname, 'mock-sb-server.mjs')], {
-    env: { ...process.env, SB_HTTP_PORT: String(HTTP_PORT), SB_WS_PORT: String(WS_PORT) },
-    stdio: ['ignore', 'pipe', 'inherit'],
+  // stdin is a pipe the mock watches (MOCK_EXIT_WITH_PARENT): if this process is killed
+  // outright, the pipe closes and the mock exits by itself.
+  const mock = mockChild = spawn(process.execPath, [resolve(__dirname, 'mock-sb-server.mjs')], {
+    env: { ...process.env, SB_HTTP_PORT: String(HTTP_PORT), SB_WS_PORT: String(WS_PORT), MOCK_EXIT_WITH_PARENT: '1', MOCK_ARG_BLEED: '' },
+    stdio: ['pipe', 'pipe', 'inherit'],
   });
   await new Promise((res, rej) => {
-    const t = setTimeout(() => rej(new Error('mock did not start')), 8000);
-    mock.stdout.on('data', (d) => { if (String(d).includes('Streamer.bot mock')) { clearTimeout(t); res(); } });
+    let out = '';
+    const t = setTimeout(() => rej(new Error('mock did not start in 8 s\n' + out)), 8000);
+    mock.stdout.on('data', (d) => { out += d; if (out.includes('[mock] HTTP') && out.includes('[mock] WS')) { clearTimeout(t); res(); } });
+    mock.on('exit', (code) => { clearTimeout(t); rej(new Error('mock exited with code ' + code + ' before it was ready\n' + out)); });
   });
 
   const { WebSocket } = await import('ws');
@@ -7056,6 +7154,145 @@ console.log('\n[4] transport seam vs mock');
   });
   ok(wrongCase === false, 'capitalized Subscribe source gets no events (case gotcha guarded)');
 
+  // ── The mock against what Streamer.bot 1.0.7 was measured to do ───────────
+  // (Tally's Sprint 0, _audits/2026-11-18/01-tally-scorebug-remediation-plan.md.)
+  const get = async (path) => {
+    try { const r = await fetch(`http://127.0.0.1:${HTTP_PORT}${path}`); return { status: r.status, type: r.headers.get('content-type') || '', text: await r.text() }; }
+    catch (e) { return { status: 0, type: '', text: String(e && e.message) }; }
+  };
+  const stats = async () => { try { return JSON.parse((await get('/mock/stats')).text); } catch { return {}; } };
+  const until = async (fn, ms = 2000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (fn()) return true; await wait(10); } return fn(); };
+  // A raw client. frames: every frame as text; events: the data of each General.Custom
+  // event that parsed; replies: request id → reply; closed: the close code.
+  const client = ({ origin, subscribe = true } = {}) => new Promise((res, rej) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${WS_PORT}/`, origin ? { origin } : undefined);
+    const c = { ws, frames: [], events: [], replies: new Map(), closed: null };
+    ws.on('message', (raw) => {
+      const text = raw.toString(); c.frames.push(text);
+      let m = null; try { m = JSON.parse(text); } catch { return; }
+      if (m && m.event) c.events.push(m.data); else if (m && m.id != null) c.replies.set(m.id, m);
+    });
+    ws.on('close', (code) => { c.closed = code; });
+    ws.on('error', (e) => rej(e));
+    ws.on('open', async () => {
+      if (subscribe) { ws.send(JSON.stringify({ request: 'Subscribe', id: 'sub', events: { general: ['Custom'] } })); await until(() => c.replies.has('sub')); }
+      res(c);
+    });
+  });
+  let lastId = 0;
+  const request = (c, name, args) => { const id = 'r' + (++lastId); c.ws.send(JSON.stringify({ request: 'DoAction', id, action: { name }, args })); return id; };
+  const doAction = async (c, name, args) => { const id = request(c, name, args); await until(() => c.replies.has(id)); return c.replies.get(id); };
+  const a = await client(), b = await client();
+  const clear = () => { for (const c of [a, b]) { c.frames.length = 0; c.events.length = 0; } };
+  const vizOf = (c) => c.events.map((e) => (e.type === 'timbre:config' ? e.config.activeViz : e.type)).join();
+
+  // The reply, and who gets a sync replay.
+  const queued = await doAction(a, 'Timbre Push', { reason: 'overlay-connect', tag: 't1' });
+  ok(!!queued && queued.status === 'ok' && !!queued.args && queued.args.reason === 'overlay-connect' && queued.args.tag === 't1' && queued.args.actionName === 'Timbre Push'
+    && typeof queued.args.queueName === 'string' && queued.args.queueName !== '' && queued.args.queueName !== 'Default'
+    && typeof queued.args.actionId === 'string' && typeof queued.args.runningActionId === 'string' && !Number.isNaN(Date.parse(queued.args.actionQueuedAt)),
+    'a DoAction is answered as Streamer.bot answers it: ok, with the request\'s own args plus actionId, actionName, queueName, runningActionId and actionQueuedAt');
+  await until(() => a.events.length > 0 && b.events.length > 0, 600);
+  ok(vizOf(a) === 'matrix' && vizOf(b) === 'matrix', 'a sync replay is a broadcast: every subscriber gets it, not only the one that asked');
+  const unknown = await doAction(a, 'No Such Action', { tag: 't2' });
+  ok(!!unknown && unknown.status === 'error' && unknown.error === "The action 'No Such Action' was not found" && !('args' in unknown), 'an action that does not exist gets the error reply');
+
+  // What the action stores: the text as sent, after the same two-character check the C# makes.
+  clear();
+  const asSent = '  {"activeViz":"matrix","bars":999,"gain":150,"notAKnob":true}\n';
+  await doAction(a, 'Timbre Push', { config: asSent });
+  await until(() => b.events.length > 0, 600);
+  ok(b.events.length === 1 && JSON.stringify(b.events[0]) === '{"type":"timbre:config","config":{"activeViz":"matrix","bars":999,"gain":150,"notAKnob":true}}' && (await stats()).cachedConfig === asSent.trim(),
+    'a pushed config is stored and broadcast as it was sent (trimmed, not sanitized): out-of-range values and unknown keys reach the pages, as they do from Streamer.bot');
+  {
+    const outcomes = [];
+    for (const text of ['[1,2]', '{"a":1', '"a":1}', '   ', 'null', '{} x']) {
+      clear();
+      const r = await doAction(a, 'Timbre Push', { config: text });
+      await wait(60);
+      outcomes.push(!!r && r.status === 'ok' && a.events.length === 0 && b.frames.length === 0 && (await stats()).cachedConfig === asSent.trim());
+    }
+    ok(outcomes.every(Boolean), 'a config that does not start with { and end with } is refused by the action: the reply is still ok (it was queued), nothing is broadcast and the stored config stays — ' + outcomes.join());
+  }
+  clear();
+  await doAction(a, 'Timbre Push', { config: '' });
+  await until(() => b.events.length > 0, 600);
+  ok(b.events.length === 1 && b.events[0].type === 'timbre:config' && b.events[0].config.bars === 999, 'an empty config argument is a sync request, as in the C#');
+  clear();
+  await doAction(a, 'Timbre Push', { config: '{not json}' });
+  await wait(80);
+  ok(a.events.length === 0 && b.events.length === 0 && (await stats()).cachedConfig === '{not json}', 'text in braces that is not JSON passes the two-character check and is stored (TIM-05); no page gets a config it can read');
+  const good = JSON.stringify({ activeViz: 'matrix', gain: 150 });
+  await doAction(a, 'Timbre Push', { config: good });
+  await until(() => b.events.length > 0, 600);
+
+  // The switches: the action throws; the action is not there.
+  await get('/mock/throw?on=1');
+  clear();
+  const thrown = await doAction(a, 'Timbre Push', { config: JSON.stringify({ activeViz: 'waveform' }) });
+  await until(() => a.events.length > 0 && b.events.length > 0, 600);
+  ok(!!thrown && thrown.status === 'ok' && a.events.length === 1 && b.events.length === 1 && b.events[0].type === 'timbre:error' && typeof b.events[0].message === 'string' && b.events[0].message !== ''
+    && (await stats()).cachedConfig === good, 'with the throw switch on, a run broadcasts timbre:error with a message, and no config is stored or sent');
+  await get('/mock/throw?on=0');
+  await get('/mock/missing?on=1');
+  const gone = await doAction(a, 'Timbre Push', { reason: 'overlay-connect' });
+  await get('/mock/missing?on=0');
+  const back = await doAction(a, 'Timbre Push', { reason: 'overlay-connect' });
+  ok(!!gone && gone.status === 'error' && gone.error === "The action 'Timbre Push' was not found" && !!back && back.status === 'ok', 'with the missing switch on, Timbre Push itself gets the error reply');
+
+  // Overlap mode: the Default queue as measured. Runs of one action that land together all
+  // see one request's arguments (the later one's).
+  const cfgA = JSON.stringify({ activeViz: 'waveform' }), cfgB = JSON.stringify({ activeViz: 'dna' });
+  await wait(100);
+  await get('/mock/bleed?on=1');
+  clear();
+  const o1 = request(a, 'Timbre Push', { config: cfgA }), o2 = request(a, 'Timbre Push', { config: cfgB });
+  await until(() => b.events.length >= 2, 1000);
+  await wait(60);
+  const bledRuns = ((await stats()).runs || []).slice(-2);
+  ok(vizOf(b) === 'dna,dna' && !!a.replies.get(o1) && !!a.replies.get(o1).args && a.replies.get(o1).args.queueName === 'Default' && a.replies.get(o2).args.queueName === 'Default' && a.replies.get(o1).args.config === cfgA
+    && bledRuns.length === 2 && bledRuns.every((r) => r.bled === true && r.did === 'push'),
+    'overlap mode: two pushes sent back to back both run with the later one\'s config, while each reply still echoes its own (the queue is named Default)');
+  clear();
+  request(a, 'Timbre Push', { config: cfgA }); request(a, 'Timbre Push', { reason: 'overlay-connect' });
+  await until(() => b.events.length >= 2, 1000);
+  await wait(60);
+  ok(vizOf(b) === 'dna,dna' && (await stats()).cachedConfig === cfgB && ((await stats()).runs || []).slice(-2).every((r) => r.bled === true && r.did === 'sync'),
+    'overlap mode: a push that lands with a sync request is lost — both runs are syncs and replay the older config (TIM-01)');
+  await get('/mock/bleed?on=0');
+  clear();
+  const o3 = request(a, 'Timbre Push', { config: cfgA }); request(a, 'Timbre Push', { config: cfgB });
+  await until(() => b.events.length >= 2, 1000);
+  await wait(60);
+  ok(vizOf(b) === 'waveform,dna' && !!a.replies.get(o3) && !!a.replies.get(o3).args && a.replies.get(o3).args.queueName !== 'Default' && ((await stats()).runs || []).slice(-2).every((r) => r.bled === false),
+    'overlap mode off (a blocking queue): each run keeps its own arguments, in the order sent');
+
+  // What the mock serves: Streamer.bot 1.0.7 gives .svg, .woff and .woff2 no type of their own.
+  const font = await get('/timbre-overlay/fonts/audiowide.woff2'), css = await get('/timbre-overlay/timbre.css'), js = await get('/timbre-shared/viz-config.js');
+  ok(font.status === 200 && font.type === 'application/octet-stream' && /^text\/css/.test(css.type) && /^application\/javascript/.test(js.type), 'the font file is served as application/octet-stream, as Streamer.bot serves it; .css and .js keep their types — ' + font.type);
+
+  // TIM-07: none of these may bring the mock down. They run last, because each one used to.
+  const junk = await client({ subscribe: false });
+  for (const frame of ['null', '5', '"text"', '[]', 'true', '{', '']) junk.ws.send(frame);
+  junk.ws.send(Buffer.from([0xff, 0xfe, 0x00]));
+  junk.ws.send(JSON.stringify({ request: 'DoAction', id: 'n1' }));
+  junk.ws.send(JSON.stringify({ request: 'DoAction', id: 'n2', action: { name: 'Timbre Push' }, args: 'text' }));
+  junk.ws.send(JSON.stringify({ request: 'Subscribe', id: 'n3' }));
+  await until(() => junk.replies.has('n3'), 1500);
+  ok(junk.replies.size === 3 && junk.replies.get('n1').status === 'error' && junk.replies.get('n2').status === 'ok' && junk.replies.get('n3').status === 'ok' && junk.closed === null,
+    'frames that parse to null, a number, a string or an array, frames that do not parse, and requests with parts missing are ignored or answered; the connection stays open');
+  const big = await client({ subscribe: false }).catch(() => null);
+  const before = (await stats()).cachedConfig;
+  if (big) big.ws.send(JSON.stringify({ request: 'DoAction', id: 'big', action: { name: 'Timbre Push' }, args: { config: '{"pad":"' + 'x'.repeat(2 * 1024 * 1024) + '"}' } }));
+  await until(() => !big || big.closed !== null, 3000);
+  ok(!!big && big.closed === 1009 && typeof before === 'string' && (await stats()).cachedConfig === before, 'a frame over the payload limit (1 MiB) closes that connection with code 1009; nothing is stored and the mock stays up — closed ' + (big && big.closed));
+  const tryOrigin = (origin) => client({ origin, subscribe: false }).then((c) => { c.ws.close(); return 'let in'; }, (e) => String(e.message));
+  const foreign = await tryOrigin('https://evil.example'), own = await tryOrigin(`http://127.0.0.1:${HTTP_PORT}`), local = await tryOrigin('file://');
+  ok(/403/.test(foreign) && own === 'let in' && local === 'let in', `a browser page from another site is refused (${foreign}); the mock's own pages, local files and clients that send no Origin (this suite) are let in`);
+  const badEscape = await get('/%'), badUtf8 = await get('/timbre-overlay/%E0%A4%A'), home = await get('/');
+  ok(badEscape.status === 400 && badUtf8.status === 400 && home.status === 200 && mock.exitCode === null, `a path with a bad percent-escape gets a 400 and the mock stays up (${badEscape.status}, ${badUtf8.status}, then ${home.status})`);
+
+  for (const c of [a, b, junk, big]) { try { if (c) c.ws.close(); } catch {} }
   ctl.close();
   mock.kill();
 }
