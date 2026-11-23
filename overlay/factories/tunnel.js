@@ -7,6 +7,9 @@ VIZ_FACTORIES['tunnel'] = function () {
   const FOCAL = 110 * SCALE;
   const NEAR = 4;
   const HIST = RINGS + 2;
+  const VEIL = 0.22;                           // the share a 60 fps frame's fade takes off the trail, at Trail veil 100
+  const BEND_RATE = -60 * Math.log(1 - 0.14);  // the bend closes 14% of the way to its target over a 60 fps frame
+  const WASH = 8;                              // the wash over the walls is painted at an eighth of the size
   /* Loudness sampled as each rib spawns at the far end, indexed by stable ring id,
      so pulses ride the ribs toward the viewer instead of flickering in place. */
   const pulseHist = new Float32Array(HIST);
@@ -14,28 +17,27 @@ VIZ_FACTORIES['tunnel'] = function () {
   let bendX = 0, bendY = 0, bendTargetX = 0, bendTargetY = 0;
   let nextBendChangeAt = 0;
   let scrollProgress = 0;
-  let lastFrame = performance.now();
+  let wash = null, washCtx = null;
+  /* The alpha to paint with over a trail, so that what stands still is as bright at any frame
+     rate. `alpha` is what is painted at 60 fps, `veil` the share a 60 fps frame's fade takes
+     off, `share` what this frame's fade took off (fadeOrClear's answer). At 60 fps, and when
+     the canvas is cleared instead, it is `alpha` itself. */
+  function trailAlpha(alpha, veil, share) {
+    if (!(veil > 0.001) || veil >= 1 || share >= 1 || Math.abs(share - veil) < 1e-9) return alpha;
+    const settled = alpha / (1 - (1 - alpha) * (1 - veil));
+    return (settled * share) / (1 - (1 - share) * settled);
+  }
   return {
     start() {
       bendX = 0; bendY = 0; bendTargetX = 0; bendTargetY = 0;
       nextBendChangeAt = 0; scrollProgress = 0; roll = 0;
       pulseHist.fill(0);
-      lastFrame = performance.now();
     },
-    draw(now) {
-      const dt = Math.min(0.1, (now - lastFrame) / 1000);
-      lastFrame = now;
+    draw(now, dt) {
       const cfgBend = perViz['tunnel'].bend;
-      const fadeAmount = 0.22 * cfgEffectBgOpacity;
-      if (fadeAmount > 0.001) {
-        ctx.save();
-        ctx.globalCompositeOperation = 'destination-out';
-        ctx.fillStyle = `rgba(0, 0, 0, ${fadeAmount})`;
-        ctx.fillRect(0, 0, W, H);
-        ctx.restore();
-      } else {
-        ctx.clearRect(0, 0, W, H);
-      }
+      const veil = VEIL * cfgEffectBgOpacity;
+      const trails = veil > 0.001;
+      const share = fadeOrClear(veil, dt);
       let loudness = 0;
       if (micActive && frequencies) {
         let sum = 0;
@@ -50,9 +52,8 @@ VIZ_FACTORIES['tunnel'] = function () {
         bendTargetY = (Math.random() * 2 - 1) * bendMag * 0.6;
         nextBendChangeAt = now + 350 + Math.random() * 600;
       }
-      const ema = 0.14;
-      bendX += (bendTargetX - bendX) * ema;
-      bendY += (bendTargetY - bendY) * ema;
+      bendX = ema(bendX, bendTargetX, BEND_RATE, dt);
+      bendY = ema(bendY, bendTargetY, BEND_RATE, dt);
       const speed = 4 + loudness * 36;
       scrollProgress += speed * dt;
       roll += dt * (0.12 + loudness * 0.9);
@@ -91,28 +92,45 @@ VIZ_FACTORIES['tunnel'] = function () {
         const rgb = getColor(colorT + 0.5);
         const glowR = Math.max(6 * SCALE, far.rad * 3.5);
         /* Trail fade accumulates repeated fills ~4x; compensate when trails are off. */
-        const glowA = (fadeAmount > 0.001 ? 0.05 : 0.15) * (0.6 + loudness);
+        const glowA = trailAlpha((trails ? 0.05 : 0.15) * (0.6 + loudness), veil, share);
         const g = ctx.createRadialGradient(far.cx, far.cy, 0, far.cx, far.cy, glowR);
         g.addColorStop(0, `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${glowA})`);
         g.addColorStop(1, `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0)`);
         ctx.fillStyle = g;
         ctx.fillRect(far.cx - glowR, far.cy - glowR, glowR * 2, glowR * 2);
         /* Faint wall wash — dark bore at the vanishing point, brighter toward
-           the near walls, so the tube reads as volume, not concentric circles. */
-        const wallA = (fadeAmount > 0.001 ? 0.02 : 0.05) * (0.7 + loudness);
-        const wg = ctx.createRadialGradient(far.cx, far.cy, far.rad * 2, far.cx, far.cy, Math.max(W, H) * 0.8);
+           the near walls, so the tube reads as volume, not concentric circles.
+           It is so smooth and so faint that it is painted small, on a canvas of
+           its own, and enlarged: a gradient over every pixel of the big canvas
+           was most of what this effect cost. The small canvas holds it at full
+           strength and it is drawn at its own faint alpha, so that none of its
+           few levels are lost on the way. */
+        const wallA = trailAlpha((trails ? 0.02 : 0.05) * (0.7 + loudness), veil, share);
+        const washW = Math.ceil(W / WASH), washH = Math.ceil(H / WASH);
+        if (!wash || wash.width !== washW || wash.height !== washH) {
+          wash = document.createElement('canvas');
+          wash.width = washW; wash.height = washH;
+          washCtx = wash.getContext('2d');
+          washCtx.globalCompositeOperation = 'copy';   // each fill replaces what was there
+        }
+        const wg = washCtx.createRadialGradient(far.cx / WASH, far.cy / WASH, (far.rad * 2) / WASH, far.cx / WASH, far.cy / WASH, (Math.max(W, H) * 0.8) / WASH);
         wg.addColorStop(0, `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0)`);
-        wg.addColorStop(1, `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${wallA})`);
-        ctx.fillStyle = wg;
-        ctx.fillRect(0, 0, W, H);
+        wg.addColorStop(1, `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`);
+        washCtx.fillStyle = wg;
+        washCtx.fillRect(0, 0, washW, washH);
+        ctx.globalAlpha = wallA;
+        ctx.drawImage(wash, 0, 0, washW * WASH, washH * WASH);
+        ctx.globalAlpha = 1;
       }
+      /* The ribs and the rails take their colours from the palette table and their
+         alpha from globalAlpha, so no colour string is built for a stroke. */
       for (let i = 0; i < rings.length; i++) {
         const ring = rings[i];
         const prox = 1 - ring.r / (RINGS - 1);
         const depthCurve = prox * prox;
         const nearFade = Math.min(1, (ring.z - NEAR) / 6);
-        const rgb = getColor(colorT + 0.5 + ring.ringId * 0.07);
-        ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${(0.05 + depthCurve * 0.32) * nearFade})`;
+        ctx.strokeStyle = getColorCss(colorT + 0.5 + ring.ringId * 0.07);
+        ctx.globalAlpha = trailAlpha((0.05 + depthCurve * 0.32) * nearFade, veil, share);
         ctx.lineWidth = (0.6 + depthCurve * 2.6) * SCALE;
         ctx.beginPath();
         ctx.arc(ring.cx, ring.cy, ring.rad, 0, Math.PI * 2);
@@ -129,31 +147,33 @@ VIZ_FACTORIES['tunnel'] = function () {
       }
       /* Wall rails, stroked per segment with width and alpha ∝ 1/z so they taper
          and fade into the vanishing point — full-brightness polylines converge
-         into a spoke knot at the center and read as a wheel, not a pipe. */
+         into a spoke knot at the center and read as a wheel, not a pipe.
+         A rail is one colour, set once; each of its segments is one path, stroked
+         twice: wide and faint, then narrow and bright. */
       ctx.lineCap = 'round';
       for (let s = 0; s < STREAKS; s++) {
         const pts = streakPoints[s];
         if (pts.length < 2) continue;
-        const rgb = getColor(colorT + (s / STREAKS) * 1.6);
+        ctx.strokeStyle = getColorCss(colorT + (s / STREAKS) * 1.6);
         const amp = streakAmp(s);
         const railW = (1.6 + amp * 2.6) * SCALE;
         for (let i = 0; i + 1 < pts.length; i++) {
           const persp = RING_SPACING * 2 / (pts[i].z + pts[i + 1].z);
           const reach = Math.min(1, persp * 2.4);
-          ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${reach * (0.14 + amp * 0.4)})`;
+          ctx.beginPath();
+          ctx.moveTo(pts[i].sx, pts[i].sy);
+          ctx.lineTo(pts[i + 1].sx, pts[i + 1].sy);
+          ctx.globalAlpha = trailAlpha(reach * (0.14 + amp * 0.4), veil, share);
           ctx.lineWidth = Math.max(0.5, railW * persp * 2);
-          ctx.beginPath();
-          ctx.moveTo(pts[i].sx, pts[i].sy);
-          ctx.lineTo(pts[i + 1].sx, pts[i + 1].sy);
           ctx.stroke();
-          ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${reach * (0.35 + amp * 0.55)})`;
+          ctx.globalAlpha = trailAlpha(reach * (0.35 + amp * 0.55), veil, share);
           ctx.lineWidth = Math.max(0.4, railW * persp * 0.8);
-          ctx.beginPath();
-          ctx.moveTo(pts[i].sx, pts[i].sy);
-          ctx.lineTo(pts[i + 1].sx, pts[i + 1].sy);
           ctx.stroke();
         }
       }
+      ctx.globalAlpha = 1;
     },
+    /* For the checks: the bend and what it is making for. */
+    probe() { return { bendX, bendY, targetX: bendTargetX, targetY: bendTargetY }; },
   };
 };

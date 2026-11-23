@@ -114,6 +114,14 @@
 //      request resolves, granted in either order; a stale failure; the request
 //      in force failing and its retry; an old track ending; and stop(), also
 //      with a request still waiting. (Runs before section 4.)
+//  31. The eight 2D effects of Sprint 6, from their files: the seven that move
+//      take their time from the dt handed to draw(); the six that leave a trail
+//      fade it with fadeOrClear; the five that repaint lines over one share one
+//      trailAlpha, word for word, and it is run: the alpha it is given at 60
+//      frames a second, and the same settled brightness at 30, 60 and 165; the
+//      spectrogram's one `copy` draw; no shadowBlur in the four files named in
+//      O-03; the three mirrored meshes mirror about the mesh's own middle.
+//      (Runs before section 4. What these effects draw is in verify-render.mjs.)
 //
 // The suite refuses to start when something already answers on its side ports
 // (a mock left over from a run that was killed), and stops its own mock when it
@@ -8061,6 +8069,43 @@ console.log('\n[30] audio capture: one microphone request at a time');
         `stop() then start() while the first request is still waiting, granted ${order[0] === 0 ? 'oldest' : 'newest'} first: the one session is the second request's, and stop() then leaves nothing — ${said}`);
     }
   }
+}
+
+// ── 31. The 2D effects that stay (Sprint 6): what their files hold ──────────
+console.log('\n[31] the eight 2D effects of Sprint 6: time from dt, one trail arithmetic');
+{
+  const NAMES = ['spectrogram', 'matrix', 'mountains-2d', 'vaporwave', 'peaks-mirror', 'galaxy-ripple', 'tunnel', 'sine-bars'];
+  const src = {};
+  for (const n of NAMES) src[n] = await readFile(resolve(__dirname, `overlay/factories/${n}.js`), 'utf8');
+
+  // R-05, D-06. (Sine Bars keeps nothing from frame to frame but its afterglow, which is timed already.)
+  ok(NAMES.filter((n) => n !== 'sine-bars').every((n) => /\bdraw\(now, dt\)/.test(src[n]) && !/lastFrame/.test(src[n])),
+    'the seven that move take their frame time from the dt the core hands draw(), and keep no clock of their own (before: six worked dt out again from the time, and the spectrogram scrolled a step a frame)');
+  const TRAILS = ['matrix', 'mountains-2d', 'vaporwave', 'peaks-mirror', 'galaxy-ripple', 'tunnel'];
+  ok(TRAILS.every((n) => /fadeOrClear\(/.test(src[n]) && !/destination-out/.test(src[n])),
+    'the six that leave a trail fade it with fadeOrClear (before: each took a fixed share off every frame, whatever its length)');
+
+  // What is painted over a trail. The five that repaint their lines every frame hold one function, word for word.
+  const PAINT = TRAILS.filter((n) => n !== 'matrix');
+  const bodies = PAINT.map((n) => { const m = /function trailAlpha\(alpha, veil, share\) \{[\s\S]*?\n  \}/.exec(src[n]); return m ? m[0].replace(/\r/g, '') : ''; });
+  ok(bodies[0].length > 0 && bodies.every((b) => b === bodies[0]), 'the five that repaint their lines over a trail hold the same trailAlpha, word for word');
+  // The effect file's own text, run by itself (it reads nothing but its three numbers).
+  const trailAlpha = bodies[0] ? (await import('node:vm')).runInNewContext(bodies[0] + '\ntrailAlpha;', {}) : () => NaN;
+  // A line repainted every frame at alpha a, over a trail that loses `share` a frame, settles at a / (1 - (1 - a)(1 - share)).
+  // fadeOrClear's share for a frame of 1/fps seconds is 1 - (1 - veil)^(60 / fps).
+  const settled = (fps, a, veil) => { const share = 1 - Math.pow(1 - veil, 60 / fps), paint = trailAlpha(a, veil, share); let on = 0; for (let i = 0; i < fps * 20; i++) on = paint + (1 - paint) * on * (1 - share); return on; };
+  const cases = [[0.35, 0.55], [0.18, 0.55], [0.9, 0.22], [0.05, 0.22], [1, 0.45], [0.6, 0.35]];
+  const worst = Math.max(...cases.map(([a, v]) => Math.max(Math.abs(settled(30, a, v) - settled(60, a, v)), Math.abs(settled(165, a, v) - settled(60, a, v)))));
+  ok(cases.every(([a, v]) => trailAlpha(a, v, v) === a && Math.abs(settled(60, a, v) - a / (1 - (1 - a) * (1 - v))) < 1e-12) && worst < 1e-12
+    && trailAlpha(0.4, 0, 1) === 0.4 && trailAlpha(0.4, 0.3, 1) === 0.4 && trailAlpha(0, 0.5, 0.2) === 0 && Math.abs(trailAlpha(1, 0.5, 0.2) - 1) < 1e-12 && trailAlpha(0.3, 0.5, 0.2) < 0.3 && trailAlpha(0.3, 0.5, 0.8) > 0.3,
+    `trailAlpha: at 60 frames a second it is the alpha it is given, to the digit; a line repainted every frame settles at the same brightness at 30, 60 and 165 (worst difference ${worst.toExponential(1)}); with the canvas cleared, or no veil, it is the alpha it is given; a shorter frame paints fainter and a longer one stronger`);
+
+  // D-14 and O-07, O-03, D-20: what the files no longer hold.
+  ok(/globalCompositeOperation = 'copy'/.test(src.spectrogram) && /drawImage\(canvas2d, -step, 0\)/.test(src.spectrogram) && !/createElement/.test(src.spectrogram),
+    'the spectrogram moves its history with one `copy` draw of the canvas onto itself, and makes no second canvas');
+  ok(['sine-bars', 'peaks-mirror', 'tunnel', 'mountains-2d'].every((n) => !/shadowBlur\s*=/.test(src[n])), 'sine-bars, peaks-mirror, tunnel and mountains-2d set no shadowBlur (before: sine-bars and peaks-mirror set one every frame)');
+  ok(['mountains-2d', 'vaporwave', 'peaks-mirror'].every((n) => /const mid = \(GRID_W - 1\) \/ 2;/.test(src[n]) && /Math\.abs\(i - mid\) - 0\.5/.test(src[n]) && !/Math\.abs\(i - GRID_W \/ 2\)/.test(src[n])),
+    'the three mirrored meshes mirror the spectrum about the middle of the mesh, between its two middle columns (before: about column 11, half a column to the right)');
 }
 
 // ── 4. Live transport seam (mock SB + real panel-client-sb.js) ───────────────

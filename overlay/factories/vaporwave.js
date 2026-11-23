@@ -12,15 +12,17 @@ VIZ_FACTORIES['vaporwave'] = function () {
   const RAIL_COUNT = 14;
   let heightRows = null;
   let scrollProgress = 0;
-  let lastFrame = performance.now();
   let stars = [];
   function sampleHeights(now) {
     const out = new Array(GRID_W).fill(0);
     if (micActive && frequencies && frequencies.length > 0) {
       const n = frequencies.length;
+      // The spectrum is mirrored about the middle of the mesh, which lies between its two
+      // middle columns: those two take the lowest bin and the two edges the highest.
+      const mid = (GRID_W - 1) / 2;
       for (let i = 0; i < GRID_W; i++) {
-        const dist = Math.abs(i - GRID_W / 2);
-        const binIdx = Math.min(n - 1, Math.floor((dist / (GRID_W / 2)) * (n - 1)));
+        const dist = Math.abs(i - mid) - 0.5;
+        const binIdx = Math.min(n - 1, Math.floor((dist / (mid - 0.5)) * (n - 1)));
         const v = (frequencies[binIdx] || 0) / 255 * cfgGain;
         out[i] = v * 36;
       }
@@ -38,6 +40,15 @@ VIZ_FACTORIES['vaporwave'] = function () {
       sx: W / 2 + (x / z) * FOCAL,
       sy: H / 2 + ((EYE_HEIGHT - y) / z) * FOCAL,
     };
+  }
+  /* The alpha to paint with over a trail, so that what stands still is as bright at any frame
+     rate. `alpha` is what is painted at 60 fps, `veil` the share a 60 fps frame's fade takes
+     off, `share` what this frame's fade took off (fadeOrClear's answer). At 60 fps, and when
+     the canvas is cleared instead, it is `alpha` itself. */
+  function trailAlpha(alpha, veil, share) {
+    if (!(veil > 0.001) || veil >= 1 || share >= 1 || Math.abs(share - veil) < 1e-9) return alpha;
+    const settled = alpha / (1 - (1 - alpha) * (1 - veil));
+    return (settled * share) / (1 - (1 - share) * settled);
   }
   function seedStars() {
     // Deterministic LCG so positions are stable across mount/unmount.
@@ -66,14 +77,14 @@ VIZ_FACTORIES['vaporwave'] = function () {
       const t0 = performance.now();
       for (let j = 0; j < GRID_D; j++) heightRows[j] = sampleHeights(t0);
       scrollProgress = 0;
-      lastFrame = t0;
       seedStars();
     },
     onResize() { seedStars(); },
-    draw(now) {
-      const dt = Math.min(0.1, (now - lastFrame) / 1000);
-      lastFrame = now;
+    draw(now, dt) {
       const sceneAlpha = cfgEffectBgOpacity;
+      // With the backdrop the canvas is cleared every frame; without it the lines leave a trail.
+      const VEIL = 0.45;
+      let share = 1;
       if (sceneAlpha > 0.05) {
         ctx.clearRect(0, 0, W, H);
         const sky = ctx.createLinearGradient(0, 0, 0, H);
@@ -124,12 +135,9 @@ VIZ_FACTORIES['vaporwave'] = function () {
       } else {
         // Transparent-canvas fallback: classic mountains-2d trail-fade so the wireframe
         // and grid overlay an OBS scene behind without the vaporwave backdrop.
-        ctx.save();
-        ctx.globalCompositeOperation = 'destination-out';
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-        ctx.fillRect(0, 0, W, H);
-        ctx.restore();
+        share = fadeOrClear(VEIL, dt);
       }
+      const over = (alpha) => trailAlpha(alpha, VEIL, share);
       const cellsPerSec = 0.4 + (perViz['vaporwave'].speed / 100) * 2.0;
       scrollProgress += cellsPerSec * dt;
       while (scrollProgress >= 1) {
@@ -154,7 +162,7 @@ VIZ_FACTORIES['vaporwave'] = function () {
       for (let j = GRID_D - 1; j >= 0; j--) {
         const depthFade = 0.40 + 0.60 * (1 - j / (GRID_D - 1));
         const rgb = getColor(colorT + (j / GRID_D) * 1.2);
-        ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${depthFade})`;
+        ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${over(depthFade)})`;
         ctx.beginPath();
         let started = false;
         for (let i = 0; i < GRID_W; i++) {
@@ -186,7 +194,7 @@ VIZ_FACTORIES['vaporwave'] = function () {
         if (!pL || !pR) continue;
         const distFade = Math.min(1, (pL.sy - H / 2) / (H / 3));
         if (distFade <= 0) continue;
-        ctx.strokeStyle = `rgba(${gridRgb[0]}, ${gridRgb[1]}, ${gridRgb[2]}, ${0.18 + 0.55 * distFade})`;
+        ctx.strokeStyle = `rgba(${gridRgb[0]}, ${gridRgb[1]}, ${gridRgb[2]}, ${over(0.18 + 0.55 * distFade)})`;
         ctx.beginPath();
         ctx.moveTo(pL.sx, pL.sy);
         ctx.lineTo(pR.sx, pR.sy);
@@ -195,7 +203,7 @@ VIZ_FACTORIES['vaporwave'] = function () {
       // Rails converging to the horizon vanishing point.
       const RAIL_NEAR_Z = NEAR + 0.5;
       const RAIL_FAR_Z = NEAR + GROUND_ROWS * CELL_D;
-      ctx.strokeStyle = `rgba(${gridRgb[0]}, ${gridRgb[1]}, ${gridRgb[2]}, 0.5)`;
+      ctx.strokeStyle = `rgba(${gridRgb[0]}, ${gridRgb[1]}, ${gridRgb[2]}, ${over(0.5)})`;
       for (let i = -RAIL_COUNT; i <= RAIL_COUNT; i++) {
         const x = i * CELL_W;
         const pN = project(x, 0, RAIL_NEAR_Z);
@@ -207,7 +215,7 @@ VIZ_FACTORIES['vaporwave'] = function () {
         ctx.stroke();
       }
       const horizonRgb = getColor(colorT + 2.5);
-      ctx.strokeStyle = `rgba(${horizonRgb[0]}, ${horizonRgb[1]}, ${horizonRgb[2]}, 0.55)`;
+      ctx.strokeStyle = `rgba(${horizonRgb[0]}, ${horizonRgb[1]}, ${horizonRgb[2]}, ${over(0.55)})`;
       ctx.beginPath();
       ctx.moveTo(0, H / 2);
       ctx.lineTo(W, H / 2);

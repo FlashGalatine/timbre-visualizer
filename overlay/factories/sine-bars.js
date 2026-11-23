@@ -3,6 +3,32 @@ VIZ_FACTORIES['sine-bars'] = function () {
   const BAR_GAP = Math.max(1, Math.round(1 * SCALE));
   const STEP = Math.max(2, Math.round(6 * SCALE));
   const ghosts = TimbreGlow.createBarGhosts();
+  /* The ribbon's glow. It was a shadowBlur of 10 × SCALE under the line; it is the same
+     glow painted as GLOW_STEPS strokes of the ribbon's own path, each wider and fainter than
+     the next, the widest first. A blurred line falls away as a bell curve does, so each
+     stroke's width and alpha are read off that curve, once, here. (Three strokes show as
+     three bands on the large pages; eight do not.) */
+  const RIBBON_W = Math.max(1, 2 * SCALE);
+  const GLOW_STEPS = 8;
+  const glowWidths = [], glowAlphas = [];
+  {
+    const sigma = 0.485 * 10 * SCALE;        // the browser's blur is a bell curve this wide
+    // The share of a bell curve's area that lies below x (x in widths of the curve).
+    const below = (x) => {
+      const u = Math.abs(x) / Math.SQRT2, t = 1 / (1 + 0.3275911 * u);
+      const erf = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-u * u);
+      return x < 0 ? 0.5 * (1 - erf) : 0.5 * (1 + erf);
+    };
+    let under = 0;   // the glow already painted where this stroke goes
+    for (let i = 0; i < GLOW_STEPS; i++) {
+      const outer = 2.6 * sigma * (1 - i / GLOW_STEPS), inner = 2.6 * sigma * (1 - (i + 1) / GLOW_STEPS);
+      const d = RIBBON_W / 2 + (outer + inner) / 2;   // the middle of the band this stroke adds, from the middle of the line
+      const lit = below((d + RIBBON_W / 2) / sigma) - below((d - RIBBON_W / 2) / sigma);
+      glowWidths.push(RIBBON_W + 2 * outer);
+      glowAlphas.push(1 - (1 - lit) / (1 - under));
+      under = lit;
+    }
+  }
   return {
     draw(tNow) {
       ctx.clearRect(0, 0, W, H);
@@ -45,24 +71,34 @@ VIZ_FACTORIES['sine-bars'] = function () {
       const ribbonAmp = (8 + (perViz['sine-bars'].ribbon / 100) * 32) * SCALE;
       const ribbonY = H * 0.32;
       const ribbonRgb = getColor(colorT + 0.5);
-      ctx.lineWidth = Math.max(1, 2 * SCALE);
       ctx.strokeStyle = `rgb(${ribbonRgb[0]}, ${ribbonRgb[1]}, ${ribbonRgb[2]})`;
-      ctx.shadowBlur = 10 * SCALE;
-      ctx.shadowColor = `rgb(${ribbonRgb[0]}, ${ribbonRgb[1]}, ${ribbonRgb[2]})`;
       const samples = (micActive && waveform && waveform.length > 0) ? waveform.length : 64;
-      ctx.beginPath();
-      for (let i = 0; i < samples; i++) {
-        const x = (i / (samples - 1)) * W;
+      const yAt = (i) => {
         let v;
         if (micActive && waveform) v = (waveform[i] - 128) / 128;
         else if (cfgIdleAnim) v = 0.4 * Math.sin((i / samples) * Math.PI * 4 + now / 350);
         else v = 0;
-        const y = ribbonY + v * ribbonAmp * cfgGain;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+        return ribbonY + v * ribbonAmp * cfgGain;
+      };
+      // The path runs on past both edges of the canvas, the way it was heading there, so
+      // that the glow's wide strokes do not end in sight.
+      const gap = W / (samples - 1), past = glowWidths[0] / 2;
+      ctx.beginPath();
+      ctx.moveTo(-past, yAt(0) - ((yAt(1) - yAt(0)) / gap) * past);
+      for (let i = 0; i < samples; i++) ctx.lineTo((i / (samples - 1)) * W, yAt(i));
+      ctx.lineTo(W + past, yAt(samples - 1) + ((yAt(samples - 1) - yAt(samples - 2)) / gap) * past);
+      // The glow, then the line itself, on the one path.
+      const join = ctx.lineJoin;
+      ctx.lineJoin = 'round';
+      for (let i = 0; i < GLOW_STEPS; i++) {
+        ctx.globalAlpha = glowAlphas[i];
+        ctx.lineWidth = glowWidths[i];
+        ctx.stroke();
       }
+      ctx.globalAlpha = 1;
+      ctx.lineJoin = join;
+      ctx.lineWidth = RIBBON_W;
       ctx.stroke();
-      ctx.shadowBlur = 0;
     },
   };
 };

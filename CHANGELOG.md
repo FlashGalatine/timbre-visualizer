@@ -10,6 +10,41 @@ traceability.
 
 ## [Unreleased]
 
+## [1.0.187] — 2026-11-23
+
+Copy the `overlay` folder and refresh the overlay sources. Nothing to re-paste. This
+release changes what eight of the 2D effects draw: look at them in your streaming app
+before a stream.
+
+### Changed
+
+- **Spectrogram.** It scrolls by time, so it moves at the same speed at any frame rate (at
+  30 frames a second it used to scroll at half speed). The history has no gaps at high
+  Scroll speed and no faint vertical stripes: the bright head line is no longer copied
+  into it. The head line sits on the last few pixels at the right edge.
+- **Mountains 2D, Vaporwave and Peaks Mirror are mirrored about the middle.** The ridge's
+  peak is two columns wide in the centre of the frame and the left half mirrors the
+  right. Before, the peak sat half a column right of centre and the two edges read
+  different parts of the sound.
+- **Trails and smoothing in Matrix, Mountains 2D, Peaks Mirror, Galaxy Ripple, Tunnel and
+  Vaporwave are per second.** At 60 frames a second they look as they did. At 30 a trail
+  now lasts as long in seconds as at 60 (it used to last twice as long), and the bass is
+  followed as quickly.
+- **Sine Bars' ribbon glow and Peaks Mirror's seam glow are drawn without a blur filter.**
+  They match the old glow to within a few parts in 255. The ribbon no longer dims over
+  the last 25 pixels at the left and right edges.
+- **Tunnel and Galaxy Ripple do less work a frame.** Tunnel's wall wash is painted small
+  and enlarged, and its rails take their colour from the palette table. Galaxy Ripple
+  retires a ripple once it has left the plane and draws its dots a row at a time. To the
+  eye they are the same; dot edges in Galaxy Ripple are smoothed slightly differently.
+
+### Not changed
+
+- Chladni. Sending its grain positions only when a grain moved was tried and measured:
+  the comparison costs what the skipped upload saves, so the code is as it was.
+- Loading effect files only when an effect is first selected was left out of this
+  release.
+
 ## [1.0.185] — 2026-11-23
 
 Copy the `overlay` folder and refresh the overlay sources. Nothing to re-paste.
@@ -767,7 +802,8 @@ StreamService / ControlPanel toolkit. (`ee5c34a`)
 
 Verified offline: `verify` 28/28, `verify:render` 14/14.
 
-[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.185...main
+[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.187...main
+[1.0.187]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.185...v1.0.187
 [1.0.185]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.183...v1.0.185
 [1.0.183]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.181...v1.0.183
 [1.0.181]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.179...v1.0.181

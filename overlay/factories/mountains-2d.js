@@ -7,16 +7,19 @@ VIZ_FACTORIES['mountains-2d'] = function () {
   const EYE_HEIGHT = 14;
   const FOCAL = 90 * SCALE;
   const NEAR = 4;
+  const VEIL = 0.55;   // the share a 60 fps frame's fade takes off the trail, at Trail veil 100
   let heightRows = null;
   let scrollProgress = 0;
-  let lastFrame = performance.now();
   function sampleHeights(now) {
     const out = new Array(GRID_W).fill(0);
     if (micActive && frequencies && frequencies.length > 0) {
       const n = frequencies.length;
+      // The spectrum is mirrored about the middle of the mesh, which lies between its two
+      // middle columns: those two take the lowest bin and the two edges the highest.
+      const mid = (GRID_W - 1) / 2;
       for (let i = 0; i < GRID_W; i++) {
-        const dist = Math.abs(i - GRID_W / 2);
-        const binIdx = Math.min(n - 1, Math.floor((dist / (GRID_W / 2)) * (n - 1)));
+        const dist = Math.abs(i - mid) - 0.5;
+        const binIdx = Math.min(n - 1, Math.floor((dist / (mid - 0.5)) * (n - 1)));
         const v = (frequencies[binIdx] || 0) / 255 * cfgGain;
         out[i] = v * 36;
       }
@@ -35,27 +38,25 @@ VIZ_FACTORIES['mountains-2d'] = function () {
       sy: H / 2 + ((EYE_HEIGHT - y) / z) * FOCAL,
     };
   }
+  /* The alpha to paint with over a trail, so that what stands still is as bright at any frame
+     rate. `alpha` is what is painted at 60 fps, `veil` the share a 60 fps frame's fade takes
+     off, `share` what this frame's fade took off (fadeOrClear's answer). At 60 fps, and when
+     the canvas is cleared instead, it is `alpha` itself. */
+  function trailAlpha(alpha, veil, share) {
+    if (!(veil > 0.001) || veil >= 1 || share >= 1 || Math.abs(share - veil) < 1e-9) return alpha;
+    const settled = alpha / (1 - (1 - alpha) * (1 - veil));
+    return (settled * share) / (1 - (1 - share) * settled);
+  }
   return {
     start() {
       heightRows = new Array(GRID_D).fill(null).map(() => new Array(GRID_W).fill(0));
       const t0 = performance.now();
       for (let j = 0; j < GRID_D; j++) heightRows[j] = sampleHeights(t0);
       scrollProgress = 0;
-      lastFrame = t0;
     },
-    draw(now) {
-      const dt = Math.min(0.1, (now - lastFrame) / 1000);
-      lastFrame = now;
-      const fadeAmount = 0.55 * cfgEffectBgOpacity;
-      if (fadeAmount > 0.001) {
-        ctx.save();
-        ctx.globalCompositeOperation = 'destination-out';
-        ctx.fillStyle = `rgba(0, 0, 0, ${fadeAmount})`;
-        ctx.fillRect(0, 0, W, H);
-        ctx.restore();
-      } else {
-        ctx.clearRect(0, 0, W, H);
-      }
+    draw(now, dt) {
+      const veil = VEIL * cfgEffectBgOpacity;
+      const share = fadeOrClear(veil, dt);
       const cellsPerSec = 0.4 + (perViz['mountains-2d'].speed / 100) * 2.0;
       scrollProgress += cellsPerSec * dt;
       while (scrollProgress >= 1) {
@@ -80,7 +81,7 @@ VIZ_FACTORIES['mountains-2d'] = function () {
       for (let j = GRID_D - 1; j >= 0; j--) {
         const depthFade = 0.35 + 0.65 * (1 - j / (GRID_D - 1));
         const rgb = getColor(colorT + (j / GRID_D) * 1.2);
-        ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${depthFade})`;
+        ctx.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${trailAlpha(depthFade, veil, share)})`;
         ctx.beginPath();
         let started = false;
         for (let i = 0; i < GRID_W; i++) {
@@ -104,7 +105,7 @@ VIZ_FACTORIES['mountains-2d'] = function () {
       }
       const horizonY = H / 2 + (EYE_HEIGHT / (GRID_D * CELL_D + NEAR)) * FOCAL;
       const horizonRgb = getColor(colorT + 2.5);
-      ctx.strokeStyle = `rgba(${horizonRgb[0]}, ${horizonRgb[1]}, ${horizonRgb[2]}, 0.18)`;
+      ctx.strokeStyle = `rgba(${horizonRgb[0]}, ${horizonRgb[1]}, ${horizonRgb[2]}, ${trailAlpha(0.18, veil, share)})`;
       ctx.lineWidth = Math.max(1, SCALE);
       ctx.beginPath();
       ctx.moveTo(0, horizonY);

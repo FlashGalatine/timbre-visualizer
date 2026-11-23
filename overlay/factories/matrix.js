@@ -52,19 +52,13 @@ VIZ_FACTORIES['matrix'] = function () {
     ROWS = Math.ceil(H / CELL_H);
     columns = new Array(COLS).fill(null).map(() => makeColumn(true));
   }
-  let lastFrame = performance.now();
   return {
-    start() { recomputeGrid(); lastFrame = performance.now(); },
+    start() { recomputeGrid(); },
     onResize() { recomputeGrid(); },
-    draw(now /* perf */) {
+    draw(now, dt) {
       if (!columns) recomputeGrid();
-      const dt = Math.min(0.1, (now - lastFrame) / 1000);
-      lastFrame = now;
-      ctx.save();
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
-      ctx.fillRect(0, 0, W, H);
-      ctx.restore();
+      // The rain's trail: a 60 fps frame takes 18% off, and a frame of any other length as much as leaves the same after a second.
+      fadeOrClear(0.18, dt);
       let loudness = 0.1, bass = 0;
       if (micActive && frequencies) {
         let sum = 0;
