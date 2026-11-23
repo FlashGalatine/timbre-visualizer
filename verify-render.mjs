@@ -142,7 +142,17 @@
 //           overlay or the dock throw is caught with a console warning, and the crafted config of
 //           TIM-06 is taken by both; and Winter Aurora, School of Fish and Sunburst, 36 hours on,
 //           hand their shaders a small number and draw the picture they drew at the start, the
-//           aurora crossing its wrap without a jump.
+//           aurora crossing its wrap without a jump •
+//           Sprint 6, on pages of its own, each of the eight 2D effects that stay stepped by hand
+//           at 30, 60 and 165 frames a second over the same span: the spectrogram scrolls as far,
+//           with no gap between its columns, its head line out of its history, and one `copy`
+//           draw a frame; Matrix and the five trail effects leave the same after a second and
+//           are as bright; the levels peaks-mirror, galaxy-ripple and tunnel keep follow as fast;
+//           the mirror in mountains-2d, peaks-mirror and vaporwave is centred; sine-bars and
+//           peaks-mirror set no shadowBlur and their glow is the glow the blur gave; tunnel sets
+//           a rail's colour once, from the palette table, and paints no whole-canvas gradient;
+//           galaxy-ripple retires a ripple that has left the plane and fills a row's points
+//           together.
 
 import { spawn } from 'node:child_process';
 import { connect } from 'node:net';
@@ -7146,11 +7156,12 @@ async function main() {
     // hand-drawn frames or in the page's own loop afterwards), the frame has pixels, and draw()
     // averages under the budget. The budget is 8 ms, half a 60 fps frame: it catches a draw that
     // has become many times slower, not a small regression (the rebuilt effects have their own,
-    // tighter checks). This browser draws the 2D canvas without the GPU, and four old effects
-    // take 7 to 16 ms a frame in it today; each has an open finding, and gets 40 ms until it is
-    // fixed. Take a name out of KNOWN_SLOW when its effect is fixed or rebuilt.
+    // tighter checks). This browser draws the 2D canvas without the GPU, and two old effects
+    // take longer than the budget in it today; each has an open finding, and gets 40 ms until it is
+    // fixed. Take a name out of KNOWN_SLOW when its effect is fixed or rebuilt. (Sprint 6 took out
+    // galaxy-ripple, which went from about 6.5 ms to between 0.6 and 4, and tunnel, from about 15 ms to under 1.)
     const DRAW_BUDGET_MS = 8, SLOW_BUDGET_MS = 40, MIN_PIXELS = 100;
-    const KNOWN_SLOW = ['galaxy-ripple' /* O-02 */, 'tunnel' /* O-03 */, 'dia-de-muertos-calavera' /* O-05 */, 'st-patricks-shamrocks' /* a seasonal 2D effect, not yet rebuilt */];
+    const KNOWN_SLOW = ['dia-de-muertos-calavera' /* O-05 */, 'st-patricks-shamrocks' /* a seasonal 2D effect, not yet rebuilt */];
     const smoke = await ctxt.newPage();
     const smokeErrors = [];
     smoke.on('pageerror', (e) => smokeErrors.push(String(e)));
@@ -7311,9 +7322,10 @@ async function main() {
       for (const [id, key] of [['vizCanvas2D', 'sets2d'], ['vizCanvas3D', 'sets3d']]) {
         Object.defineProperty(document.getElementById(id), 'height', { configurable: true, get() { return height.get.call(this); }, set(v) { probe[key]++; height.set.call(this, v); } });
       }
-      // How much history the spectrogram holds. Each frame leaves its head line behind, 5 px wide
-      // and 10 px from the last; this looks at the middle of every such line's place.
-      probe.columns = () => { const c = document.getElementById('vizCanvas2D'), d = c.getContext('2d').getImageData(0, c.height >> 1, c.width, 1).data; let n = 0; for (let x = 5; x < c.width; x += 10) if (d[x * 4 + 3] > 0) n++; return n; };
+      // How much history the spectrogram holds: of the 173 columns of pixels 10 px apart across the
+      // canvas, how many have anything in them, at any height. (Until Sprint 6 each frame left its
+      // head line behind, and this looked for those along one row.)
+      probe.columns = () => { const c = document.getElementById('vizCanvas2D'), w = c.width, h = c.height, d = c.getContext('2d').getImageData(0, 0, w, h).data; let n = 0; for (let x = 5; x < w; x += 10) { for (let y = 0; y < h; y++) if (d[(y * w + x) * 4 + 3] > 0) { n++; break; } } return n; };
       probe.watch = () => {
         const v = currentViz;
         if (!v || v.__s4) return;
@@ -7338,7 +7350,7 @@ async function main() {
       return pg.evaluate((n) => window.__s4.seen[n] || null, mark);
     };
 
-    // TIM-15. The history fills in about three seconds: 173 head lines across 1728 px.
+    // TIM-15. The history fills in about three seconds: 1728 px at 600 px a second.
     await pg.waitForFunction(() => window.__s4.columns() >= 165, { timeout: 12000 }).catch(() => {});
     const full = await probeNow();
     const other = await pushed((c) => { c.activeViz = 'spectrogram'; c.bars = 12; c.bounce = 80; c.bgOpacity = 40; c.perViz.matrix.flow = 80; });
@@ -7559,6 +7571,299 @@ async function main() {
     await pg.close();
     // Leave the mock as the sections after this one expect it: nothing dropped, the defaults saved.
     await pushConfig((c) => { c.activeViz = 'visualizer'; });
+    }
+    {
+    // ── Sprint 6: the 2D effects that stay ────────────────────────────────
+    // Pages of their own (1920×1080, and 300×220 for one check) whose own loop is stopped. A
+    // run starts an effect afresh and draws it by hand at a fixed frame rate over a span of
+    // time, with seeded randomness, clocks of its own (performance.now and Date.now) and a
+    // scripted sound that depends on the time and not on the frame, so that runs at 30, 60 and
+    // 165 frames a second can be compared. What a run counts, it counts on the context itself.
+    // o: { id, fps, secs, level (every bin, 0..1), slope (a rising spectrum), bassFrom + bass
+    // (bins 0-3 from that second on), beats: { every, on, level }, wave (0 flat), mic, idle,
+    // knobs, bg (Trail veil, 0..1), colorSpeed, probeAt: [seconds], cols: [x], rows: [y] }.
+    const s6run = (pg, o) => pg.evaluate((o) => {
+      window.frame = function () {};
+      const real = { random: Math.random, perf: performance.now, date: Date.now, make: document.createElement };
+      const saved = { frequencies, waveform, micActive, micPeak, cfgIdleAnim, cfgColorHue, cfgColorSpeed, cfgGain, cfgEffectBgOpacity }, knobs0 = Object.assign({}, perViz[o.id]);
+      const P = CanvasRenderingContext2D.prototype, pDraw = P.drawImage, pClear = P.clearRect;
+      const fillDesc = Object.getOwnPropertyDescriptor(P, 'fillStyle'), strokeDesc = Object.getOwnPropertyDescriptor(P, 'strokeStyle'), blurDesc = Object.getOwnPropertyDescriptor(P, 'shadowBlur');
+      const fps = o.fps, frames = Math.round(o.secs * fps), table = new Set(PALETTE_CSS);
+      // strokes, fills, arcs: calls on the visible context. blurs: times shadowBlur was set above 0. images: drawImage
+      // calls on any 2D context, copies: those made with the `copy` blend. clears: whole-canvas clearRect calls on any
+      // context. canvases: canvases made. washes: whole-canvas fills with a gradient. strokeStyles: times a stroke
+      // colour was set, foreign: those that were not a string of the palette table.
+      const n = { strokes: 0, fills: 0, arcs: 0, blurs: 0, images: 0, copies: 0, clears: 0, canvases: 0, washes: 0, strokeStyles: 0, foreign: 0 };
+      const shares = [], probes = [], passes = [], columns = new Map();
+      const CELL = Math.max(10, Math.round(14 * SCALE));   // Matrix's row height
+      let seed = 20261123, t = 1000000, share = NaN, lastFill = '';
+      try {
+        Math.random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+        performance.now = () => t;
+        Date.now = () => 1700000000000 + t;
+        document.createElement = function (tag) { if (String(tag).toLowerCase() === 'canvas') n.canvases++; return real.make.apply(this, arguments); };
+        P.drawImage = function () { n.images++; if (this.globalCompositeOperation === 'copy') n.copies++; return pDraw.apply(this, arguments); };
+        P.clearRect = function (x, y, w, h) { if (w >= W && h >= H) { n.clears++; if (this === ctx) share = 1; } return pClear.apply(this, arguments); };
+        Object.defineProperty(ctx, 'fillStyle', { configurable: true, get() { return fillDesc.get.call(this); }, set(v) { lastFill = v; fillDesc.set.call(this, v); } });
+        Object.defineProperty(ctx, 'strokeStyle', { configurable: true, get() { return strokeDesc.get.call(this); }, set(v) { n.strokeStyles++; if (!table.has(v)) n.foreign++; strokeDesc.set.call(this, v); } });
+        Object.defineProperty(ctx, 'shadowBlur', { configurable: true, get() { return blurDesc.get.call(this); }, set(v) { if (v > 0) n.blurs++; blurDesc.set.call(this, v); } });
+        // The share a frame's fade takes off: the alpha of a whole-canvas destination-out fill, as it was written.
+        ctx.fillRect = function (x, y, w, h) {
+          if (w >= W && h >= H) {
+            if (typeof lastFill !== 'string') n.washes++;
+            else if (this.globalCompositeOperation === 'destination-out') { const m = /,\s*([0-9.eE+-]+)\s*\)\s*$/.exec(lastFill); share = m ? Number(m[1]) : 1; }
+          }
+          return P.fillRect.call(this, x, y, w, h);
+        };
+        ctx.stroke = function () { n.strokes++; return P.stroke.apply(this, arguments); };
+        ctx.fill = function () { n.fills++; return P.fill.apply(this, arguments); };
+        ctx.arc = function () { n.arcs++; return P.arc.apply(this, arguments); };
+        // Matrix: the rows a column's glyphs are painted in, from the head coming in at the top to its coming in again.
+        ctx.fillText = function (s, x, y) {
+          let c = columns.get(x);
+          if (!c) columns.set(x, c = { rows: new Set(), max: -1 });
+          if (y < c.max - 1.5 * CELL) { passes.push(c.rows.size); c.rows = new Set(); c.max = -1; }
+          c.rows.add(y); if (y > c.max) c.max = y;
+          return P.fillText.apply(this, arguments);
+        };
+
+        if (o.knobs) Object.assign(perViz[o.id], o.knobs);
+        cfgIdleAnim = o.idle !== false; cfgColorHue = 0; cfgColorSpeed = typeof o.colorSpeed === 'number' ? o.colorSpeed : 1; cfgGain = 1;
+        cfgEffectBgOpacity = typeof o.bg === 'number' ? o.bg : 1;
+        const f = new Uint8Array(32), w = new Uint8Array(64).fill(128), on = o.mic !== false;
+        const sound = (e) => {   // e: seconds since the start
+          f.fill(Math.round((o.level || 0) * 255));
+          if (o.slope) for (let b = 0; b < 32; b++) f[b] = 30 + b * 7;
+          if (o.beats) f.fill(Math.round(((e + 1e-9) % o.beats.every < o.beats.on ? o.beats.level : 0) * 255), 0, 4);
+          if (o.bassFrom !== undefined) f.fill(e + 1e-9 >= o.bassFrom ? Math.round(o.bass * 255) : 0, 0, 4);
+          if (o.wave) for (let k = 0; k < 64; k++) w[k] = 128 + Math.round(o.wave * 127 * Math.sin(k * 0.4 + e * 6));
+          frequencies = on ? f : null; waveform = on ? w : null; micActive = on; micPeak = on ? 0.3 : null;
+        };
+        sound(0);
+        setActiveViz('waveform'); setActiveViz(o.id);
+        for (const k of Object.keys(n)) n[k] = 0;   // only what the frames below do is counted
+        const marks = (o.probeAt || []).slice();
+        for (let i = 1; i <= frames; i++) {
+          t += 1000 / fps;
+          const e = i / fps;
+          sound(e);
+          share = NaN;
+          currentViz.draw(t, 1 / fps);
+          shares.push(share);
+          if (marks.length && e >= marks[0] - 1e-9) { probes.push(Object.assign({ at: e }, typeof currentViz.probe === 'function' ? currentViz.probe() : { none: true })); marks.shift(); }
+        }
+        // What is left, after a second, of what was on the canvas: the last second's fades multiplied up.
+        let left = 1;
+        for (const s of shares.slice(-fps)) left *= 1 - s;
+        const d = ctx.getImageData(0, 0, W, H).data, inked = new Uint8Array(W);
+        let alpha = 0, ink = 0, off = 0;
+        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+          const a = d[(y * W + x) * 4 + 3];
+          if (a) { alpha += a; ink++; inked[x] = 1; }
+          if (x < W >> 1) off += Math.abs(a - d[(y * W + (W - 1 - x)) * 4 + 3]);
+        }
+        let leftCol = -1, rightCol = -1, emptyCols = 0;
+        for (let x = 0; x < W; x++) if (inked[x]) { if (leftCol < 0) leftCol = x; rightCol = x; }
+        for (let x = leftCol; x >= 0 && x <= rightCol; x++) if (!inked[x]) emptyCols++;
+        const cols = {}, rows = {};
+        for (const x of o.cols || []) { cols[x] = []; for (let y = 0; y < H; y++) cols[x].push(d[(y * W + x) * 4 + 3]); }
+        for (const y of o.rows || []) rows[y] = Array.from(d.subarray(y * W * 4, (y + 1) * W * 4));
+        return { n, frames, left, alpha, ink, leftCol, rightCol, emptyCols, asym: alpha ? off / alpha : -1, cols, rows, probes, passes: { count: passes.length, min: passes.length ? Math.min(...passes) : -1 },
+          rowsOnScreen: Math.ceil(H / CELL), op: ctx.globalCompositeOperation, globalAlpha: ctx.globalAlpha, blur: ctx.shadowBlur, W, H, scale: SCALE };
+      } finally {
+        for (const k of ['fillRect', 'stroke', 'fill', 'arc', 'fillText', 'fillStyle', 'strokeStyle', 'shadowBlur']) delete ctx[k];
+        P.drawImage = pDraw; P.clearRect = pClear; document.createElement = real.make;
+        Math.random = real.random; performance.now = real.perf; Date.now = real.date;
+        frequencies = saved.frequencies; waveform = saved.waveform; micActive = saved.micActive; micPeak = saved.micPeak;
+        cfgIdleAnim = saved.cfgIdleAnim; cfgColorHue = saved.cfgColorHue; cfgColorSpeed = saved.cfgColorSpeed; cfgGain = saved.cfgGain; cfgEffectBgOpacity = saved.cfgEffectBgOpacity;
+        Object.assign(perViz[o.id], knobs0);
+      }
+    }, o);
+    // This browser paints a 2D canvas with the GPU until it has been read back a few times, and
+    // from then on, most runs, without it. The two antialias a line differently and round a
+    // faint stroke differently, so a picture read here could differ from one run to the next
+    // for that alone. On these pages every 2D canvas is asked for with willReadFrequently,
+    // which has it painted without the GPU from the start.
+    const noGpu = () => {
+      const get = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (kind, o) { return kind === '2d' ? get.call(this, kind, Object.assign({}, o, { willReadFrequently: true })) : get.call(this, kind, o); };
+    };
+    const s6 = await ctxt.newPage();
+    await s6.addInitScript(noGpu);
+    const s6Errors = [];
+    s6.on('pageerror', (e) => s6Errors.push(String(e)));
+    await s6.setViewportSize({ width: 1920, height: 1080 });
+    await s6.goto(overlayWideUrl, { waitUntil: 'load' });
+    await s6.waitForFunction(() => window.__timbre && window.__timbre.micActive === true && window.__timbre.currentVizName === 'visualizer', { timeout: 8000 }).catch(() => {});
+    const RATES = [30, 60, 165];
+    const atRates = async (o, pg = s6) => { const out = []; for (const fps of RATES) out.push(await s6run(pg, { ...o, fps })); return out; };
+    const near = (a, b, share) => Math.abs(a - b) <= share * Math.abs(b);
+    const alike = (runs, pick, share) => runs.every((r) => near(pick(r), pick(runs[1]), share));
+    const J = (v) => JSON.stringify(v);
+
+    // 6.1 and 6.2, the spectrogram. A steady sound and a palette that stands still, so that every
+    // column of the history is the same column.
+    const sg = await atRates({ id: 'spectrogram', secs: 2, level: 0.55, colorSpeed: 0, rows: [312] });
+    const reach = sg.map((r) => r.W - r.leftCol);
+    check('spectrogram (6.1): in two seconds the history scrolls as far at 30, 60 and 165 frames a second (within 2%), and as far as it did at 60: 1,200 px on this page',
+      Math.abs(reach[1] - 1200) <= 10 && reach.every((v) => near(v, reach[1], 0.02)), J({ reach }));
+    const fast = await atRates({ id: 'spectrogram', secs: 1, level: 0.55, colorSpeed: 0, knobs: { scrollSpeed: 100 } });
+    check('spectrogram (6.2): at Scroll speed 100 there is no gap between the columns of the history, at any of the three rates, and it scrolls 840 px a second',
+      fast.every((r) => r.emptyCols === 0 && near(r.W - r.leftCol, 840, 0.03)), J(fast.map((r) => ({ reach: r.W - r.leftCol, empty: r.emptyCols }))));
+    {
+      // One row of the 60 fps picture: the history (all but the last 2 × the head line's width) is one colour from end to end.
+      const r = sg[1], row = r.rows[312], head = Math.max(1, Math.round(r.scale)), kinds = new Set();
+      for (let x = r.leftCol + 2; x < r.W - 2 * head - 2; x++) kinds.add(row.slice(x * 4, x * 4 + 4).join());
+      const last = row.slice((r.W - 1) * 4, r.W * 4), before = row.slice((r.W - 2 * head - 3) * 4, (r.W - 2 * head - 2) * 4);
+      check('spectrogram (6.2): the head line is not copied into the history (a steady sound leaves a history of one colour along a row), and it is still drawn at the right edge',
+        kinds.size === 1 && last[3] > 100 && last.join() !== before.join(), J({ kinds: kinds.size, last, before }));
+      check('spectrogram (6.2, O-07): a frame is one drawImage with the `copy` blend, on the visible canvas: no second canvas, no whole-canvas clear, and the blend is put back',
+        r.n.images === r.frames && r.n.copies === r.frames && r.n.canvases === 0 && r.n.clears <= 1 && r.op === 'source-over' && r.globalAlpha === 1, J({ n: r.n, frames: r.frames, op: r.op }));
+    }
+    {
+      // The small page: at 165 frames a second a frame scrolls less than a pixel, so most frames scroll nothing.
+      const tiny = await ctxt.newPage();
+      await tiny.addInitScript(noGpu);
+      tiny.on('pageerror', (e) => s6Errors.push('small page: ' + String(e)));
+      await tiny.setViewportSize({ width: 300, height: 220 });
+      await tiny.goto(overlayUrl, { waitUntil: 'load' });
+      await tiny.waitForFunction(() => window.__timbre && window.__timbre.micActive === true, { timeout: 8000 }).catch(() => {});
+      const small = await atRates({ id: 'spectrogram', secs: 1.5, level: 0.55, colorSpeed: 0 }, tiny);
+      check('spectrogram (6.1) on the 300×220 page: 180 px of history in a second and a half at all three rates (within 3 px), with no gap',
+        small.every((r) => Math.abs(r.W - r.leftCol - 180) <= 3 && r.emptyCols === 0), J(small.map((r) => ({ reach: r.W - r.leftCol, empty: r.emptyCols, W: r.W }))));
+      await tiny.close();
+    }
+
+    // 6.1, Matrix: the trail lasts as long in seconds, and no row is skipped by a fast fall at 30 frames a second.
+    const rain = await atRates({ id: 'matrix', secs: 4, level: 0.5, knobs: { flow: 100 } });
+    check('matrix (6.1): what is left of the rain after a second is the same at all three rates, and what it was at 60 (0.82 to the 60th)',
+      near(rain[1].left, Math.pow(0.82, 60), 1e-6) && alike(rain, (r) => r.left, 1e-6), J(rain.map((r) => r.left)));
+    check('matrix (6.1): at Flow 100 every pass of a column paints every row, at all three rates',
+      rain.every((r) => r.passes.count >= 20 && r.passes.min === r.rowsOnScreen), J(rain.map((r) => ({ ...r.passes, rows: r.rowsOnScreen }))));
+    check('matrix (6.1): the rain is as dense at all three rates (the light on the canvas after four seconds is within 25% of what it is at 60)',
+      alike(rain, (r) => r.alpha, 0.25), J(rain.map((r) => r.alpha)));
+
+    // 6.1, the trails. What a frame's fade leaves, multiplied over a second, and how bright a line that stands still is.
+    const TRAILS = [['mountains-2d', 0.55, 1], ['peaks-mirror', 0.45, 1], ['galaxy-ripple', 0.35, 1], ['tunnel', 0.22, 1], ['vaporwave', 0.45, 0]];
+    const trails = {};
+    for (const [id, take, bg] of TRAILS) {
+      const runs = trails[id] = await atRates({ id, secs: 2, level: 0.55, bg, colorSpeed: 0, cols: [2] });
+      check(`${id} (6.1): what is left of a frame after a second is the same at all three rates, and what it was at 60 (${(1 - take).toFixed(2)} to the 60th)`,
+        near(runs[1].left, Math.pow(1 - take, 60), 1e-6) && alike(runs, (r) => r.left, 1e-6), J(runs.map((r) => r.left)));
+      check(`${id} (6.1): the picture is as bright at all three rates (the light on the canvas is within 12% of what it is at 60)`,
+        alike(runs, (r) => r.alpha, 0.12), J(runs.map((r) => r.alpha)));
+    }
+    {
+      // Mountains' horizon line stands still, far from the mesh at the left edge: its brightness is what the trail settles at.
+      const runs = trails['mountains-2d'], y = Math.round(runs[1].H / 2 + (14 / (16 * 18 + 4)) * 90 * runs[1].scale);
+      const line = runs.map((r) => Math.max(...r.cols[2].slice(y - 4, y + 5)));
+      check('mountains-2d (6.1): a line that stands still (the horizon) is as bright at all three rates, to within 3 of 255',
+        line[1] > 40 && line.every((v) => Math.abs(v - line[1]) <= 3), J(line));
+    }
+    // 6.1, the levels the effects keep for themselves.
+    const follow = await atRates({ id: 'peaks-mirror', secs: 0.5, bassFrom: 0, bass: 0.5, probeAt: [0.1] });
+    check('peaks-mirror (6.1): its bass level follows a sound as fast at all three rates: a tenth of a second into a bass of 0.5 it is 0.387, as at 60',
+      follow.every((r) => r.probes.length === 1 && Math.abs(r.probes[0].bass - 0.5 * (1 - Math.pow(0.78, 6))) < 0.012), J(follow.map((r) => r.probes[0])));
+    const swell = await atRates({ id: 'galaxy-ripple', secs: 0.5, bassFrom: 0, bass: 0.6, idle: false, probeAt: [0.1, 0.5] });
+    check('galaxy-ripple (6.1): its slow and fast bass levels follow a sound as fast at all three rates (0.424 after half a second, 0.583 after a tenth)',
+      swell.every((r) => r.probes.length === 2 && Math.abs(r.probes[1].slow - 0.6 * (1 - Math.pow(0.96, 30))) < 0.006 && Math.abs(r.probes[0].fast - 0.6 * (1 - Math.pow(0.55, 6))) < 0.012), J(swell.map((r) => r.probes)));
+    const beat = await atRates({ id: 'galaxy-ripple', secs: 3.9, beats: { every: 0.5, on: 0.11, level: 0.8 }, idle: false, probeAt: [3.9] });
+    check('galaxy-ripple (6.1): eight beats start eight ripples at all three rates (nine with the one it starts with)',
+      beat.every((r) => r.probes.length === 1 && r.probes[0].born === 9), J(beat.map((r) => r.probes[0])));
+    const bend = await atRates({ id: 'tunnel', secs: 0.3, level: 0.5, probeAt: [0.3] });
+    check('tunnel (6.1): the pipe bends toward its target as fast at all three rates: 0.3 s on it is 93% of the way, as at 60',
+      bend.every((r) => r.probes.length === 1 && Math.abs(r.probes[0].targetX) > 1 && Math.abs(r.probes[0].bendX / r.probes[0].targetX - (1 - Math.pow(0.86, 18))) < 0.012), J(bend.map((r) => r.probes[0])));
+    // Sine Bars keeps nothing from frame to frame but its afterglow, which is timed in seconds already.
+    const bars = await atRates({ id: 'sine-bars', secs: 1, level: 0.55, wave: 0.5, colorSpeed: 0 });
+    check('sine-bars (6.1): the same moment is the same picture at all three rates (the light on the canvas within 1%)', alike(bars, (r) => r.alpha, 0.01) && bars[1].alpha > 1e6, J(bars.map((r) => r.alpha)));
+
+    // 6.3: a rising spectrum, mirrored. The picture's left half is its right half, turned over.
+    for (const [id, bg] of [['mountains-2d', 1], ['peaks-mirror', 1], ['vaporwave', 0]]) {
+      const r = await s6run(s6, { id, fps: 60, secs: 3, slope: true, bg, colorSpeed: 0 });
+      check(`${id} (6.3): the mirror is centred on the mesh: the left half of the picture is the right half turned over (they differ by under 3% of the light)`, r.alpha > 1e6 && r.asym >= 0 && r.asym < 0.03, J({ asym: r.asym, alpha: r.alpha }));
+    }
+
+    // 6.4: no shadowBlur, and the glow that replaces it is the glow the blur gave. The blur's own
+    // picture is made here, on a canvas of its own, the way the effect made it before.
+    // (On the page whose canvases are painted without the GPU, the blur's canvas is too. `gpu` is for the one
+    // page below that is left as the browser has it: there the blur's canvas is asked for plainly, as the page's is.)
+    const blurred = (o, pg = s6) => pg.evaluate((o) => {
+      const c = document.createElement('canvas'); c.width = W; c.height = H;
+      const g = c.getContext('2d'), rgb = getColor(o.colour);
+      for (let i = 0; i < o.frames; i++) {
+        if (o.fade) { g.save(); g.globalCompositeOperation = 'destination-out'; g.fillStyle = `rgba(0, 0, 0, ${o.fade})`; g.fillRect(0, 0, W, H); g.restore(); } else g.clearRect(0, 0, W, H);
+        g.save();
+        g.strokeStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${o.alpha})`; g.lineWidth = o.width * SCALE; g.shadowBlur = o.blur * SCALE; g.shadowColor = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+        g.beginPath(); g.moveTo(0, H * o.y); g.lineTo(W, H * o.y); g.stroke();
+        g.restore();
+      }
+      const d = g.getImageData(o.x, 0, 1, H).data, out = [];
+      for (let y = 0; y < H; y++) out.push(d[y * 4 + 3]);
+      return out;
+    }, o);
+    // How two glows differ down a column, outside the line itself (core: the rows the line and anything under it cover):
+    // the largest difference, and the largest step from one row to the next in the new one.
+    const glowGap = (now, was, from, to, core) => {
+      let gap = 0, step = 0, lit = 0;
+      for (let y = from; y < to; y++) {
+        if (y >= core[0] && y <= core[1]) continue;
+        gap = Math.max(gap, Math.abs(now[y] - was[y])); if (was[y] > 4) lit++;
+        if (y > from && !(y - 1 >= core[0] && y - 1 <= core[1])) step = Math.max(step, Math.abs(now[y] - now[y - 1]));
+      }
+      return { gap, step, lit };
+    };
+    {
+      // Sine Bars: no sound in the bins (the bars are at their least, along the bottom) and a flat wave, so the ribbon is a straight line.
+      // The glow is eight faint strokes one on another. The GPU adds them up as written (the glow is then within 4 of
+      // 255 of the blur's); the other painter rounds each one down (within 8). So this one is read on a page of its own,
+      // left as the browser has it, whose canvas has never been read back: painted with the GPU, as a source in OBS is.
+      // The limits allow for either painter, and still catch a glow of three strokes (steps of 13).
+      const fresh = await ctxt.newPage();
+      fresh.on('pageerror', (e) => s6Errors.push('fresh page: ' + String(e)));
+      await fresh.setViewportSize({ width: 1920, height: 1080 });
+      await fresh.goto(overlayWideUrl, { waitUntil: 'load' });
+      await fresh.waitForFunction(() => window.__timbre && window.__timbre.micActive === true, { timeout: 8000 }).catch(() => {});
+      const r = await s6run(fresh, { id: 'sine-bars', fps: 60, secs: 1, level: 0, wave: 0, colorSpeed: 0, cols: [432] });
+      check('sine-bars (6.4): the ribbon is drawn without shadowBlur, and none is left set', r.n.blurs === 0 && r.blur === 0 && r.n.strokes >= r.frames, J({ n: r.n, blur: r.blur }));
+      const was = await blurred({ colour: 0.5, frames: 1, alpha: 1, width: 2, blur: 10, y: 0.32, x: 432 }, fresh);
+      await fresh.close();
+      const yLine = r.H * 0.32, half = r.scale + 2, g = glowGap(r.cols[432], was, 0, r.H - Math.round(6 * r.scale) - 2, [Math.floor(yLine - half), Math.ceil(yLine + half)]);
+      check('sine-bars (6.4): the ribbon\'s glow is the glow the blur gave: down a column it is within 9 of 255 of it everywhere, and it falls away without a step of more than 10', g.lit > 40 && g.gap <= 9 && g.step <= 10, J(g));
+    }
+    {
+      // Peaks Mirror: the mic on and silent, so the mesh lies flat under the seam and the seam is at its quietest.
+      const r = await s6run(s6, { id: 'peaks-mirror', fps: 60, secs: 2, level: 0, colorSpeed: 0, cols: [432] });
+      check('peaks-mirror (6.4): the seam is drawn without shadowBlur, and none is left set', r.n.blurs === 0 && r.blur === 0, J({ n: r.n, blur: r.blur }));
+      const was = await blurred({ colour: 2.5, frames: 120, fade: 0.45, alpha: 0.25 + 0.5 * 0.45, width: 1 + 0.5 * 1.5, blur: 8, y: 0.5, x: 432 });
+      const half = (1.75 * r.scale) / 2 + 2, g = glowGap(r.cols[432], was, 0, r.H, [Math.floor(r.H / 2 - half), Math.ceil(r.H / 2 + half)]);
+      check('peaks-mirror (6.4): the seam\'s glow is the glow the blur gave: down a column it is within 5 of 255 of it everywhere, and it falls away without a step of more than 5', g.lit > 30 && g.gap <= 5 && g.step <= 5, J(g));
+      // (A bass that swells the seam also raises the mesh through it, so the seam alone cannot be read then: the Seam knob stands in.)
+      const wide100 = await s6run(s6, { id: 'peaks-mirror', fps: 60, secs: 2, level: 0, colorSpeed: 0, knobs: { seam: 100 }, cols: [432] });
+      const was100 = await blurred({ colour: 2.5, frames: 120, fade: 0.45, alpha: 0.25 + 0.45, width: 1 + 1.5, blur: 8, y: 0.5, x: 432 });
+      const half100 = (2.5 * wide100.scale) / 2 + 2, g100 = glowGap(wide100.cols[432], was100, 0, wide100.H, [Math.floor(wide100.H / 2 - half100), Math.ceil(wide100.H / 2 + half100)]);
+      check('peaks-mirror (6.4): and at Seam 100 (a wider, brighter line) likewise', g100.lit > 30 && g100.gap <= 5 && g100.step <= 5, J(g100));
+    }
+    {
+      const r = await s6run(s6, { id: 'tunnel', fps: 60, secs: 1, level: 0.55 });
+      check('tunnel (6.4): a rail\'s colour is set once for all its strokes, from the palette table, and the wash over the walls is not a whole-canvas gradient fill every frame',
+        r.n.strokeStyles <= 40 * r.frames && r.n.foreign === 0 && r.n.washes === 0 && r.n.strokes > 0 && r.globalAlpha === 1 && r.op === 'source-over', J({ n: r.n, frames: r.frames, globalAlpha: r.globalAlpha }));
+    }
+
+    // 6.5: galaxy-ripple.
+    {
+      const quiet = await s6run(s6, { id: 'galaxy-ripple', fps: 60, secs: 4, level: 0, idle: false, probeAt: [1, 4] });
+      check('galaxy-ripple (6.5): a ripple is retired once its ring has left the plane (the first one is there after a second and gone after four; it used to be kept for eight)',
+        quiet.probes.length === 2 && quiet.probes[0].ripples === 1 && quiet.probes[1].ripples === 0, J(quiet.probes));
+      // The same run four seconds longer: what the second four seconds add is a flat plane's cost.
+      const longer = await s6run(s6, { id: 'galaxy-ripple', fps: 60, secs: 8, level: 0, idle: false });
+      const busy = await s6run(s6, { id: 'galaxy-ripple', fps: 60, secs: 3, beats: { every: 0.5, on: 0.11, level: 0.8 }, idle: false });
+      const flat = (longer.n.fills - quiet.n.fills) / (longer.frames - quiet.frames);
+      check('galaxy-ripple (6.5): every one of the 864 points is still drawn each frame, in far fewer fills than points: one for each of the 24 rows on a flat plane, under 500 a frame with ripples crossing it (it was 864)',
+        quiet.n.arcs === 864 * quiet.frames && busy.n.arcs === 864 * busy.frames && flat === 24 && busy.n.fills < 500 * busy.frames && busy.globalAlpha === 1, J({ flat, quiet: quiet.n, busy: busy.n, frames: busy.frames }));
+    }
+
+    check('Sprint 6: no page errors from its checks', s6Errors.length === 0, s6Errors.slice(0, 5).join(' | '));
+    await s6.close();
     }
     // ── Control panel: UI change → Timbre Push → broadcast round-trip ─────
     const observed = [];

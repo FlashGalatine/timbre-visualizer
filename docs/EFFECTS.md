@@ -66,6 +66,16 @@ where `alpha` is the share a 60 fps frame takes off (multiply your own strength 
 clears the canvas instead, so nothing smears for ever. All four give the same result over a
 second at any frame rate.
 
+**Painting over a trail.** `fadeOrClear` makes a trail last as long in seconds at any frame
+rate. What is painted over it every frame must then be scaled too, or a line that stands
+still is brighter the more frames there are. `fadeOrClear` returns the share it took off;
+the five effects that repaint their lines over a trail (`mountains-2d`, `peaks-mirror`,
+`galaxy-ripple`, `tunnel`, and `vaporwave` with its backdrop off) each hold the same small
+`trailAlpha(alpha, veil, share)`, which gives the alpha to paint with: `alpha` itself at
+60 fps and when the canvas was cleared, less in a shorter frame, more in a longer one.
+`npm run verify` holds the five copies to the same words. Matrix paints its glyphs solid
+and needs none.
+
 **What you keep on the canvas stays.** The core sets the canvas height only when it changes,
 and a config equal to the one in force is not applied at all (no `onConfig`, no `onResize`),
 so a history or a trail kept on the canvas survives every config that does not resize it.

@@ -1,17 +1,11 @@
-/* ── spectrogram (scrolling waterfall) ── */
+/* ── spectrogram (scrolling waterfall) ──
+   The history lives on the canvas itself and is moved along by drawing the canvas onto
+   itself. The last HEAD_W pixels at the right edge are the head line's own and never hold
+   history, so the line is not carried along with it. */
 VIZ_FACTORIES['spectrogram'] = function () {
-  const COL_W = Math.max(1, Math.round(2 * SCALE));
   const HOTSPOT_H = Math.max(1, Math.round(SCALE));
-  let offscreen = null;
-  let offCtx = null;
-  function ensureOffscreen() {
-    if (!offscreen || offscreen.width !== W || offscreen.height !== H) {
-      offscreen = document.createElement('canvas');
-      offscreen.width = W;
-      offscreen.height = H;
-      offCtx = offscreen.getContext('2d');
-    }
-  }
+  const HEAD_W = Math.max(1, Math.round(SCALE));
+  let owed = 0;   // pixels of scroll not yet taken: the part of a pixel each frame leaves over
   function getFreqs() {
     if (micActive && frequencies && frequencies.length > 0) {
       if (cfgGain === 1) return frequencies;
@@ -27,39 +21,48 @@ VIZ_FACTORIES['spectrogram'] = function () {
     return arr;
   }
   return {
-    start() { offscreen = null; ctx.clearRect(0, 0, W, H); },
-    onResize() { offscreen = null; },
-    draw() {
-      ensureOffscreen();
-      const SCROLL_PX = Math.max(1, Math.round((1 + (perViz['spectrogram'].scrollSpeed / 100) * 2) * SCALE));
+    start() { owed = 0; ctx.clearRect(0, 0, W, H); },
+    onResize() { owed = 0; },
+    draw(now, dt) {
+      // The speed is what a 60 fps frame used to scroll (a whole number of pixels), 60 times a
+      // second. A frame scrolls the whole pixels its time has earned, and the new column is
+      // as wide as that, so the columns meet at any speed and any frame rate.
+      const perSecond = 60 * Math.max(1, Math.round((1 + (perViz['spectrogram'].scrollSpeed / 100) * 2) * SCALE));
+      owed += perSecond * dt;
+      const step = Math.min(W - HEAD_W, Math.floor(owed + 1e-6));
+      owed -= step;
       const colorT = ((Date.now() * cfgColorSpeed) / 3000 + cfgColorHue) % PALETTE.length;
-      offCtx.clearRect(0, 0, W, H);
-      offCtx.drawImage(canvas2d, 0, 0);
-      ctx.clearRect(0, 0, W, H);
-      ctx.drawImage(offscreen, -SCROLL_PX, 0);
-      const freqs = getFreqs();
-      const nBins = freqs.length;
-      const colX = W - COL_W;
-      ctx.clearRect(colX, 0, COL_W, H);
-      for (let i = 0; i < nBins; i++) {
-        const amp = (freqs[i] || 0) / 255;
-        if (amp < 0.04) continue;
-        const yTop = Math.round(H - (i + 1) * (H / nBins));
-        const yBot = Math.round(H - i * (H / nBins));
-        const cellH = Math.max(1, yBot - yTop);
-        const rgb = getColor(colorT + (i / nBins) * 1.6);
-        const a = Math.min(1, Math.pow(amp, 0.7));
-        ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${a})`;
-        ctx.fillRect(colX, yTop, COL_W, cellH);
-        if (amp > 0.55) {
-          ctx.fillStyle = `rgba(255, 255, 255, ${(amp - 0.55) * 1.2})`;
-          ctx.fillRect(colX, yTop, COL_W, HOTSPOT_H);
+      if (step > 0) {
+        // One draw moves the history: `copy` replaces the canvas with itself, `step` to the left.
+        ctx.globalCompositeOperation = 'copy';
+        ctx.drawImage(canvas2d, -step, 0);
+        ctx.globalCompositeOperation = 'source-over';
+        // The head line went along with it; the new column covers where it landed.
+        const colX = W - HEAD_W - step;
+        ctx.clearRect(colX, 0, step + HEAD_W, H);
+        const freqs = getFreqs();
+        const nBins = freqs.length;
+        for (let i = 0; i < nBins; i++) {
+          const amp = (freqs[i] || 0) / 255;
+          if (amp < 0.04) continue;
+          const yTop = Math.round(H - (i + 1) * (H / nBins));
+          const yBot = Math.round(H - i * (H / nBins));
+          const cellH = Math.max(1, yBot - yTop);
+          const rgb = getColor(colorT + (i / nBins) * 1.6);
+          const a = Math.min(1, Math.pow(amp, 0.7));
+          ctx.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${a})`;
+          ctx.fillRect(colX, yTop, step, cellH);
+          if (amp > 0.55) {
+            ctx.fillStyle = `rgba(255, 255, 255, ${(amp - 0.55) * 1.2})`;
+            ctx.fillRect(colX, yTop, step, HOTSPOT_H);
+          }
         }
+      } else {
+        ctx.clearRect(W - HEAD_W, 0, HEAD_W, H);
       }
       const headRgb = getColor(colorT + 0.5);
-      const headW = Math.max(1, Math.round(SCALE));
       ctx.fillStyle = `rgba(${headRgb[0]}, ${headRgb[1]}, ${headRgb[2]}, 0.6)`;
-      ctx.fillRect(W - headW, 0, headW, H);
+      ctx.fillRect(W - HEAD_W, 0, HEAD_W, H);
     },
   };
 };
