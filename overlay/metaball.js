@@ -1,6 +1,6 @@
 // Timbre — the metaball: a ball of liquid metal that each band of the sound pulls a droplet
 // out of. First the arithmetic: where each droplet leaves the ball, how far it goes and how
-// large it is, the ball itself, the smooth union that makes one surface of them all, and
+// large it is, how the pitch of the voice chooses the droplet that leads (a spike), the ball itself, the smooth union that makes one surface of them all, and
 // the glow. Then the 3D scene, written against the scene kit: definition() returns what
 // TimbreScene.factory() needs. The surface is drawn by marching rays through it in a shader.
 //
@@ -24,6 +24,10 @@
   const CORE = 0.74;                        // the ball's radius in silence
   const SMOOTH = 0.42;                      // surfaces nearer than this flow together
   const RISE = 12, FALL = 2.2;              // how fast a band is followed, up and down, a second
+  const FURTHEST = REACH * (1 + 0.18);      // the furthest a droplet ever goes: full band, on a beat
+  const LEAD_WIDTH = 0.6;                   // how far to either side of the pitch's place its lead reaches, in droplets (the width of the bump)
+  const LEAD_REACH = 0.25;                  // how much further the leading droplet goes: a quarter again
+  const LEAD_LIFT = 1;                      // how far the leading droplet's band is lifted toward the loudest band: all the way
   const FOV = 30, PITCH = 12;               // the camera: how wide it sees and how far it looks down, in degrees
   const FRAME = { width: 5.2, height: 4.8, center: [0, 0, 0] };   // what the camera frames: tall enough for the furthest droplet on a beat
   const RAD = Math.PI / 180;
@@ -50,8 +54,29 @@
   }
 
   // How far from the middle a droplet is: as its band is loud, eased; a beat throws it further.
-  function reach(band, kick) {
-    return REACH * ease(band) * (1 + 0.18 * kick);
+  // One that leads (`lead`, 0..1) goes up to LEAD_REACH further again, but never past
+  // FURTHEST, which is as far as any droplet went before there was a lead: the frame holds it.
+  function reach(band, kick, lead = 0) {
+    const d = REACH * ease(band) * (1 + 0.18 * kick);
+    return lead > 0 ? Math.min(FURTHEST, d * (1 + LEAD_REACH * lead)) : d;
+  }
+
+  // How much droplet b leads, 0..1, with the pitch of the voice at `at` (in droplets, 0 the
+  // lowest band's): in full where the pitch is, its neighbours a little (a bump LEAD_WIDTH
+  // droplets wide), and all of it only as far as the pitch counts (`clear`, 0..1).
+  function leadOf(b, at, clear) {
+    if (!(clear > 0)) return 0;
+    const d = (b - at) / LEAD_WIDTH;
+    return clear * Math.exp(-0.5 * d * d);
+  }
+
+  // The band a droplet that leads goes by: its own, lifted toward the loudest band's (`top`)
+  // as far as it leads (LEAD_LIFT of the way in full). A voice is loud in the low bands
+  // whatever its pitch, and a quarter further than hardly out is still hardly out: with
+  // this a high voice's droplet leads as a low voice's does. One that does not lead keeps
+  // its own band, to the bit.
+  function lifted(band, top, lead, lift = LEAD_LIFT) {
+    return lead > 0 && top > band ? band + lift * lead * (top - band) : band;
   }
 
   // A droplet's radius: low bands are large and high bands small, and one still inside the
@@ -60,11 +85,12 @@
     return (0.44 - 0.03 * b) * (0.55 + 0.45 * ease(band));
   }
 
-  // Droplet b as x, y, z and radius, written into out from index `at`.
+  // Droplet b as x, y, z and radius, written into out from index `at`. `lead`: how much it
+  // leads, 0..1 (see leadOf).
   const WAY = [0, 0, 0];
-  function dropAt(out, at, b, band, kick, clock) {
+  function dropAt(out, at, b, band, kick, clock, lead = 0) {
     direction(WAY, b);
-    const d = reach(band, kick), a = swing(b, clock), ca = Math.cos(a), sa = Math.sin(a);
+    const d = reach(band, kick, lead), a = swing(b, clock), ca = Math.cos(a), sa = Math.sin(a);
     out[at] = (WAY[0] * ca + WAY[2] * sa) * d;
     out[at + 1] = WAY[1] * d + 0.06 * Math.sin(1.7 * clock + 2.1 * b) * ease(band);
     out[at + 2] = (-WAY[0] * sa + WAY[2] * ca) * d;
@@ -213,12 +239,14 @@
       return v && typeof v[name] === 'number' ? v[name] : 50;
     };
     const bands = new Float32Array(DROPS), places = new Float32Array((DROPS + 1) * 4), balls = [];
-    let THREE = null, mesh = null, mat = null;
+    let THREE = null, mesh = null, mat = null, voice = null;
     // What the checks read. clock: seconds the scene has been live, which the droplets turn by.
-    const s = { flame: 0, kick: 0, clock: 0, live: false, orbit: 0, colorT: 0, chrome: 0, glow: 0, pixel: 0, out: 0, bound: 0 };
+    // pitch: the voice's, 0..1. lead: the droplet it leads at. clear: how much it counts, 0..1.
+    const s = { pitch: 0, lead: 0, clear: 0, flame: 0, kick: 0, clock: 0, live: false, orbit: 0, colorT: 0, chrome: 0, glow: 0, pixel: 0, out: 0, bound: 0 };
 
     function build(k) {
       THREE = k.THREE;
+      voice = TimbreScene.createPitch(DROPS);
       for (let i = 0; i <= DROPS; i++) balls.push(new THREE.Vector4(0, 0, 0, 0.1));
       mat = new THREE.ShaderMaterial({
         vertexShader: VERT, fragmentShader: FRAG, transparent: true,
@@ -251,15 +279,23 @@
 
       // The ball, and each band's droplet. A band is followed: quick out, slow home.
       coreAt(places, 0, flame, kick, s.clock);
-      let out = 0;
+      let out = 0, top = 0;
       for (let b = 0; b < DROPS; b++) {
         let v = 0;
         if (micActive) v = loudness(slices, b, cfgGain);
         else if (cfgIdleAnim) v = idle(b, s.clock);
         bands[b] = follow(bands[b], v, v > bands[b] ? RISE : FALL, dt);
         if (v === 0) bands[b] = settle(bands[b]);   // all but home is home: a muted blob comes to rest
-        dropAt(places, 4 + b * 4, b, bands[b], kick, s.clock);
-        if (ease(bands[b]) > 0.45) out++;
+        if (bands[b] > top) top = bands[b];
+      }
+      // The pitch of the voice (the mic's only): the droplet at its place leads. It goes by
+      // the loudest band and a quarter further; the rest go as they did.
+      voice.step(micActive ? frequencies : null, cfgGain, dt);
+      s.pitch = voice.pitch; s.lead = voice.at; s.clear = voice.clear;
+      for (let b = 0; b < DROPS; b++) {
+        const lead = leadOf(b, voice.at, voice.clear), band = lifted(bands[b], top, lead);
+        dropAt(places, 4 + b * 4, b, band, kick, s.clock, lead);
+        if (ease(band) > 0.45) out++;
       }
       s.out = out;
       for (let i = 0; i <= DROPS; i++) balls[i].set(places[i * 4], places[i * 4 + 1], places[i * 4 + 2], places[i * 4 + 3]);
@@ -299,7 +335,7 @@
   }
 
   globalThis.TimbreMetaball = {
-    DROPS, REACH, ROOM, SKIN, CORE, SMOOTH, RISE, FALL, FOV, PITCH, FRAME, VERT, FRAG,
-    ease, direction, swing, reach, dropSize, dropAt, coreAt, smin, field, boundOf, settle, glowOf, pixelOf, loudness, idle, definition,
+    DROPS, REACH, ROOM, SKIN, CORE, SMOOTH, RISE, FALL, FURTHEST, LEAD_WIDTH, LEAD_REACH, LEAD_LIFT, FOV, PITCH, FRAME, VERT, FRAG,
+    ease, direction, swing, reach, leadOf, lifted, dropSize, dropAt, coreAt, smin, field, boundOf, settle, glowOf, pixelOf, loudness, idle, definition,
   };
 })();

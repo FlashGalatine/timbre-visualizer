@@ -1051,6 +1051,17 @@ Worth knowing before making another thing that turns freely:
   is: that is how the ridges are drawn without a second mesh of lines.
 ## The metaball (`TimbreMetaball`)
 
+**A spike, not a release: the pitch of the voice chooses the droplet that leads.** The
+bands still come from `slices`. The scene kit's `createPitch(8)` reads the voice's pitch
+from the 12 lowest log bands (`frequencies`), the same at every Gain, and holds one of the
+eight droplets for it: a low voice a low band's droplet, a high voice a high band's. That
+droplet goes by the loudest band instead of its own (`lifted`) and a quarter further
+(`reach(band, kick, lead)`, `LEAD_REACH`), its neighbours a little (`leadOf`,
+`LEAD_WIDTH`), and none past `FURTHEST`, which is as far as a droplet went before. The pitch
+counts only as far as it is clear (`clearOf` in the kit: the sound must have a voice's
+vowels and must not lie evenly over every band), and comes and goes over about a second.
+With no clear pitch (a drum, a band, silence, Idle animation) the scene is as it was.
+
 `overlay/metaball.js` is the Metaball effect, as `globalThis.TimbreMetaball`: one ball of
 liquid metal that each of the eight lowest bands of the sound pulls a droplet out of.
 `factories/metaball.js` is one line,
@@ -1102,6 +1113,18 @@ Worth knowing before drawing another surface in a shader:
   there. That is what holds the GLSL to the JavaScript.
 
 ## The ink (`TimbreInk`)
+
+**A spike, not a release: the pitch of the voice chooses the pour that leads.** The bands
+still come from `slices`. The scene kit's `createPitch(8)` reads the voice's pitch from the
+12 lowest log bands (`frequencies`), the same at every Gain, and holds one of the eight
+pours for it: a low voice at one end of the tank, a high voice at the other.
+`leadRates(rate, at, clear)` then shares the ink out anew: the pour at the pitch's place
+keeps all of its ink, its neighbours about half and the rest `LEAD_FLOOR` of theirs
+(`leadWeight`, a bump `LEAD_WIDTH` pours wide), and all are scaled so that together they
+pour what they did, so the budget holds as before. The pitch counts only as far as it is
+clear (`clearOf` in the kit: the sound must have a voice's vowels and must not lie evenly
+over every band), and comes and goes over about a second. With no clear pitch (a drum, a
+band, silence, Idle animation) the scene is as it was.
 
 `overlay/ink.js` is the Ink effect, as `globalThis.TimbreInk`: coloured ink poured into a
 glass tank of water, as thousands of small soft specks. `factories/ink.js` is one line,

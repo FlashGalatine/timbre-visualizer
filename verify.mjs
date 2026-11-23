@@ -2511,6 +2511,79 @@ await import('./overlay/sunburst.js');
     ok(two.byAge.length === 8 && peak(Array.from(two.byAge)).at === 4, 'kit history: each history has its own size and rate');
   }
 
+  // The kit's pitch of a voice (a spike: ink and the metaball try it).
+  {
+    const P = K.PITCH;
+    const sound = (pairs, floor = 0) => { const f = new Uint8Array(32).fill(floor); for (const [b, v] of pairs) f[b] = v; return f; };
+    // A voice: its pitch in two low bands and the note an octave up, and its vowels.
+    const voiceAt = (b, loud = 200) => sound([[b, loud], [b + 1, loud], [b + 4, Math.round(loud * 0.9)], ...[15, 16, 17, 18, 19, 20, 21, 22].map((i) => [i, Math.round(loud * 0.95)])]);
+    ok(P.BANDS === 12 && P.LOW === 4.85 && P.SPAN === 3.5 && P.HEARD === 0.02 && P.ONSET === 0.1 && P.RATE === 2.5 && P.VOICE_FROM === 15 && P.VOICE_TO === 27 && P.CLEAR_LOW === 0.27 && P.CLEAR_HIGH === 0.35 && P.EVEN_LOW === 0.1 && P.EVEN_HIGH === 0.2 && P.CLEAR_RATE === 3 && P.PLACE_EDGE === 0.4 && P.GLIDE_RATE === 5,
+      'kit pitch: weighed over the 12 lowest log bands, 0 at band 4.85 and 1 at band 8.35; the vowels are bands 15 to 26');
+    const one = (b) => K.pitchOf(sound([[b, 200]]));
+    ok(one(0) === 0 && one(4) === 0 && near(one(5), 0.15 / 3.5) && near(one(6), 1.15 / 3.5) && near(one(8), 3.15 / 3.5) && one(9) === 1 && one(11) === 1 && near(K.pitchOf(sound([[5, 200], [7, 200]])), 1.15 / 3.5)
+      && K.pitchOf(sound([[6, 200], [20, 255], [31, 255]])) === one(6), 'kit pitch: it is where the weight of the 12 lowest bands sits, from 0 to 1, and what sounds above them does not move it');
+    const quiet = sound([[6, 30]]);   // (30 / 255)² = 0.0138: under 0.02 at Gain 1, over it at Gain 1.3
+    ok(K.pitchOf(new Uint8Array(32)) === -1 && K.pitchOf(null) === -1 && K.pitchOf(new Uint8Array(4)) === -1 && K.pitchOf(quiet) === -1 && near(K.pitchOf(quiet, 1.3), one(6)) && K.pitchOf(quiet, 1.2) === -1 && K.pitchOf(sound([[6, 200]]), 0) === -1,
+      'kit pitch: with too little sound in those bands at this Gain there is none (-1)');
+    ok([0.5, 1, 1.5, 2, 4].every((g) => K.pitchOf(voiceAt(5), g) === K.pitchOf(voiceAt(5))) && K.pitchOf(voiceAt(5)) > 0.1 && K.pitchOf(voiceAt(7)) > K.pitchOf(voiceAt(6)) && K.pitchOf(voiceAt(6)) > K.pitchOf(voiceAt(5)),
+      'kit pitch: the same at every Gain, and higher for a higher voice');
+    // How clear the pitch is.
+    const flat = new Uint8Array(32).fill(200), kickLike = sound([[0, 250], [1, 250], [2, 240], [3, 200], [4, 150], [28, 40], [29, 50]]), bandLike = sound([[0, 255], [1, 255], [2, 250], [3, 240], [6, 250], [7, 250], [8, 250], [15, 200], [16, 190], [17, 180]]);
+    ok(K.clearOf(voiceAt(5)) === 1 && K.clearOf(voiceAt(7, 90)) === 1 && K.clearOf(flat) === 0 && K.clearOf(new Uint8Array(32).fill(128)) === 0 && K.clearOf(new Uint8Array(32)) === 0 && K.clearOf(null) === 0 && K.clearOf(sound([[2, 255]])) === 0 && K.clearOf(sound([[5, 230], [1, 77]])) === 0
+      && K.clearOf(kickLike) === 0 && K.clearOf(bandLike) === 0, `kit pitch: a voice's pitch is clear; a sound with nothing in the vowels (a drum, one low band), one with little there (a band) and one spread evenly over every band are not (${K.clearOf(bandLike)})`);
+    const part = sound([[5, 200], [6, 200], [15, 110], [16, 110], [17, 107]]), share = (2 * 110 * 110 + 107 * 107) / (2 * 110 * 110 + 107 * 107 + 2 * 200 * 200);
+    ok(share > 0.27 && share < 0.35 && K.clearOf(part) > 0.05 && K.clearOf(part) < 0.95 && near(K.clearOf(part), ((t) => t * t * (3 - 2 * t))((share - 0.27) / 0.08)), `kit pitch: between the two it counts in part, smoothly (${K.clearOf(part).toFixed(3)} at a vowel share of ${share.toFixed(3)})`);
+    const nearlyFlat = (d) => { const f = new Uint8Array(32).fill(200); for (let i = 0; i < 32; i += 2) f[i] = 200 - d; return f; };
+    ok(K.clearOf(nearlyFlat(20)) === 0 && K.clearOf(nearlyFlat(60)) > 0 && K.clearOf(nearlyFlat(60)) < 1 && K.clearOf(nearlyFlat(120)) === 1, 'kit pitch: a sound must be uneven over the bands for its pitch to count, and that too comes in smoothly');
+    // The place held.
+    ok(K.heldPlace(3.89, 3) === 3 && K.heldPlace(3.91, 3) === 4 && K.heldPlace(2.11, 3) === 3 && K.heldPlace(2.09, 3) === 2 && K.heldPlace(5.2, 3) === 5 && K.heldPlace(3.5, 3) === 3 && K.heldPlace(3.5, 4) === 4,
+      'kit pitch: the place held changes only when the pitch is 0.4 of a place past its edge, so a pitch on an edge holds whichever it had');
+    // The follower.
+    const follow1 = (cur, target, rate, dt) => cur + (target - cur) * (1 - Math.exp(-rate * dt));
+    const run = (p, bands, secs, fps = 60, gain = 1) => { let jump = 0; for (let i = 0, n = Math.round(secs * fps); i < n; i++) { const was = p.at; p.step(bands, gain, 1 / fps); jump = Math.max(jump, Math.abs(p.at - was)); } return jump; };
+    const p = K.createPitch(8);
+    ok(p.pitch === 0 && p.place === 0 && p.at === 0 && p.clear === 0 && p.heard === false, 'kit pitch: a new follower has heard nothing');
+    run(p, new Uint8Array(32), 1); run(p, null, 1); run(p, flat, 1);
+    const flatAt = p.place;
+    ok(p.clear === 0 && p.heard === true && flatAt === Math.round(K.pitchOf(flat) * 7), 'kit pitch: silence, the mic off and an even sound leave the pitch counting for nothing, exactly');
+    const q = K.createPitch(8);
+    q.step(voiceAt(5), 1, 1 / 60);
+    const first = { pitch: q.pitch, place: q.place, at: q.at, clear: q.clear };
+    ok(near(first.pitch, K.pitchOf(voiceAt(5))) && first.place === Math.round(first.pitch * 7) && first.at === first.place && first.clear > 0 && first.clear < 0.06, `kit pitch: the first pitch heard is taken as it is, and begins to count, a little (it is ${first.clear.toFixed(3)} after one frame)`);
+    const onset = K.createPitch(8);
+    onset.step(voiceAt(5), 1, 0.05); onset.step(voiceAt(7), 1, 0.05);
+    const mid = (K.pitchOf(voiceAt(5)) + K.pitchOf(voiceAt(7))) / 2;
+    onset.step(voiceAt(7), 1, 0.05);
+    ok(near(onset.pitch, follow1(mid, K.pitchOf(voiceAt(7)), 2.5, 0.05)) && K.pitchOf(voiceAt(7)) - K.pitchOf(voiceAt(5)) > 0.2, 'kit pitch: over its first tenth of a second the pitch is the mean of what is heard; after that it is followed');
+    run(q, voiceAt(5), 0.2);
+    const early = q.clear;
+    run(q, voiceAt(5), 2);
+    ok(early > 0.3 && early < 0.6 && q.clear > 0.99 && q.place === first.place && q.at === first.place, `kit pitch: it comes to count over about a second (${early.toFixed(2)} after a fifth of one)`);
+    // A higher voice: the pitch glides there, the place steps, the lead goes after it without a jump.
+    const jump = run(q, voiceAt(8), 5), want = K.pitchOf(voiceAt(8));
+    ok(q.place === Math.round(want * 7) && q.place >= first.place + 3 && near(q.pitch, want, 1e-3) && q.at === q.place && jump < 0.3, `kit pitch: when the voice goes up the lead walks to its new place, at most ${jump.toFixed(3)} of a place in a frame`);
+    // Too little sound to tell: everything is kept.
+    const kept = { pitch: q.pitch, place: q.place, at: q.at, clear: q.clear };
+    run(q, new Uint8Array(32), 2); run(q, sound([[6, 20]]), 1);
+    ok(q.pitch === kept.pitch && q.place === kept.place && q.at === kept.at && q.clear === kept.clear, 'kit pitch: a pause changes nothing');
+    // A drum after the voice: the pitch stops counting, smoothly, and then counts for nothing at all.
+    run(q, kickLike, 0.2);
+    const fading = q.clear;
+    run(q, kickLike, 4);
+    ok(fading > 0.4 && fading < 0.7 && q.clear === 0, `kit pitch: under a drum it stops counting over about a second (${fading.toFixed(2)} after a fifth of one) and then is exactly 0`);
+    run(q, voiceAt(8), 2); run(q, null, 0.2);
+    const muting = q.clear;
+    run(q, null, 4);
+    ok(muting > 0.4 && muting < 0.7 && q.clear === 0, 'kit pitch: with the mic off it stops counting the same way');
+    // The same at any frame rate.
+    const at30 = K.createPitch(8), at60 = K.createPitch(8);
+    for (const [b, secs] of [[voiceAt(5), 0.5], [voiceAt(7), 0.7], [kickLike, 0.3], [voiceAt(6), 0.4]]) { run(at30, b, secs, 30); run(at60, b, secs, 60); }
+    ok(near(at30.pitch, at60.pitch, 1e-9) && at30.place === at60.place && near(at30.at, at60.at, 0.2) && near(at30.clear, at60.clear, 1e-9) && at60.clear > 0.2, 'kit pitch: the same sound gives the same pitch, place and lead at 30 and 60 fps');
+    const odd = K.createPitch(0);
+    odd.step(voiceAt(6), NaN, NaN); odd.step(voiceAt(6), 1, -1); run(odd, voiceAt(9), 1);
+    ok(odd.place === 0 && odd.at === 0 && Number.isFinite(odd.pitch) && Number.isFinite(odd.clear), 'kit pitch: odd counts of places, Gains and frame times leave it sound');
+  }
+
   ok(S.RAYS_MIN === 24 && S.RAYS_MAX === 144 && S.SEG === 12 && S.HIST === 25 && S.HIST_HZ === 20 && S.CORE === 0.6 && S.REACH === 3 && S.HEIGHT === 3.6 && S.BANDS === 9 && S.TRAVEL === 0.9,
     'the sizes: 24 to 144 beams of 12 pieces, 25 history samples at 20 a second, a star of 0.6 with beams up to 3, light taking 0.9 s to cross them');
   ok((S.HIST - 1) / S.HIST_HZ >= ((S.lengthOf(1, 1) / S.REACH) * S.TRAVEL), 'the history reaches back as far as the tip of the longest beam on a beat');
@@ -3806,6 +3879,37 @@ await import('./overlay/metaball.js');
   ok(M.definition().cooling.length === 3 && M.definition().cooling.every((v) => v === Infinity), 'light that lingers keeps its colour');
   ok(M.ease(0) === 0 && M.ease(1) === 1 && near(M.ease(0.5), 0.5) && near(M.ease(0.25), 0.15625) && M.ease(-3) === 0 && M.ease(7) === 1, 'a band is eased: slow to leave and slow to arrive');
 
+  // The pitch of the voice chooses the droplet that leads (a spike).
+  {
+    ok(M.FURTHEST === M.reach(1, 1) && near(M.FURTHEST, 1.888) && M.LEAD_WIDTH === 0.6 && M.LEAD_REACH === 0.25 && M.LEAD_LIFT === 1, 'the lead: a quarter further, its band lifted all the way to the loudest, and never past 1.888');
+    let same = true, held = true, further = true;
+    for (let band = 0; band <= 1.0001; band += 0.05) for (let kick = 0; kick <= 1.0001; kick += 0.1) {
+      if (M.reach(band, kick, 0) !== M.reach(band, kick) || M.reach(band, kick) !== M.REACH * M.ease(band) * (1 + 0.18 * kick)) same = false;
+      for (let lead = 0.1; lead <= 1.0001; lead += 0.1) { const d = M.reach(band, kick, lead); if (d > M.FURTHEST) held = false; if (d < M.reach(band, kick) || (band > 0 && M.reach(band, kick) * (1 + 0.25 * lead) < M.FURTHEST && !near(d, M.reach(band, kick) * (1 + 0.25 * lead)))) further = false; }
+    }
+    ok(same, 'a droplet that does not lead goes exactly as far as it did');
+    ok(held && further && near(M.reach(0.5, 0, 1), 1.6 * 0.5 * 1.25) && M.reach(1, 1, 1) === M.FURTHEST && M.reach(0.9, 0.5, 1) === M.FURTHEST, 'one that leads goes up to a quarter further, and none goes past the furthest a droplet went before');
+    ok(M.leadOf(3, 3, 1) === 1 && near(M.leadOf(3, 3, 0.4), 0.4) && M.leadOf(3, 3, 0) === 0 && M.leadOf(3, 3.5, 0) === 0 && near(M.leadOf(2, 3, 1), Math.exp(-0.5 / 0.36)) && near(M.leadOf(4, 3, 1), M.leadOf(2, 3, 1)) && M.leadOf(2, 3, 1) > 0.15 && M.leadOf(2, 3, 1) < 0.35 && M.leadOf(5, 3, 1) < 0.01
+      && near(M.leadOf(3, 3.5, 1), M.leadOf(4, 3.5, 1)), 'the droplet at the pitch\'s place leads in full, its neighbours a little, the rest not at all; and all of it only as far as the pitch counts');
+    ok(M.lifted(0.3, 0.7, 0) === 0.3 && near(M.lifted(0.3, 0.7, 1), 0.7) && M.lifted(0.3, 0.7, 1) <= 0.7 && near(M.lifted(0.3, 0.7, 0.5), 0.5) && M.lifted(0.7, 0.7, 1) === 0.7 && M.lifted(0.8, 0.7, 1) === 0.8 && near(M.lifted(0.3, 0.7, 1, 0), 0.3) && near(M.lifted(0.3, 0.7, 1, 0.5), 0.5),
+      'a leading droplet\'s band is lifted toward the loudest band\'s, never past it and never lowered; one that does not lead keeps its own');
+    // In the frame: with every droplet leading in full at full band on a beat, no droplet is further out or larger than before.
+    const was = new Float32Array(36), now = new Float32Array(36);
+    let inside = true, alike = true;
+    for (const clock of [0, 1.3, 7.7, 33.1]) {
+      M.coreAt(was, 0, 1, 1, clock); M.coreAt(now, 0, 1, 1, clock);
+      for (let b = 0; b < D; b++) { M.dropAt(was, 4 + b * 4, b, 1, 1, clock); M.dropAt(now, 4 + b * 4, b, M.lifted(1, 1, 1), 1, clock, 1); }
+      if (M.boundOf(now) > M.boundOf(was) + 1e-9) inside = false;
+      for (let b = 0; b < D; b++) { const a = [0, 0, 0, 0], c = [0, 0, 0, 0]; M.dropAt(a, 0, b, 0.6, 0.3, clock); M.dropAt(c, 0, b, 0.6, 0.3, clock, 0); if (a.join() !== c.join()) alike = false; }
+    }
+    ok(inside && alike, 'the sphere the blob is drawn on is no larger with every droplet leading, at full band, on a beat: the frame holds it as it did');
+    // A voice loud in the low bands, its pitch at droplet 6: that droplet goes furthest, by a quarter.
+    const bands = [0.7, 0.71, 0.66, 0.6, 0.6, 0.53, 0.4, 0.28], top = Math.max(...bands);
+    const far = bands.map((v, b) => { const lead = M.leadOf(b, 6, 1); return M.reach(M.lifted(v, top, lead), 0, lead); }), plain = bands.map((v) => M.reach(v, 0));
+    ok(far.indexOf(Math.max(...far)) === 6 && near(far[6], 1.25 * Math.max(...plain)) && [0, 1, 2, 3].every((b) => near(far[b], plain[b], 1e-4)) && far[5] > plain[5] && far[7] > plain[7] && far[5] < far[6] && far[7] < far[6],
+      `a high voice's droplet leads as a low voice's does: a quarter beyond the furthest of the rest (${far.map((v) => v.toFixed(2)).join(' ')})`);
+  }
+
   // Where a droplet leaves the ball.
   {
     const dirs = [];
@@ -4183,6 +4287,39 @@ await import('./overlay/ink.js');
   ok(order.every(Boolean), 'all three overlay pages load ink.js after the scene kit and metaball.js and before the factories');
   const factory = await readFile(resolve(__dirname, 'overlay/factories/ink.js'), 'utf8');
   ok(/VIZ_FACTORIES\['ink'\] = TimbreScene\.factory\(\(\) => TimbreInk\.definition\(\)\);/.test(factory) && !/WebGLRenderer/.test(factory), 'the effect is the kit\'s factory around the tank\'s definition, with no renderer of its own');
+
+  // The pitch of the voice chooses the pour that leads (a spike).
+  {
+    ok(K.LEAD_WIDTH === 0.8 && K.LEAD_FLOOR === 0.15, 'the lead: a bump 0.8 pours wide over a floor of 0.15');
+    let floor = true;
+    for (let b = 0; b < K.BANDS; b++) for (let at = 0; at <= 7; at += 0.25) { const w = K.leadWeight(b, at); if (!(w >= K.LEAD_FLOOR && w <= 1)) floor = false; }
+    ok(floor && K.leadWeight(3, 3) === 1 && near(K.leadWeight(4, 3), 0.15 + 0.85 * Math.exp(-0.5 / 0.64)) && near(K.leadWeight(2, 3), K.leadWeight(4, 3)) && K.leadWeight(4, 3) > 0.4 && K.leadWeight(4, 3) < 0.7 && K.leadWeight(7, 3) < 0.151 && near(K.leadWeight(3, 3.5), K.leadWeight(4, 3.5)),
+      'the pour at the pitch\'s place keeps all its ink, its neighbours about half, and no pour less than 0.15 of it');
+    // What a voice pours (specks a second at Density 50, measured): most from the low bands, whatever its pitch.
+    const voice = [300, 305, 277, 238, 237, 199, 129, 75], sum = (a) => a.reduce((s, v) => s + v, 0);
+    const kept = Float32Array.from(voice), same = K.leadRates(kept, 4, 0);
+    ok(same === kept && Array.from(kept).join() === voice.join() && Array.from(K.leadRates(Float32Array.from(voice), 4, -1)).join() === voice.join() && Array.from(K.leadRates(Float32Array.from(voice), 4, NaN)).join() === voice.join(),
+      'with the pitch counting for nothing the pours are not touched, to the bit');
+    let total = true, leads = true, open = true; const shares = [];
+    for (let at = 0; at < K.BANDS; at++) {
+      const r = Array.from(K.leadRates(Float32Array.from(voice), at, 1));
+      if (!near(sum(r), sum(voice), 0.01)) total = false;
+      if (r.indexOf(Math.max(...r)) !== at || r[at] / sum(r) < 1.5 / K.BANDS) leads = false;
+      if (!r.every((v, b) => v >= K.LEAD_FLOOR * voice[b])) open = false;
+      shares.push((r[at] / sum(r)).toFixed(2));
+    }
+    ok(total, 'with the pitch leading, the pours together pour what they did: the ink is shared out anew, not added to');
+    ok(leads, `the pour at the pitch's place pours most, wherever the pitch is, at least one and a half times the mean share (its share at each place: ${shares.join(' ')})`);
+    ok(open, 'no pour is shut off: each keeps at least the floor\'s share of what it poured');
+    const half = Array.from(K.leadRates(Float32Array.from(voice), 6, 0.5)), full = Array.from(K.leadRates(Float32Array.from(voice), 6, 1));
+    ok(near(sum(half), sum(voice), 0.01) && half[6] > voice[6] && half[6] < full[6] && half[0] < voice[0] && half[0] > full[0], 'a pitch that counts in part leads in part');
+    const some = Array.from(K.leadRates(Float32Array.from([0, 0, 500, 0, 0, 0, 0, 0]), 6, 1)), none = Array.from(K.leadRates(new Float32Array(8), 3, 1));
+    ok(near(some[2], 500, 0.01) && some.every((v, b) => b === 2 || v === 0) && none.every((v) => v === 0), 'a band that pours nothing still pours nothing, and a lone pour keeps all of its ink wherever the pitch is');
+    const text = await readFile(resolve(__dirname, 'overlay/ink.js'), 'utf8'), blob = await readFile(resolve(__dirname, 'overlay/metaball.js'), 'utf8');
+    ok(/voice\.step\(micActive \? frequencies : null, cfgGain, dt\)/.test(text) && /voice\.step\(micActive \? frequencies : null, cfgGain, dt\)/.test(blob) && /loudness\(slices, b, cfgGain\)/.test(text) && /loudness\(slices, b, cfgGain\)/.test(blob)
+      && /voice = TimbreScene\.createPitch\(BANDS\)/.test(text) && /voice = TimbreScene\.createPitch\(DROPS\)/.test(blob),
+      'ink and the metaball still hear their bands in the slices; only the pitch is read from the log bands, by the kit, and only with the mic on');
+  }
   ok(!/Math\.random/.test(await readFile(resolve(__dirname, 'overlay/ink.js'), 'utf8')), 'the ink takes no numbers from Math.random, so a run is repeatable');
 }
 

@@ -1,5 +1,6 @@
 // Timbre — ink: coloured ink poured into a glass tank of water. First the arithmetic: what a
-// band hears, where it pours and how much, the water's currents, a beat's twist, and the
+// band hears, where it pours and how much, how the pitch of the voice chooses the pour that
+// leads (a spike), the water's currents, a beat's twist, and the
 // specks of ink themselves (how one is poured, how they move, how one is drawn). Then the
 // shaders that draw the glass, the water's surface and a speck, and the 3D scene, written
 // against the scene kit: definition() returns what TimbreScene.factory() needs.
@@ -35,6 +36,8 @@
   const GLASS_PUSH = 0.25;                  // how fast the glass turns ink back, at the glass itself, in still water, in units a second
   const GLASS_GAIN = 3;                     // and how much faster for a current of strength 1: one and this many times as fast
   const BUDGET = 0.97;                      // the share of the specks' whole lives that pouring may fill
+  const LEAD_WIDTH = 0.8;                   // how far to either side of the pitch's place its lead reaches, in pours (the width of the bump)
+  const LEAD_FLOOR = 0.15;                  // the share of its ink a pour far from the pitch keeps: no pour is shut off
   const SETTLE = 0.03;                      // how fast ink settles of itself, in units a second
   const TAB = 512;                          // cells along each side of the tank in the current's tables
   const STEPS_MAX = 6;                      // the most steps the ink takes in one frame
@@ -93,6 +96,26 @@
   function pourShare(total, count) {
     const most = (BUDGET * count) / LIFE;
     return total > most ? most / total : 1;
+  }
+
+  // The share of its ink pour b keeps when the pitch of the voice leads at `at` (in pours, 0
+  // the lowest): all of it where the pitch is, less to either side (a bump LEAD_WIDTH pours
+  // wide), and never less than LEAD_FLOOR.
+  function leadWeight(b, at) {
+    const d = (b - at) / LEAD_WIDTH;
+    return LEAD_FLOOR + (1 - LEAD_FLOOR) * Math.exp(-0.5 * d * d);
+  }
+
+  // The pours' rates (specks a second, one for each band) with the pitch leading, in place.
+  // Each is weighed by leadWeight(), as far as the pitch counts (`clear`, 0..1), and all
+  // are then scaled so that together they pour what they did: the ink is shared out anew,
+  // not added to. With clear at 0 nothing is touched.
+  function leadRates(rate, at, clear) {
+    if (!(clear > 0)) return rate;
+    let was = 0, now = 0;
+    for (let b = 0; b < BANDS; b++) { was += rate[b]; rate[b] *= 1 + clear * (leadWeight(b, at) - 1); now += rate[b]; }
+    if (now > 0) { const k = was / now; for (let b = 0; b < BANDS; b++) rate[b] *= k; }
+    return rate;
   }
 
   // How strong the currents are: slow in silence, stronger with the voice, and all of it
@@ -396,14 +419,16 @@
     const bands = new Float32Array(BANDS), owed = new Float32Array(BANDS), rate = new Float32Array(BANDS), rings = [], look2 = [0, 0], lookK = [0, 0], place = [0, 0], tint = [0, 0, 0];
     const ink = createInk(SPECKS_MAX, SEED);
     const col = new Float32Array(SPECKS_MAX * 3), look = new Float32Array(SPECKS_MAX * 2);
-    let THREE = null, glass = null, front = null, surface = null, specks = null, geo = null, shade = null, whirl = 0, ringAt = 0;
+    let THREE = null, glass = null, front = null, surface = null, specks = null, geo = null, shade = null, whirl = 0, ringAt = 0, voice = null;
     // What the checks read. clock: seconds the scene has been live. count, share: the specks
     // in use. left: how many are in the water. strength: of the currents. whirl: the twist.
-    const s = { flame: 0, kick: 0, clock: 0, live: false, orbit: 0, colorT: 0, count: 0, share: 0, left: 0, strength: 0, whirl: 0, beats: 0, glass: 0, surface: 0, px: 0, drawnFor: 1, steps: 0, poursAt: 1 };
+    // pitch: the voice's, 0..1. lead: the pour it leads at. clear: how much it counts, 0..1.
+    const s = { pitch: 0, lead: 0, clear: 0, flame: 0, kick: 0, clock: 0, live: false, orbit: 0, colorT: 0, count: 0, share: 0, left: 0, strength: 0, whirl: 0, beats: 0, glass: 0, surface: 0, px: 0, drawnFor: 1, steps: 0, poursAt: 1 };
 
     function build(k) {
       THREE = k.THREE;
       shade = new THREE.Color();
+      voice = TimbreScene.createPitch(BANDS);
       // The tank: a box of glass, open at the top. Each face's corners know its size.
       const box = k.keep(new THREE.BoxGeometry(W, H, D)), sizes = new Float32Array(24 * 2), dims = [[D, H], [D, H], [W, D], [W, D], [W, H], [W, H]];
       for (let f = 0; f < 6; f++) for (let v = 0; v < 4; v++) { sizes[(f * 4 + v) * 2] = dims[f][0]; sizes[(f * 4 + v) * 2 + 1] = dims[f][1]; }
@@ -486,11 +511,16 @@
         if (v === 0) bands[b] = settle(bands[b]);
       }
 
+      // The pitch of the voice (the mic's only): the pour at its place leads.
+      voice.step(micActive ? frequencies : null, cfgGain, dt);
+      s.pitch = voice.pitch; s.lead = voice.at; s.clear = voice.clear;
+
       // The ink: poured and moved in steps no longer than a sixtieth of a second.
       s.strength = strengthOf(flame, knob('swirl'));
       const steps = s.steps = stepsFor(dt), h = dt / steps;
       let total = 0;
       for (let b = 0; b < BANDS; b++) { rate[b] = pourRate(bands[b], s.share); total += rate[b]; }
+      leadRates(rate, voice.at, voice.clear);   // the same ink in all, shared out by the pitch
       s.poursAt = pourShare(total, count);   // no more is poured than the specks can hold for their whole lives
       for (let n = 0; n < steps; n++) {
         if (s.live) s.clock += h;
@@ -544,7 +574,7 @@
         let colSum = 0;   // the colours the specks are drawn in, all added up
         for (let i = 0; i < s.count; i++) if (look[i * 2 + 1] > 0) colSum += col[i * 3] + col[i * 3 + 1] + col[i * 3 + 2];
         return Object.assign({
-          bands: Array.from(bands), perBand: m.perBand, meanX: m.meanX, box: m.box, sum: m.sum, colSum, poured: ink.poured, next: ink.next,
+          bands: Array.from(bands), rates: Array.from(rate), perBand: m.perBand, meanX: m.meanX, box: m.box, sum: m.sum, colSum, poured: ink.poured, next: ink.next,
           rings: rings.map((r) => r.toArray()), glassColor: srgb(glass.material.uniforms.uColor.value), frontColor: srgb(front.material.uniforms.uColor.value), surfaceColor: srgb(surface.material.uniforms.uColor.value),
           shown: [glass.visible, front.visible, surface.visible], drawn: geo.drawRange.count, strays,
           brights: [glass.material.uniforms.uBright.value, front.material.uniforms.uBright.value, surface.material.uniforms.uBright.value], drawnPx: mat.uniforms.uPx.value,
@@ -562,9 +592,9 @@
   }
 
   globalThis.TimbreInk = {
-    BANDS, W, H, D, TOP, FLOOR, WALL_X, WALL_Z, LIFE, POUR, SPECKS_MIN, SPECKS_MAX, QUIET, RISE, FALL, STREAM, TWIST, TWIST_FALL, SINK_FALL, SETTLE, GLASS_PUSH, GLASS_GAIN, BUDGET, TAB, STEPS_MAX, FOV, PITCH, FRAME, SEED,
+    BANDS, W, H, D, TOP, FLOOR, WALL_X, WALL_Z, LIFE, POUR, SPECKS_MIN, SPECKS_MAX, QUIET, RISE, FALL, STREAM, TWIST, TWIST_FALL, SINK_FALL, SETTLE, GLASS_PUSH, GLASS_GAIN, BUDGET, LEAD_WIDTH, LEAD_FLOOR, TAB, STEPS_MAX, FOV, PITCH, FRAME, SEED,
     GLASS_VERT, GLASS_FRAG, SURFACE_FRAG, INK_VERT, INK_FRAG,
-    speckCount, shareOf, loudness, idle, settle, placeOf, pourRate, pourShare, strengthOf, glassOf, surfaceOf, current, tabulate, flow, nearGlass, fromGlass, twistOf, whirlAfter, stepsFor,
+    speckCount, shareOf, loudness, idle, settle, placeOf, pourRate, pourShare, leadWeight, leadRates, strengthOf, glassOf, surfaceOf, current, tabulate, flow, nearGlass, fromGlass, twistOf, whirlAfter, stepsFor,
     createInk, pour, stepInk, lookFor, lookOf, litOf, measure, pxOf, definition,
   };
 })();
