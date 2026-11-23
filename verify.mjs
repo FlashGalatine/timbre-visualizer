@@ -100,7 +100,8 @@
 //  28. The dock — the part of control/control.html's script that needs no page
 //      (between its DOCK-PURE marks), run as it is: the record of the
 //      streamer's edits and the merge of an inbound config under it, which
-//      keys a broadcast settles, the preview's address, and every wording of
+//      keys a broadcast settles, the preview's address, the source address the
+//      dock copies (page, look, port) and its page, and every wording of
 //      the status line. Then Matrix text by whole characters: splitChars,
 //      cutText and the cut in sanitizeConfig. (Runs before section 4.)
 //  29. The overlay's core — the REAL overlay/core.js run under Node in a page
@@ -8992,7 +8993,7 @@ console.log('\n[28] dock: edits kept, status line, preview address, whole charac
   const from = html.indexOf('// DOCK-PURE-BEGIN'), to = html.indexOf('// DOCK-PURE-END');
   ok(from > 0 && to > from, 'control.html marks the part of its script that needs no page');
   // That part of the page's own script, run here as it is.
-  const D = new Function(html.slice(from, to) + '\nreturn { setAt, hasKeys, mergeEdits, unsettledEdits, previewQuery, oneLine, statusFor, shouldRetry: typeof shouldRetry === "function" ? shouldRetry : null, haltsRetry: typeof haltsRetry === "function" ? haltsRetry : null };')();
+  const D = new Function(html.slice(from, to) + '\nreturn { setAt, hasKeys, mergeEdits, unsettledEdits, previewQuery, validPort, sourceAddress, oneLine, statusFor, shouldRetry: typeof shouldRetry === "function" ? shouldRetry : null, haltsRetry: typeof haltsRetry === "function" ? haltsRetry : null };')();
   const J = JSON.stringify;
 
   // The record of edits (TIM-08, TIM-28, TIM-29).
@@ -9042,6 +9043,15 @@ console.log('\n[28] dock: edits kept, status line, preview address, whole charac
   ok(['1@evil.example', '8090/x', '0', '65536', '123456', '-1', '8090 ', 'abc'].every((p) => D.previewQuery('?sbport=' + encodeURIComponent(p)) === '') && D.previewQuery('?sbdebug=2') === '' && D.previewQuery('?sbdebug=1%26x%3D1') === '',
     'an sbport that is not a port number, or an sbdebug that is not 1, is not passed on');
   ok(D.previewQuery('?sbport=65535') === '?sbport=65535' && D.previewQuery('?sbport=1') === '?sbport=1', 'ports 1 and 65535 are passed on');
+
+  // The source address the dock copies.
+  const cfgS = T.sanitizeConfig({ activeViz: 'rose', showBorder: false, gain: 150 });
+  const addr = D.sourceAddress(T, 'http://127.0.0.1:7474', 'mic-visualizers-1920x1080.html', cfgS, '?sbport=9090&sbdebug=1');
+  ok(addr === 'http://127.0.0.1:7474/timbre-overlay/mic-visualizers-1920x1080.html?' + T.lookToQuery(cfgS) + '&sbport=9090', 'the source address: the page, the whole look, and the dock\'s own port; not the debug switch');
+  ok(!D.sourceAddress(T, 'http://127.0.0.1:7474', 'mic-visualizers-300x220.html', cfgS, '?sbport=1@evil.example').includes('sbport'), 'a port that is not a port is left out');
+  ok(D.sourceAddress(T, 'http://127.0.0.1:7474', '../../x.html', cfgS, '').includes('/timbre-overlay/mic-visualizers-1920x1080.html?'), 'a page that is not one of the three becomes the 1920×1080 page');
+  ok(D.validPort('?sbport=8080') === 8080 && D.validPort('?sbport=0') === 0 && D.validPort('?sbport=65536') === 0 && D.validPort('') === 0, 'validPort');
+  ok(/id="selSourcePage"/.test(html) && /id="btnCopySource"/.test(html) && /id="txtSourceAddress"[^>]*readonly/.test(html) && (html.match(/<option value="mic-visualizers-/g) || []).length === 3 && /<option value="mic-visualizers-1920x1080\.html" selected/.test(html), 'the dock has the page choice (1920×1080 chosen), the button and a read-only field');
 
   // The status line (TIM-11).
   const base = { connected: true, held: false, actionMissing: false, replyError: null, runError: null, noAnswer: false, defaultQueue: false };
@@ -9107,7 +9117,7 @@ console.log('\n[28] dock: edits kept, status line, preview address, whole charac
   ok(long.startsWith('Timbre Push failed: a b' + 'x'.repeat(197) + ' — see') && D.oneLine({ toString() { return ' q '; } }) === 'q' && D.oneLine(null) === '' && D.oneLine(42) === '42', 'text from outside is shown as one line of at most 200 characters, whatever its type');
   ok(/\$\('sbStatusText'\)\.textContent = s\.text;/.test(html) && /\$\('sbQueueNote'\)\.textContent = s\.note;/.test(html) && /\$\('matrixHint'\)\.textContent = /.test(html)
     && !/(sbStatus|sbStatusText|sbQueueNote|matrixHint)'\)\.innerHTML/.test(html) && !/insertAdjacentHTML|document\.write/.test(html), 'the status line, the queue note and the Matrix hint are put in with textContent');
-  ok(/f\.dataset\.src \+ previewQuery\(location\.search\)/.test(html) && html.split('location.search').length === 2, 'the preview\'s address is built from previewQuery, the only place the page reads its own query string');
+  ok(/f\.dataset\.src \+ previewQuery\(ownSearch\)/.test(html) && html.split('location.search').length === 2, 'the preview\'s address is built from previewQuery, the only place the page reads its own query string');
 
   // Whole characters (TIM-18, item 4).
   const face = '\u{1F600}', astronaut = '\u{1F469}‍\u{1F680}', flag = '\u{1F1EF}\u{1F1F5}';
