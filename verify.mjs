@@ -106,6 +106,14 @@
 //      in; getColor against what it gave before, the palette table and its
 //      rebuild; and ema, decay, chance and fadeOrClear against the scene kit's
 //      formulas and at 30, 60 and 165 frames a second. (Runs before section 4.)
+//  30. The microphone capture — the REAL overlay/audio-capture.js run under
+//      Node with stand-in media APIs (a getUserMedia whose promises the test
+//      resolves and rejects by hand, stand-in AudioContext, analysers and
+//      tracks that count their stop() calls, and timers the test runs): one
+//      request and a device switch; start() then setDevice() before the first
+//      request resolves, granted in either order; a stale failure; the request
+//      in force failing and its retry; an old track ending; and stop(), also
+//      with a request still waiting. (Runs before section 4.)
 //
 // The suite refuses to start when something already answers on its side ports
 // (a mock left over from a run that was killed), and stops its own mock when it
@@ -7773,6 +7781,285 @@ console.log('\n[29] overlay core: one canvas height, equal configs, a config tha
     ok(helpers && cleared.fills.length === 0 && cleared.clears === 60 && cleared.left === 0 && c.log.cleared.join() === '0,0,260,130' && tiny.fills.length === 0 && tiny.clears === 60 && whole.left === 0 && plain.took === 0.3 && plain.a === 0.3
       && fadeOrClear(NaN, 1 / 60) === 1 && fadeOrClear(-1, 1 / 60) === 1,
       'fadeOrClear: with nothing to fade by (Trail veil 0, or no number) it clears the canvas instead, so nothing smears; with no dt it takes off the share as given');
+  }
+}
+
+// ── 30. The microphone capture, run under Node with stand-in media APIs ─────
+console.log('\n[30] audio capture: one microphone request at a time');
+{
+  const vm = await import('node:vm');
+  const captureText = await readFile(resolve(__dirname, 'overlay/audio-capture.js'), 'utf8');
+  // Everything the file is waiting on has run when this resolves (awaits are microtasks).
+  const settle = () => new Promise((r) => setImmediate(r));
+
+  // The REAL overlay/audio-capture.js in a page made of stand-ins. getUserMedia hands back a
+  // promise that only the test resolves (with a stream whose one track counts its stop()
+  // calls) or rejects; every AudioContext and analyser that is made is kept and counted; and
+  // setInterval and setTimeout only record what was asked: the test runs the sampler with
+  // tick() and moves the retry clock with advance(ms). The four values core.js declares for
+  // the capture to fill are declared the same way, as the script's own `let`s (`peak: false`
+  // leaves micPeak out, as a cached core.js from before it existed would). `holdLists` makes
+  // enumerateDevices wait for the test too. No microphone, no audio and no real timer is used.
+  const loadCapture = ({ peak = true, holdLists = false } = {}) => {
+    const w = { peak, requests: [], streams: [], contexts: [], analysers: [], lists: [], intervals: new Map(), timeouts: new Map(), events: [], warns: [], seq: 0, now: 0 };
+    const makeStream = (request) => {
+      const s = { request, tracks: [{ stops: 0, onended: null, stop() { this.stops++; } }], getTracks() { return this.tracks; } };
+      w.streams.push(s);
+      return s;
+    };
+    class StandInAudioContext {
+      constructor() { this.state = 'running'; this.sampleRate = 48000; this.closes = 0; this.sources = []; this.analysers = []; w.contexts.push(this); }
+      resume() { return Promise.resolve(); }
+      close() { this.closes++; this.state = 'closed'; return Promise.resolve(); }
+      createMediaStreamSource(stream) { const src = { stream, to: [], connect(node) { this.to.push(node); } }; this.sources.push(src); return src; }
+      createAnalyser() {
+        const a = { fftSize: 2048, smoothingTimeConstant: 0.8, getByteFrequencyData(buf) { buf.fill(7); }, getByteTimeDomainData(buf) { buf.fill(128); buf[0] = 255; } };
+        this.analysers.push(a); w.analysers.push(a);
+        return a;
+      }
+    }
+    const sandbox = {
+      console: { log() {}, warn: (...a) => w.warns.push(a.map(String).join(' ')) },
+      CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; } },
+      dispatchEvent: (e) => { if (e.type === 'timbre:mic') w.events.push(e.detail.state); return true; },
+      navigator: { mediaDevices: {
+        getUserMedia(constraints) {
+          const req = { constraints: JSON.stringify(constraints), stream: null };
+          const promise = new Promise((res, rej) => {
+            req.resolve = () => { req.stream = makeStream(req); res(req.stream); };
+            req.reject = (name = 'NotAllowedError') => rej(Object.assign(new Error('refused by the test'), { name }));
+          });
+          w.requests.push(req);
+          return promise;
+        },
+        enumerateDevices() {
+          if (!holdLists) return Promise.resolve([]);
+          return new Promise((res) => { w.lists.push(() => res([])); });
+        },
+      } },
+      AudioContext: StandInAudioContext,
+      setInterval: (fn, ms) => { w.intervals.set(++w.seq, { fn, ms }); return w.seq; },
+      clearInterval: (id) => { w.intervals.delete(id); },
+      setTimeout: (fn, ms) => { w.timeouts.set(++w.seq, { fn, at: w.now + ms }); return w.seq; },
+      clearTimeout: (id) => { w.timeouts.delete(id); },
+    };
+    sandbox.window = sandbox;
+    vm.createContext(sandbox);
+    vm.runInContext(`let frequencies = null; let waveform = null; ${peak ? 'let micPeak = null; ' : ''}let micActive = false; globalThis.__see = (code) => eval(code);`, sandbox, { filename: 'stand-in for core.js' });
+    vm.runInContext(captureText, sandbox, { filename: 'overlay/audio-capture.js' });
+    w.see = sandbox.__see;
+    w.capture = sandbox.timbreCapture;
+    w.tick = () => { for (const t of [...w.intervals.values()]) t.fn(); };
+    w.advance = (ms) => { w.now += ms; for (const [id, t] of [...w.timeouts]) if (t.at <= w.now && w.timeouts.has(id)) { w.timeouts.delete(id); t.fn(); } };
+    return w;
+  };
+  const deviceOf = (req) => { const a = JSON.parse(req.constraints).audio; return a === true ? 'default' : a.deviceId.ideal; };
+  const liveStreams = (w) => w.streams.filter((s) => s.tracks.some((t) => t.stops === 0));
+  const liveContexts = (w) => w.contexts.filter((c) => c.closes === 0);
+  // What is alive: streams with a track that was never stopped (and the device each was asked
+  // for), contexts never closed (and the device of the stream each is wired to), sampler
+  // timers, and retry timers.
+  const alive = (w) => ({ streams: liveStreams(w).map((s) => deviceOf(s.request)).join('+'), contexts: liveContexts(w).map((c) => c.sources.map((src) => deviceOf(src.stream.request)).join('/')).join('+'),
+    samplers: w.intervals.size, retries: w.timeouts.size });
+  const says = (w) => { const a = alive(w); return `${liveStreams(w).length} live stream(s) [${a.streams}], ${liveContexts(w).length} open context(s) [${a.contexts}], ${a.samplers} sampler timer(s), ${a.retries} retry timer(s), ${w.requests.length} request(s), events ${w.events.join()}`; };
+  // Exactly one session, on `device`, and it samples: one live stream, one open context wired
+  // to that stream with the analysers it should have, one sampler timer, no retry timer.
+  const oneSession = (w, device) => {
+    const a = alive(w), ctx = liveContexts(w)[0];
+    if (!(a.streams === device && a.contexts === device && a.samplers === 1 && a.retries === 0)) return false;
+    if (ctx.analysers.length !== (w.peak ? 2 : 1) || ctx.analysers[0].fftSize !== 64 || ctx.analysers[0].smoothingTimeConstant !== 0.7) return false;
+    w.tick();
+    return w.see('micActive') === true && w.see('frequencies').length === 32 && w.see('waveform').length === 64 && (w.peak ? w.see('micPeak') === 1 && ctx.analysers[1].fftSize === 4096 : true);
+  };
+  const nothingAlive = (w) => { const a = alive(w); return a.streams === '' && a.contexts === '' && a.samplers === 0 && a.retries === 0 && w.see('micActive') === false && w.see('frequencies') === null && w.see('waveform') === null && (!w.peak || w.see('micPeak') === null); };
+
+  // ── What a single request does (unchanged by TIM-14) ──
+  {
+    const w = loadCapture();
+    w.capture.start(); await settle();
+    const asked = w.requests.map((r) => r.constraints).join();
+    const waiting = says(w);
+    if (w.requests[0]) w.requests[0].resolve();
+    await settle();
+    ok(asked === '{"audio":true}' && /^0 live stream.*, 0 open context.*, 0 sampler timer.*events acquiring$/.test(waiting) && oneSession(w, 'default') && w.events.join() === 'acquiring,listening' && w.contexts.length === 1 && w.analysers.length === 2,
+      `start() asks for the default microphone once, and when it is granted there is one stream, one context with its two analysers and one sampler timer, publishing 32 frequency values, 64 waveform values and the peak — ${says(w)}`);
+    w.capture.setDevice('mic-b', 'Mic B'); await settle();
+    const switching = says(w), asked2 = w.requests.length > 1 ? w.requests[1].constraints : '';
+    if (w.requests[1]) w.requests[1].resolve();
+    await settle();
+    ok(asked2 === '{"audio":{"deviceId":{"ideal":"mic-b"}}}' && /^0 live stream.*, 0 open context.*, 0 sampler timer/.test(switching) && oneSession(w, 'mic-b') && w.streams[0].tracks[0].stops === 1 && w.contexts[0].closes === 1 && w.events.join() === 'acquiring,listening,acquiring,listening',
+      `setDevice() on a running capture closes the session it has and asks for the new microphone by its id (as ideal, not exact); granted, there is again one of each, on the new device — ${says(w)}`);
+    w.capture.setDevice('mic-b', 'Mic B'); await settle();
+    ok(w.requests.length === 2 && oneSession(w, 'mic-b'), 'setDevice() with the device already in use asks for nothing and leaves the session alone');
+  }
+
+  // ── TIM-14: start() then setDevice() before the first request resolves ──
+  // The page calls start() at load (the default microphone); the saved config then arrives
+  // with another microphone while that first request is still waiting.
+  const overlap = async (order, opts) => {
+    const w = loadCapture(opts);
+    w.capture.start(); await settle();
+    w.capture.setDevice('mic-b', 'Mic B'); await settle();
+    w.inFlight = w.requests.map(deviceOf).join();
+    for (const i of order) { if (w.requests[i]) w.requests[i].resolve(); await settle(); }
+    return w;
+  };
+  {
+    const inOrder = await overlap([0, 1]);
+    const staleStops = inOrder.streams.filter((s) => deviceOf(s.request) === 'default').map((s) => s.tracks[0].stops).join();
+    ok(inOrder.inFlight === 'default,mic-b' && oneSession(inOrder, 'mic-b') && inOrder.contexts.length === 1 && inOrder.analysers.length === 2 && inOrder.intervals.size === 1 && staleStops === '1' && inOrder.events.join() === 'acquiring,acquiring,listening',
+      `start() then setDevice() while the first request is still waiting, the requests granted oldest first: exactly one live stream, one context and one sampler timer, on the newer device; the overtaken request's stream is stopped once and nothing is built for it (${inOrder.contexts.length} context(s) and ${inOrder.analysers.length} analyser(s) were ever made) — ${says(inOrder)}`);
+    const reversed = await overlap([1, 0]);
+    const staleStopsR = reversed.streams.filter((s) => deviceOf(s.request) === 'default').map((s) => s.tracks[0].stops).join();
+    ok(reversed.inFlight === 'default,mic-b' && oneSession(reversed, 'mic-b') && reversed.contexts.length === 1 && reversed.analysers.length === 2 && staleStopsR === '1' && reversed.events.join() === 'acquiring,acquiring,listening',
+      `the same with the newer request granted first and the overtaken one after it: the overlay is not left on the default microphone while saying LISTENING — ${says(reversed)}`);
+    ok(says(inOrder) === says(reversed) && JSON.stringify(alive(inOrder)) === JSON.stringify(alive(reversed)), `granting the two requests in either order gives the same end state — oldest first: ${says(inOrder)} | newest first: ${says(reversed)}`);
+    const noPeak = await overlap([0, 1], { peak: false }), noPeakR = await overlap([1, 0], { peak: false });
+    ok(oneSession(noPeak, 'mic-b') && oneSession(noPeakR, 'mic-b') && noPeak.contexts.length === 1 && noPeakR.contexts.length === 1 && noPeak.analysers.length === 1 && noPeakR.analysers.length === 1,
+      `beside a core.js from before micPeak the same holds, with the one analyser that page gets (${noPeak.analysers.length} and ${noPeakR.analysers.length} made) — ${says(noPeak)}`);
+    for (const w of [inOrder, reversed, noPeak, noPeakR]) w.capture.stop();
+    ok([inOrder, reversed, noPeak, noPeakR].every(nothingAlive), `and stop() after either order leaves no live stream, context or timer — ${says(inOrder)} | ${says(reversed)}`);
+  }
+  {
+    // Overtaken before the microphone was even asked for: no request is made for the old device.
+    const w = loadCapture();
+    w.capture.start(); w.capture.setDevice('mic-b', 'Mic B'); await settle();
+    const asked = w.requests.map(deviceOf).join();
+    if (w.requests.length) w.requests[w.requests.length - 1].resolve();
+    await settle();
+    const h = loadCapture({ holdLists: true });
+    h.capture.setDevice('mic-a', 'Mic A'); h.capture.start(); await settle();
+    h.capture.setDevice('mic-b', 'Mic B'); await settle();
+    const listsAsked = h.lists.length;
+    for (const give of h.lists.slice()) { give(); await settle(); }
+    const askedH = h.requests.map(deviceOf).join();
+    if (h.requests.length) h.requests[h.requests.length - 1].resolve();
+    await settle();
+    ok(asked === 'mic-b' && oneSession(w, 'mic-b') && listsAsked === 2 && askedH === 'mic-b' && oneSession(h, 'mic-b') && h.streams.length === 1,
+      `a request overtaken before it reached getUserMedia (setDevice() straight after start(), or while the device list is still being read) never opens the old microphone: asked for ${asked || 'nothing'} and ${askedH || 'nothing'} — ${says(h)}`);
+  }
+
+  // ── TIM-14: a stale failure ──
+  {
+    const w = loadCapture();
+    w.capture.start(); await settle();
+    w.capture.setDevice('mic-b', 'Mic B'); await settle();
+    if (w.requests[1]) w.requests[1].resolve();
+    await settle();
+    const good = oneSession(w, 'mic-b');
+    w.requests[0].reject(); await settle();
+    const after = says(w), kept = oneSession(w, 'mic-b'), retries = w.timeouts.size;
+    w.advance(60000); await settle();
+    ok(good && kept && retries === 0 && w.requests.length === 2 && oneSession(w, 'mic-b') && w.events.join() === 'acquiring,acquiring,listening' && w.contexts.length === 1 && w.streams.length === 1,
+      `the overtaken request failing after the newer one made a good session leaves it untouched: no teardown, no MIC DENIED, no retry armed, and a minute later nothing has been asked for again — ${after}`);
+  }
+  {
+    const w = loadCapture();
+    w.capture.start(); await settle();
+    w.capture.setDevice('mic-b', 'Mic B'); await settle();
+    w.requests[0].reject(); await settle();
+    const between = says(w), retries = w.timeouts.size, events = w.events.join();
+    if (w.requests[1]) w.requests[1].resolve();
+    await settle();
+    w.advance(60000); await settle();
+    ok(retries === 0 && events === 'acquiring,acquiring' && w.requests.length === 2 && oneSession(w, 'mic-b') && w.events.join() === 'acquiring,acquiring,listening',
+      `the overtaken request failing while the newer one is still waiting arms no retry and reports nothing (${between}); the newer one is then granted and a minute later is still the one session — ${says(w)}`);
+  }
+  {
+    // The request in force failing is still reported and retried; a newer request cancels that retry.
+    const w = loadCapture();
+    w.capture.start(); await settle();
+    w.requests[0].reject('NotFoundError'); await settle();
+    const denied = says(w), armed = w.timeouts.size, warned = w.warns.length;
+    w.advance(9999); await settle();
+    const early = w.requests.length;
+    w.advance(1); await settle();
+    const retried = w.requests.length, armedAfter = w.timeouts.size;
+    w.requests[retried - 1].reject(); await settle();
+    const armedAgain = w.timeouts.size;
+    w.capture.setDevice('mic-b', 'Mic B'); await settle();
+    const cancelled = w.timeouts.size, asked = w.requests.length;
+    w.requests[asked - 1].resolve(); await settle();
+    w.advance(60000); await settle();
+    ok(armed === 1 && warned === 1 && /events acquiring,denied$/.test(denied) && early === 1 && retried === 2 && armedAfter === 0 && armedAgain === 1 && cancelled === 0 && asked === 3 && w.requests.length === 3 && oneSession(w, 'mic-b')
+      && w.events.join() === 'acquiring,denied,acquiring,denied,acquiring,listening',
+      `the request in force failing says MIC DENIED and asks again after 10 seconds, not sooner; a newer request cancels the retry timer the failed one armed, so nothing asks again behind its back — ${says(w)}`);
+  }
+
+  // ── TIM-14: an old track ending ──
+  {
+    const w = loadCapture();
+    w.capture.start(); await settle();
+    w.requests[0].resolve(); await settle();
+    const oldEnded = w.streams[0].tracks[0].onended;
+    w.capture.setDevice('mic-b', 'Mic B'); await settle();
+    if (typeof oldEnded === 'function') oldEnded();
+    await settle();
+    const whileWaiting = w.requests.length, eventsWaiting = w.events.join();
+    if (w.requests[1]) w.requests[1].resolve();
+    await settle();
+    if (typeof oldEnded === 'function') oldEnded();
+    await settle();
+    ok(typeof oldEnded === 'function' && whileWaiting === 2 && eventsWaiting === 'acquiring,listening,acquiring' && w.requests.length === 2 && oneSession(w, 'mic-b') && w.events.join() === 'acquiring,listening,acquiring,listening' && w.contexts.length === 2,
+      `after a device switch the old stream's track ending does nothing, neither while the new request is waiting nor once it has a session: no new request, no teardown — ${says(w)}`);
+    // The track of the session in force ending (the microphone was unplugged) still re-acquires.
+    const liveEnded = w.streams[1] && w.streams[1].tracks[0].onended;
+    if (typeof liveEnded === 'function') liveEnded();
+    await settle();
+    const gone = says(w), asked = w.requests.map(deviceOf).join();
+    if (w.requests[2]) w.requests[2].resolve();
+    await settle();
+    ok(typeof liveEnded === 'function' && asked === 'default,mic-b,mic-b' && /^0 live stream.*, 0 open context.*, 0 sampler timer/.test(gone) && oneSession(w, 'mic-b') && w.requests.length === 3,
+      `the track of the session in force ending still closes that session and asks for the same microphone again — ${says(w)}`);
+    w.capture.stop();
+    if (typeof liveEnded === 'function') liveEnded();
+    await settle();
+    ok(nothingAlive(w) && w.requests.length === 3, `and after stop() a track ending asks for nothing — ${says(w)}`);
+  }
+
+  // ── TIM-14: stop() ──
+  {
+    const w = loadCapture();
+    w.capture.start(); await settle();
+    w.requests[0].resolve(); await settle();
+    const had = oneSession(w, 'default');
+    w.capture.stop(); await settle();
+    w.advance(60000); await settle();
+    ok(had && nothingAlive(w) && w.streams[0].tracks[0].stops === 1 && w.contexts[0].closes === 1 && w.events.join() === 'acquiring,listening,denied' && w.requests.length === 1,
+      `stop() on a session leaves no live stream, no open context and no timer, clears what was published and reports the microphone gone — ${says(w)}`);
+  }
+  {
+    const w = loadCapture();
+    w.capture.start(); await settle();
+    w.capture.stop(); await settle();
+    w.requests[0].resolve(); await settle();
+    w.advance(60000); await settle();
+    w.tick();
+    ok(nothingAlive(w) && w.streams.length === 1 && w.streams[0].tracks[0].stops === 1 && w.contexts.length === 0 && w.analysers.length === 0 && w.events.join() === 'acquiring,denied' && w.requests.length === 1,
+      `stop() while a request is still waiting: when the microphone is then granted its stream is stopped and nothing is built, so there are no live streams, contexts or timers and the overlay does not say LISTENING — ${says(w)}`);
+    const r = loadCapture();
+    r.capture.start(); await settle();
+    r.capture.stop(); await settle();
+    r.requests[0].reject(); await settle();
+    const armed = r.timeouts.size;
+    r.advance(60000); await settle();
+    ok(nothingAlive(r) && armed === 0 && r.events.join() === 'acquiring,denied' && r.requests.length === 1 && r.warns.length === 0,
+      `stop() while a request is still waiting, and the request then fails: no retry timer is armed and nothing is reported a second time — ${says(r)}`);
+  }
+  {
+    // stop() then start() again while the first request is still waiting: the old request is overtaken.
+    for (const order of [[0, 1], [1, 0]]) {
+      const w = loadCapture();
+      w.capture.start(); await settle();
+      w.capture.stop(); w.capture.start(); await settle();
+      const asked = w.requests.length;
+      for (const i of order) { if (w.requests[i]) w.requests[i].resolve(); await settle(); }
+      const mine = liveStreams(w).length === 1 && liveStreams(w)[0].request === w.requests[1];
+      const one = oneSession(w, 'default'), said = says(w);
+      w.capture.stop(); await settle();
+      ok(asked === 2 && mine && one && w.contexts.length === 1 && nothingAlive(w),
+        `stop() then start() while the first request is still waiting, granted ${order[0] === 0 ? 'oldest' : 'newest'} first: the one session is the second request's, and stop() then leaves nothing — ${said}`);
+    }
   }
 }
 

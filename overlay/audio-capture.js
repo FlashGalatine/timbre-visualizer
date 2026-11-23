@@ -39,6 +39,12 @@
   let wantDeviceId = '';
   let wantLabel = '';
   let running = false;
+  // One microphone request at a time (TIM-14). Every acquire() takes the next number, and so
+  // does stop(); a request whose number is no longer `gen` was overtaken while it waited (by a
+  // later start(), setDevice(), retry or stop()). An overtaken request owns nothing: it stops
+  // the stream it was handed and builds no context, analyser or timer, and when it fails it
+  // neither tears down the session in force nor arms a retry.
+  let gen = 0;
 
   const freqBuf = new Uint8Array(FFT_SIZE / 2);
   const waveBuf = new Uint8Array(FFT_SIZE);
@@ -83,10 +89,18 @@
   async function acquire() {
     if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
     if (!running) return;
+    const my = ++gen;
     teardownStream();
     emit('acquiring');
     try {
-      stream = await navigator.mediaDevices.getUserMedia(await buildConstraints());
+      const constraints = await buildConstraints();
+      if (my !== gen) return;     // overtaken before the microphone was asked for
+      const got = await navigator.mediaDevices.getUserMedia(constraints);
+      if (my !== gen) {           // overtaken while waiting: give the microphone back, build nothing
+        got.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      stream = got;
       audioCtx = new AudioContext();
       // Autoplay policy can start the context 'suspended' when there was no user
       // gesture (OBS Browser Sources never have one). Resume explicitly, and keep
@@ -113,8 +127,9 @@
         peakBuf = new Uint8Array(peakAnalyser.fftSize);
       }
 
-      // If the device disappears mid-stream (unplugged USB mic), re-acquire.
-      stream.getTracks().forEach((t) => { t.onended = () => { if (running) acquire(); }; });
+      // If the device disappears mid-stream (unplugged USB mic), re-acquire. Only the track of
+      // the session in force may do that: an older session's track ending changes nothing.
+      stream.getTracks().forEach((t) => { t.onended = () => { if (running && my === gen) acquire(); }; });
 
       sampleTimer = setInterval(() => {
         if (!analyser) return;
@@ -136,6 +151,8 @@
       }, SAMPLE_MS);
       emit('listening');
     } catch (err) {
+      // An overtaken request that failed: the session (or the newer request) is not its to touch.
+      if (my !== gen) return;
       teardownStream();
       emit('denied');
       console.warn('[timbre-capture] getUserMedia failed:', err && err.name, err && err.message);
@@ -155,6 +172,7 @@
     start() { if (!running) { running = true; acquire(); } },
     stop() {
       running = false;
+      gen++;                      // a request still waiting is overtaken: it will stop what it gets
       if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
       teardownStream();
       emit('denied');

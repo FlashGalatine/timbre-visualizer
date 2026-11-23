@@ -10,6 +10,28 @@ traceability.
 
 ## [Unreleased]
 
+## [1.0.185] — 2026-11-23
+
+Copy the `overlay` folder and refresh the overlay sources. Nothing to re-paste.
+
+### Fixed
+
+- **The overlay holds one microphone, the one you picked.** When the saved microphone
+  arrived while the page's first request for the default one was still waiting, both
+  requests could finish: the page then held two microphones and ran two samplers, and
+  could show LISTENING while reacting to the wrong device. A request that has been
+  overtaken now stops the microphone it was given and builds nothing.
+- **An old request failing no longer knocks out a good session**, shows MIC DENIED or
+  schedules a retry. Before, switching microphones twice in a row could end with a
+  MIC DENIED flash about ten seconds later.
+- **Stopping the capture stops everything**, including a request that was still waiting
+  when it was stopped.
+
+### Added
+
+- Twenty checks that run `overlay/audio-capture.js` under Node with stand-in media APIs
+  and decide by hand which microphone request finishes first.
+
 ## [1.0.183] — 2026-11-23
 
 Copy the `shared`, `overlay` and `control` folders, reload the dock and refresh the
@@ -745,7 +767,8 @@ StreamService / ControlPanel toolkit. (`ee5c34a`)
 
 Verified offline: `verify` 28/28, `verify:render` 14/14.
 
-[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.183...main
+[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.185...main
+[1.0.185]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.183...v1.0.185
 [1.0.183]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.181...v1.0.183
 [1.0.181]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.179...v1.0.181
 [1.0.179]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.177...v1.0.179
