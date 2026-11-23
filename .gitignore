@@ -2,3 +2,6 @@ node_modules/
 tools/cs/build/
 test-render*.png
 control-render.png
+.worktrees/
+.superpowers/
+*.log

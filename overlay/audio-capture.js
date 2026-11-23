@@ -6,7 +6,7 @@
    getUserMedia + AnalyserNode, so no audio data crosses any wire — only
    config does (via Streamer.bot). Loaded as a plain <script> AFTER core.js;
    it assigns the same script-scope `frequencies` / `waveform` / `micPeak` / `micActive`
-   bindings the 52 factories already read, so the factories are untouched.
+   bindings the effect factories already read, so the factories are untouched.
 
    Emits `timbre:mic` CustomEvents ({ state: 'listening'|'denied'|'acquiring' })
    that core.js turns into the status label. Exposes window.timbreCapture:

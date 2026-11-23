@@ -119,7 +119,7 @@
 //           the canvas state is left as found and the picture does not depend on the line settings
 //           it is handed; a draw stays inside its time budget; and the control panel lists it •
 //           a config with values out of range, stored by the mock as sent, is clamped by the page •
-//           every effect, once (all 52 names, on a fresh 1920×1080 page): it becomes active on the
+//           every effect, once (every name in the list, on a fresh 1920×1080 page): it becomes active on the
 //           right canvas, draws pixels, throws nothing, and draw() averages under its budget •
 //           four fixes of the 10 November audit: every firework rocket bursts, inside the canvas,
 //           at 30 and 60 fps; the Easter eggs' Pattern knob reaches every kind; Ring Bars' bottom

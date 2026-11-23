@@ -273,10 +273,12 @@ recorded at the time, plus the two items under "Setup and history".
   their arguments in the default queue, 0 of 25 in a blocking queue. Nothing to re-paste:
   `actions/timbre-push.cs` has not changed since the first commit. The setup guide's
   tested version is now 1.0.7.
-- **The repository's history was rewritten on 2026-11-23.** Four model files that should not
-  have been published were removed from every commit: the CC BY-NC-ND Japandi rose mesh,
-  an earlier rose mesh of unrecorded origin, and the Lightning Sword and Save the Queen
-  models. No file in the current tree changed. **Every commit hash from before this
+- **The repository's history was rewritten on 2026-11-23.** Four model files were removed
+  from every commit. Two should not have been published: the CC BY-NC-ND Japandi rose
+  mesh and an earlier rose mesh of unrecorded origin. The other two, the Lightning Sword
+  and Save the Queen files, were CC0 placeholders made for Timbre; they went with them
+  so that the only model left in history is the author's own rose. No file in the
+  current tree changed. **Every commit hash from before this
   release is different**, and the hashes cited in this changelog and in `docs/` have been
   corrected. A clone or fork made before 2026-11-23 must be made again.
 
@@ -800,8 +802,10 @@ recorded at the time, plus the two items under "Setup and history".
   (`978dc01`, 2026-07-11)
 - **`rose.stl` replaced with the author's own CC-BY-4.0 mesh**, generated with
   Meshy.ai and converted from the Bambu 3MF (Z-up → Y-up, so the default spin
-  axis is the stem). 4,558 triangles, renders as a clean wireframe rose. All
-  STL provenance concerns are now resolved. (`d56f03f`, 2026-07-11)
+  axis is the stem). 4,558 triangles, renders as a clean wireframe rose. This
+  settled the files in the tree, not the history: the Japandi mesh and the
+  earlier rose mesh could still be downloaded from older commits until the
+  history was rewritten on 2026-11-23 (see 1.0.175). (`d56f03f`, 2026-07-11)
 
 ### Removed
 
@@ -809,9 +813,11 @@ recorded at the time, plus the two items under "Setup and history".
   blocks redistributing the processed mesh and NC conflicts with monetized
   stream use. Down to **49 effects** (37 2D + 12 WebGL). (`2e8c6cc`,
   2026-07-11)
-- **Lightning Sword and Save the Queen visualizers** — copyrighted source
-  assets. Down to 50 effects (37 2D + 13 WebGL) at the time; the STL group
-  remains. (`c267399`, 2026-07-11)
+- **Lightning Sword and Save the Queen visualizers** — the models the two
+  effects were made for are copyrighted. The sword files published here were
+  recorded as CC0 procedural stand-ins for them (see 0.1.0). Down to 50
+  effects (37 2D + 13 WebGL) at the time; the STL group remains. (`c267399`,
+  2026-07-11)
 
 ### Documentation
 
@@ -828,13 +834,15 @@ StreamService / ControlPanel toolkit. (`ee5c34a`)
 ### Added
 
 - **52 visualizer effects** (2D canvas and WebGL) driven by the microphone.
-  See *Removed* above — the shipping count is now 49.
+  See *Removed* under 1.0.9: three were taken out, which left 49 at that
+  release.
 - **Self-capturing overlay** — the overlay captures the mic itself via
   `getUserMedia` inside OBS CEF, so only configuration JSON crosses the wire
   over the Streamer.bot WebSocket. No audio ever travels the bus.
 - Single source of truth for settings in `shared/viz-config.js`, with a control
   page and a `spike/` permission-check page.
-- Public STL swords are CC0 procedural replacements.
+- Public STL swords are CC0 procedural replacements. (They are in no commit
+  now: see 1.0.175.)
 
 Verified offline: `verify` 28/28, `verify:render` 14/14.
 
