@@ -177,7 +177,8 @@ export async function recordInPage({ db, ref } = {}) {
 //   png    the frame as a data URL, when `pictures` is true
 // With `watch` (names of fields of a kit scene's state, as its debug() reports them) it also
 // returns `watched`: one row per frame drawn, those fields in that order (null for a field
-// the scene does not report). With `mic: false` the mic is off and Idle animation on for the
+// the scene does not report). A name may point into a list the scene reports: `now.3` is the
+// fourth value of `now`. With `mic: false` the mic is off and Idle animation on for the
 // run, and `ticks` is not read.
 // The page's own loop is stopped for the run and its sound is put back afterwards.
 export function replayInPage({ name, ticks, times, fps = 60, cols = 8, rows = 4, pictures = false, watch = null, mic = true }) {
@@ -212,7 +213,7 @@ export function replayInPage({ name, ticks, times, fps = 60, cols = 8, rows = 4,
       frequencies = f; waveform = w; micActive = true;
       if (!mic) { micActive = false; frequencies = null; waveform = null; micPeak = null; if (hasBands) micBands = null; if (hasSlices) slices = null; }
       currentViz.draw(now, 1 / fps);
-      if (watched) { const seen = (window.__timbre.scene && window.__timbre.scene.state) || {}; watched.push(watch.map((key) => (seen[key] === undefined ? null : seen[key]))); }
+      if (watched) { const seen = (window.__timbre.scene && window.__timbre.scene.state) || {}; watched.push(watch.map((key) => { let v = seen; for (const part of key.split('.')) v = v === null || v === undefined ? undefined : v[part]; return v === undefined ? null : v; })); }
       if (next < times.length && Math.abs(t - times[next]) < 0.5 / fps) {
         if (tmp.width !== src.width || tmp.height !== src.height) { tmp.width = src.width; tmp.height = src.height; }
         pen.globalCompositeOperation = 'source-over'; pen.fillStyle = '#000'; pen.fillRect(0, 0, tmp.width, tmp.height); pen.drawImage(src, 0, 0);

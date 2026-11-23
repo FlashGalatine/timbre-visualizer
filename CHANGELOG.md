@@ -10,6 +10,30 @@ traceability.
 
 ## [Unreleased]
 
+## [1.0.200] — 2026-11-23
+
+Phosphor hears the finer bands. Copy `overlay` and refresh the sources; nothing to
+re-paste.
+
+### Changed
+
+- **Phosphor: the shape of the traces follows what is sounding more closely.** Its ten
+  bands now cover 116 Hz to 10.2 kHz on the finer bands, where before they were ten
+  slices 750 Hz apart. A single note or a whistle now draws its own clear ripple, and a
+  rising tone walks from slow waves to fast ones. Under speech the change is small: a
+  lower and a higher voice now draw slightly different traces, where before they drew
+  the same one.
+- Sound below 116 Hz no longer shapes the traces; it still raises them.
+
+### Unchanged
+
+- How tall the traces stand, the lift on a beat, and Idle animation, which is the same on
+  every frame.
+
+### Not checked
+
+- A real microphone and real voices in OBS; the measurements use recorded test sounds.
+
 ## [1.0.198] — 2026-11-23
 
 Chladni hears pitch. Copy `overlay` and refresh the sources; nothing to re-paste.
@@ -982,7 +1006,8 @@ StreamService / ControlPanel toolkit. (`ee5c34a`)
 
 Verified offline: `verify` 28/28, `verify:render` 14/14.
 
-[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.198...main
+[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.200...main
+[1.0.200]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.198...v1.0.200
 [1.0.198]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.196...v1.0.198
 [1.0.196]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.194...v1.0.196
 [1.0.194]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.191...v1.0.194

@@ -6,7 +6,7 @@
 //
 //   node tools/compare-input.mjs [--ref <git ref>] [--out <folder>] [--steps a,b,...]
 //                                [--signals a,b,...] [--only effect,effect,...] [--db]
-//                                [--watch field,field,...] [--after <seconds>] [--idle <seconds>]
+//                                [--watch field,field,...] [--after <seconds>] [--idle <seconds>] [--frames]
 //
 //   --ref      the old build (default: HEAD). Its overlay/ and shared/ are read out of git.
 //   --out      where everything is written (default: a folder in the system's temp folder).
@@ -24,8 +24,12 @@
 //                         fields of the scene's state named by --watch, read on every frame of
 //                         every picture signal (needs record): each field's least, middle and
 //                         greatest value, old against new, and for a field of whole numbers how
-//                         often it changes and how long it is at each value. With --idle, the
-//                         same over that many seconds with the mic off and Idle animation on.
+//                         often it changes and how long it is at each value. A field that is a
+//                         list (the phosphor's ten bands, `now`) is summed up over all its
+//                         values, with how far one of them moves in a second; `now.3` reads one
+//                         value of it. With --idle, the same over that many seconds with the mic
+//                         off and Idle animation on. With --frames, state-frames.json holds every
+//                         frame's values, for a table this step does not make.
 //                expect   writes tools/input-expectations.json from this run's record and render
 //                         of the working tree: the numbers verify-render.mjs holds the guarded
 //                         effects to (GUARD in tools/input-replay.mjs). Run it, with record and
@@ -36,6 +40,7 @@
 //   --watch    the fields of a scene's state the state step reads (as its debug() names them)
 //   --after    the state step leaves out the frames before this many seconds (default: 0)
 //   --idle     the state step also runs this many seconds of Idle animation
+//   --frames   the state step also writes every frame's values to state-frames.json
 //
 // It serves the pages itself on the suites' side port (7476) and nothing listens on 8090,
 // so it must not run while a suite or the mock does. It never touches 8080 or 7474.
@@ -64,7 +69,7 @@ const ALL_SIGNALS = list('signals', SIGNALS);
 const PICTURE_SIGNALS = list('signals', ['speech', 'kick']).filter((s) => TIMES[s]);
 const ONLY = list('only', null);
 const WITH_DB = args.includes('--db');
-const WATCH = list('watch', null), AFTER = Number(opt('after', 0)), IDLE = Number(opt('idle', 0));
+const WATCH = list('watch', null), AFTER = Number(opt('after', 0)), IDLE = Number(opt('idle', 0)), WITH_FRAMES = args.includes('--frames');
 for (const s of ALL_SIGNALS) if (!SIGNALS.includes(s)) { console.error('unknown signal ' + s); process.exit(1); }
 
 await import('file:///' + resolve(ROOT, 'shared/viz-config.js').replace(/\\/g, '/'));
@@ -356,22 +361,31 @@ async function state(browser) {
   const num = (v) => (typeof v === 'number' ? (Number.isInteger(v) ? String(v) : v.toFixed(3)) : String(v));
   const lines = [`Fields of the scene's state on every frame at ${FPS} frames a second, old (${REF}) against new.`,
     'least, middle, greatest: over the frames looked at. For a field of whole numbers: changes (how often it differs from the frame before),',
-    'a second, and how long it is at each value, in seconds. same: whether old and new hold the same value on every frame.'];
+    'a second, and how long it is at each value, in seconds. For a field that is a list: least, middle and greatest over all its values, and',
+    'moves (how far one of its values goes in a second, up or down, the mean over the list). same: whether old and new hold the same value',
+    'on every frame (for a list: every value of it).'];
+  const listOf = (v) => (Array.isArray(v) ? v : [v]), alike = (a, b) => (Array.isArray(a) || Array.isArray(b) ? JSON.stringify(a) === JSON.stringify(b) : a === b);
   const json = {};
   for (const name of NAMES) for (const run of runs) {
     const both = seen[name][run.signal], from = Math.round(run.after * FPS);
     lines.push('', `=== ${name} | ${run.signal} | ${run.seconds} s${run.after ? `, from ${run.after} s on` : ''} ===`);
     WATCH.forEach((key, col) => {
-      const row = { same: both.old.length === both.new.length && both.old.every((r, i) => r[col] === both.new[i][col]) };
+      const row = { same: both.old.length === both.new.length && both.old.every((r, i) => alike(r[col], both.new[i][col])) };
       for (const build of ['old', 'new']) {
-        const values = both[build].slice(from).map((r) => r[col]), sorted = values.filter((v) => typeof v === 'number').sort((a, b) => a - b);
-        const whole = sorted.length === values.length && sorted.every(Number.isInteger);
+        const values = both[build].slice(from).map((r) => r[col]), listed = values.some(Array.isArray), sorted = values.flatMap(listOf).filter((v) => typeof v === 'number').sort((a, b) => a - b);
+        const whole = !listed && sorted.length === values.length && sorted.every(Number.isInteger);
         const out = row[build] = { least: sorted[0], middle: sorted[Math.floor(sorted.length / 2)], greatest: sorted[sorted.length - 1] };
         let text = `  ${key.padEnd(10)} ${build}  least ${num(out.least)}  middle ${num(out.middle)}  greatest ${num(out.greatest)}`;
         if (whole) {
           out.changes = values.filter((v, i) => i > 0 && v !== values[i - 1]).length; out.aSecond = out.changes / (values.length / FPS); out.held = {};
           for (const v of values) out.held[v] = (out.held[v] || 0) + 1 / FPS;
           text += `  changes ${out.changes} (${out.aSecond.toFixed(2)} a second)  at ${Object.entries(out.held).map(([v, s]) => `${v}: ${s.toFixed(2)} s`).join(', ')}`;
+        }
+        if (listed) {
+          let moved = 0, steps = 0;
+          for (let i = 1; i < values.length; i++) { const a = listOf(values[i]), b = listOf(values[i - 1]); for (let j = 0; j < Math.min(a.length, b.length); j++) { moved += Math.abs(a[j] - b[j]); steps++; } }
+          out.moves = steps ? (moved / steps) * FPS : 0;
+          text += `  moves ${out.moves.toFixed(3)} a second (a list of ${listOf(values[0]).length})`;
         }
         lines.push(text);
       }
@@ -381,6 +395,7 @@ async function state(browser) {
   }
   await writeFile(resolve(OUT, 'state.txt'), lines.join('\n') + '\n');
   await writeFile(resolve(OUT, 'state.json'), JSON.stringify(json, null, 1));
+  if (WITH_FRAMES) await writeFile(resolve(OUT, 'state-frames.json'), JSON.stringify({ fps: FPS, watch: WATCH, frames: seen }));
   console.log(lines.join('\n'));
 }
 

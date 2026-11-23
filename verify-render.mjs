@@ -1694,11 +1694,15 @@ async function main() {
 
     // ── The phosphor (a kit scene: glowing traces on a deck of dark slices) ────
     {   // its own block: the names below are the phosphor's own
-    // Build the scene afresh, drive the level and the 32 bins by hand, and read the canvas and
+    // Build the scene afresh, drive the level and the 32 log bands by hand, and read the canvas and
     // the scene after each step. A step gives level (null: whatever the kit hears), secs, and
-    // either all (every bin, 0..1) or bins ([[bin, 0..1], ...]); idle: true has the mic off,
+    // either all (every log band, 0..1) or bins ([[log band, 0..1], ...]); idle: true has the mic off,
     // off: true has the mic and Idle animation off.
     const DECK = 'phosphor';
+    // The scene's ten bands are runs of log bands: band(b, v) is every log band of band b's run at v, which the
+    // scene hears as v times LIFT (BAND_GAIN in overlay/phosphor.js).
+    const RUN_STARTS = [4, 6, 8, 10, 13, 16, 19, 22, 25, 28, 31], LIFT = 0.96;
+    const band = (b, v) => Array.from({ length: RUN_STARTS[b + 1] - RUN_STARTS[b] }, (_, i) => [RUN_STARTS[b] + i, v]);
     // hue and colorSpeed set the palette's place and speed for the run, gain the Gain setting. A trace row is
     // [clock, flame, kick, the front trace's stand, its peak, its brightness, its half width, orbit, the last slice's first phase].
     const deckRun = (steps, { fps = 60, knobs = null, hue = null, colorSpeed = null, gain = null } = {}) => wide.evaluate(({ id, steps, fps, knobs, hue, colorSpeed, gain }) => {
@@ -1817,14 +1821,21 @@ async function main() {
       JSON.stringify({ clock: loud.state.clock, lag: loud.state.lag.slice(0, 3) }));
 
     // Bands: the low end makes broad waves, the higher bands fine ripples.
-    const [lowOnly] = await deckRun([{ level: 0.6, bins: [[0, 1]], secs: 1.5 }]), [highOnly] = await deckRun([{ level: 0.6, bins: [[9, 1]], secs: 1.5 }]);
+    const [lowOnly] = await deckRun([{ level: 0.6, bins: band(0, 1), secs: 1.5 }]), [highOnly] = await deckRun([{ level: 0.6, bins: band(9, 1), secs: 1.5 }]);
     check('phosphor: the low end makes broad waves and the higher bands fine ripples', humps(lowOnly.state.front) <= 2 && humps(highOnly.state.front) >= 5 && humps(highOnly.state.front) <= 8 && swing(lowOnly.state.front) > 0.2 && swing(highOnly.state.front) > 0.2,
       JSON.stringify({ humps: [humps(lowOnly.state.front), humps(highOnly.state.front)], swing: [swing(lowOnly.state.front), swing(highOnly.state.front)] }));
-    const [, turned] = await deckRun([{ level: 0.6, bins: [[0, 1]], secs: 1.5 }, { level: 0.6, bins: [[9, 1]], secs: 0.7 }]);
+    // A band hears the mean of its run of log bands, times LIFT; the log bands in no run (0 to 3, and 31) are not heard.
+    const [oneOfTwo] = await deckRun([{ level: 0.6, bins: [[4, 1]], secs: 1.5 }], { gain: 1 }), [oneOfThree] = await deckRun([{ level: 0.6, bins: [[30, 1]], secs: 1.5 }], { gain: 1 });
+    const [outside] = await deckRun([{ level: 0.6, bins: [[0, 1], [1, 1], [2, 1], [3, 1], [31, 1]], secs: 1.5 }], { gain: 1 }), [filled] = await deckRun([{ level: 0.6, all: 1, secs: 1.5 }], { gain: 1 });
+    check('phosphor: each of its ten bands hears the mean of its run of log bands, a little under full, and the log bands in no run are not heard',
+      Math.abs(oneOfTwo.state.now[0] - LIFT / 2) < 1e-4 && oneOfTwo.state.now.slice(1).every((v) => v === 0) && Math.abs(oneOfThree.state.now[9] - LIFT / 3) < 1e-4 && oneOfThree.state.now.slice(0, 9).every((v) => v === 0)
+      && outside.state.now.every((v) => v === 0) && swing(outside.state.front) < 1e-6 && filled.state.now.length === 10 && filled.state.now.every((v) => Math.abs(v - LIFT) < 1e-4),
+      JSON.stringify({ oneOfTwo: oneOfTwo.state.now, oneOfThree: oneOfThree.state.now, outside: outside.state.now, filled: filled.state.now }));
+    const [, turned] = await deckRun([{ level: 0.6, bins: band(0, 1), secs: 1.5 }, { level: 0.6, bins: band(9, 1), secs: 0.7 }]);
     check('phosphor: an echo keeps the bands of its own moment', turned.state.ref === 12 && humps(turned.state.front) >= 5 && humps(turned.state.mid) <= 2 && swing(turned.state.mid) > 0.2,
       JSON.stringify({ humps: [humps(turned.state.front), humps(turned.state.mid)], swing: [swing(turned.state.front), swing(turned.state.mid)] }));
-    const [risen, fallen] = await deckRun([{ level: 0.6, bins: [[3, 1]], secs: 0.05 }, { level: 0.6, secs: 0.1 }], { gain: 1 });
-    check('phosphor: a band is followed, quick to rise and slower to fall, so the front trace does not step with each reading', Math.abs(risen.state.now[3] - (1 - Math.exp(-1))) < 1e-5 && Math.abs(fallen.state.now[3] - (1 - Math.exp(-1)) * Math.exp(-0.8)) < 1e-5 && risen.state.now[4] === 0,
+    const [risen, fallen] = await deckRun([{ level: 0.6, bins: band(3, 1), secs: 0.05 }, { level: 0.6, secs: 0.1 }], { gain: 1 });
+    check('phosphor: a band is followed, quick to rise and slower to fall, so the front trace does not step with each reading', Math.abs(risen.state.now[3] - LIFT * (1 - Math.exp(-1))) < 1e-5 && Math.abs(fallen.state.now[3] - LIFT * (1 - Math.exp(-1)) * Math.exp(-0.8)) < 1e-5 && risen.state.now[4] === 0,
       JSON.stringify([risen.state.now[3], fallen.state.now[3]]));
     const [noBins] = await deckRun([{ level: 0.6, secs: 1.5 }]);
     check('phosphor: with no band sounding a trace is a smooth arch as tall as the voice is loud', swing(noBins.state.front) < 1e-6 && Math.abs(top(noBins.state.front) - (0.14 + 1.5 * Math.pow(0.6, 0.9) * 0.55)) < 0.01, JSON.stringify([swing(noBins.state.front), top(noBins.state.front)]));
@@ -1834,11 +1845,11 @@ async function main() {
     check('phosphor: both ends of a trace are held at the foot, and it rises from there', [noBins, loud, highOnly].every((r) => Math.abs(r.state.front[0] - 0.14) < 1e-6 && Math.abs(r.state.front[95] - 0.14) < 1e-6)
       && top(loud.state.front) > 0.8 && [4, 8, 12, 87, 91].every((j) => Math.abs(noBins.state.front[j] - archAt(j)) < 0.01) && noBins.state.front[4] < noBins.state.front[8] && noBins.state.front[8] < noBins.state.front[12],
       JSON.stringify({ ends: [loud.state.front[0], loud.state.front[95], highOnly.state.front[0]], rise: [4, 8, 12].map((j) => [noBins.state.front[j], archAt(j)]) }));
-    const quiet = [{ level: 0.6, bins: [[3, 0.3]], secs: 1.5 }], w3 = 1 / 1.45, A6 = Math.pow(0.6, 0.9);
+    const quiet = [{ level: 0.6, bins: band(3, 0.3), secs: 1.5 }], w3 = 1 / 1.45, A6 = Math.pow(0.6, 0.9);
     const [plain] = await deckRun(quiet, { gain: 1 }), [boosted] = await deckRun(quiet, { gain: 2 });
     const swingFor = (a) => 1.5 * A6 * 0.9 * ((a * w3) / (0.15 + a * w3));
-    check('phosphor: Gain scales how loud a band is, and so how full its wave swings', Math.abs(swing(plain.state.front) - swingFor(0.3)) < 0.02 && Math.abs(swing(boosted.state.front) - swingFor(0.6)) < 0.02 && swing(boosted.state.front) > swing(plain.state.front) + 0.08,
-      JSON.stringify({ swing: [swing(plain.state.front), swing(boosted.state.front)], want: [swingFor(0.3), swingFor(0.6)] }));
+    check('phosphor: Gain scales how loud a band is, and so how full its wave swings', Math.abs(swing(plain.state.front) - swingFor(0.3 * LIFT)) < 0.02 && Math.abs(swing(boosted.state.front) - swingFor(0.6 * LIFT)) < 0.02 && swing(boosted.state.front) > swing(plain.state.front) + 0.08,
+      JSON.stringify({ swing: [swing(plain.state.front), swing(boosted.state.front)], want: [swingFor(0.3 * LIFT), swingFor(0.6 * LIFT)] }));
 
     // A beat.
     const beat = [{ level: 0.05, all: 0.5, secs: 1 }, { level: 0.9, all: 0.5, secs: 0.1 }, { level: 0.9, all: 0.5, secs: 2.5 }];
@@ -1875,11 +1886,11 @@ async function main() {
     const fpsSteps = [{ level: 0.8, all: 0.8, secs: 1 }, { level: 0, all: 0, secs: 0.5 }];
     const [, d30] = await deckRun(fpsSteps, { fps: 30 }), [, d60] = await deckRun(fpsSteps, { fps: 60 });
     // A band a tenth of a second into its rise: the same at both rates, and where the rate of 20 a second puts it.
-    const onset = [{ level: 0.6, bins: [[3, 1]], secs: 0.1 }];
+    const onset = [{ level: 0.6, bins: band(3, 1), secs: 0.1 }];
     const [b30] = await deckRun(onset, { fps: 30, gain: 1 }), [b60] = await deckRun(onset, { fps: 60, gain: 1 });
     check('phosphor: the same sound gives the same deck at 30 and 60 fps', Math.abs(d30.state.clock - 1.5) < 1e-6 && Math.abs(d60.state.clock - 1.5) < 1e-6 && gap(d30.state.lag, d60.state.lag) < 1e-6
       && gap(d30.state.stands, d60.state.stands) < 0.06 && gap(d30.state.peaks, d60.state.peaks) < 0.1 && top(d60.state.stands) > 0.7 && tallest(d30.state.stands) === tallest(d60.state.stands)
-      && Math.abs(b30.state.now[3] - (1 - Math.exp(-2))) < 1e-5 && Math.abs(b60.state.now[3] - (1 - Math.exp(-2))) < 1e-5,
+      && Math.abs(b30.state.now[3] - LIFT * (1 - Math.exp(-2))) < 1e-5 && Math.abs(b60.state.now[3] - LIFT * (1 - Math.exp(-2))) < 1e-5,
       JSON.stringify({ clock: [d30.state.clock, d60.state.clock], stands: gap(d30.state.stands, d60.state.stands), peaks: gap(d30.state.peaks, d60.state.peaks), tallest: [tallest(d30.state.stands), tallest(d60.state.stands)], band: [b30.state.now[3], b60.state.now[3]] }));
 
     // Mic off.

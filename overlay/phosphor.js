@@ -21,7 +21,7 @@
 
   const SLICES_MIN = 12, SLICES_MAX = 36;   // slices at Depth 0 and 100
   const P = 96;                             // points along a trace
-  const K = 10;                             // bands drawn; speech lives in the first ten bins
+  const K = 10;                             // bands drawn: each is a run of the sampler's log bands (see loudness)
   const W = 6.4, D = 3.6;                   // the deck: width and depth
   const SPAN = 2.2;                         // seconds of the voice the deck holds, front to back
   const HZ = 24, HIST = 56;                 // voice history: it reaches back 2.29 s
@@ -86,10 +86,33 @@
   const WAVES = new Float64Array(K), WEIGHT = new Float64Array(K);
   for (let b = 0; b < K; b++) { WAVES[b] = 2 * Math.PI * waves(b); WEIGHT[b] = weight(b); }
 
-  // How loud a band is, 0..1: its bin, times Gain.
-  function loudness(bins, band, gain) {
-    if (!bins || !(band < bins.length)) return 0;
-    return clamp01((bins[band] / 255) * gain);
+  // The ten bands are runs of the sampler's 32 log bands (`frequencies`: a quarter of an octave
+  // each, log band k from 60 × 200^(k/32) Hz), one run after another from log band FIRST. RUNS
+  // is how many log bands each takes: three runs of two (116 to 314 Hz, where a voice's pitch
+  // and the note an octave above it are, so two voices do not draw the same wave), then seven
+  // runs of three, up to log band 30 (10.2 kHz). What is under 116 Hz is in no band: it is in
+  // how tall the traces stand, which the scene kit's level and beat decide.
+  const FIRST = 4, RUNS = [2, 2, 2, 3, 3, 3, 3, 3, 3, 3];
+  // What a band's mean is multiplied by. It was fitted on the two recorded voices of
+  // tools/compare-input.mjs, so that the bands' total (the sum in shape()) is within a tenth
+  // of what it was when the bands were read from the slices.
+  const BAND_GAIN = 0.96;
+  const STARTS = new Uint8Array(K + 1);     // the first log band of each run, and the one after the last run
+  STARTS[0] = FIRST;
+  for (let b = 0; b < K; b++) STARTS[b + 1] = STARTS[b] + RUNS[b];
+
+  // The run of log bands that band b hears: its first, and the one after its last. Null if b
+  // is not one of the ten.
+  function runOf(b) {
+    return Number.isInteger(b) && b >= 0 && b < K ? [STARTS[b], STARTS[b + 1]] : null;
+  }
+
+  // How loud a band is, 0..1: the mean of its run of log bands, times BAND_GAIN, times Gain.
+  function loudness(bands, band, gain) {
+    if (!bands || !Number.isInteger(band) || band < 0 || band >= K || bands.length < STARTS[band + 1]) return 0;
+    let sum = 0;
+    for (let i = STARTS[band]; i < STARTS[band + 1]; i++) sum += bands[i];
+    return clamp01((sum / ((STARTS[band + 1] - STARTS[band]) * 255)) * BAND_GAIN * gain);
   }
 
   // The shape of a trace at u (0 at one end, 1 at the other), -1..1: the bands' sines added,
@@ -193,7 +216,7 @@
 
   // ── The scene ───────────────────────────────────────────────────────────────
   // Everything below runs only when the scene is built: THREE, TimbreScene and the core.js
-  // globals (the mic, the bins, the palette, the settings) are looked up then.
+  // globals (the mic, the log bands, the palette, the settings) are looked up then.
 
   // The scene definition, for TimbreScene.factory().
   function definition() {
@@ -309,12 +332,12 @@
       s.flame = audio.flame; s.kick = audio.kick;
 
       // The voice goes into the histories: how loud it is, and each band. A band is followed,
-      // not read raw: the bins are read 30 times a second, and a trace drawn straight from
-      // them would change shape in steps.
+      // not read raw: the log bands are read 30 times a second, and a trace drawn straight
+      // from them would change shape in steps. Idle animation has its own ten bands.
       level.step(audio.flame, dt);
       for (let b = 0; b < K; b++) {
         let v = 0;
-        if (micActive) v = loudness(slices, b, cfgGain);
+        if (micActive) v = loudness(frequencies, b, cfgGain);
         else if (cfgIdleAnim) v = idle(b, s.clock);
         heardNow[b] = follow(heardNow[b], v, v > heardNow[b] ? RISE : FALL, dt);
         bands[b].step(heardNow[b], dt);
@@ -391,6 +414,7 @@
 
   globalThis.TimbrePhosphor = {
     SLICES_MIN, SLICES_MAX, P, K, W, D, SPAN, HZ, HIST, LOW, TALL, GLOW, FRONT, RISE, FALL, FOV, PITCH, FRAME, BOX, SWAY, behind,
+    FIRST, RUNS, BAND_GAIN, runOf,
     sliceCount, backOf, ageOf, zOf, xOf, waves, pace, weight, loudness, shape, stand, heightOf, pin, ends, strip, wall,
     fade, bright, hot, halfWidth, under, tint, idle, definition,
   };

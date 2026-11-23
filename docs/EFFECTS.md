@@ -99,10 +99,11 @@ on reads a little differently with it off: Gain is where the streamer evens that
   byte scale); fed the same recorded sound, the slices and the old values agree to within 1
   of 255 (`npm run verify:render` checks it against a real 64-point `AnalyserNode`).
 - **Which one to read.** A new effect, or one being rebuilt, reads `micBands` or the log
-  bands. `slices` exists for the effects tuned before this change: 12 scene modules
+  bands. `slices` exists for the effects tuned before this change: 11 scene modules
   (`loudness(slices, band, gain)`), the ten seasonal 2D effects (`bandAverage`), and the
   blob's outline. Each scene moves to the log bands in a change of its own; the chladni
-  plate was the first (its tone is weighed over log bands 0 to 11, see its section), and
+  plate was the first (its tone is weighed over log bands 0 to 11, see its section) and the
+  phosphor the second (its ten bands are runs of log bands 4 to 30, see its section), and
   `npm run verify` lists exactly which files still read `slices`. Do not read `frequencies` by position (`frequencies[3]`): a position is a
   band a quarter of an octave wide, not 750 Hz. To lay bars over the spectrum use
   `TimbreHelix.spread(frequencies, i, count)`: bar `i` of `count` reads the mean of the
@@ -371,7 +372,7 @@ Sunburst need only the phase.
   module. The scenes built before the log bands read `slices` that way, as
   `loudness(bins, band, gain)` in `overlay/rose.js` does: wherever the notes on a scene
   below say "bins" or "the eight lowest bins", they mean the slices. The chladni plate
-  reads the log bands that way (`loudness(frequencies, band, gain)`). Do not paste the
+  and the phosphor read the log bands that way (`loudness(frequencies, band, gain)`). Do not paste the
   `bandAverage` helper of the older 2D effects into a scene.
 
 ### Scene placement
@@ -750,9 +751,36 @@ offers:
   `backOf(i, n)` is where slice `i` of `n` is, 0 at the front and 1 at the back;
   `ageOf(back)` is how old the voice it shows is (2.2 s at the back) and `zOf(back)` where
   it stands. `xOf(j)` is where point `j` of a trace is across the deck.
-- **The sound.** Each of the first ten bins is one sine across the width: `waves(b)` is how
-  many waves band `b` has, `pace(b)` how fast it runs along the trace (odd bands the other
-  way) and `weight(b)` how much it counts. `loudness(bins, band, gain)` reads a band.
+- **The sound.** How tall the traces stand, and the lift on a beat, come from the scene
+  kit's level and beat. The shape of a trace comes from ten bands, each one sine across the
+  width: `waves(b)` is how many waves band `b` has, `pace(b)` how fast it runs along the
+  trace (odd bands the other way) and `weight(b)` how much it counts. The ten bands are
+  runs of the sampler's log bands, one run after another from log band 4 (`FIRST`), each
+  as many log bands as `RUNS` says: 4-5, 6-7 and 8-9 (116 to 314 Hz, where a voice's pitch
+  and the note an octave above it are), then seven runs of three, up to log band 30
+  (10.2 kHz). `runOf(b)` is band `b`'s run, and `loudness(bands, band, gain)` reads a
+  band: the mean of its run, times 0.96 (`BAND_GAIN`), times Gain, held to 1. Log bands
+  0 to 3 (60 to 116 Hz) and 31 are in no band; what sounds there still raises the traces,
+  through the level. Before, band `b` was slice `b`, 750 Hz wide, and every voice drew
+  much the same wave. The runs and the 0.96 were fitted on the recorded sounds of
+  `tools/compare-input.mjs`, against the build that read the slices:
+  - The bands' total (each band times its weight, added: the sum in `shape()`) is within
+    a tenth of what it was under both voices: 8.8% more under the voice at 150 Hz, 8.1%
+    less under the one at 220 Hz.
+  - Five of the ten bands carry a tenth or more of that total under each voice, as five
+    did before.
+  - The two voices give different mixes: the first band has 0.196 of the total under the
+    voice at 150 Hz and 0.089 under the one at 220 Hz (before: 0.201 and 0.188, and no
+    band's share differed by more than 0.015).
+  - Under the rising tone the loudest band goes from the first to the last, never back.
+  - A band moves 0.96 and 0.92 times as far in a second under the two voices as it did
+    (1.22 times under the kick, 0.80 under the band).
+  With the runs starting at 60 Hz (log bands 0 to 28 in threes) the two voices' shares
+  differed by 0.093 at most, and by less with the runs ending lower, which is why the
+  first run starts at 116 Hz. To see what a change to any of this does, run
+  `node tools/compare-input.mjs --ref <git ref> --steps record,state --only phosphor --watch now,flame,kick,stands,heard --signals speech,speech220,kick,music,sweep --idle 60 --frames`:
+  `now` is the ten bands as the scene follows them, and the others are what sets the
+  heights, which must stay the same on every frame.
 - **A trace.** `shape(u, amps, phases)` is its shape at `u` along it, -1 to 1: the bands'
   sines, each as strong as its band is loud, scaled to their total. `stand(level, kick, back)`
   is how tall the slice at `back` stands for a loudness, and `heightOf(A, pinned, w)` the height of
@@ -766,11 +794,13 @@ offers:
   `under(A, back)` and `tint(out, rgb, heat, b)` are how bright, how white, how wide and
   what colour a trace is, and how bright its slice glows under it. They go by how far back
   a slice is, not by its number, so a beat and the white heat reach as deep at any Depth. `idle(b, t)` is
-  what a band pretends to hear with the mic off.
+  what a band pretends to hear with the mic off: Idle animation feeds the ten bands itself and
+  reads no log band, so it draws what it drew before the bands moved (`npm run verify` holds
+  a minute of it to the old arithmetic).
 - **The scene.** `definition()` returns the kit scene definition: the slices and the
   traces. It keeps the voice in eleven of the kit's histories
   (`TimbreScene.createHistory(56, 24)`): one for the loudness and one for each band. A band
-  is followed before it is kept (up at 20 a second, down at 8), because the bins are read
+  is followed before it is kept (up at 20 a second, down at 8), because the log bands are read
   only 30 times a second and a trace drawn straight from them changes shape in steps.
 
 All its timing comes from `dt`. The arithmetic touches nothing at load, and the file must stay
@@ -781,7 +811,7 @@ after `scene-kit.js` and before the factories.
 Worth knowing before building another effect on the waveform: the `waveform` Timbre captures
 is 64 samples, about a thousandth of a second, which is a fragment of one cycle of a voice.
 It jitters from one reading to the next and cannot show a whole wave. This effect draws its
-trace from the frequency bins instead. And nothing in this deck moves from place to place,
+trace from the log bands instead. And nothing in this deck moves from place to place,
 only in shape, so the kit's afterglow gives the traces a little persistence where they rise
 and fall, not the filled wake it leaves behind something that travels.
 
