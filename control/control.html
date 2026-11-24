@@ -196,7 +196,18 @@
   function sourceAddress(T, origin, page, cfg, search) {
     const file = SOURCE_PAGES.indexOf(page) >= 0 ? page : 'mic-visualizers-1920x1080.html';
     const port = validPort(search);
-    return origin + '/timbre-overlay/' + file + '?' + T.lookToQuery(cfg) + (port ? '&sbport=' + port : '');
+    // The port comes first, so an address cut short by something with a length limit keeps it.
+    return origin + '/timbre-overlay/' + file + '?' + (port ? 'sbport=' + port + '&' : '') + T.lookToQuery(cfg);
+  }
+
+  // The note under the address field. `copied`: the clipboard took it. `info.ready`: the dock has
+  // the saved settings (else the look is only the one shown here now); `info.length`: the address's length.
+  function sourceNote(copied, info) {
+    const i = info || {};
+    let s = copied ? 'Copied.' : 'Select the address and copy it.';
+    if (!i.ready) s += ' The saved settings have not arrived yet, so this is the look shown here now.';
+    if (i.length > 8000) s += ' This address is long; check that the source loads it.';
+    return s;
   }
 
   // Text from outside (Streamer.bot's error, the action's message) as one short line.
@@ -723,7 +734,14 @@
   $('btnCopySource').addEventListener('click', async () => {
     const field = $('txtSourceAddress');
     const note = $('sourceCopyNote');
-    field.value = sourceAddress(T, location.origin, $('selSourcePage').value, cfg, ownSearch);
+    if (typeof T.lookToQuery !== 'function') {
+      // OBS can serve an old cached viz-config.js beside a new dock.
+      field.value = '';
+      note.textContent = 'Reload this dock: it has an old viz-config.js.';
+      return;
+    }
+    const address = sourceAddress(T, location.origin, $('selSourcePage').value, cfg, ownSearch);
+    field.value = address;
     field.focus();
     field.select();
     let copied = false;
@@ -736,7 +754,7 @@
     if (!copied) {
       try { copied = !!document.execCommand('copy'); } catch (e) { copied = false; }
     }
-    note.textContent = copied ? 'Copied.' : 'Select the address and copy it.';
+    note.textContent = sourceNote(copied, { ready: ready, length: address.length });
   });
 
   renderVizKnobs();

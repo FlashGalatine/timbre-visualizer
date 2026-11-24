@@ -8177,8 +8177,8 @@ async function main() {
       await dock.waitForFunction(() => document.getElementById('sourceCopyNote').textContent !== '', null, { timeout: 8000 }).catch(() => {});
       const note = await dock.textContent('#sourceCopyNote');
       check('Copy source address puts the chosen page and the look in the field',
-        field.startsWith(BASE + '/timbre-overlay/mic-visualizers-300x220.html?visualizer=comet'), field);
-      check('the address carries the dock\'s Streamer.bot port', field.endsWith('&sbport=' + WS_PORT), field);
+        field.startsWith(BASE + '/timbre-overlay/mic-visualizers-300x220.html?sbport=' + WS_PORT + '&visualizer=comet'), field);
+      check('the address carries the dock\'s Streamer.bot port, first, once', new URL(field).search.startsWith('?sbport=' + WS_PORT + '&') && new URL(field).searchParams.getAll('sbport').length === 1, field);
       check('the note says Copied or tells the streamer to copy it by hand', note === 'Copied.' || note === 'Select the address and copy it.', note);
       const clickLook = T.lookFromQuery(new URL(field).search);
       const atClick = JSON.stringify(clickLook);

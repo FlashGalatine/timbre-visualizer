@@ -1,6 +1,6 @@
 # Pinned sources: a visualizer and a look in the address
 
-Date: 2026-11-23. Status: waiting for the owner's approval.
+Date: 2026-11-23. Status: approved by the owner on 2026-11-23.
 
 ## Why
 

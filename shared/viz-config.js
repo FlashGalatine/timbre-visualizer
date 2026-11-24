@@ -285,7 +285,13 @@
     try { params = new URLSearchParams(search); } catch (e) { return look; }
     const seen = new Set();
     const got = {};   // address name -> the value read for it
-    const num = (name, v) => { if (NUMBER_TEXT.test(v)) { got[name] = Number(v); return true; } return false; };
+    const num = (name, v) => {
+      if (!NUMBER_TEXT.test(v)) return false;
+      const n = Number(v);
+      if (!Number.isFinite(n)) return false;   // a digit string too long for a Number
+      got[name] = n;
+      return true;
+    };
     for (const name of params.keys()) {
       if (seen.has(name)) continue;
       seen.add(name);

@@ -106,13 +106,13 @@ By default every overlay page shows what the dock shows. To put two or more visu
 one OBS scene, each with its own look, give each Browser Source an address that carries its
 look. The easy way is the dock's button:
 
-1. Set the dock to the look you want, using the sliders and the preview.
+1. Set the dock to the look you want, using the sliders and the preview. Matrix text that is typed but not yet applied with **Apply text** is not in the address.
 2. In the dock's **OBS source for this look** section, pick a page size (300×220, 1440×1080
    (4:3) or 1920×1080 (16:9); the last is chosen by default) and click **Copy source
    address**. The address also appears in the read-only field below the button, selected,
    so that if the clipboard is refused inside the OBS dock you can select it there and copy
    it by hand. The note under the field says `Copied.` or `Select the address and copy it.`
-3. Paste it as the URL of a new Browser Source.
+3. Paste it as the URL of a new Browser Source (sized as in section 4: a 300×220 address needs a 300×220 source).
 
 The address names the visualizer and every setting of the look, for example:
 
@@ -152,7 +152,7 @@ The parameters, all optional:
 **Not known yet:** how several sources behave together in one OBS has not been checked.
 Each source opens its own microphone capture and loads every effect, and each WebGL
 visualizer has its own GL context, so several at once cost more GPU than one. Try two and
-then three and watch OBS's frame rate before building a scene around them.
+then three and watch OBS's frame rate before building a scene around them. A very long address (a lot of Matrix text, especially non-Latin text) has not been tried with Streamer.bot's server or OBS's URL box; the dock's note says when an address is long.
 
 ## 5. Drive it
 

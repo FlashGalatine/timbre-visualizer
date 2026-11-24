@@ -474,6 +474,10 @@ const L = (s, ig) => T.lookFromQuery(s, ig), J = JSON.stringify;
 ok(J(L('')) === '{}' && J(L('?')) === '{}' && J(L(null)) === '{}' && J(L('?sbport=8080&sbdebug=1')) === '{}', 'no look parameters: an empty look');
 ok(J(L('?visualizer=rose')) === '{"activeViz":"rose"}' && J(L('?visualizer=nope')) === '{}' && J(L('?visualizer=constructor')) === '{}', 'visualizer: a known id only');
 ok(J(L('?gain=150&bars=8')) === '{"bars":8,"gain":150}' && L('?afterglow=0.8').afterglow === 0.8 && L('?placement.x=-40&placement.size=140').placement.x === -40, 'numbers');
+{ const huge = '9'.repeat(400), ig = [];
+  const got = [L('?gain=' + huge, ig), L('?placement.x=' + huge, ig), L('?rose.cameraDrift=' + huge, ig), L('?afterglow=' + huge, ig)];
+  ok(got.every((g) => J(g) === '{}') && J(ig) === '["gain","placement.x","rose.cameraDrift","afterglow"]', 'a digit string too long for a number (400 nines) is ignored and reported, for a top-level number, a placement, a knob and the afterglow');
+  ok(L('?gain=99999').gain === 99999 && T.sanitizeConfig(L('?gain=99999')).gain === 200, 'an ordinary too-big number is still accepted and clamped to the top of its range'); }
 for (const bad of ['abc', '', '1e3', 'Infinity', 'NaN', '0x10', '1,5', ' 5']) ok(J(L('?gain=' + encodeURIComponent(bad))) === '{}', `gain=${J(bad)} is ignored`);
 ok(J(L('?showBorder=0&showLabels=1')) === '{"showLabels":true,"showBorder":false}' && J(L('?showBorder=true&idleAnim=no')) === '{}', 'toggles are 1 or 0 and nothing else');
 ok(J(L('?rose.cameraDrift=20')) === '{"perViz":{"rose":{"cameraDrift":20}}}' && J(L('?rose.nope=1&nope.cameraDrift=1&rose.=1&.x=1')) === '{}', 'knobs: a known visualizer and a known knob only');
@@ -482,15 +486,20 @@ ok(J(L('?mic=x&mic.deviceId=x&micProcessing=0&activeViz=rose&perViz=1')) === '{}
   ok(J(got) === '{}' && J(Object.prototype) === before && ({}).a === undefined, 'names every object inherits are ignored'); }
 { const ig = []; L('?visualizer=nope&gain=abc&zzz=1&sbport=1&sbdebug=1&bars=8', ig); ok(J(ig) === '["visualizer","gain","zzz"]', 'the ignored names are reported; sbport and sbdebug are not'); }
 ok(L('?gain=150&gain=20').gain === 150, 'a parameter given twice: the first is used');
-// Round trip: every visualizer, every setting off its default.
+// Round trip: every visualizer, every setting off its default: every top-level number at an end of its range
+// that is not its default, every toggle flipped.
 for (const name of T.ACTIVE_VIZ_NAMES) {
-  const cfg = T.defaultConfig(); cfg.activeViz = name; cfg.gain = 137; cfg.bars = 9; cfg.showBorder = false; cfg.idleAnim = false; cfg.afterglow = 0.7; cfg.placement = { x: -33, y: 12, size: 150 };
+  const cfg = T.defaultConfig(); cfg.activeViz = name; cfg.afterglow = 0.7;
+  for (const [k, r] of Object.entries(T.TOP_RANGES)) cfg[k] = r.default !== r.min ? r.min : r.max;
+  for (const k of Object.keys(T.TOP_BOOLS)) cfg[k] = !T.TOP_BOOLS[k];
+  cfg.placement = { x: -33, y: 12, size: 150 };
   for (const [k, v] of Object.entries(cfg.perViz[name] || {})) cfg.perViz[name][k] = typeof v === 'number' ? 7 : 'a&b #c+d %41 かな 🌹';
   const back = T.sanitizeConfig(L('?' + T.lookToQuery(cfg)));
   const want = T.sanitizeConfig(cfg); for (const other of Object.keys(want.perViz)) if (other !== name) want.perViz[other] = T.defaultConfig().perViz[other];
   if (J(back) !== J(want)) { ok(false, `round trip: ${name}`); break; }
   if (name === T.ACTIVE_VIZ_NAMES[T.ACTIVE_VIZ_NAMES.length - 1]) ok(true, 'lookToQuery then lookFromQuery gives back the look, for every visualizer');
 }
+ok(Object.entries(T.TOP_RANGES).every(([k, r]) => (r.default !== r.min ? r.min : r.max) !== r.default) && Object.keys(T.TOP_BOOLS).every((k) => !T.TOP_BOOLS[k] !== T.TOP_BOOLS[k]), 'the round trip moves every top-level number and toggle off its default');
 ok(!/mic|sbport|sbdebug/.test(T.lookToQuery(T.defaultConfig())) && T.lookToQuery(T.defaultConfig()).startsWith('visualizer=visualizer&'), 'lookToQuery: visualizer first, no microphone');
 ok(J(T.sanitizeConfig(L('?gain=99999&placement.size=1'))).includes('"gain":200') && T.sanitizeConfig(L('?placement.size=1')).placement.size === 40, 'out-of-range numbers are clamped by sanitizeConfig, as the dock\'s are');
 { const [viz, knobs] = Object.entries(T.DEFAULT_PER_VIZ).find(([, b]) => Object.values(b).some((v) => typeof v === 'string'));
@@ -8993,7 +9002,7 @@ console.log('\n[28] dock: edits kept, status line, preview address, whole charac
   const from = html.indexOf('// DOCK-PURE-BEGIN'), to = html.indexOf('// DOCK-PURE-END');
   ok(from > 0 && to > from, 'control.html marks the part of its script that needs no page');
   // That part of the page's own script, run here as it is.
-  const D = new Function(html.slice(from, to) + '\nreturn { setAt, hasKeys, mergeEdits, unsettledEdits, previewQuery, validPort, sourceAddress, oneLine, statusFor, shouldRetry: typeof shouldRetry === "function" ? shouldRetry : null, haltsRetry: typeof haltsRetry === "function" ? haltsRetry : null };')();
+  const D = new Function(html.slice(from, to) + '\nreturn { setAt, hasKeys, mergeEdits, unsettledEdits, previewQuery, validPort, sourceAddress, sourceNote, oneLine, statusFor, shouldRetry: typeof shouldRetry === "function" ? shouldRetry : null, haltsRetry: typeof haltsRetry === "function" ? haltsRetry : null };')();
   const J = JSON.stringify;
 
   // The record of edits (TIM-08, TIM-28, TIM-29).
@@ -9047,7 +9056,13 @@ console.log('\n[28] dock: edits kept, status line, preview address, whole charac
   // The source address the dock copies.
   const cfgS = T.sanitizeConfig({ activeViz: 'rose', showBorder: false, gain: 150 });
   const addr = D.sourceAddress(T, 'http://127.0.0.1:7474', 'mic-visualizers-1920x1080.html', cfgS, '?sbport=9090&sbdebug=1');
-  ok(addr === 'http://127.0.0.1:7474/timbre-overlay/mic-visualizers-1920x1080.html?' + T.lookToQuery(cfgS) + '&sbport=9090', 'the source address: the page, the whole look, and the dock\'s own port; not the debug switch');
+  ok(addr === 'http://127.0.0.1:7474/timbre-overlay/mic-visualizers-1920x1080.html?sbport=9090&' + T.lookToQuery(cfgS), 'the source address: the page, the dock\'s own port first, then the whole look; not the debug switch');
+ok(D.sourceAddress(T, 'http://127.0.0.1:7474', 'mic-visualizers-300x220.html', cfgS, '').endsWith('.html?' + T.lookToQuery(cfgS)) && !D.sourceAddress(T, 'http://127.0.0.1:7474', 'mic-visualizers-300x220.html', cfgS, '').includes('sbport') && D.sourceAddress(T, 'http://127.0.0.1:7474', 'mic-visualizers-300x220.html', cfgS, '?sbport=9090').slice(0, 200).includes('?sbport=9090&visualizer=rose'), 'the source address: with no port it starts with the look; with one, the port is in the first 200 characters');
+{ const N = D.sourceNote, ready = ' The saved settings have not arrived yet, so this is the look shown here now.', long = ' This address is long; check that the source loads it.';
+  ok(N(true, { ready: true, length: 100 }) === 'Copied.' && N(false, { ready: true, length: 100 }) === 'Select the address and copy it.', 'sourceNote: Copied, or select and copy');
+  ok(N(true, { ready: false, length: 100 }) === 'Copied.' + ready && N(false, { ready: false, length: 100 }) === 'Select the address and copy it.' + ready, 'sourceNote: before the saved settings arrive it says so');
+  ok(N(true, { ready: true, length: 8000 }) === 'Copied.' && N(true, { ready: true, length: 8001 }) === 'Copied.' + long && N(false, { ready: false, length: 9000 }) === 'Select the address and copy it.' + ready + long, 'sourceNote: over 8000 characters it says the address is long; both notes keep their order'); }
+ok(html.includes("typeof T.lookToQuery !== 'function'") && html.includes("'Reload this dock: it has an old viz-config.js.'"), 'the dock\'s copy button does not throw on an old viz-config.js: it empties the field and says to reload');
   ok(!D.sourceAddress(T, 'http://127.0.0.1:7474', 'mic-visualizers-300x220.html', cfgS, '?sbport=1@evil.example').includes('sbport'), 'a port that is not a port is left out');
   ok(D.sourceAddress(T, 'http://127.0.0.1:7474', '../../x.html', cfgS, '').includes('/timbre-overlay/mic-visualizers-1920x1080.html?'), 'a page that is not one of the three becomes the 1920×1080 page');
   ok(D.validPort('?sbport=8080') === 8080 && D.validPort('?sbport=0') === 0 && D.validPort('?sbport=65536') === 0 && D.validPort('') === 0, 'validPort');
