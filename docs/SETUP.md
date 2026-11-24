@@ -149,10 +149,13 @@ The parameters, all optional:
 - `sbport` and `sbdebug` keep the meaning they have always had. The dock's button adds
   `sbport` to the address when the dock's own address has one.
 
-**Not known yet:** how several sources behave together in one OBS has not been checked.
-Each source opens its own microphone capture and loads every effect, and each WebGL
-visualizer has its own GL context, so several at once cost more GPU than one. Try two and
-then three and watch OBS's frame rate before building a scene around them. A very long address (a lot of Matrix text, especially non-Latin text) has not been tried with Streamer.bot's server or OBS's URL box; the dock's note says when an address is long.
+**Several at once are heavy.** Tried in OBS, several pinned sources ran together but the
+frame time suffered. Each source opens its own microphone capture and loads every effect,
+and each WebGL visualizer has its own GL context, so several at once cost more GPU than
+one. How many a machine can carry, and with which visualizers, has not been measured: add
+them one at a time and watch OBS's frame rate before building a scene around them.
+
+**Not known yet:** a very long address (a lot of Matrix text, especially non-Latin text) has not been tried with Streamer.bot's server or OBS's URL box; the dock's note says when an address is long.
 
 ## 5. Drive it
 

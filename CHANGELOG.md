@@ -10,6 +10,8 @@ traceability.
 
 ## [Unreleased]
 
+## [1.0.226] — 2026-11-23
+
 A Browser Source can now carry its own visualizer and look in its address. Copy `overlay`,
 `shared` and `control`, then refresh every Timbre source and the dock; nothing to re-paste
 into Streamer.bot.
@@ -28,9 +30,15 @@ into Streamer.bot.
   shown in a field to copy by hand if the clipboard is refused.
 - `TIMBRE.lookFromQuery` and `TIMBRE.lookToQuery` in `shared/viz-config.js` turn a look into
   an address and back.
-- Not yet checked: how two or three pinned sources behave together in one OBS. Each source
-  opens its own microphone capture and loads every effect, and each WebGL visualizer has its
-  own GL context, so several at once cost more GPU.
+
+### Known limits
+
+- Several pinned sources in one OBS scene run together, but they are heavy: tried in OBS,
+  the frame time suffered. Each source opens its own microphone capture and loads every
+  effect, and each WebGL visualizer has its own GL context. How many a machine can carry,
+  and with which visualizers, has not been measured.
+- A very long address (a lot of Matrix text, especially non-Latin text) has not been tried
+  with Streamer.bot's server or OBS's URL box. The dock's note says when an address is long.
 
 ## [1.0.216] — 2026-11-23
 
@@ -1063,7 +1071,8 @@ StreamService / ControlPanel toolkit. (`ee5c34a`)
 
 Verified offline: `verify` 28/28, `verify:render` 14/14.
 
-[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.216...main
+[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.226...main
+[1.0.226]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.216...v1.0.226
 [1.0.216]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.200...v1.0.216
 [1.0.200]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.198...v1.0.200
 [1.0.198]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.196...v1.0.198
