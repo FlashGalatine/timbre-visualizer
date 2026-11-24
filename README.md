@@ -71,7 +71,7 @@ OBS Browser Source and
 32 canvas-2D + 20 WebGL (three.js, vendored — works offline). Includes spectrum bars,
 waveforms, matrix rain with custom text, seasonal/holiday scenes, Pride flags, and
 floating 3D scenes that answer the voice (a rose that blooms, birds on a wire, a school
-of fish, a Christmas tree whose lights carry your voice). Add your own: drop a factory file in `overlay/factories/`, register it in
+of fish, a Christmas tree whose lights carry your voice). A Browser Source can also carry its own visualizer and look in its address, so one OBS scene can hold several different ones. The dock's **Copy source address** button makes the address (see docs/SETUP.md → "Several visualizers in one scene"). Add your own: drop a factory file in `overlay/factories/`, register it in
 `shared/viz-config.js`, add a `<script>` tag to the three overlay pages — see [docs/EFFECTS.md](docs/EFFECTS.md).
 
 ## Verification

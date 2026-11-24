@@ -84,6 +84,24 @@
     <p class="hint">On: the browser's echo cancellation, noise suppression and automatic gain, as the overlay has always had. Off: the raw microphone, which is truer to the sound but lets room noise through in quiet moments. Changing it re-opens the microphone.</p>
   </section>
 
+  <section>
+    <h2 style="margin-top:0">OBS source for this look</h2>
+    <div class="row">
+      <label for="selSourcePage">Page</label>
+      <select id="selSourcePage" style="flex:1">
+        <option value="mic-visualizers-300x220.html">300×220</option>
+        <option value="mic-visualizers-1440x1080.html">1440×1080 (4:3)</option>
+        <option value="mic-visualizers-1920x1080.html" selected>1920×1080 (16:9)</option>
+      </select>
+      <button id="btnCopySource">Copy source address</button>
+    </div>
+    <div class="row">
+      <input type="text" id="txtSourceAddress" readonly spellcheck="false" style="flex:1;min-width:0;background:#22223a;color:#dfe3ee;border:1px solid var(--line);border-radius:4px;padding:4px 8px;font:inherit">
+    </div>
+    <p class="hint" id="sourceCopyNote"></p>
+    <p class="hint">Makes an address for a Browser Source that keeps the visualizer and look shown now, whatever this dock is changed to later. Every source still uses the microphone chosen here. To change a source's look, copy a new address.</p>
+  </section>
+
   <details>
     <summary>Preview (300×220 — captures this machine's mic too)</summary>
     <iframe id="previewFrame" width="300" height="220" data-src="/timbre-overlay/mic-visualizers-300x220.html" allow="microphone" sandbox="allow-scripts allow-same-origin"></iframe>
@@ -94,6 +112,7 @@
   'use strict';
   const T = globalThis.TIMBRE;
   const $ = (id) => document.getElementById(id);
+  const ownSearch = location.search; // the dock's own address query, read once
 
   // Human labels + display formatting for the global sliders.
   const GLOBAL_LABELS = {
@@ -152,14 +171,43 @@
 
   // What the preview gets from the dock's own address: the Streamer.bot port and
   // the debug switch, checked, and nothing else.
+  // The Streamer.bot port in an address query: 1 to 65535, or 0 when there is none or it is not one.
+  function validPort(search) {
+    let q;
+    try { q = new URLSearchParams(search || ''); } catch (e) { return 0; }
+    const port = q.get('sbport') || '';
+    return /^\d{1,5}$/.test(port) && Number(port) >= 1 && Number(port) <= 65535 ? Number(port) : 0;
+  }
+
   function previewQuery(search) {
     let q;
     try { q = new URLSearchParams(search || ''); } catch (e) { return ''; }
     const out = [];
-    const port = q.get('sbport') || '';
-    if (/^\d{1,5}$/.test(port) && Number(port) >= 1 && Number(port) <= 65535) out.push('sbport=' + Number(port));
+    const port = validPort(search);
+    if (port) out.push('sbport=' + port);
     if (q.get('sbdebug') === '1') out.push('sbdebug=1');
     return out.length ? '?' + out.join('&') : '';
+  }
+
+  // The address of a Browser Source that keeps the look in `cfg`: one of the three overlay
+  // pages (any other name becomes the 1920x1080 page), the whole look, and the dock's own
+  // Streamer.bot port when it has a valid one. Never the debug switch or the microphone.
+  const SOURCE_PAGES = ['mic-visualizers-300x220.html', 'mic-visualizers-1440x1080.html', 'mic-visualizers-1920x1080.html'];
+  function sourceAddress(T, origin, page, cfg, search) {
+    const file = SOURCE_PAGES.indexOf(page) >= 0 ? page : 'mic-visualizers-1920x1080.html';
+    const port = validPort(search);
+    // The port comes first, so an address cut short by something with a length limit keeps it.
+    return origin + '/timbre-overlay/' + file + '?' + (port ? 'sbport=' + port + '&' : '') + T.lookToQuery(cfg);
+  }
+
+  // The note under the address field. `copied`: the clipboard took it. `info.ready`: the dock has
+  // the saved settings (else the look is only the one shown here now); `info.length`: the address's length.
+  function sourceNote(copied, info) {
+    const i = info || {};
+    let s = copied ? 'Copied.' : 'Select the address and copy it.';
+    if (!i.ready) s += ' The saved settings have not arrived yet, so this is the look shown here now.';
+    if (i.length > 8000) s += ' This address is long; check that the source loads it.';
+    return s;
   }
 
   // Text from outside (Streamer.bot's error, the action's message) as one short line.
@@ -679,7 +727,34 @@
     if (this.open === previewOpen) return;
     previewOpen = this.open;
     const f = $('previewFrame');
-    f.src = previewOpen ? f.dataset.src + previewQuery(location.search) : 'about:blank';
+    f.src = previewOpen ? f.dataset.src + previewQuery(ownSearch) : 'about:blank';
+  });
+
+  // Copy source address: the address of a Browser Source that keeps the look shown now.
+  $('btnCopySource').addEventListener('click', async () => {
+    const field = $('txtSourceAddress');
+    const note = $('sourceCopyNote');
+    if (typeof T.lookToQuery !== 'function') {
+      // OBS can serve an old cached viz-config.js beside a new dock.
+      field.value = '';
+      note.textContent = 'Reload this dock: it has an old viz-config.js.';
+      return;
+    }
+    const address = sourceAddress(T, location.origin, $('selSourcePage').value, cfg, ownSearch);
+    field.value = address;
+    field.focus();
+    field.select();
+    let copied = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(field.value);
+        copied = true;
+      }
+    } catch (e) { /* fall through to the older way */ }
+    if (!copied) {
+      try { copied = !!document.execCommand('copy'); } catch (e) { copied = false; }
+    }
+    note.textContent = sourceNote(copied, { ready: ready, length: address.length });
   });
 
   renderVizKnobs();

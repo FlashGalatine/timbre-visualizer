@@ -205,7 +205,7 @@
 
 <script>
   /* Bootstrap — runs after every factory has registered itself. */
-  setActiveViz('visualizer');
+  if (typeof startOverlay === 'function') startOverlay(); else setActiveViz('visualizer');
   timbreCapture.start();
   requestAnimationFrame(frame);
 </script>

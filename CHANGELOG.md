@@ -10,6 +10,36 @@ traceability.
 
 ## [Unreleased]
 
+## [1.0.226] — 2026-11-23
+
+A Browser Source can now carry its own visualizer and look in its address. Copy `overlay`,
+`shared` and `control`, then refresh every Timbre source and the dock; nothing to re-paste
+into Streamer.bot.
+
+### Added
+
+- **Pinned sources: a visualizer and a look in the address.** An overlay page reads its
+  address, for example `mic-visualizers-1920x1080.html?visualizer=rose&showBorder=0&gain=150`,
+  and keeps that visualizer and those settings whatever the dock is changed to. A setting
+  the address leaves out follows the dock as before, and a source with no parameters
+  behaves exactly as it did. The microphone and Microphone processing always follow the dock.
+  An unknown or malformed parameter is ignored, a number out of range is held to its range,
+  and `sbdebug=1` makes the page log the names it ignored.
+- **The dock has an "OBS source for this look" section.** Pick a page size and click **Copy
+  source address** to get the address for the look the dock shows now; the address is also
+  shown in a field to copy by hand if the clipboard is refused.
+- `TIMBRE.lookFromQuery` and `TIMBRE.lookToQuery` in `shared/viz-config.js` turn a look into
+  an address and back.
+
+### Known limits
+
+- Several pinned sources in one OBS scene run together, but they are heavy: tried in OBS,
+  the frame time suffered. Each source opens its own microphone capture and loads every
+  effect, and each WebGL visualizer has its own GL context. How many a machine can carry,
+  and with which visualizers, has not been measured.
+- A very long address (a lot of Matrix text, especially non-Latin text) has not been tried
+  with Streamer.bot's server or OBS's URL box. The dock's note says when an address is long.
+
 ## [1.0.216] — 2026-11-23
 
 The pitch of your voice now leads in Ink and Metaball. Copy `overlay` and refresh every
@@ -1041,7 +1071,8 @@ StreamService / ControlPanel toolkit. (`ee5c34a`)
 
 Verified offline: `verify` 28/28, `verify:render` 14/14.
 
-[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.216...main
+[Unreleased]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.226...main
+[1.0.226]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.216...v1.0.226
 [1.0.216]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.200...v1.0.216
 [1.0.200]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.198...v1.0.200
 [1.0.198]: https://github.com/FlashGalatine/timbre-visualizer/compare/v1.0.196...v1.0.198

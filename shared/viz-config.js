@@ -262,6 +262,97 @@
     return cfg;
   }
 
+  // The look as a query string, so a page can be given its look in its address. The names
+  // are the config's own for the top-level settings, `placement.<key>` for where the scene
+  // sits, and `<visualizer>.<knob>` for a knob; the visualizer is `visualizer=<id>`. The
+  // microphone is never part of it, and neither are the config's own key names.
+  const NUMBER_TEXT = /^-?\d+(\.\d+)?$/;
+
+  // A number as the address shows it: plain digits, never an exponent.
+  function numberText(n) {
+    const s = String(n);
+    return NUMBER_TEXT.test(s) ? s : String(Number(n.toFixed(6)));
+  }
+
+  // What the address names, as a partial config holding only what it names. A parameter
+  // that is unknown or of the wrong type is skipped and its name pushed onto `ignored`
+  // (when given), except `sbport` and `sbdebug`, which the transport reads for itself.
+  // The first of a name given twice is the one used. Never throws.
+  function lookFromQuery(search, ignored) {
+    const look = {};
+    if (typeof search !== 'string') return look;
+    let params;
+    try { params = new URLSearchParams(search); } catch (e) { return look; }
+    const seen = new Set();
+    const got = {};   // address name -> the value read for it
+    const num = (name, v) => {
+      if (!NUMBER_TEXT.test(v)) return false;
+      const n = Number(v);
+      if (!Number.isFinite(n)) return false;   // a digit string too long for a Number
+      got[name] = n;
+      return true;
+    };
+    for (const name of params.keys()) {
+      if (seen.has(name)) continue;
+      seen.add(name);
+      if (name === 'sbport' || name === 'sbdebug') continue;
+      const v = params.get(name);
+      let good = false;
+      if (name === 'visualizer') {
+        good = ACTIVE_VIZ_NAMES.includes(v);
+        if (good) got[name] = v;
+      } else if (own(TOP_RANGES, name) || name === 'afterglow') {
+        good = num(name, v);
+      } else if (own(TOP_BOOLS, name)) {
+        good = v === '1' || v === '0';
+        if (good) got[name] = v === '1';
+      } else {
+        const dot = name.indexOf('.');
+        const head = name.slice(0, dot), knob = name.slice(dot + 1);
+        if (dot > 0 && head === 'placement') {
+          good = own(PLACEMENT_RANGES, knob) && num(name, v);
+        } else if (dot > 0 && own(DEFAULT_PER_VIZ, head) && own(DEFAULT_PER_VIZ[head], knob)) {
+          if (typeof DEFAULT_PER_VIZ[head][knob] === 'string') { got[name] = v; good = true; }
+          else good = num(name, v);
+        }
+      }
+      if (!good && Array.isArray(ignored)) ignored.push(name);
+    }
+    // Written in table order, whatever the address's order.
+    if (own(got, 'visualizer')) look.activeViz = got.visualizer;
+    for (const k of Object.keys(TOP_RANGES)) if (own(got, k)) look[k] = got[k];
+    for (const k of Object.keys(TOP_BOOLS)) if (own(got, k)) look[k] = got[k];
+    if (own(got, 'afterglow')) look.afterglow = got.afterglow;
+    for (const k of Object.keys(PLACEMENT_RANGES)) {
+      if (own(got, 'placement.' + k)) (look.placement || (look.placement = {}))[k] = got['placement.' + k];
+    }
+    for (const [name, knobs] of Object.entries(DEFAULT_PER_VIZ)) {
+      for (const k of Object.keys(knobs)) {
+        const key = name + '.' + k;
+        if (!own(got, key)) continue;
+        if (!look.perViz) look.perViz = {};
+        (look.perViz[name] || (look.perViz[name] = {}))[k] = got[key];
+      }
+    }
+    return look;
+  }
+
+  // The query string (no leading `?`) that gives `config`'s look back through
+  // lookFromQuery: the visualizer, the top-level settings, the placement, and the knobs of
+  // the active visualizer only. The config is sanitized first.
+  function lookToQuery(config) {
+    const cfg = sanitizeConfig(config);
+    const q = new URLSearchParams();
+    q.set('visualizer', cfg.activeViz);
+    for (const k of Object.keys(TOP_RANGES)) q.set(k, numberText(cfg[k]));
+    for (const k of Object.keys(TOP_BOOLS)) q.set(k, cfg[k] ? '1' : '0');
+    q.set('afterglow', numberText(cfg.afterglow));
+    for (const k of Object.keys(PLACEMENT_RANGES)) q.set('placement.' + k, numberText(cfg.placement[k]));
+    const knobs = own(cfg.perViz, cfg.activeViz) ? cfg.perViz[cfg.activeViz] : {};
+    for (const [k, v] of Object.entries(knobs)) q.set(cfg.activeViz + '.' + k, typeof v === 'number' ? numberText(v) : v);
+    return q.toString();
+  }
+
   globalThis.TIMBRE = {
     ACTIVE_VIZ_NAMES,
     VIZ_USES_3D,
@@ -280,5 +371,7 @@
     cutText,
     defaultConfig,
     sanitizeConfig,
+    lookFromQuery,
+    lookToQuery,
   };
 })();

@@ -100,6 +100,63 @@ The overlay starts capturing immediately (status `LISTENING`; `MIC DENIED` in ma
 capture failed; `WAITING` while acquiring). With Streamer.bot down the overlay still runs
 on its last/default settings and reconnects with backoff.
 
+### Several visualizers in one scene
+
+By default every overlay page shows what the dock shows. To put two or more visualizers in
+one OBS scene, each with its own look, give each Browser Source an address that carries its
+look. The easy way is the dock's button:
+
+1. Set the dock to the look you want, using the sliders and the preview. Matrix text that is typed but not yet applied with **Apply text** is not in the address.
+2. In the dock's **OBS source for this look** section, pick a page size (300×220, 1440×1080
+   (4:3) or 1920×1080 (16:9); the last is chosen by default) and click **Copy source
+   address**. The address also appears in the read-only field below the button, selected,
+   so that if the clipboard is refused inside the OBS dock you can select it there and copy
+   it by hand. The note under the field says `Copied.` or `Select the address and copy it.`
+3. Paste it as the URL of a new Browser Source (sized as in section 4: a 300×220 address needs a 300×220 source).
+
+The address names the visualizer and every setting of the look, for example:
+
+`http://127.0.0.1:7474/timbre-overlay/mic-visualizers-1920x1080.html?visualizer=rose&showBorder=0&gain=150`
+
+A source with an address like that keeps its visualizer and settings whatever the dock is
+changed to later. A source with no such parameters behaves as before and follows the dock.
+You can use the same visualizer in two sources with different settings.
+
+**To change a pinned source's look**, set the dock to the new look and copy a new address,
+or edit the parameters in the source's address by hand. A parameter you delete from the
+address makes that setting follow the dock again, so `?showBorder=0` alone follows the
+dock's visualizer and everything else.
+
+The parameters, all optional:
+
+| Parameter | Value | Example |
+|---|---|---|
+| `visualizer` | the effect's id: its name in lowercase with hyphens, which is not always the name the dock's picker shows (see below) | `visualizer=rose` |
+| a top-level number: `bars`, `bounce`, `gain`, `colorSpeed`, `colorHue`, `bgOpacity`, `effectBgOpacity` | a number | `gain=150` |
+| a top-level toggle: `idleAnim`, `showLabels`, `showChevrons`, `showDecorations`, `showBorder` | `1` (on) or `0` (off) | `showBorder=0` |
+| `afterglow` | a number | `afterglow=0.8` |
+| `placement.x`, `placement.y`, `placement.size` | a number | `placement.size=140` |
+| `<visualizer id>.<knob>` | a number, or text for a text knob such as Matrix's text (see below) | `rose.cameraDrift=20` |
+
+- The ids and knob names are not shown in the dock: the picker shows names, and for some effects the id differs from the name (the "Pride flag" is `pride-ribbon`, the "Fourth of July flag" is `july-fourth-stripes`). Typing `visualizer=pride-flag` or `visualizer=Rose` would be ignored. The easy way to get them right is to copy an address with the button and read the ids and knob names from it.
+- A number outside a setting's range is held to the nearest end of the range.
+- A parameter with an unknown name, a value of the wrong kind (such as `showBorder=yes`) or
+  a visualizer or knob that does not exist is ignored; the page carries on and the rest of
+  the address still applies. Add `sbdebug=1` to the address to have the page log, in the
+  browser console, the parameter names it ignored.
+- The microphone is never part of the address. **Every source uses the microphone and the
+  Microphone processing choice set in the dock**, even if the address names a device.
+- `sbport` and `sbdebug` keep the meaning they have always had. The dock's button adds
+  `sbport` to the address when the dock's own address has one.
+
+**Several at once are heavy.** Tried in OBS, several pinned sources ran together but the
+frame time suffered. Each source opens its own microphone capture and loads every effect,
+and each WebGL visualizer has its own GL context, so several at once cost more GPU than
+one. How many a machine can carry, and with which visualizers, has not been measured: add
+them one at a time and watch OBS's frame rate before building a scene around them.
+
+**Not known yet:** a very long address (a lot of Matrix text, especially non-Latin text) has not been tried with Streamer.bot's server or OBS's URL box; the dock's note says when an address is long.
+
 ## 5. Drive it
 
 Everything in the control panel pushes live: effect picker, per-effect knobs, scene

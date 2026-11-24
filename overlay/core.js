@@ -301,8 +301,36 @@ function configInForce(cfg) {
   return true;
 }
 
-function applyConfig(raw) {
-  const cfg = TIMBRE.sanitizeConfig(raw, timbreConfig);
+/* The look the page's address names (?visualizer=matrix&showBorder=0), read once: a partial
+   config, {} when there is none. OBS can serve this file fresh beside a cached viz-config.js
+   from before the look in the address, which has no lookFromQuery: the page then reads none.
+   A page that has one keeps it over every config that comes in; the dock still sets the rest
+   and the microphone, which the address never names. */
+const addressLook = (() => {
+  if (typeof location === 'undefined' || typeof TIMBRE.lookFromQuery !== 'function') return {};
+  const ignored = [];
+  const look = TIMBRE.lookFromQuery(location.search, ignored);
+  if (ignored.length && /[?&]sbdebug=1/.test(location.search)) console.log('Timbre: the address names these, which are ignored: ' + ignored.join(', '));
+  return look;
+})();
+const pinned = Object.keys(addressLook).length > 0;
+
+/* What the page's bootstrap calls: the default effect, then the address's look when it has
+   one. The look is applied without the capture, which has not been given a device yet and
+   gets it from the first config the dock sends. */
+function startOverlay() {
+  setActiveViz('visualizer');
+  if (!pinned) return;
+  try {
+    applyConfig({}, { capture: false });
+  } catch (e) {
+    console.warn('Timbre: the look in the address could not be applied; the overlay keeps the settings it has.', e);
+  }
+}
+
+function applyConfig(raw, opts) {
+  let cfg = TIMBRE.sanitizeConfig(raw, timbreConfig);
+  if (pinned) cfg = TIMBRE.sanitizeConfig(addressLook, cfg);
   // A config equal to the one in force changes nothing, so nothing is done: every page that
   // connects makes Streamer.bot send the saved config to all of them again.
   if (configInForce(cfg)) return;
@@ -330,7 +358,7 @@ function applyConfig(raw) {
     else perViz[name] = knobs;
   }
 
-  if (window.timbreCapture) {
+  if (window.timbreCapture && !(opts && opts.capture === false)) {
     // OBS can serve this file fresh beside a cached audio-capture.js from before the setting,
     // which has no setProcessing: the rest of the config is applied all the same.
     if (typeof window.timbreCapture.setProcessing === 'function') window.timbreCapture.setProcessing(cfg.micProcessing);
@@ -368,6 +396,7 @@ window.__timbre = {
   get currentVizName() { return currentVizName; },
   get cfgGain() { return cfgGain; },
   get config() { return timbreConfig; },
+  get addressLook() { return addressLook; },
   get SCALE() { return SCALE; },
   get W() { return W; },
   get H() { return H; },
